@@ -9,7 +9,7 @@
       "package": "@sumomok/toy-crud-kit",
       "version": "0.4.5"
     },
-    "bodySha256": "3a13040eec6e37e5779f35e6ee7d6392a553e6df683ddd0cd0216471463da283",
+    "bodySha256": "2f3034f8cbba32c1f1f7f5783067b29f8fd08b483a61f03b6ad4f6fc21d47e2f",
     "exampleViewSha256": null
   },
   "body": {
@@ -54,8 +54,6 @@
                   "id": {
                     "summary": "text",
                     "required": true,
-                    "viewOnly": false,
-                    "unbindable": false,
                     "schema": {
                       "kind": "string",
                       "maxLength": 32,
@@ -68,8 +66,6 @@
                   "label": {
                     "summary": "text",
                     "required": true,
-                    "viewOnly": false,
-                    "unbindable": false,
                     "schema": {
                       "kind": "string",
                       "maxLength": 16
@@ -78,8 +74,6 @@
                   "tone": {
                     "summary": "primary|default|danger",
                     "required": false,
-                    "viewOnly": false,
-                    "unbindable": false,
                     "schema": {
                       "kind": "enum",
                       "values": [
@@ -125,8 +119,6 @@
                   "label": {
                     "summary": "text",
                     "required": true,
-                    "viewOnly": false,
-                    "unbindable": false,
                     "schema": {
                       "kind": "string",
                       "maxLength": 64
@@ -135,8 +127,6 @@
                   "display": {
                     "summary": "text",
                     "required": true,
-                    "viewOnly": false,
-                    "unbindable": false,
                     "schema": {
                       "kind": "string",
                       "maxLength": 400
@@ -188,15 +178,13 @@
             "summary": "{gridItems[{relatedMetaAttr, alias?, isShow? (true|false), isSortable? (true|false), relatedComponent? (display_default|display_yesno|display_progress|display_circle|display_tag), relatedComponentObj?{<field>: text|number|boolean, color?: #RGB|#RRGGBB|rgb()|rgba()}}] (1–30)}",
             "required": true,
             "viewOnly": false,
-            "unbindable": false,
+            "unbindable": true,
             "schema": {
               "kind": "object",
               "fields": {
                 "gridItems": {
                   "summary": "[{relatedMetaAttr, alias?, isShow? (true|false), isSortable? (true|false), relatedComponent? (display_default|display_yesno|display_progress|display_circle|display_tag), relatedComponentObj?{<field>: text|number|boolean, color?: #RGB|#RRGGBB|rgb()|rgba()}}] (1–30)",
                   "required": true,
-                  "viewOnly": false,
-                  "unbindable": false,
                   "schema": {
                     "kind": "array",
                     "item": {
@@ -205,8 +193,6 @@
                         "relatedMetaAttr": {
                           "summary": "text",
                           "required": true,
-                          "viewOnly": false,
-                          "unbindable": false,
                           "schema": {
                             "kind": "string",
                             "maxLength": 64,
@@ -219,8 +205,6 @@
                         "alias": {
                           "summary": "text",
                           "required": false,
-                          "viewOnly": false,
-                          "unbindable": false,
                           "schema": {
                             "kind": "string",
                             "maxLength": 40
@@ -229,8 +213,6 @@
                         "isShow": {
                           "summary": "true|false",
                           "required": false,
-                          "viewOnly": false,
-                          "unbindable": false,
                           "schema": {
                             "kind": "boolean"
                           }
@@ -238,8 +220,6 @@
                         "isSortable": {
                           "summary": "true|false",
                           "required": false,
-                          "viewOnly": false,
-                          "unbindable": false,
                           "schema": {
                             "kind": "boolean"
                           }
@@ -247,8 +227,6 @@
                         "relatedComponent": {
                           "summary": "display_default|display_yesno|display_progress|display_circle|display_tag",
                           "required": false,
-                          "viewOnly": false,
-                          "unbindable": false,
                           "schema": {
                             "kind": "enum",
                             "values": [
@@ -263,8 +241,6 @@
                         "relatedComponentObj": {
                           "summary": "{<field>: text|number|boolean, color?: #RGB|#RRGGBB|rgb()|rgba()}",
                           "required": false,
-                          "viewOnly": false,
-                          "unbindable": false,
                           "schema": {
                             "kind": "record",
                             "key": {
@@ -390,8 +366,6 @@
                   "key": {
                     "summary": "text",
                     "required": true,
-                    "viewOnly": false,
-                    "unbindable": false,
                     "schema": {
                       "kind": "string",
                       "maxLength": 32,
@@ -404,8 +378,6 @@
                   "label": {
                     "summary": "text",
                     "required": true,
-                    "viewOnly": false,
-                    "unbindable": false,
                     "schema": {
                       "kind": "string",
                       "maxLength": 20
@@ -442,8 +414,6 @@
                   "label": {
                     "summary": "text",
                     "required": true,
-                    "viewOnly": false,
-                    "unbindable": false,
                     "schema": {
                       "kind": "string",
                       "maxLength": 64
@@ -452,8 +422,6 @@
                   "display": {
                     "summary": "text",
                     "required": true,
-                    "viewOnly": false,
-                    "unbindable": false,
                     "schema": {
                       "kind": "string",
                       "maxLength": 200
@@ -520,8 +488,6 @@
                 "attributes": {
                   "summary": "[{attributeEnName, alias, dataType? (string|date|datetosecond|integer|long|float|double)}] (1–40)",
                   "required": true,
-                  "viewOnly": false,
-                  "unbindable": false,
                   "schema": {
                     "kind": "array",
                     "item": {
@@ -530,8 +496,6 @@
                         "attributeEnName": {
                           "summary": "text",
                           "required": true,
-                          "viewOnly": false,
-                          "unbindable": false,
                           "schema": {
                             "kind": "string",
                             "maxLength": 64,
@@ -544,8 +508,6 @@
                         "alias": {
                           "summary": "text",
                           "required": true,
-                          "viewOnly": false,
-                          "unbindable": false,
                           "schema": {
                             "kind": "string",
                             "maxLength": 40
@@ -554,8 +516,6 @@
                         "dataType": {
                           "summary": "string|date|datetosecond|integer|long|float|double",
                           "required": false,
-                          "viewOnly": false,
-                          "unbindable": false,
                           "schema": {
                             "kind": "enum",
                             "values": [
@@ -592,8 +552,6 @@
                   "value": {
                     "summary": "EQ|NOT_EQ|IN|NOT_IN|LIKE|NOT_LIKE|IS_NULL|NOT_NULL|PREFIX|NOT_PREFIX|GREATER_THAN|EQ_AND_GREATER_THAN|LESS_THAN|LESS_AND_EQ_THAN|BETWEEN|NOT_BETWEEN",
                     "required": true,
-                    "viewOnly": false,
-                    "unbindable": false,
                     "schema": {
                       "kind": "enum",
                       "values": [
@@ -619,8 +577,6 @@
                   "label": {
                     "summary": "text",
                     "required": true,
-                    "viewOnly": false,
-                    "unbindable": false,
                     "schema": {
                       "kind": "string",
                       "maxLength": 20
@@ -644,8 +600,6 @@
                 "gutter": {
                   "summary": "number",
                   "required": false,
-                  "viewOnly": false,
-                  "unbindable": false,
                   "schema": {
                     "kind": "number",
                     "min": 0,
@@ -655,8 +609,6 @@
                 "showMatchMode": {
                   "summary": "true|false",
                   "required": false,
-                  "viewOnly": false,
-                  "unbindable": false,
                   "schema": {
                     "kind": "boolean"
                   }
@@ -720,7 +672,7 @@
             "summary": "text",
             "required": false,
             "viewOnly": false,
-            "unbindable": false,
+            "unbindable": true,
             "schema": {
               "kind": "string",
               "maxLength": 32
@@ -730,7 +682,7 @@
             "summary": "text",
             "required": false,
             "viewOnly": false,
-            "unbindable": false,
+            "unbindable": true,
             "schema": {
               "kind": "string",
               "maxLength": 32
@@ -740,7 +692,7 @@
             "summary": "text",
             "required": false,
             "viewOnly": false,
-            "unbindable": false,
+            "unbindable": true,
             "schema": {
               "kind": "string",
               "maxLength": 32
@@ -814,8 +766,6 @@
                   "key": {
                     "summary": "text",
                     "required": true,
-                    "viewOnly": false,
-                    "unbindable": false,
                     "schema": {
                       "kind": "string",
                       "maxLength": 64,
@@ -828,8 +778,6 @@
                   "op": {
                     "summary": "EQ|NOT_EQ|IN|NOT_IN|LIKE|NOT_LIKE|IS_NULL|NOT_NULL|PREFIX|NOT_PREFIX|GREATER_THAN|EQ_AND_GREATER_THAN|LESS_THAN|LESS_AND_EQ_THAN|BETWEEN|NOT_BETWEEN",
                     "required": true,
-                    "viewOnly": false,
-                    "unbindable": false,
                     "schema": {
                       "kind": "enum",
                       "values": [
@@ -855,8 +803,6 @@
                   "value": {
                     "summary": "text|number|true|false|[text|number]",
                     "required": true,
-                    "viewOnly": false,
-                    "unbindable": false,
                     "schema": {
                       "kind": "scalar",
                       "maxLength": 200,
@@ -893,8 +839,6 @@
                 "asc": {
                   "summary": "text",
                   "required": false,
-                  "viewOnly": false,
-                  "unbindable": false,
                   "schema": {
                     "kind": "string",
                     "maxLength": 64,
@@ -907,8 +851,6 @@
                 "desc": {
                   "summary": "text",
                   "required": false,
-                  "viewOnly": false,
-                  "unbindable": false,
                   "schema": {
                     "kind": "string",
                     "maxLength": 64,
@@ -956,8 +898,6 @@
                   "name": {
                     "summary": "text",
                     "required": true,
-                    "viewOnly": false,
-                    "unbindable": false,
                     "schema": {
                       "kind": "string",
                       "maxLength": 64,
@@ -970,8 +910,6 @@
                   "label": {
                     "summary": "text",
                     "required": true,
-                    "viewOnly": false,
-                    "unbindable": false,
                     "schema": {
                       "kind": "string",
                       "maxLength": 64
@@ -994,8 +932,6 @@
                 "query": {
                   "summary": "true|false",
                   "required": false,
-                  "viewOnly": false,
-                  "unbindable": false,
                   "schema": {
                     "kind": "boolean"
                   }
@@ -1003,8 +939,6 @@
                 "toolbar": {
                   "summary": "true|false",
                   "required": false,
-                  "viewOnly": false,
-                  "unbindable": false,
                   "schema": {
                     "kind": "boolean"
                   }
@@ -1012,8 +946,6 @@
                 "table": {
                   "summary": "true|false",
                   "required": false,
-                  "viewOnly": false,
-                  "unbindable": false,
                   "schema": {
                     "kind": "boolean"
                   }
@@ -1021,8 +953,6 @@
                 "operate": {
                   "summary": "true|false",
                   "required": false,
-                  "viewOnly": false,
-                  "unbindable": false,
                   "schema": {
                     "kind": "boolean"
                   }
@@ -1030,8 +960,6 @@
                 "pagination": {
                   "summary": "true|false",
                   "required": false,
-                  "viewOnly": false,
-                  "unbindable": false,
                   "schema": {
                     "kind": "boolean"
                   }
@@ -1039,8 +967,6 @@
                 "infoCard": {
                   "summary": "true|false",
                   "required": false,
-                  "viewOnly": false,
-                  "unbindable": false,
                   "schema": {
                     "kind": "boolean"
                   }
@@ -1048,8 +974,6 @@
                 "addForm": {
                   "summary": "true|false",
                   "required": false,
-                  "viewOnly": false,
-                  "unbindable": false,
                   "schema": {
                     "kind": "boolean"
                   }
@@ -1057,8 +981,6 @@
                 "modifyForm": {
                   "summary": "true|false",
                   "required": false,
-                  "viewOnly": false,
-                  "unbindable": false,
                   "schema": {
                     "kind": "boolean"
                   }
@@ -1251,7 +1173,11 @@
               "hint": "letters, digits, underscores and hyphens"
             }
           }
-        }
+        },
+        "rules": [
+          "A view places at most one toy.data-page block; a second one is refused.",
+          "The querySort of a toy.data-page block names asc or desc, not both."
+        ]
       },
       "layout": {
         "root": "stack",
@@ -1268,7 +1194,8 @@
         "maxChildren": 12,
         "flex": {
           "min": 1,
-          "max": 12
+          "max": 12,
+          "integer": true
         },
         "stackKeys": [
           "node",
@@ -1292,7 +1219,7 @@
         "rules": [
           "A bound property is an object whose only key is $from, written as the whole value of the property; one inside a list item or a nested object is refused.",
           "The node is another node of the same view, the output is one that node's component declares, and an index takes one item of a list output.",
-          "A property marked unbindable cannot be bound, and a bound property must accept the output's shape: the same kind, and nothing past its limits.",
+          "A property whose unbindable is true cannot be bound, and a bound property must accept the output's shape: the same kind, and nothing past its limits.",
           "The value is resolved in the page from what the other block reports; the view file carries only the reference."
         ]
       },
@@ -1366,6 +1293,10 @@
         ],
         "anchorFormats": [
           1
+        ],
+        "rules": [
+          "pack.viewFormat is required when views lists any file, and is one of viewFormats; a pack that lists views without it, or with another format, is withheld.",
+          "pack.anchorFormat is stated by a pack exported with element anchors, and is one of anchorFormats; a pack stating another format is withheld."
         ]
       },
       "packFiles": {

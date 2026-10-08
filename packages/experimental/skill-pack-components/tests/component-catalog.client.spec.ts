@@ -9,8 +9,17 @@
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
-import { COMPONENT_KIT_ENTRIES, DATA_PAGE_VIEW_PROP_NAMES, withheldComponents } from '@deepseek-ai/dsh-experimental-component-surface'
-import { parsePackManifest, parsePackView } from '@deepseek-ai/dsh-experimental-skill-pack'
+import {
+  COMPONENT_KIT_ENTRIES,
+  DATA_PAGE_ID,
+  DATA_PAGE_VIEW_PROP_NAMES,
+  readCatalog,
+  withheldComponents,
+} from '@deepseek-ai/dsh-experimental-component-surface'
+import { validateComponentCall } from '@deepseek-ai/dsh-experimental-component-surface/src/validate.ts'
+import { judgeView } from '@deepseek-ai/dsh-experimental-component-surface/src/views.ts'
+import { PACK_MANIFEST_FIELDS, parsePackManifest, parsePackView } from '@deepseek-ai/dsh-experimental-skill-pack'
+import { anchorFormatMissing, readsDeclaredViews } from '@deepseek-ai/dsh-experimental-skill-pack/src/manifest.ts'
 import {
   COMPONENT_CATALOG_FORMAT,
   componentCatalogText,
@@ -28,6 +37,17 @@ const EXPECTED = new URL('./expected/component-catalog.json', import.meta.url)
  */
 const COMPONENT_KIT_MANIFEST = new URL('../../component-kit/package.json', import.meta.url)
 
+/** One field of an object property, as the file states it. */
+interface FieldFacts {
+  readonly schema: { readonly kind: string; readonly fields?: Readonly<Record<string, FieldFacts>> }
+}
+
+/** One of a component's own properties, as the file states it. */
+interface PropFacts extends FieldFacts {
+  readonly viewOnly: boolean
+  readonly unbindable: boolean
+}
+
 /** The parts of the file these cases read. */
 interface CatalogFile {
   readonly header: {
@@ -42,11 +62,16 @@ interface CatalogFile {
       readonly id: string
       readonly placement: string
       readonly deploymentSwitches: readonly string[]
-      readonly props: Readonly<Record<string, { readonly viewOnly: boolean }>>
+      readonly props: Readonly<Record<string, PropFacts>>
     }[]
     readonly rules: {
+      readonly view: { readonly nodes: { readonly min: number; readonly max: number } }
+      readonly layout: {
+        readonly root: string
+        readonly flex: { readonly min: number; readonly max: number; readonly integer: boolean }
+      }
       readonly viewFile: { readonly otherKeys: string }
-      readonly manifest: { readonly otherKeys: string }
+      readonly manifest: { readonly key: string; readonly otherKeys: string }
     }
   }
 }
@@ -55,6 +80,22 @@ interface CatalogFile {
 async function checkedIn(): Promise<{ text: string; file: CatalogFile }> {
   const text = await readFile(EXPECTED, 'utf8')
   return { text, file: JSON.parse(text) as CatalogFile }
+}
+
+/** Every component the kit registers, as a deployment offering all of them judges a call against. */
+const catalog = readCatalog(COMPONENT_KIT_ENTRIES)
+
+/** A node every catalog built from the kit accepts on its own. */
+const METRIC = { id: 'a', component: 'el.metric', props: { process: 50 } }
+
+/**
+ * Judge one spec the way a call is judged.
+ * @param spec - the spec.
+ * @returns the refusal's path, or `undefined` where the spec is accepted.
+ */
+function refusedAt(spec: unknown): string | undefined {
+  const result = validateComponentCall(catalog, { id: 'v', title: 't', spec })
+  return result.ok ? undefined : result.failure.path
 }
 
 describe('the component catalog file', () => {
@@ -71,10 +112,16 @@ describe('the component catalog file', () => {
     expect(file.header.exampleViewSha256).toBeNull()
   })
 
-  it('states the component kit version its own manifest states', async () => {
+  it('states the component kit version its own manifest states, and the kit version it vendors', async () => {
     const { file } = await checkedIn()
-    const manifest = JSON.parse(await readFile(COMPONENT_KIT_MANIFEST, 'utf8')) as { name: string; version: string }
+    const manifest = JSON.parse(await readFile(COMPONENT_KIT_MANIFEST, 'utf8')) as {
+      name: string
+      version: string
+      dependencies: Record<string, string>
+    }
     expect(file.header.componentKit).toEqual({ package: manifest.name, version: manifest.version })
+    expect(manifest.dependencies['@sumomok/toy-crud-kit'])
+      .toBe(`file:./vendor/sumomok-toy-crud-kit-${file.header.toyCrudKit.version}.tgz`)
     expect(file.header.toyCrudKit.package).toBe('@sumomok/toy-crud-kit')
   })
 
@@ -100,6 +147,94 @@ describe('the component catalog file', () => {
     const page = file.body.components.find(component => component.id === 'toy.data-page')
     expect(Object.entries(page?.props ?? {}).filter(([, prop]) => prop.viewOnly).map(([name]) => name).sort())
       .toEqual([...DATA_PAGE_VIEW_PROP_NAMES].sort())
+  })
+
+  it('marks a property unbindable exactly where the component surface refuses a $from on it as unbindable', async () => {
+    const { file } = await checkedIn()
+    const mismatches: string[] = []
+    for (const component of file.body.components) {
+      for (const [name, prop] of Object.entries(component.props)) {
+        const props = { [name]: { $from: 'node:b.x' } }
+        const result = validateComponentCall(catalog, { id: 'v', title: 't', spec: { nodes: [{ id: 'a', component: component.id, props }] } })
+        const refused = !result.ok
+          && result.failure.path === `spec.nodes[0].props.${name}`
+          && result.failure.text.includes('cannot be read from another block')
+        if (refused !== prop.unbindable) mismatches.push(`${component.id}.${name}`)
+      }
+    }
+    expect(mismatches).toEqual([])
+    const unbindable = (id: string, name: string): boolean | undefined =>
+      file.body.components.find(component => component.id === id)?.props[name]?.unbindable
+    expect(unbindable('toy.table', 'tableConfig')).toBe(true)
+    expect(unbindable('el.metric', 'background')).toBe(true)
+  })
+
+  it('states viewOnly and unbindable on a component\'s own properties and not on the fields of an object property', async () => {
+    const { file } = await checkedIn()
+    const nested = file.body.components.flatMap(component => Object.values(component.props))
+      .flatMap(prop => Object.values(prop.schema.fields ?? {}))
+    expect(nested.length).toBeGreaterThan(0)
+    for (const field of nested) {
+      expect(field).not.toHaveProperty('viewOnly')
+      expect(field).not.toHaveProperty('unbindable')
+    }
+  })
+
+  it('writes out the lower bounds and the root kind the component surface judges a spec by', async () => {
+    const { file } = await checkedIn()
+    const { nodes } = file.body.rules.view
+    const { root, flex } = file.body.rules.layout
+    const nodeList = (count: number): unknown[] => Array.from({ length: count }, (_, index) => ({ ...METRIC, id: `n${index}` }))
+    expect(refusedAt({ nodes: nodeList(nodes.min) })).toBeUndefined()
+    expect(refusedAt({ nodes: nodeList(nodes.min - 1) })).toBe('spec.nodes')
+    expect(refusedAt({ nodes: nodeList(nodes.max + 1) })).toBe('spec.nodes')
+    const placed = (share: number): unknown => ({
+      nodes: [METRIC],
+      layout: { node: root, dir: 'row', children: [{ node: 'component', id: 'a', flex: share }] },
+    })
+    expect(refusedAt(placed(flex.min))).toBeUndefined()
+    expect(refusedAt(placed(flex.max))).toBeUndefined()
+    expect(refusedAt(placed(flex.min - 1))).toBe('spec.layout.children[0].flex')
+    expect(flex.integer).toBe(true)
+    expect(refusedAt(placed(flex.min + 0.5))).toBe('spec.layout.children[0].flex')
+    expect(refusedAt({ nodes: [METRIC], layout: { node: 'component', id: 'a' } })).toBe('spec.layout.node')
+  })
+
+  it('refuses a view placing a second data page, or sorting one both ways, as its view rules say', () => {
+    const page = (id: string, extra: Readonly<Record<string, unknown>> = {}): unknown =>
+      ({ id, component: DATA_PAGE_ID, props: { relatedMeta: 'orders', metaLabel: '订单', ...extra } })
+    const judged = (nodes: readonly unknown[]): string | undefined => {
+      const result = judgeView(catalog, true, { id: 'v', title: 't', spec: { nodes } })
+      return result.ok ? undefined : result.refusal.path
+    }
+    expect(judged([page('p'), METRIC])).toBeUndefined()
+    expect(judged([page('p'), page('q')])).toBe('spec.nodes[1]')
+    expect(judged([page('p', { querySort: { asc: 'a' } })])).toBeUndefined()
+    expect(judged([page('p', { querySort: { asc: 'a', desc: 'b' } })])).toBe('spec.nodes[0].props.querySort.desc')
+  })
+
+  it('states the manifest key and the conditions on the two format fields as the pack root reads them', async () => {
+    const { file } = await checkedIn()
+    expect(parsePackManifest({ pack: { version: '1.0.0' }, notes: 'x' }))
+      .toMatchObject({ ok: false, field: `${file.body.rules.manifest.key}.notes` })
+    expect(PACK_MANIFEST_FIELDS.map(field => field.path)).toEqual(expect.arrayContaining(['pack.viewFormat', 'pack.anchorFormat', 'views']))
+    const read = (pack: Readonly<Record<string, unknown>>, views?: readonly string[]): ReturnType<typeof parsePackManifest> =>
+      parsePackManifest({ pack: { version: '1.0.0', ...pack }, ...views === undefined ? {} : { views } })
+    const views = (pack: Readonly<Record<string, unknown>>, listed?: readonly string[]): boolean | undefined => {
+      const result = read(pack, listed)
+      return result.ok ? readsDeclaredViews(result.manifest) : undefined
+    }
+    expect(views({})).toBe(true)
+    expect(views({}, ['v.yml'])).toBe(false)
+    expect(views({ viewFormat: 1 }, ['v.yml'])).toBe(true)
+    expect(views({ viewFormat: 2 }, ['v.yml'])).toBe(false)
+    const anchors = (pack: Readonly<Record<string, unknown>>): string | undefined => {
+      const result = read(pack)
+      return result.ok ? anchorFormatMissing(result.manifest)?.kind : 'refused'
+    }
+    expect(anchors({})).toBeUndefined()
+    expect(anchors({ anchorFormat: 1 })).toBeUndefined()
+    expect(anchors({ anchorFormat: 2 })).toBe('anchor-format')
   })
 
   it('says what the pack root does with a key it does not read, as the pack root does it', async () => {

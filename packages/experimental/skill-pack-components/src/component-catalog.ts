@@ -4,12 +4,15 @@
  * registers, the rules a view file is judged by, and the rules a pack and its
  * delivery archive are read under.
  *
- * Every number, list and key in the file is read from the module that enforces
- * it: the components from `COMPONENT_KIT_ENTRIES`, the limits and the two
- * reference keys from the component surface's exports, the field lists, the
- * file extensions and the archive limits from the pack root's. The few rules
- * no export states as data — how a `$from` or `$param` reference is read — are
- * written here as sentences restating the component surface's judgement.
+ * The components, every upper limit, list and key are read from the module
+ * that enforces them: the components from `COMPONENT_KIT_ENTRIES`, the limits,
+ * the reference keys and the data page's id from the component surface's
+ * exports, the manifest key, the field lists, the file extensions and the
+ * archive limits from the pack root's. Written here instead, because no module
+ * exports them as values: the lower bounds of the node count and of `flex`,
+ * that `flex` is a whole number, the root kind of a layout, the `otherKeys`
+ * words, and the `rules` sentences, which restate how the two packages judge a
+ * view and a manifest.
  *
  * The file is versioned by {@link COMPONENT_CATALOG_FORMAT} and carries the
  * versions of the two packages its components come from. It carries no commit
@@ -25,6 +28,7 @@ import {
   BINDING_KEY,
   BLOCK_KEYS,
   COMPONENT_KIT_ENTRIES,
+  DATA_PAGE_ID,
   describeSchema,
   LAYOUT_DIRECTIONS,
   LAYOUT_GAPS,
@@ -41,6 +45,7 @@ import {
   STACK_KEYS,
   TOKEN_CHARSET,
   TOKEN_HINT,
+  unbindableReason,
   withheldComponents,
   type ComponentCatalogEntry,
 } from '@deepseek-ai/dsh-experimental-component-surface'
@@ -51,6 +56,7 @@ import {
   PACK_ARCHIVE_FORMAT,
   PACK_FILE_EXTENSIONS,
   PACK_MANIFEST_FIELDS,
+  PACK_MANIFEST_KEY,
   PACK_VIEW_FIELDS,
   PACK_VIEW_FORMATS,
 } from '@deepseek-ai/dsh-experimental-skill-pack'
@@ -77,8 +83,11 @@ type CatalogObject = { readonly [key: string]: CatalogJson }
 /** The declared properties of one component, as the catalog types them. */
 type PropsSchema = ComponentCatalogEntry['propsSchema']
 
+/** One declared property, as the catalog types it. */
+type PropsField = PropsSchema[string]
+
 /** What one declared property may be, as the catalog types it. */
-type PropsFieldSchema = PropsSchema[string]['schema']
+type PropsFieldSchema = PropsField['schema']
 
 /** One package, named and versioned the way its own `package.json` states it. */
 export interface CatalogPackage {
@@ -114,13 +123,21 @@ export interface ComponentCatalogDocument {
   readonly body: CatalogObject
 }
 
+/** What a composition offers, as the component surface's `withheldComponents` reads it. */
+type OfferOptions = Parameters<typeof withheldComponents>[0]
+
+/** The names of the offer's on-or-off switches, an optional one included. */
+type OfferSwitch = { [K in keyof OfferOptions]-?: NonNullable<OfferOptions[K]> extends boolean ? K : never }[keyof OfferOptions]
+
 /**
- * The `show_component` switches a component may need before a deployment
- * offers it. Each is a `Config` field of the component surface's row and off
- * by default, so the file names which switch a component needs and never
- * whether a deployment has turned it on.
+ * Every `show_component` switch a component may need before a deployment
+ * offers it, each turned on. Each is a `Config` field of the component
+ * surface's row and off by default, so the file names which switch a component
+ * needs and never whether a deployment has turned it on. Typed as a record over
+ * every switch the offer declares, so a switch added there fails the typecheck
+ * here until it is listed.
  */
-const DEPLOYMENT_SWITCHES = ['dataPage', 'dataSource'] as const
+const DEPLOYMENT_SWITCHES: Readonly<Record<OfferSwitch, true>> = { dataPage: true, dataSource: true }
 
 /**
  * Name the switches one component needs, by asking the component surface's
@@ -130,9 +147,8 @@ const DEPLOYMENT_SWITCHES = ['dataPage', 'dataSource'] as const
  * @returns the switches it needs, in {@link DEPLOYMENT_SWITCHES} order; empty for a component every deployment offers.
  */
 function requiredSwitches(id: string): string[] {
-  return DEPLOYMENT_SWITCHES.filter(name => withheldComponents({
-    dataPage: true,
-    dataSource: true,
+  return (Object.keys(DEPLOYMENT_SWITCHES) as OfferSwitch[]).filter(name => withheldComponents({
+    ...DEPLOYMENT_SWITCHES,
     // Neither number decides which components are offered.
     defaultPageSize: 1,
     dataPageLoadTimeoutMs: 1,
@@ -176,7 +192,10 @@ function schemaFacts(schema: PropsFieldSchema): CatalogObject {
       values: [...schema.values],
       ...schema.hint === undefined ? {} : { hint: schema.hint },
     }
-    case 'object': return { kind: schema.kind, fields: propsFacts(schema.fields) }
+    case 'object': return {
+      kind: schema.kind,
+      fields: Object.fromEntries(Object.entries(schema.fields).map(([name, field]) => [name, fieldFacts(field, {})])),
+    }
     case 'record': return {
       kind: schema.kind,
       key: schemaFacts(schema.key),
@@ -203,21 +222,31 @@ function schemaFacts(schema: PropsFieldSchema): CatalogObject {
 }
 
 /**
- * State one set of declared properties, a component's or a nested object's.
+ * State one declared property or one field of an object property.
+ * @param field - the declaration.
+ * @param flags - the flags stated between `required` and `schema`; empty for a field of an object property.
+ * @returns the declaration as the file states it.
+ */
+function fieldFacts(field: PropsField, flags: CatalogObject): CatalogObject {
+  return { summary: describeSchema(field.schema), required: field.required, ...flags, schema: schemaFacts(field.schema) }
+}
+
+/**
+ * State a component's own properties.
  *
- * `viewOnly` and `unbindable` are stated as yes or no; the reasons the schema
- * carries for them are the sentences a refused call is told.
- * @param schema - the declared properties.
+ * `viewOnly` and `unbindable` are stated as yes or no, and only here: the
+ * component surface reads both on a component's own properties alone, and
+ * refuses a `$from` anywhere inside an object property. `unbindable` is the
+ * component surface's own answer, so a property the component reads as a path,
+ * a color or a renderer name is unbindable whether or not it is declared so.
+ * @param entry - the component.
  * @returns one entry per property, in declaration order.
  */
-function propsFacts(schema: PropsSchema): CatalogObject {
-  return Object.fromEntries(Object.entries(schema).map(([name, field]) => [name, {
-    summary: describeSchema(field.schema),
-    required: field.required,
+function propsFacts(entry: ComponentCatalogEntry): CatalogObject {
+  return Object.fromEntries(Object.entries(entry.propsSchema).map(([name, field]) => [name, fieldFacts(field, {
     viewOnly: field.viewOnly !== undefined,
-    unbindable: field.unbindable !== undefined,
-    schema: schemaFacts(field.schema),
-  }]))
+    unbindable: unbindableReason(entry, name, field) !== undefined,
+  })]))
 }
 
 /**
@@ -234,7 +263,7 @@ function componentFacts(entry: ComponentCatalogEntry): CatalogObject {
     // one. No entry can be restricted to views yet, so a call places every one.
     placement: 'call',
     deploymentSwitches: requiredSwitches(entry.id),
-    props: propsFacts(entry.propsSchema),
+    props: propsFacts(entry),
     outputs: entry.outputs.map(output => ({
       id: output.id,
       summary: describeSchema(output.shape),
@@ -257,6 +286,10 @@ function catalogRules(): CatalogObject {
       title: { maxLength: MAX_TITLE_LENGTH },
       maxSpecBytes: MAX_SPEC_BYTES,
       nodes: { min: 1, max: MAX_NODES, id: { maxLength: MAX_NODE_ID_LENGTH, charset: token } },
+      rules: [
+        `A view places at most one ${DATA_PAGE_ID} block; a second one is refused.`,
+        `The querySort of a ${DATA_PAGE_ID} block names asc or desc, not both.`,
+      ],
     },
     layout: {
       root: 'stack',
@@ -264,7 +297,7 @@ function catalogRules(): CatalogObject {
       gaps: [...LAYOUT_GAPS],
       maxDepth: MAX_LAYOUT_DEPTH,
       maxChildren: MAX_LAYOUT_CHILDREN,
-      flex: { min: 1, max: MAX_FLEX },
+      flex: { min: 1, max: MAX_FLEX, integer: true },
       stackKeys: [...STACK_KEYS],
       blockKeys: [...BLOCK_KEYS],
     },
@@ -276,7 +309,7 @@ function catalogRules(): CatalogObject {
       rules: [
         `A bound property is an object whose only key is ${BINDING_KEY}, written as the whole value of the property; one inside a list item or a nested object is refused.`,
         'The node is another node of the same view, the output is one that node\'s component declares, and an index takes one item of a list output.',
-        'A property marked unbindable cannot be bound, and a bound property must accept the output\'s shape: the same kind, and nothing past its limits.',
+        'A property whose unbindable is true cannot be bound, and a bound property must accept the output\'s shape: the same kind, and nothing past its limits.',
         'The value is resolved in the page from what the other block reports; the view file carries only the reference.',
       ],
     },
@@ -294,11 +327,15 @@ function catalogRules(): CatalogObject {
       viewFormats: [...PACK_VIEW_FORMATS],
     },
     manifest: {
-      key: 'metadata',
+      key: PACK_MANIFEST_KEY,
       fields: PACK_MANIFEST_FIELDS.map(field => ({ ...field })),
       otherKeys: 'refused',
       viewFormats: [...PACK_VIEW_FORMATS],
       anchorFormats: [...PACK_ANCHOR_FORMATS],
+      rules: [
+        'pack.viewFormat is required when views lists any file, and is one of viewFormats; a pack that lists views without it, or with another format, is withheld.',
+        'pack.anchorFormat is stated by a pack exported with element anchors, and is one of anchorFormats; a pack stating another format is withheld.',
+      ],
     },
     packFiles: {
       extensions: [...PACK_FILE_EXTENSIONS],
