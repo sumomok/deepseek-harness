@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>Icon table fixture</title>
+    <!-- Inline, so the glyph has applied before any read: a sheet still
+         loading would leave the icon drawing nothing. -->
+    <style>
+      .el-table__indent {
+        display: inline-block;
+      }
+
+      .el-table__placeholder {
+        display: inline-block;
+        width: 20px;
+      }
+
+      /* Element UI writes each icon's glyph into `::before` from its icon
+         font; the code point is the one element-ui 2.15.14's `el-icon-edit`
+         writes, and no font is needed for the browser to compute the content. */
+      .el-icon-edit {
+        display: inline-block;
+        font-style: normal;
+      }
+
+      .el-icon-edit::before {
+        content: "\e78c";
+      }
+
+      /* A page that draws an empty value's placeholder as generated text.
+         Limited to the cells that opt in, so the 备注 column's empty cell
+         still draws nothing at all. */
+      .placeholder-dash .cell:empty::before {
+        content: "--";
+      }
+    </style>
+  </head>
+  <body>
+    <!-- An Element tree table as the console draws it: every cell wraps its
+         value in `div.cell`, an empty value is that wrapper holding nothing,
+         a row's text is indented with a padded span and a placeholder, an
+         empty value in the 班组 column shows a `--` the sheet generates into
+         the empty wrapper's `::before`, and the operation column draws its
+         command as a glyph on a bare `<i>`.
+         The table is the first thing the page numbers, so a read scoped to
+         `e1` lists its rows. -->
+    <table id="fixture-table" class="el-table__body" aria-label="设备">
+      <thead>
+        <tr>
+          <th><div class="cell">名称</div></th>
+          <th><div class="cell">备注</div></th>
+          <th><div class="cell">班组</div></th>
+          <th><div class="cell">操作</div></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="el-table__row">
+          <td><div class="cell"><span class="el-table__indent" style="padding-left: 16px"></span><span class="el-table__placeholder"></span>东风站</div></td>
+          <td><div class="cell"></div></td>
+          <td class="el-table__cell placeholder-dash"><div class="cell"></div></td>
+          <td><div class="cell"><i class="el-icon-edit"></i></div></td>
+        </tr>
+        <tr class="el-table__row">
+          <td><div class="cell"><span class="el-table__indent" style="padding-left: 32px"></span><span class="el-table__placeholder"></span>朝阳站</div></td>
+          <td><div class="cell">检修中</div></td>
+          <td class="el-table__cell placeholder-dash"><div class="cell">二班</div></td>
+          <td><div class="cell"><i class="el-icon-edit"></i></div></td>
+        </tr>
+      </tbody>
+    </table>
+  </body>
+</html>

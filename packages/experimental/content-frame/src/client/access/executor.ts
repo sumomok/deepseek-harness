@@ -53,7 +53,7 @@ import { settlePage } from '../perception/settle.ts'
 import { captureElement, type ExportPixels } from './capture.ts'
 import { runSteps } from './act.ts'
 import { watchPage, type ActWatch } from './watch.ts'
-import { elementMark, looksClickable, readableDocuments } from './dom.ts'
+import { computedStyleOf, elementMark, looksClickable, readableDocuments, rowMark } from './dom.ts'
 import { itemName } from './collect.ts'
 import { markup } from './markup.ts'
 import { RefTable } from './refs.ts'
@@ -658,6 +658,7 @@ async function readPage(
     ...readOptions(request),
     isVisible,
     isClickable: looksClickable,
+    computedStyle: computedStyleOf,
   }
   try {
     // Re-read after the wait: a navigation replaces the frame's document.
@@ -821,6 +822,7 @@ async function actOnPage(
     budgetChars: access.outlineChars,
     isVisible,
     isClickable: looksClickable,
+    computedStyle: computedStyleOf,
   }
   let watch: ActWatch | undefined
   try {
@@ -836,9 +838,11 @@ async function actOnPage(
       isVisible,
       // The reader's own naming, under this read's own injections: what the
       // listing printed for an element is what a step naming it is held to.
-      name: el => itemName(el, options),
-      // And the reader's own marking, for the rows it printed no name for.
-      mark: elementMark,
+      name: el => itemName(el, options, ready.view.document),
+      // And the reader's own marking, for the rows it printed no name for: the
+      // listing's, and the class tokens a markup tree prints.
+      mark: rowMark,
+      treeMark: elementMark,
     }, {
       settleQuietMs: access.settleQuietMs,
       settleMaxMs: access.settleMaxMs,

@@ -13,7 +13,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { BizSubject, CredentialResolver, HeldCredential, PrincipalKey } from '@deepseek-ai/dsh-experimental-biz-backend'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
-import type { ConsoleMemberDirectory, CustomerCredentialReader } from '@deepseek-ai/dsh-experimental-console-members'
+import type { ConsoleMemberDirectory, CustomerCredentialReader } from '@deepseek-ai/dsh-experimental-console-members/types'
 
 /** One subscriber to the store's changes, as {@link CustomerCredentialReader.onChange} takes it. */
 type ChangeListener = (principal: PrincipalKey, kind: 'set' | 'dropped') => void

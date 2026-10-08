@@ -8,6 +8,7 @@
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/model
  */
 import type { ReadKind } from '../../access/wire.ts'
+import type { ComputedStyleOf } from './dom.ts'
 import type { RefTable } from './refs.ts'
 
 /** How much of the page one read renders: every item, or containers only. */
@@ -45,6 +46,12 @@ export interface SnapshotOptions {
   readonly isVisible: (el: Element) => boolean
   /** Injected: whether a role-less element is clickable; defaults to a `cursor: pointer` computed style. */
   readonly isClickable?: (el: Element) => boolean
+  /**
+   * Injected: the computed style of an element or of its `::before` or
+   * `::after`, which says whether a leaf draws a picture; defaults to the
+   * computed style of the window the element is drawn in.
+   */
+  readonly computedStyle?: ComputedStyleOf
 }
 
 /** What the page is, above whatever a read prints of it. */
@@ -132,7 +139,7 @@ export interface ControlState {
  * holds. A row of its own and the room a node opens print this the same way.
  */
 export interface ControlFace extends ControlState {
-  /** The element's ARIA role, or `clickable` for a role-less click target. */
+  /** The element's ARIA role, `clickable` for a role-less click target, or `icon` for an icon a cell or an item holds. */
   readonly role: string
   /** True for a tree node or menu item the page has closed over what it holds. */
   readonly collapsed: boolean

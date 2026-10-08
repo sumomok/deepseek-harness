@@ -16,7 +16,7 @@
 import type { IncomingMessage } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import type { ConsoleMemberDirectory, MemberStore, PrincipalKey } from '@deepseek-ai/dsh-experimental-console-members'
+import type { ConsoleMemberDirectory, MemberStore, PrincipalKey } from '@deepseek-ai/dsh-experimental-console-members/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import z from '@deepseek-ai/schemastery'

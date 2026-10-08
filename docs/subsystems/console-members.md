@@ -4,7 +4,7 @@ English | [中文](console-members.zh.md)
 
 `ctx.consoleMembers` is the console member directory. When one console process serves several signed-in members, every plugin that acts for one of them — a webServer route answering for the member behind a request, a Remote method answering for its caller, a tool spending a Session owner's data, a credential resolver that holds one token slot per member — needs the same answer to which member it acts for, and the directory is the one place that answer comes from. This package declares the key and registers no plugin, and nothing in this repository provides it, so an `inject: ['consoleMembers']` never resolves and the injecting plugin does not start. The [package README](../../packages/experimental/console-members/README.md) owns the type declarations and the limitations, and the generated section below holds every method's contract; this page records the three decisions a consumer cannot read off a signature.
 
-Source: [`packages/experimental/console-members/src/index.ts`](../../packages/experimental/console-members/src/index.ts).
+Source: [`packages/experimental/console-members/src/types.ts`](../../packages/experimental/console-members/src/types.ts).
 
 ## A request's member has one source
 
@@ -134,5 +134,5 @@ attachCustomerCredentials(reader: CustomerCredentialReader): () => void
 
 Types: [SessionId](core.md)
 
-Source: [`packages/experimental/console-members/src/index.ts`](../../packages/experimental/console-members/src/index.ts)
+Source: [`packages/experimental/console-members/src/types.ts`](../../packages/experimental/console-members/src/types.ts)
 <!-- END GENERATED cordis-surface -->

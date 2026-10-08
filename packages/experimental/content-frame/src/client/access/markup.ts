@@ -22,7 +22,7 @@ import {
 } from '../../access/wire.ts'
 import { MORE_TEXT_MARKER, NO_ATTRIBUTES_LINE, NO_TEXT_LINE, WITHHELD } from '../../access/text.ts'
 import type { ContentMarkupRequest } from '../../types.ts'
-import { childHost, clipTo, collapse, isInline, isNonContent, isOpaque, isPassword, isSkipped } from './dom.ts'
+import { childHost, clipTo, collapse, elementMark, isInline, isNonContent, isOpaque, isPassword, isSkipped } from './dom.ts'
 import { entry, indent, printedMark, resume, type Entry, type Listing } from './render.ts'
 import { pageHeader, readOf, resolveRef } from './snapshot.ts'
 import type { Snapshot, SnapshotOptions } from './model.ts'
@@ -65,8 +65,12 @@ function directText(el: Element): string {
  * tokens, and the start of the text it holds.
  *
  * The class tokens are printed by the same {@link printedMark} the listing
- * prints them with, so a step naming a row this tree printed carries the string
- * this tree showed and the seat compares the two character for character.
+ * prints a mark with, so a step naming a row this tree printed carries the
+ * string this tree showed and the seat compares the two character for
+ * character. The tokens are the element's {@link elementMark} alone: a line of
+ * markup says what the `class` attribute holds. That leaves out the symbol id
+ * the listing's mark adds for an `svg` whose `use` points at one, and the seat
+ * takes a step carrying either string as naming that drawing.
  *
  * What a password control holds is answered with {@link WITHHELD} in place of
  * that text: a `textarea` declaring a password in `autocomplete` keeps its
@@ -79,7 +83,7 @@ function directText(el: Element): string {
 function treeLine(el: Element, depth: number, refs: RefTable): string {
   const ref = refs.ref(el)
   const id = el.id === '' ? '' : `#${el.id}`
-  const head = `${indent(depth)}${ref} ${el.localName}${id}${printedMark(el)}`
+  const head = `${indent(depth)}${ref} ${el.localName}${id}${printedMark(elementMark(el))}`
   if (isPassword(el)) return `${head} ${WITHHELD}`
   const own = collapse(directText(el))
   const cut = own.length > LINE_TEXT_LIMIT

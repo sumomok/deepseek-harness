@@ -404,7 +404,7 @@ export interface RemoteInvocation {
   readonly service: string
   /** Peer the call speaks for; an in-process carrier speaks for the operator. */
   readonly peer: PeerScope
-  /** Carrier cancellation: Client cancel, socket close, or an uplink failure. */
+  /** Cancellation: Client cancel, socket close, an uplink failure, or a stream call that `remote/invoke` fails. */
   readonly signal: AbortSignal
   /**
    * The Client's uplink items for this call. Available once; a second call

@@ -1,0 +1,34 @@
+# Bilingual-pair consistency record for 2026-10-05-content-reader-structural-icons.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-05-content-reader-structural-icons.md
+/agent-note-the-page-reader-reads-an-icon-a-cell-or-an-item-draws-by-its-structure:
+  en: 4bd875585ff95603
+  zh: f13c9a1ecd4ff7fc
+/agent-note-the-page-reader-reads-an-icon-a-cell-or-an-item-draws-by-its-structure/problem:
+  en: 950f82ff38e3e13a
+  zh: 716451d72c4e98c0
+/agent-note-the-page-reader-reads-an-icon-a-cell-or-an-item-draws-by-its-structure/decision:
+  en: f599b2eb252016cb
+  zh: e8145414a3b5bbe0
+/agent-note-the-page-reader-reads-an-icon-a-cell-or-an-item-draws-by-its-structure/decision/where-it-counts:
+  en: 7514f324b1bea9fd
+  zh: dd0df3a7d29ff591
+/agent-note-the-page-reader-reads-an-icon-a-cell-or-an-item-draws-by-its-structure/decision/drawing-a-picture:
+  en: 4f338f77b4d3a6de
+  zh: 142304551e1978a7
+/agent-note-the-page-reader-reads-an-icon-a-cell-or-an-item-draws-by-its-structure/decision/the-mark-of-a-sprite-drawing:
+  en: a454114eeb7c609e
+  zh: dc42053c5c72e685
+/agent-note-the-page-reader-reads-an-icon-a-cell-or-an-item-draws-by-its-structure/decision/why-this-does-not-reopen-the-retired-rule:
+  en: 5c7998b9cf1e292e
+  zh: 537d9076ba47b89d
+/agent-note-the-page-reader-reads-an-icon-a-cell-or-an-item-draws-by-its-structure/alternatives-considered:
+  en: 6815075e02d9d753
+  zh: 77bfb2dee3be6e18
+/agent-note-the-page-reader-reads-an-icon-a-cell-or-an-item-draws-by-its-structure/consequences:
+  en: e8c3340da653d291
+  zh: bae0ee203f512b8c
+/agent-note-the-page-reader-reads-an-icon-a-cell-or-an-item-draws-by-its-structure/testing:
+  en: 32db7b8b64a0cfb9
+  zh: 3bc97e544ee53350

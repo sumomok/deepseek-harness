@@ -1128,8 +1128,9 @@ export interface ActTarget {
    */
   readonly label: string
   /**
-   * The class tokens the listing printed for a row it named nothing, copied
-   * from that read, and absent for every named row. One row has one identity:
+   * The class tokens the listing printed for a row it named nothing, or the
+   * ones a markup tree printed for that element, copied from that read, and
+   * absent for every named row. One row has one identity:
    * a named row is checked by its name and an unnamed one by its mark, and a
    * step carrying both is refused rather than checked against whichever the
    * seat prefers.

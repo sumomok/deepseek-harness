@@ -61,3 +61,5 @@ Two further constraints shaped the answer rather than the problem.
 The button has no browser-level evidence. This package's Playwright scenario composes no auth-gate row — that package gates the whole page on a token, which every other assertion in the scenario would then have to carry — so the sequence is proved by unit coverage over the injected `SignOutBrowser` and the real session tree's cancel face instead, and the gap is stated in the README.
 
 The footer is now the second surface in this composition that reads a claim out of the deployment's token. If a third appears, the copy count in `client/identity.ts` is the thing to consolidate — at that point the case for a seam is about three readers rather than about coupling two packages that already ship together.
+
+The identity row's menu, which opens the organization plugin's Settings section while that plugin is composed, and the organization notice card are recorded in [their own Agent Note](2026-10-05-console-identity-org-entry-and-notice.md); 退出登录 stays on the row there too.

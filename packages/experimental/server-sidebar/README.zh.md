@@ -19,6 +19,7 @@ kind: "package-reference"
 - [我的工作流](#my-workflows)
 - [选中高亮](#selection-highlight)
 - [身份显示与退出](#identity-and-sign-out)
+- [组织告知](#organization-notice)
 - [配置](#config)
 - [去术语化](#de-terminology)
 - [品牌与英雄区门面](#brand-and-hero-facade)
@@ -142,6 +143,8 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 
 **名字只是用于显示的副本，不是权威。** `client/identity.ts` 从 `localStorage.accessToken` 里读出部署方的访问令牌，剥掉登录页写入的 `Bearer` 前缀，不做任何验证地解码 payload，展示 `Config.displayNameClaim` 指名的那个 claim（本部署所用登录体系里是 `login_uname`）。令牌解不开、claim 不存在或不是字符串、以及页面上压根没有令牌，这三种情况都退回匿名占位（「用户」/「User」）。没有任何东西以这个值为准——有能力验证令牌的是这套进程前面的反向代理，页面加载时它早已判定过对面是谁。名字跟随 `storage` 事件变化，因此另一个标签页换人登录后，这里无需刷新即可跟上。
 
+**组合了组织插件时，头像圆点与名字会打开一个菜单。** 菜单里只有一项「组织」（Organization），打开设置并定位到组织插件的分区 `sumomok-org`；`dsh-client-ui-settings-general` 把这个分区归在「账户与用量」（Account & usage）组里。这一项在两个条件同时成立时出现：`settings.section` 列表的胜者里有这个 id（`client/org-section.ts`），并且设置外壳的 opener 已经发布。部署方停用的行、或被兼容检查停掉的行，不提供浏览器 bundle，也就不注册这个分区。opener 来自 `settings.trigger.action`：设置外壳画在触发器旁边、并把 `openSection(id)` 交给它的那个列表。本外壳在其中注册 `server-sidebar.settings-opener`，一个什么都不画、挂载期间发布 opener 的占位（`client/settings-opener.ts`）。侧栏向触发器要的是紧凑形态，这个形态用 CSS 隐藏那个列表、但保持其占据者挂载，所以只要设置外壳挂着，opener 就已发布。任一条件不成立时，这一行只画头像圆点与名字、不带按钮，和没有组织插件的组合画出的完全一样。「退出登录」在任何组合里都留在这一行上，不进菜单。决策记录见[身份入口与告知的 Agent Note](../../../.agents/notes/implemented/architecture/2026-10-05-console-identity-org-entry-and-notice.zh.md)。
+
 **退出按固定顺序跑五步，且无论前一步结果如何，每一步都会执行**（`client/sign-out.ts`）。
 
 1. **停掉正在进行的工作**——当前打开的那个对话，以及会话列表中每一个 `running` 为真的对话，都走出厂停止按钮所用的同一条按会话作用域取到的 `conversation.cancel()`。当前打开的那个不看这一位也照停；对空闲会话的停止是宿主直接应答的空操作。这一步最多等三秒：宿主始终不应答的一次取消，只能花掉访客这三秒，而不能把真正丢掉令牌的后四步一并拖住。
@@ -153,6 +156,27 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 任何一步失败都只记一条 `console.warn`：访客反正要离开，一步跑不通不构成把其余几步一起放弃的理由。
 
 **逐字复制，而非导入。** `Bearer` 剥离、JWT 解码、`/auth-gate/settings`、`/auth-gate/logout`、那行 cookie 与回跳地址的剔参规则，都是 [`dsh-experimental-auth-gate`](../auth-gate/README.zh.md) 自己那份的复制品，理由与 `client/nav-catalog.ts` 复制那两条目录路由的理由相同：跨包直接导入符号并非本仓库为两个客户端相邻插件设计的耦合方式，而且本侧栏还必须能在压根不组合 auth-gate 的组合里工作。两个包在本 fork 里一同维护，这六项约定必须同步，连同它们各自的寻址方式：两条路由都按文档相对写法请求，那枚 cookie 也在 auth-gate 写入它时所用的同一个部署前缀下清除。
+
+-----
+
+<a id="organization-notice"></a>
+## 组织告知
+
+组合了组织插件时，需要阅读组织告知的成员会看到一次告知卡片；组织设为 `member` 确认方式时，需要确认的成员看到的卡片带确认按钮。这里没有任何东西进模型：卡片不读会话，也不写会话事件。
+
+**插件判断，页面只显示与回报。** 组织插件的浏览器半边挂载 Remote 命名空间 `sumomokOrgNotice`，它的三个方法都按调用的那位成员作答。`due()` 答 `none`；或答 `pending` 并带 `retryAfterMs`（小于 1000 毫秒的值，包括 0，按 1000 毫秒处理，这样页面不会每个往返都问一次插件；超过 2147483647 毫秒，即浏览器定时器能等的最长时间，按这个值处理）；或答 `notice`、`consent`，并带版本号、插件知道时的组织名称、以及告知正文。`markSeen(version)` 答 `recorded` 或 `stale`，`confirm(version)` 答 `accepted` 或 `stale`。只有这个命名空间存在时，卡片才以 `server-sidebar.org-notice` 注册进 `shell.overlay`（`client/org-notice-remote.ts`）；这个命名空间不在本包的 `inject` 列表里，所以没有组织插件的组合里侧栏照常启动，也不出现卡片。每个应答到达时都会校验（`client/org-notice.ts`）：页面不读的字段一律忽略，不认识的 `kind` 按「没有要显示的」处理，页面要读的字段读不出来时整个应答不可用。页面不存任何与告知有关的东西。成员读过或确认过哪一版由插件保存：控制台的设置由全体成员共用，浏览器存储由用同一个浏览器的所有人共用。
+
+**页面何时询问。** 卡片注册时、与宿主的连接重新建立时（`connection/reset`）、页面重新变为可见时，以及 `pending` 应答给出的延时到期时。没有任何推送。
+
+| 卡片 | 按钮 | 效果 |
+| --- | --- | --- |
+| `notice` | 知道了（Got it） | 隐藏卡片并调用 `markSeen(version)`；应答为 `stale` 时重新询问。 |
+| `consent` | 稍后（Later） | 只在本页隐藏卡片，不调用任何方法；下次加载时再次出现。 |
+| `consent` | 同意（I agree） | 调用 `confirm(version)`，应答之前两个按钮都禁用。`accepted` 隐藏卡片，`stale` 重新询问；被拒绝（`sumomokOrg/unavailable` 或 `sumomokOrg/caller-unknown`）时卡片保留，并在卡内显示「没有记下你的同意，请稍后再试」（Your agreement wasn’t recorded. Try again shortly.）。 |
+
+成员收起的卡片，在本页不会再出现，直到插件答出另一个版本。`due()` 或 `markSeen` 被拒绝、以及读不出的应答，都不显示任何东西。每个方法在每个页面里向浏览器控制台报告：第一次不属于读不出应答的失败（插件拒绝了调用，或调用没有到达插件）报告一次，附上这次失败；第一次读不出的应答报告一次，写明读不出的字段（`the organization notice answer to due() is unusable at version`）。`due()` 另外在第一次答出页面不认识的 `kind` 时报告一次，写明这个 `kind`。
+
+**卡片放在哪里。** 卡片不是模态的：出现时不抢焦点，下面的页面照常可用，也没有关闭按钮。宽框时，它在侧栏这一列之内，左右各缩进 8px，底边在该列底部区域（底栏动作与带设置按钮的身份行）上方 8px。侧栏在挂载时和每次尺寸变化时测量这一带的上边缘与整列的位置并发布出来（`client/foot-placement.ts`），因此卡片盖住的是这一列下部的行，不盖身份行、它的设置按钮，也不盖这一列旁边的输入框。卡片向上长高，最高 min(70vh, 520px, 100vh − 底栏区高度 − 20px)，顶边因此至少离视口顶部 12px；超过这个高度后正文在卡内滚动。在 1024×768 的画面上（最窄的宽框），用 e2e 夹具的告知正文，这一列宽 180px，卡片宽 164px、高 520px，从视口顶部往下 168px 处到 688px 处：它盖住这一列从第一个导航项下方直到底栏区的部分，即底栏区以上 696px 中的 520px。`consent` 卡片点「稍后」（Later）收起，`notice` 卡片点「知道了」（Got it）后收起。窄框时，它距顶部 56px，在抽屉按钮下方，左右各留 12px，底边止于 `50vh - 14px` 上方 12px——空对话居中的输入框就从那里开始；打开的抽屉和它的遮罩会像盖住页面其余部分一样盖住它。告知的标题、正文与分类名是组织自己的文字，按页面语言显示为纯文本并保留换行；政策地址只在是 `https:` 地址时才画成链接。
 
 -----
 
@@ -267,6 +291,10 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 - **停止扫描以 `SessionSummary.running` 为判据。** 一个 running 位尚未推到本浏览器、又不是当前打开的那个对话，不会被停止，宿主侧的回合会一直跑到它自己结束。
 - **退出这套流程没有浏览器级证据。** Playwright 场景只断言这个控件渲染出来了、底部那一带装得下它，到此为止：本包的场景没有组合 `auth-gate` 行（那个包会以令牌为门槛拦住整个页面，于是场景里其余每一条断言都得先自带令牌），因此「点退出→cookie 消失→落到登录页」是由针对注入式 browser 的单测覆盖证明的，而不是端到端证明的。
 - **设置入口画成一个图标，连接状态提示也随文字标签一起消失。** 底部这一带只有一行，而它所在的那一列是画面宽度的一个份额（`dsh-experimental-server-layout` 的 `solveTracks` 给会话轨道 24 份中的 3 份），因此带文字的触发器在登录名与退出按钮旁边放不下：本外壳向 `sidebar.settings` 的占位方要的是它的紧凑形态（`wide: false`）。`dsh-client-ui-settings-general` 只在带文字的形态里画它的连接状态提示，而那个提示是本控制台唯一的断线通知、也是唯一的重连按钮——现在连接掉了，侧栏什么都不会说。要把两者都拿回来，得让这一列更宽，而那是那个包里已经冻结的轨道比例，不是本包改得动的东西。
+- **窄框下关掉抽屉，设置面板也随之关闭。** `dsh-experimental-server-layout` 在窄框下只在抽屉打开时挂载侧栏，而设置外壳与 opener 占位都在这棵树里。所以「组织」只在打开的抽屉里提供，关掉抽屉会把从那里打开的设置面板一起关掉，和从同一行的设置按钮打开时一样。
+- **用键盘打开身份菜单后，焦点留在它的按钮上。** 在头像圆点与名字上按 Enter 打开菜单后，焦点仍在这个按钮上，按向下键才移进菜单。这个菜单向 `dsh-client-ui-primitives` 的 `Menu` 传 `portal` 与 `autoFocus`，`dsh-client-ui-settings-account` 的账户菜单也这样传，账户菜单在浏览器里表现相同：按 Enter 后焦点留在它的 Account menu 按钮上，按向下键才移到第一项。
+- **新版告知在下一次询问时出现，不在发布时出现。** 组织插件没有为告知提供流，所以页面打开期间组织确认的新版本，要等这个页面重新连接、重新变为可见或重新加载时才显示。
+- **插件不挂载 `sumomokOrgNotice` 时不显示告知，页面也无从察觉。** 只注册设置分区、不挂载这个命名空间的插件版本，会让成员看不到一次性告知和确认按钮，页面和它的控制台都不会说明。组织插件的行启用时这个命名空间一定挂载，由插件自己的测试钉住。
 - **只在 bundle 层配置的按成员行，菜单字段仍可写。** settings 服务仍把 `workflows`、`groups` 和 `workbenchSessionId` 交给设置写入，写入存进 profile 补丁，不重新挂载本行。那里没有东西读它们，下次启动时本行在加载时失败，所以服务多位成员的部署在 profile 补丁之上的一层重述这一行（见组合方式），config-editor 在那里拒绝这次写入。
 - **隐去的按键仍会到达桌面壳的原生快捷键。** 按键拦截在页面上消费按键。macOS 或 Windows 上的桌面壳把应用快捷键作为原生菜单快捷键送达，不经过页面，所以在这种壳里打开的控制台页面仍会执行隐去的命令；改名对话框在那里仍然隐去，归档确认和提示仍是控制台的用词。控制台是给浏览器用的。
 - **隐去命令占着的键不能交给别的命令。** 快捷键速查把它报为保留组合。不改键的访客保留全部默认键，而隐去命令的默认组合键没有任何保留的命令在用。控制台隐去某个命令之前，浏览器里已为它存下的组合键会保留下来：与它重叠的保留命令被判为冲突而失效，对那个命令点「恢复默认」会把这个组合报为保留，只有「全部恢复默认」能清掉它。速查里已修改的快捷键计数也会算上它。

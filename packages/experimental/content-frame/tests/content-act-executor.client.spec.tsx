@@ -21,6 +21,7 @@ import { isVisible, TAB_ID, useContentRead, type ContentReadSeat } from '../src/
 import { looksClickable } from '../src/client/access/dom.ts'
 import { itemName } from '../src/client/access/collect.ts'
 import { snapshot } from '../src/client/access/snapshot.ts'
+import { markup } from '../src/client/access/markup.ts'
 import { CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, type ActOutcome, type ClaimAck } from '../src/access/wire.ts'
 import { FRAME_WIDE_LISTING_MESSAGE } from '../src/access/text.ts'
 import { RefTable } from '../src/client/access/refs.ts'
@@ -241,6 +242,108 @@ describe('what each step dispatches at the page', () => {
     expect(outcome.steps).toEqual([{ index: 1, status: 'ok' }])
   })
 
+  it('clicks an icon a read printed in a row\'s cell, by the ref and the mark that read printed', async () => {
+    // An operation column whose commands carry no role, no name, and no pointer
+    // cursor, and draw a picture: the read prints each one as an icon with its
+    // mark, and a step copying a ref and a mark out of that read reaches the
+    // element it meant.
+    mount('<main><table aria-label="设备"><thead><tr><th>名称</th><th>操作</th></tr></thead>'
+      + '<tbody><tr><td>东风站</td><td>'
+      + '<i id="edit" class="el-icon-edit operation-modify" style="background-image: url(edit.svg)"></i>'
+      + '<i id="warn" class="el-icon-warning" style="background-image: url(warning.svg)"></i>'
+      + '<svg id="drop"><use href="#icon-delete"></use></svg>'
+      + '</td></tr></tbody></table></main>')
+    const options = { refs, budgetChars: ACCESS.outlineChars, isVisible, isClickable: looksClickable }
+    snapshot(doc(), options)
+    const listed = snapshot(doc(), { ...options, scope: refs.ref(at('table')) }).text
+    const icons = [...listed.matchAll(/(e\d+) icon \{class: ([^}]*)\}/g)]
+      .map(match => ({ action: 'click' as const, ref: match[1] ?? '', label: '', mark: match[2] ?? '' }))
+    expect(icons.map(icon => icon.mark)).toEqual(['el-icon-edit operation-modify', 'el-icon-warning', 'icon-delete'])
+    const warned = listen(at('#warn'), ['click'])
+    const dropped = listen(at('#drop'), ['click'])
+    const outcome = await run(icons.slice(1))
+    expect(outcome.steps).toEqual([{ index: 1, status: 'ok' }, { index: 2, status: 'ok' }])
+    expect({ warned, dropped }).toEqual({ warned: ['click'], dropped: ['click'] })
+  })
+
+  it('clicks one of two sprite icons sharing a class, by the mark the read printed with its symbol', async () => {
+    mount('<main><table aria-label="设备"><thead><tr><th>名称</th><th>操作</th></tr></thead>'
+      + '<tbody><tr><td>东风站</td><td>'
+      + '<svg id="edit" class="svg-icon"><use href="#icon-edit"></use></svg>'
+      + '<svg id="drop" class="svg-icon"><use xlink:href="/static/sprite.svg#icon-delete"></use></svg>'
+      + '</td></tr></tbody></table></main>')
+    const options = { refs, budgetChars: ACCESS.outlineChars, isVisible, isClickable: looksClickable }
+    snapshot(doc(), options)
+    const listed = snapshot(doc(), { ...options, scope: refs.ref(at('table')) }).text
+    const icons = [...listed.matchAll(/(e\d+) icon \{class: ([^}]*)\}/g)]
+      .map(match => ({ action: 'click' as const, ref: match[1] ?? '', label: '', mark: match[2] ?? '' }))
+    expect(icons.map(icon => icon.mark)).toEqual(['svg-icon icon-edit', 'svg-icon icon-delete'])
+    const edited = listen(at('#edit'), ['click'])
+    const dropped = listen(at('#drop'), ['click'])
+    const outcome = await run(icons.slice(1))
+    expect(outcome.steps).toEqual([{ index: 1, status: 'ok' }])
+    expect({ edited, dropped }).toEqual({ edited: [], dropped: ['click'] })
+  })
+
+  it('takes a sprite drawing\'s mark as the listing printed it or as a markup tree printed it, and no other', async () => {
+    // The listing marks a sprite drawing by its class tokens and the symbol it
+    // points at, and a markup tree prints the `class` attribute alone. A step
+    // copied out of either read names the same drawing; a mark neither read
+    // printed is a page that changed.
+    mount('<main><table aria-label="设备"><thead><tr><th>名称</th><th>操作</th></tr></thead>'
+      + '<tbody><tr><td>东风站</td><td class="ops">'
+      + '<svg class="svg-icon"><use href="#icon-edit"></use></svg>'
+      + '</td></tr></tbody></table></main>')
+    const options = { refs, budgetChars: ACCESS.outlineChars, isVisible, isClickable: looksClickable }
+    snapshot(doc(), options)
+    const listed = snapshot(doc(), { ...options, scope: refs.ref(at('table')) }).text
+    const tree = markup(doc(), { callId: 'call_0', tool: 'content_read_dom', args: { scope: refs.ref(at('.ops')) } }, options).text
+    const drawing = refs.ref(at('svg'))
+    expect(listed).toContain(`${drawing} icon {class: svg-icon icon-edit}`)
+    expect(tree).toContain(`${drawing} svg {class: svg-icon}`)
+    const clicked = listen(at('svg'), ['click'])
+    const outcome = await run([
+      { action: 'click', ref: drawing, label: '', mark: 'svg-icon' },
+      { action: 'click', ref: drawing, label: '', mark: 'svg-icon icon-edit' },
+      { action: 'click', ref: drawing, label: '', mark: 'icon-edit' },
+    ])
+    expect(clicked).toEqual(['click', 'click'])
+    expect(outcome.steps).toEqual([
+      { index: 1, status: 'ok' },
+      { index: 2, status: 'ok' },
+      {
+        index: 3,
+        status: 'failed',
+        message: `${drawing} is now marked {class: svg-icon icon-edit}, not {class: icon-edit} — the page changed.`,
+      },
+    ])
+  })
+
+  it('clicks an icon a toolbar draws by the ref and the class tokens a markup read printed for it', async () => {
+    // A listing prints no row for an icon outside a cell or an item, so the
+    // model finds it in the markup and names it by the nothing a listing would
+    // call it, whatever the page wrote in its `aria-label`.
+    mount('<main><div class="toolbar"><i id="refresh" class="el-icon-refresh" aria-label="刷新"></i></div></main>')
+    const seen = listen(at('#refresh'), ['click'])
+    const outcome = await run([{ action: 'click', ref: ref('#refresh'), label: '', mark: 'el-icon-refresh' }])
+    expect(outcome.steps).toEqual([{ index: 1, status: 'ok' }])
+    expect(seen).toEqual(['click'])
+  })
+
+  it('clicks an icon an item draws across a frame, by the name the read printed for it', async () => {
+    // The item is in the page the read started from and the icon in the
+    // application framed inside it; a step is held to the name that read printed.
+    const nested = nest('<ul><li><iframe id="inner" title="明细"></iframe></li></ul>',
+      '<i id="edit" class="el-icon-edit" aria-label="编辑" style="background-image: url(edit.svg)"></i>')
+    const listed = snapshot(doc(), { refs, budgetChars: ACCESS.outlineChars, isVisible, isClickable: looksClickable }).text
+    const icon = /(e\d+) icon "编辑"/.exec(listed)
+    expect(icon?.[1]).toBe(refIn(nested.doc, '#edit'))
+    const seen = listen(atIn(nested.doc, '#edit'), ['click'])
+    const outcome = await run([{ action: 'click', ref: icon?.[1] ?? '', label: '编辑' }])
+    expect(outcome.steps).toEqual([{ index: 1, status: 'ok' }])
+    expect(seen).toEqual(['click'])
+  })
+
   it('fills a box the listing named by the word written in it', async () => {
     // The console's own query field, and the loop it used to cause: the
     // listing printed `textbox = ""`, the model had no name to copy, and every
@@ -376,6 +479,88 @@ describe('what stops a call', () => {
       message: 'e1 is now marked {class: el-tooltip el-icon-delete}, '
         + 'not {class: el-tooltip el-icon-edit} — the page changed.',
     }])
+  })
+
+  /**
+   * An icon a list item holds and a button, each named by what the page wrote
+   * on it and marked by its class: what a markup read prints a line for with
+   * no name.
+   */
+  const NAMED_BY_PAGE = '<main><ul><li>'
+    + '<i id="held" class="el-icon-edit" aria-label="编辑" style="background-image: url(edit.svg)"></i>'
+    + '</li></ul><button id="go" class="el-button">查询</button></main>'
+
+  it('refuses an element the page names, reached by an empty label and its class tokens, by saying what it is named', async () => {
+    // A markup tree prints an element's tag and class tokens and no name, so a
+    // step copied out of it carries an empty label and those tokens. The
+    // element is the one the step meant, and the step names it by its name.
+    mount(NAMED_BY_PAGE)
+    const options = { refs, budgetChars: ACCESS.outlineChars, isVisible, isClickable: looksClickable }
+    const request = { callId: 'call_0', tool: 'content_read_dom', args: { scope: refs.ref(at('main')) } } as const
+    const tree = markup(doc(), request, options).text
+    const icon = /(e\d+) i#held \{class: el-icon-edit\}/.exec(tree)?.[1] ?? ''
+    const button = /(e\d+) button#go \{class: el-button\}/.exec(tree)?.[1] ?? ''
+    expect({ icon: refs.resolve(icon), button: refs.resolve(button) }).toEqual({ icon: at('#held'), button: at('#go') })
+    const edited = listen(at('#held'), ['click'])
+    const queried = listen(at('#go'), ['click'])
+    const byIcon = await run([{ action: 'click', ref: icon, label: '', mark: 'el-icon-edit' }])
+    expect(byIcon.steps).toEqual([
+      { index: 1, status: 'failed', message: `${icon} is named "编辑" here; a step names it by label "编辑" and no mark.` },
+    ])
+    posted = []
+    cleanup()
+    const byButton = await run([{ action: 'click', ref: button, label: '', mark: 'el-button' }])
+    expect(byButton.steps).toEqual([
+      { index: 1, status: 'failed', message: `${button} is named "查询" here; a step names it by label "查询" and no mark.` },
+    ])
+    expect({ edited, queried }).toEqual({ edited: [], queried: [] })
+    posted = []
+    cleanup()
+    const byName = await run([
+      { action: 'click', ref: icon, label: '编辑' },
+      { action: 'click', ref: button, label: '查询' },
+    ])
+    expect(byName.steps).toEqual([{ index: 1, status: 'ok' }, { index: 2, status: 'ok' }])
+    expect({ edited, queried }).toEqual({ edited: ['click'], queried: ['click'] })
+  })
+
+  it('refuses a sprite drawing the page names, reached by an empty label and the class a markup tree printed, by saying what it is named', async () => {
+    // A markup tree prints a sprite drawing's `class` attribute alone, and the
+    // listing marks it by its class tokens and the symbol it points at, so a
+    // step copied out of the tree carries a mark the listing never printed.
+    mount('<main><ul><li>'
+      + '<svg id="sprite" class="svg-icon" aria-label="编辑"><use href="#icon-edit"></use></svg>'
+      + '</li></ul></main>')
+    const options = { refs, budgetChars: ACCESS.outlineChars, isVisible, isClickable: looksClickable }
+    const request = { callId: 'call_0', tool: 'content_read_dom', args: { scope: refs.ref(at('main')) } } as const
+    const tree = markup(doc(), request, options).text
+    const drawing = /(e\d+) svg#sprite \{class: svg-icon\}/.exec(tree)?.[1] ?? ''
+    expect(refs.resolve(drawing)).toBe(at('#sprite'))
+    const clicked = listen(at('#sprite'), ['click'])
+    const byTree = await run([{ action: 'click', ref: drawing, label: '', mark: 'svg-icon' }])
+    expect(byTree.steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: `${drawing} is named "编辑" here; a step names it by label "编辑" and no mark.`,
+    }])
+    expect(clicked).toEqual([])
+    posted = []
+    cleanup()
+    const byName = await run([{ action: 'click', ref: drawing, label: '编辑' }])
+    expect(byName.steps).toEqual([{ index: 1, status: 'ok' }])
+    expect(clicked).toEqual(['click'])
+  })
+
+  it('refuses an element the page names as a page that changed, where the step\'s mark is not one it carries', async () => {
+    mount(NAMED_BY_PAGE)
+    const held = ref('#held')
+    const seen = listen(at('#held'), ['click'])
+    at('#held').className = 'el-icon-delete'
+    const outcome = await run([{ action: 'click', ref: held, label: '', mark: 'el-icon-edit' }])
+    expect(seen).toEqual([])
+    expect(outcome.steps).toEqual([
+      { index: 1, status: 'failed', message: `${held} is now "编辑", not "" — the page changed.` },
+    ])
   })
 
   it('reports every step after the failure as skipped, and runs none of them', async () => {
@@ -811,7 +996,8 @@ describe('one name, printed and checked', () => {
     + '<table aria-label="设备">'
     + '<thead><tr><th>名称</th><th>操作</th></tr></thead>'
     + '<tbody><tr><td>mill-01</td>'
-    + '<td><a href="#x">详情</a><button class="el-button">编辑</button></td>'
+    + '<td><a href="#x">详情</a><button class="el-button">编辑</button>'
+    + '<i class="el-icon-view" aria-label="查看" style="background-image: url(view.svg)"></i></td>'
     + '</tr></tbody>'
     + '</table>'
     + '</main>'
@@ -862,10 +1048,11 @@ describe('one name, printed and checked', () => {
       // this reader was written for puts its edit and delete on.
       'link "详情"',
       'button "编辑"',
+      'icon "查看"',
     ])
     for (const row of printed) {
       const el = refs.resolve(row.ref)
-      expect({ ref: row.ref, name: el === undefined ? undefined : itemName(el, options()) })
+      expect({ ref: row.ref, name: el === undefined ? undefined : itemName(el, options(), doc()) })
         .toEqual({ ref: row.ref, name: row.name })
     }
 
@@ -900,18 +1087,18 @@ describe('one name, printed and checked', () => {
       + '<i id="loose" class="el-icon-star"></i>')
     expect({
       // Hidden: the walk turns back at it.
-      hidden: itemName(at('button'), options()),
+      hidden: itemName(at('button'), options(), doc()),
       // A drawing the page names nowhere is decoration.
-      blank: itemName(at('#blank'), options()),
+      blank: itemName(at('#blank'), options(), doc()),
       // So is an element a page marks with nothing but a class of its own.
-      loose: itemName(at('#loose'), options()),
+      loose: itemName(at('#loose'), options(), doc()),
       // The two rooms with names of their own.
-      table: itemName(at('table'), options()),
-      form: itemName(at('form'), options()),
+      table: itemName(at('table'), options(), doc()),
+      form: itemName(at('form'), options(), doc()),
       // A click target wrapping one control is that control, and prints no row.
-      wrap: itemName(at('#wrap'), options()),
+      wrap: itemName(at('#wrap'), options(), doc()),
       // One holding rows of its own is named by what it is titled.
-      card: itemName(at('#card'), options()),
+      card: itemName(at('#card'), options(), doc()),
     }).toEqual({
       hidden: '',
       blank: '',

@@ -7,7 +7,7 @@
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/render
  */
 import type { ReadKind } from '../../access/wire.ts'
-import { CLICKABLE_ROLE, FIELD_ROLES, OFFERED_ROLES, clipTo, elementMark } from './dom.ts'
+import { CLICKABLE_ROLE, FIELD_ROLES, ICON_ROLE, OFFERED_ROLES, clipTo, rowMark } from './dom.ts'
 import type {
   ContainerFace, ContainerItem, ControlFace, ControlState, ElementItem, Item, RowCell, SnapshotMode,
   SnapshotOptions, TableItem, TableRowItem, TextItem,
@@ -106,29 +106,30 @@ function quoted(name: string): string {
 }
 
 /**
- * The mark a row prints where a page offers something and names it nowhere.
+ * The mark a row prints where a page offers something and names it nowhere,
+ * and the class tokens a markup tree prints on every line.
  *
  * A row that would otherwise be `e17 clickable` and unusable becomes one the
  * model can point a step at: it carries the mark back, and the seat holds the
- * element to still carrying it. That is why {@link elementMark} prints every
- * token whole — the string is an identity to compare, not a summary to read.
+ * element to still carrying it. That is why every token is printed whole — the
+ * string is an identity to compare, not a summary to read.
  *
  * One brace on each side. The listing spends `"..."` on names and `(...)` on
  * its own asides, so braces are free for the page's own markup; two of them is
  * how the frameworks these consoles are written in spell an interpolation, and
  * a row printing `{{class: ...}}` reads as a template nobody rendered.
- * @param el - the element the row names.
+ * @param mark - the tokens: a listing row's {@link rowMark}, or the class
+ * tokens a markup line prints.
  * @returns the mark in braces, led by one space, or the empty string for an
- * element carrying no class.
+ * empty mark.
  */
-export function printedMark(el: Element): string {
-  const mark = elementMark(el)
+export function printedMark(mark: string): string {
   return mark === '' ? '' : ` {class: ${mark}}`
 }
 
 /**
  * What a row prints where a name goes: the name, or — for something the page
- * offers to act on and names nowhere — the mark its classes make.
+ * offers to act on and names nowhere — its mark.
  * @param el - the element the row names.
  * @param role - the role the row prints.
  * @param name - the accessible name.
@@ -136,7 +137,7 @@ export function printedMark(el: Element): string {
  */
 function named(el: Element, role: string, name: string): string {
   if (name !== '') return quoted(name)
-  return OFFERED_ROLES.has(role) ? printedMark(el) : ''
+  return OFFERED_ROLES.has(role) ? printedMark(rowMark(el)) : ''
 }
 
 /**
@@ -154,7 +155,7 @@ function within(face: ContainerFace | undefined): string {
 interface Counts {
   /** Fields the user fills in. */
   fields: number
-  /** Buttons and other click targets. */
+  /** Buttons, icons, and other click targets. */
   buttons: number
   /** Links. */
   links: number
@@ -197,7 +198,7 @@ function containerCounts(container: ContainerItem, items: readonly Item[]): stri
     if (item.kind === 'text') counts.texts += 1
     else if (item.kind === 'element') {
       if (FIELD_ROLES.has(item.role)) counts.fields += 1
-      else if (item.role === 'button' || item.role === CLICKABLE_ROLE) counts.buttons += 1
+      else if (item.role === 'button' || item.role === CLICKABLE_ROLE || item.role === ICON_ROLE) counts.buttons += 1
       else if (item.role === 'link') counts.links += 1
       else if (ITEM_ROLES.has(item.role)) counts.items += 1
       else counts.texts += 1

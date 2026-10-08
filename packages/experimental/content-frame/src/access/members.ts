@@ -19,7 +19,7 @@ import type { Context, Logger } from '@deepseek-ai/cordis'
 // Type-only: resolves ctx.loader, whose settling is when a mismatched composition is reported.
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 // Type-only: resolves ctx.consoleMembers, which places each request and each session.
-import type {} from '@deepseek-ai/dsh-experimental-console-members'
+import type {} from '@deepseek-ai/dsh-experimental-console-members/types'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { refuseUnread } from './http.ts'
 
@@ -67,7 +67,7 @@ export const placeEveryCaller: PlaceCaller = () => EVERY_CALLER
  */
 export function placeByMember(ctx: Context): PlaceCaller {
   return (req, route) => {
-    const members = ctx.get('consoleMembers')
+    const members: Context['consoleMembers'] | undefined = ctx.get('consoleMembers')
     if (members === undefined) {
       return { kind: 'refused', status: 503, error: `content-frame: ${route} needs the consoleMembers service, which is not running` }
     }

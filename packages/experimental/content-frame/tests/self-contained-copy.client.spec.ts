@@ -139,6 +139,7 @@ const ARGUMENTS: Record<string, readonly unknown[][]> = {
   hiddenReason: [['e3']],
   frontChangedRefusal: [['报表', '点位信息']],
   labelChangedReason: [['e5', '重置', '查询']],
+  namedHereReason: [['e22', '勾']],
   markChangedReason: [['e5', 'op op-b', 'op op-a']],
   occludedReason: [['e7', '编辑设备']],
   disabledReason: [['e4', '保存']],

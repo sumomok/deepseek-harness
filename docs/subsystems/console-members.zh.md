@@ -4,7 +4,7 @@
 
 `ctx.consoleMembers` 是控制台成员目录。一个控制台进程服务多位已登录成员时，每个替其中一位成员办事的插件——替请求背后的成员作答的 webServer 路由、替调用方作答的 Remote 方法、花会话所属者数据的工具、按成员各持一个 token 槽位的凭据解析器——都需要对「自己替哪位成员办事」得到同一个答案；这个目录就是这个答案唯一的出处。这个包声明这个键、不注册插件，本仓库里也没有任何东西提供它，所以 `inject: ['consoleMembers']` 永远解析不了，注入它的插件起不来。[包 README](../../packages/experimental/console-members/README.zh.md) 拥有类型声明和各项限制，下面的生成段落写着每个方法的契约；这一页记的是消费者从签名上读不出来的三个决定。
 
-来源：[`packages/experimental/console-members/src/index.ts`](../../packages/experimental/console-members/src/index.ts)。
+来源：[`packages/experimental/console-members/src/types.ts`](../../packages/experimental/console-members/src/types.ts)。
 
 ## 请求的成员只有一个出处
 
@@ -134,5 +134,5 @@ attachCustomerCredentials(reader: CustomerCredentialReader): () => void
 
 Types: [SessionId](core.zh.md)
 
-Source: [`packages/experimental/console-members/src/index.ts`](../../packages/experimental/console-members/src/index.ts)
+Source: [`packages/experimental/console-members/src/types.ts`](../../packages/experimental/console-members/src/types.ts)
 <!-- END GENERATED cordis-surface -->

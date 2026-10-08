@@ -38,7 +38,8 @@ const PRESENTATION: Readonly<Record<PageNotice, Presentation>> = {
 }
 
 /**
- * Draw the current notice at the top of the page, clear of the composer.
+ * Draw the current notice at the top of the page, clear of the composer, on
+ * one line; the sentence's title carries it whole where the line cuts it.
  * @param props - the bound banner state, the reload action, and the dictionary.
  * @returns the banner, or `null` when there is nothing to say.
  */
@@ -49,7 +50,7 @@ export function PageRefreshBanner({ usePageRefresh, reloadPage, t }: PageRefresh
   return (
     <div className={[css.banner, css[tone]].join(' ')} role="status" data-page-refresh-notice={notice}>
       {busy && <span className={css.icon} aria-hidden="true"><StateDot state="ongoing" /></span>}
-      <span className={css.text}>{t(text)}</span>
+      <span className={css.text} title={t(text)}>{t(text)}</span>
       {reload && <Button variant="primary" size="sm" onClick={reloadPage}>{t('reload.label')}</Button>}
     </div>
   )

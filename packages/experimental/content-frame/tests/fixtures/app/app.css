@@ -4,3 +4,22 @@
   color: rgb(0, 128, 0);
   font-family: system-ui, sans-serif;
 }
+
+/* The command the faulted row draws as a bare class, with its glyph written
+   into `::before` the way an icon font writes one — the private use code point
+   element-ui 2.15.14 gives `el-icon-warning`: a leaf that paints a colour and
+   nothing else draws no icon, and a reader shows what a user can see. */
+.el-icon-warning {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin-left: 8px;
+  color: rgb(230, 162, 60);
+  font-style: normal;
+  line-height: 16px;
+  text-align: center;
+}
+
+.el-icon-warning::before {
+  content: "\e7a3";
+}

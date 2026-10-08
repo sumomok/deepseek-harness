@@ -46,6 +46,6 @@ Status: implemented
 
 按成员持有的控制台没有 MCP 转发，所以 MCP 工具做的写入——iot 写入也在其中——记在 console-mcp 的服务账号名下，而不是提出请求的那位成员名下。没有成员目录在跑的按成员进程，在 token 路由和登出路由上答 503；报告它的那条 error 日志在 Loader 树安定下来时才写，因为 Cordis 没有宿主就绪事件。
 
-auth-gate 从 `@deepseek-ai/dsh-experimental-console-members` 导入成员目录的类型，`Context.consoleMembers` 由那个包声明。在有插件提供这个服务之前，开了 `perMember` 的那一行，token 路由和退出路由都答 503。
+auth-gate 从 `@deepseek-ai/dsh-experimental-console-members/types` 导入成员目录的类型，`Context.consoleMembers` 由那个包声明。在有插件提供这个服务之前，开了 `perMember` 的那一行，token 路由和退出路由都答 503。
 
 没有哪个已发布 profile 设 `perMember`，所以没有录制会话快照覆盖它。`packages/experimental/auth-gate/tests/per-member.client.spec.ts` 经 Loader 启动这道闸，配一个测试专用的成员目录行，覆盖两位成员的 token、子会话、401/409/503 三种拒绝、读取器的借出及其被拒，以及释放。

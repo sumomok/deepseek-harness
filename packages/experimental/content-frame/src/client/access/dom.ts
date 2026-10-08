@@ -1,8 +1,8 @@
 /**
  * What the walk knows about a page: HTML and ARIA, and nothing about any
  * particular application. Layout is not one of them — jsdom has none and a
- * frame's layout belongs to the frame — so visibility and geometry arrive as
- * injected functions and only reach the DOM through the caller.
+ * frame's layout belongs to the frame — so visibility, geometry and computed
+ * style arrive as injected functions and only reach the DOM through the caller.
  *
  * `getComputedStyle` and `computeAccessibleName` read through the shell's own
  * window, which reaches elements of every same-origin frame the walk enters.
@@ -167,14 +167,21 @@ const GLOBAL_ARIA_SELECTOR = [
 export const CLICKABLE_ROLE = 'clickable'
 
 /**
- * The mark a row carries for something the page offers and names nowhere: every
- * class token the element holds, in the order it holds them, separated by one
- * space, and empty for an element carrying no class.
+ * The role a snapshot gives an element {@link isIconShape} accepts where a
+ * table cell or a repeated item holds it; see {@link heldByItem}.
+ */
+export const ICON_ROLE = 'icon'
+
+/**
+ * The class tokens an element holds, in the order it holds them, separated by
+ * one space, and empty for an element carrying no class. This is the string a
+ * markup tree prints as `{class: …}`; the mark a listing row prints is
+ * {@link rowMark}, which starts from it.
  *
- * Whole and uncut, because this string is that row's identity: the listing
- * prints it, a step naming that row carries it back, and the seat recomputes it
- * here and compares the two character for character. A cut would leave the
- * seat comparing a mark against a shortened copy of itself.
+ * Whole and uncut, because a row's mark is that row's identity: a read prints
+ * it, a step naming that row carries it back, and the seat recomputes it and
+ * compares the two character for character. A cut would leave the seat
+ * comparing a mark against a shortened copy of itself.
  *
  * Nothing is read out of the tokens. They are the page's own spelling, printed
  * as they stand, and what they mean is for whoever knows the application.
@@ -186,15 +193,267 @@ export function elementMark(el: Element): string {
 }
 
 /**
+ * What the first `use` inside a drawing points at: the part of its `href` — or,
+ * where it has none, its `xlink:href` — after the `#`, whatever path or host
+ * stands in front of it. The whitespace a URL parser drops around a reference
+ * is no part of it.
+ * @param el - the drawing.
+ * @returns the symbol id, or the empty string where no `use` points at one.
+ */
+function spriteSymbol(el: Element): string {
+  const use = el.querySelector('use')
+  if (use === null) return ''
+  const reference = (use.getAttribute('href') ?? use.getAttribute('xlink:href') ?? '').trim()
+  const at = reference.indexOf('#')
+  return at === -1 ? '' : reference.slice(at + 1)
+}
+
+/**
+ * The mark a row carries for something the page offers and names nowhere:
+ * {@link elementMark}, and for an `svg` whose first `use` points at a symbol,
+ * those tokens followed by the symbol id, one space between them. A sprite
+ * sheet draws every command with the same class and writes which command it is
+ * only in the reference, so `<svg class="svg-icon"><use href="#icon-edit">`
+ * is marked `svg-icon icon-edit` and `<svg><use href="#icon-edit">` is marked
+ * `icon-edit`. A symbol id the class already holds as a whole token is not
+ * added again.
+ *
+ * The listing prints this and the seat checks a step's `mark` against it, or
+ * against the {@link elementMark} a markup tree prints for the same element,
+ * so each comparison is of one string computed one way.
+ * @param el - the element to mark.
+ * @returns the mark, or the empty string for an element carrying neither.
+ */
+export function rowMark(el: Element): string {
+  const tokens = elementMark(el)
+  if (el.localName !== 'svg') return tokens
+  const symbol = spriteSymbol(el)
+  if (symbol === '' || el.classList.contains(symbol)) return tokens
+  return tokens === '' ? symbol : `${tokens} ${symbol}`
+}
+
+/**
  * The roles of the things a page offers to act on, the click target it declares
- * no role for included. What a row under one of these says is what the model
- * can point a step at, so a row printing one of them and no name is a row it
- * cannot use.
+ * no role for and the icon included. What a row under one of these says is what
+ * the model can point a step at, so a row printing one of them and no name is a
+ * row it cannot use.
  */
 export const OFFERED_ROLES: ReadonlySet<string> = new Set([
-  CLICKABLE_ROLE, 'button', 'link', 'tab', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option',
+  CLICKABLE_ROLE, ICON_ROLE, 'button', 'link', 'tab', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option',
   'treeitem', ...FIELD_ROLES,
 ])
+
+/** The roles of an element that is itself one of a run of items a page repeats. */
+const REPEATED_ITEM_ROLES: ReadonlySet<string> = new Set(['listitem', 'row', 'treeitem', 'option'])
+
+/**
+ * True for an element that is itself one of a run of items a page repeats: a
+ * `<tr>` whatever role the page gives it, a list item, a row, a tree node, an
+ * option, and an article of a feed.
+ * @param el - the element to classify.
+ * @returns whether the element is a repeated item.
+ */
+export function isRepeatedItem(el: Element): boolean {
+  if (el.localName === 'tr') return true
+  const role = roleOf(el)
+  if (role !== null && REPEATED_ITEM_ROLES.has(role)) return true
+  return role === 'article' && el.matches('[role~="feed"] *')
+}
+
+/**
+ * The element an element is drawn inside within its own document: its parent,
+ * or the host of the shadow root it stands at the top of.
+ * @param el - the element.
+ * @returns the element around it, or undefined at the top of its document.
+ */
+function treeParent(el: Element): Element | undefined {
+  if (el.parentElement !== null) return el.parentElement
+  const tree = el.getRootNode()
+  return tree.nodeType === tree.DOCUMENT_FRAGMENT_NODE && 'host' in tree ? (tree as ShadowRoot).host : undefined
+}
+
+/**
+ * The element an element is drawn inside: its {@link treeParent}, or the frame
+ * holding the document it is the root of, up to the document a read started
+ * from.
+ * @param el - the element.
+ * @param root - the document the read started from.
+ * @returns the element around it, or undefined at the top of that document.
+ */
+function composedParent(el: Element, root: Document): Element | undefined {
+  const parent = treeParent(el)
+  if (parent !== undefined) return parent
+  if (el.ownerDocument === root) return undefined
+  /* v8 ignore next -- a document the walk entered through a frame has a window, and that window a frame element. */
+  return el.ownerDocument.defaultView?.frameElement ?? undefined
+}
+
+/**
+ * True for an element some repeated item holds, through shadow roots and frames
+ * up to the document a read started from; see {@link isRepeatedItem}.
+ * @param el - the element.
+ * @param root - the document the read started from.
+ * @returns whether a repeated item encloses the element.
+ */
+export function heldByItem(el: Element, root: Document): boolean {
+  for (let at = composedParent(el, root); at !== undefined; at = composedParent(at, root)) {
+    if (isRepeatedItem(at)) return true
+  }
+  return false
+}
+
+/** The two pseudo-elements a page writes generated content into, which is where an icon font draws its glyph. */
+export type GeneratedPseudo = '::before' | '::after'
+
+/** The one read the walk makes of a computed style. */
+export type StyleRead = Pick<CSSStyleDeclaration, 'getPropertyValue'>
+
+/**
+ * The computed style of an element, or of one of its {@link GeneratedPseudo}s,
+ * as `window.getComputedStyle` answers it.
+ */
+export type ComputedStyleOf = (el: Element, pseudo?: GeneratedPseudo) => StyleRead
+
+/**
+ * The computed style a read uses where it injects none: the one the window an
+ * element is drawn in computes.
+ * @param el - the element.
+ * @param pseudo - one of its generated-content pseudo-elements, or the element itself when omitted.
+ * @returns the computed style.
+ */
+export function computedStyleOf(el: Element, pseudo?: GeneratedPseudo): CSSStyleDeclaration {
+  return viewOf(el).getComputedStyle(el, pseudo)
+}
+
+/** The tags that draw a picture by being what they are. */
+const PICTURE_TAGS: ReadonlySet<string> = new Set(['svg', 'img'])
+
+/** The properties an element paints an image of its own through. */
+const PICTURE_PROPERTIES = ['background-image', 'mask-image', '-webkit-mask-image'] as const
+
+/**
+ * The values of a picture property that paint nothing: its initial value, and
+ * the empty answer of an engine that does not compute the property at all.
+ */
+const NO_PICTURE: ReadonlySet<string> = new Set(['none', ''])
+
+/** The pseudo-elements an icon font writes its glyph into. */
+const GENERATED_PSEUDOS: readonly GeneratedPseudo[] = ['::before', '::after']
+
+/**
+ * A code point in one of Unicode's three private use areas: U+E000–U+F8FF,
+ * U+F0000–U+FFFFD and U+100000–U+10FFFD. An icon font maps its glyphs there;
+ * the placeholders and symbols a page writes as text are not spelled there.
+ */
+const PRIVATE_USE = /[\u{E000}-\u{F8FF}\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]/u
+
+/**
+ * One escape in a CSS value: a backslash and one to six hex digits, with the
+ * one whitespace after them that ends the escape, or a backslash and the
+ * character it stands for.
+ */
+const CSS_ESCAPE = /\\(?:([0-9a-fA-F]{1,6})(?:\r\n|[ \t\n\r\f])?|[\s\S])/gu
+
+/** The last code point Unicode defines. */
+const LAST_CODE_POINT = 0x10FFFF
+
+/**
+ * The character a hex escape stands for, by the CSS rules: U+FFFD for zero, for
+ * a surrogate, and for a value past {@link LAST_CODE_POINT}.
+ * @param hex - the escape's hex digits.
+ * @returns the character.
+ */
+function escapedCharacter(hex: string): string {
+  const point = Number.parseInt(hex, 16)
+  const replaced = point === 0 || (point >= 0xD800 && point <= 0xDFFF) || point > LAST_CODE_POINT
+  return replaced ? '�' : String.fromCodePoint(point)
+}
+
+/**
+ * A CSS value with every escape in it replaced by the character it stands for.
+ * Chromium answers a private use character in a computed `content` as the
+ * character itself, and a stylesheet writes it as an escape (`"\e78c"`); both
+ * spellings decode to the same character. The value is read left to right, so
+ * an escaped backslash (`"\\e78c"`) is a backslash and the digits after it are
+ * text.
+ * @param value - the value as written or serialized.
+ * @returns the decoded value.
+ */
+function decodeEscapes(value: string): string {
+  return value.replace(CSS_ESCAPE, (escape: string, hex: string | undefined) =>
+    (hex === undefined ? escape.slice(1) : escapedCharacter(hex)))
+}
+
+/** A double-quoted string in a serialized CSS value, its escapes included. */
+const CSS_STRING = /"(?:[^"\\]|\\[\s\S])*"/gu
+
+/**
+ * A function that generates an image in `content`: `url()`, `image-set()`, and
+ * a linear, radial or conic gradient. It matches the end of the function's
+ * name, so `-webkit-image-set(` and the `repeating-` gradients match too.
+ */
+const PICTURE_FUNCTION = /(?:url|image-set|(?:linear|radial|conic)-gradient)\(/iu
+
+/**
+ * True for a computed `content` that draws a picture: one holding a private use
+ * character (see {@link PRIVATE_USE}), raw or escaped, or one of the functions
+ * {@link PICTURE_FUNCTION} names outside its strings.
+ *
+ * Everything else is text or nothing: the placeholder a page draws an empty
+ * value with (`"--"`), a symbol spelled as an ordinary character (`"✓"`), what
+ * `attr()`, a counter and a quote resolve to, the empty string a page writes to
+ * give a pseudo-element a box and no glyph — a clearfix, or a tick drawn with a
+ * border — and `none`, `normal`, or the empty answer of an engine that
+ * computes no `content` for a pseudo-element.
+ * @param content - the computed value.
+ * @returns whether the value draws a picture.
+ */
+function generatesPicture(content: string): boolean {
+  return PICTURE_FUNCTION.test(content.replace(CSS_STRING, '""')) || PRIVATE_USE.test(decodeEscapes(content))
+}
+
+/**
+ * True for an element that draws a picture: an `svg` or an `img`, an element
+ * painting an image as its background or through its mask, or one whose
+ * `::before` or `::after` generates a glyph or an image (see
+ * {@link generatesPicture}). What decides is how the element renders and not
+ * what it is called, and the element's own properties are read before its two
+ * pseudo-elements.
+ * @param el - the element to classify.
+ * @param computedStyle - injected computed style.
+ * @returns whether the element draws a picture.
+ */
+function drawsPicture(el: Element, computedStyle: ComputedStyleOf): boolean {
+  if (PICTURE_TAGS.has(el.localName)) return true
+  const own = computedStyle(el)
+  if (PICTURE_PROPERTIES.some(property => !NO_PICTURE.has(own.getPropertyValue(property)))) return true
+  return GENERATED_PSEUDOS.some(pseudo => generatesPicture(computedStyle(el, pseudo).getPropertyValue('content')))
+}
+
+/**
+ * True for an element drawn the way an icon is: no role, no element inside it
+ * and no text of its own, a {@link rowMark} to be named by, and a picture it
+ * draws (see {@link drawsPicture}). An `svg` is one drawing whatever shapes it
+ * is built from, so what it holds is neither its children nor its text here.
+ *
+ * An `img` meets the first condition only where the page wrote a role ARIA
+ * does not define, which reads as no role: HTML gives every other `img` the
+ * role `img`, or `presentation` for an empty `alt`, and it is read by that role.
+ *
+ * No class token is read for what it says, and no cursor decides it. Where it
+ * counts is the caller's: a table cell, or a repeated item (see
+ * {@link heldByItem}).
+ * @param el - the element to classify.
+ * @param isVisible - injected visibility.
+ * @param computedStyle - injected computed style.
+ * @returns whether the element draws an icon.
+ */
+export function isIconShape(el: Element, isVisible: (el: Element) => boolean, computedStyle: ComputedStyleOf): boolean {
+  if (roleOf(el) !== null || rowMark(el) === '') return false
+  const leaf = el.localName === 'svg'
+    || (childHost(el).children.length === 0 && drawsNothing(visibleText(el, isVisible)))
+  return leaf && drawsPicture(el, computedStyle)
+}
 
 /**
  * The roles HTML itself gives an element that `dom-accessibility-api` does not

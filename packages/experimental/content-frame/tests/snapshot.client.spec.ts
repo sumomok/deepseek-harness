@@ -6,20 +6,56 @@
  * and the refusal of a ref the page no longer has.
  *
  * Visibility arrives injected, as it does in the browser: these fixtures
- * declare it with `data-hidden` because jsdom shows everything.
+ * declare it with `data-hidden` because jsdom shows everything. The computed
+ * style of a pseudo-element arrives injected too, because jsdom computes none:
+ * a fixture declares what an icon font writes into `::before` and `::after`
+ * with `data-before` and `data-after`.
  */
 import { getRole } from 'dom-accessibility-api'
 import { afterEach, describe, expect, it } from 'vitest'
 import { RefTable } from '../src/client/access/refs.ts'
 import { itemName } from '../src/client/access/collect.ts'
+import type { GeneratedPseudo, StyleRead } from '../src/client/access/dom.ts'
 import { snapshot, type Snapshot, type SnapshotOptions } from '../src/client/access/snapshot.ts'
 
 /** The parts of a read a test varies. */
-type Ask = Partial<Pick<SnapshotOptions, 'mode' | 'scope' | 'after' | 'find' | 'isClickable' | 'budgetChars'>>
+type Ask = Partial<Pick<SnapshotOptions, 'mode' | 'scope' | 'after' | 'find' | 'isClickable' | 'computedStyle' | 'budgetChars'>>
 
 /** Hidden by marker, and hidden inside anything marked hidden. */
 function isVisible(el: Element): boolean {
   return el.closest('[data-hidden]') === null
+}
+
+/**
+ * The computed style of an element as jsdom computes it from the `style`
+ * attribute and the page's sheets, and of its `::before` or `::after` as the
+ * fixture declares it: a `content` of whatever `data-before` or `data-after`
+ * holds, as a browser serializes it, and `none` where it holds nothing.
+ * @param el - the element.
+ * @param pseudo - one of its pseudo-elements, or the element itself when omitted.
+ * @returns the style.
+ */
+function computedStyle(el: Element, pseudo?: GeneratedPseudo): StyleRead {
+  if (pseudo === undefined) return getComputedStyle(el)
+  const content = el.getAttribute(pseudo === '::before' ? 'data-before' : 'data-after') ?? 'none'
+  return { getPropertyValue: property => (property === 'content' ? content : '') }
+}
+
+/**
+ * The glyph an icon font draws an icon with, written into its `::before` the
+ * way element-ui 2.15.14's `el-icon-edit` writes `content: "\e78c"`, and
+ * serialized as a browser answers it: the private use character itself.
+ */
+const GLYPH = 'data-before=\'"\ue78c"\''
+
+/**
+ * One leaf per value, each writing that value into its `::before` and carrying
+ * the class `g1`, `g2`, \u2026 by its position.
+ * @param values - the computed `content` of each leaf's `::before`.
+ * @returns the markup.
+ */
+function leaves(...values: string[]): string {
+  return values.map((value, at) => `<i class="g${at + 1}" data-before='${value}'></i>`).join('')
 }
 
 /** Put one page up, with a fresh numbering. */
@@ -30,7 +66,7 @@ function page(html: string): RefTable {
 
 /** Read the page up. */
 function read(refs: RefTable, ask: Ask = {}): Snapshot {
-  return snapshot(document, { refs, budgetChars: 4000, isVisible, ...ask })
+  return snapshot(document, { refs, budgetChars: 4000, isVisible, computedStyle, ...ask })
 }
 
 /** The ref of one element, which the read has already numbered. */
@@ -44,6 +80,19 @@ afterEach(() => {
   document.body.innerHTML = ''
   document.title = ''
 })
+
+/** One table of one data row whose second cell holds `inside`. */
+function tableOf(inside: string): string {
+  return '<table aria-label="设备">'
+    + '<thead><tr><th>名称</th><th>操作</th></tr></thead>'
+    + `<tbody><tr><td>东风站</td><td><div class="ops">${inside}</div></td></tr></tbody></table>`
+}
+
+/** The listed row of the one table on the page. */
+function rowOf(refs: RefTable, ask: Ask = {}): string {
+  read(refs, ask)
+  return read(refs, { ...ask, scope: refOf(refs, 'table') }).text.split('\n')[2] ?? ''
+}
 
 const CONSOLE = `
 <main aria-label="站点管理">
@@ -1953,25 +2002,26 @@ describe('a drawing the page only draws', () => {
     <table>
       <thead><tr><th>名称</th><th>操作</th></tr></thead>
       <tbody><tr><td>东风站</td><td><div class="cell">
-        <i class="el-tooltip operation-modify el-icon-edit"></i>
-        <span class="el-popover__reference"><i class="el-icon-delete"></i></span>
+        <i class="el-tooltip operation-modify el-icon-edit" ${GLYPH}></i>
+        <span class="el-popover__reference"><i class="el-icon-delete" ${GLYPH}></i></span>
         <div data-hidden>确定删除吗？ 取消</div>
       </div></td></tr></tbody>
     </table>`
 
-  it('reads a drawing the page marks with nothing but a class as nothing at all', () => {
-    // A class is a page's own spelling, and nothing a specification defines
-    // says these elements are there. The column reads as the empty cell the
-    // document says it is, and what those drawings mean is for a skill that
-    // knows this application to say.
+  it('reads a drawing a cell holds with nothing but a class as an icon of that cell', () => {
+    // The structure is what counts: an element holding no element and no text
+    // and carrying a class is a control of the cell it is drawn in. The class
+    // is printed as the row's mark and nothing is read out of it, and the
+    // wrapper around the second command is read through to the icon inside it.
     const refs = page(ROW_COMMANDS)
     expect(read(refs).text).toBe([
       'e1 table 1 rows × 2 cols',
       '  header: 名称 | 操作',
-      '  sample: 东风站 | ',
+      '  sample: 东风站 | [icon icon]',
       "  rows: pass scope with this table's ref to list rows, or find a row by its text",
     ].join('\n'))
-    expect(read(refs, { scope: refOf(refs, 'table') }).text.split('\n')[2]).toBe('  row 1: 东风站 | ')
+    expect(read(refs, { scope: refOf(refs, 'table') }).text.split('\n')[2])
+      .toBe('  row 1: 东风站 | e3 icon {class: el-tooltip operation-modify el-icon-edit}  e4 icon {class: el-icon-delete}')
   })
 
   it('reads a drawing the page named, wherever the page wrote the name', () => {
@@ -1995,6 +2045,702 @@ describe('a drawing the page only draws', () => {
       // about it; the one after it says nothing at all and prints nothing.
       '  e5 clickable {class: el-icon-star} (in toolbar "操作")',
     ].join('\n'))
+  })
+})
+
+/** An option holding its text and an icon in one `span`. */
+const OPTION_SCOPED = '<div role="listbox" aria-label="选项"><div role="option">'
+  + `<span id="inside">甲<i class="o" ${GLYPH}></i></span></div></div>`
+
+/** A tick box a `label` draws beside its square, in a cell. */
+const CELL_TICK = tableOf(`<label><span class="el-checkbox__inner" ${GLYPH}></span><input type="checkbox" aria-label="选中"></label>`)
+
+/** A tick box a `label` draws beside its square, in a list item. */
+const ITEM_TICK = `<ul><li><label><span class="el-checkbox__inner" ${GLYPH}></span><input type="checkbox">选中</label></li></ul>`
+
+/** A cell's commands: named by `aria-label`, by a drawing's own label, by nothing, and by the words inside one. */
+const NAMED_COMMANDS = tableOf(`<i id="named" class="el-icon-edit" aria-label="编辑" ${GLYPH}></i>`
+  + `<svg id="drawn" aria-label="查看"><use href="#icon-view"></use></svg><i id="bare" class="el-icon-delete" ${GLYPH}></i>`
+  + `<i id="worded" class="el-icon-share" ${GLYPH}>分享</i>`)
+
+/** Icons named `勾` in a list: inside a `label` naming a tick box, inside a group in one, and beside none. */
+const LABELLED_ICONS = '<ul aria-label="标签列表">'
+  + `<li><label><input type="checkbox"><i id="tick" class="x" aria-label="勾" ${GLYPH}></i></label></li>`
+  + '<li><label><input type="checkbox"><svg id="drawn" class="s" aria-label="勾"><use href="#tick"></use></svg></label></li>'
+  + `<li><label><input type="checkbox"><span role="group"><i id="grouped" class="x" aria-label="勾" ${GLYPH}></i></span></label></li>`
+  + `<li><i id="loose" class="x" aria-label="勾" ${GLYPH}></i></li></ul>`
+
+/**
+ * Icons held directly by what the walk prints as one row, or by the label area
+ * of a named node holding a group: a named node, an option, and a button in a
+ * cell. Beside them, an icon in a node the page named nothing and one in the
+ * cell itself.
+ */
+const UNREAD_ICONS = '<ul role="tree" aria-label="区域">'
+  + `<li role="treeitem" aria-label="节点甲"><i id="t1" class="x" aria-label="勾" ${GLYPH}></i>甲`
+  + '<ul role="group"><li role="treeitem">乙</li></ul></li>'
+  + `<li role="treeitem" aria-label="节点丙"><i id="t2" class="x" aria-label="勾" ${GLYPH}></i></li>`
+  + `<li role="treeitem"><i id="t3" class="x" aria-label="勾" ${GLYPH}></i></li></ul>`
+  + '<ul role="listbox" aria-label="选项">'
+  + `<li role="option" aria-label="选项一"><i id="o1" class="x" aria-label="勾" ${GLYPH}></i></li></ul>`
+  + tableOf(`<button aria-label="删除"><i id="b1" class="x" aria-label="勾" ${GLYPH}></i></button>`
+    + `<i id="c1" class="y" aria-label="编辑" ${GLYPH}></i>`)
+
+/**
+ * Icons named `勾`, each in a `span` that a named option, a named single-row
+ * tree node, a button in a list item, or a `label` naming a tick box holds.
+ */
+const WRAPPED_ICONS = '<div role="listbox" aria-label="选项"><div role="option" aria-label="选项一">'
+  + `<span id="inside">甲<i id="o1" class="x" aria-label="勾" ${GLYPH}></i></span></div></div>`
+  + '<ul role="tree" aria-label="区域"><li role="treeitem" aria-label="节点丙">'
+  + `<span id="t2in"><i id="t2" class="x" aria-label="勾" ${GLYPH}></i>丙</span></li></ul>`
+  + `<ul><li><button aria-label="删除"><span id="bin"><i id="b2" class="x" aria-label="勾" ${GLYPH}></i></span></button></li>`
+  + `<li><label><input type="checkbox"><span id="lin"><i id="l1" class="x" aria-label="勾" ${GLYPH}></i></span></label></li></ul>`
+
+/**
+ * A tick box a `label` in a cell draws beside an icon the page makes clickable
+ * and names `勾`.
+ */
+const CLICKABLE_TICK = tableOf('<label><input type="checkbox" aria-label="选中">'
+  + `<i id="lt" class="x" aria-label="勾" data-pointer ${GLYPH}></i></label>`)
+
+/**
+ * Icons named `勾`, each held directly by what a whole-page read prints as one
+ * row or reads as a control's name: a button in a table's header, a button in
+ * a cell of a treegrid a cell holds, a `label` in a cell naming a tick box, a
+ * button in an article of a feed, a menu item named by its words, an item of
+ * a menu another item holds, an option named by nothing but the icon, and an
+ * option named by its words.
+ */
+const HELD_DIRECTLY = '<table aria-label="设备"><thead><tr><th>名称</th>'
+  + `<th>操作<button aria-label="排序"><i id="th" class="x" aria-label="勾" ${GLYPH}></i></button></th></tr></thead>`
+  + '<tbody><tr><td>东风站</td><td><div role="treegrid" aria-label="子表"><div role="row"><div role="gridcell">'
+  + `<button aria-label="展开"><i id="tg" class="x" aria-label="勾" ${GLYPH}></i></button></div></div></div>`
+  + `<label><input type="checkbox" aria-label="选中"><i id="lc" class="x" aria-label="勾" ${GLYPH}></i></label>`
+  + '</td></tr></tbody></table>'
+  + '<div role="feed" aria-label="动态"><article aria-label="第一条">'
+  + `<button aria-label="点赞"><i id="fa" class="x" aria-label="勾" ${GLYPH}></i></button></article></div>`
+  + '<ul><li><div role="menu" aria-label="菜单">'
+  + `<div role="menuitem">打开<i id="mc" class="x" aria-label="勾" ${GLYPH}></i></div>`
+  + '<div role="menuitem" aria-label="更多">更多<div role="menu" aria-label="子菜单">'
+  + `<div role="menuitem" aria-label="复制"><i id="ms" class="x" aria-label="勾" ${GLYPH}></i></div>`
+  + '</div></div></div></li></ul>'
+  + '<div role="listbox" aria-label="选项">'
+  + `<div role="option"><i id="on" class="x" aria-label="勾" ${GLYPH}></i></div>`
+  + `<div role="option">乙<i id="ot" class="x" aria-label="勾" ${GLYPH}></i></div></div>`
+
+/** A table drawing an icon in its header and one in each of its two rows. */
+const HEADED_ICONS = '<table aria-label="设备"><thead><tr><th>名称</th>'
+  + `<th>操作<i id="h1" class="el-icon-setting" aria-label="设置" ${GLYPH}></i></th></tr></thead><tbody>`
+  + `<tr><td>东风站</td><td><i id="r1" class="el-icon-edit" aria-label="编辑" ${GLYPH}></i></td></tr>`
+  + `<tr><td>朝阳站</td><td><i id="r2" class="el-icon-view" aria-label="查看" ${GLYPH}></i></td></tr></tbody></table>`
+
+/**
+ * Put one page up and find the icons it draws.
+ * @param html - the page.
+ * @param selector - what its icons match.
+ * @returns the icons, in document order.
+ */
+function shown(html: string, selector: string): Element[] {
+  document.body.innerHTML = html
+  return [...document.querySelectorAll(selector)]
+}
+
+/**
+ * The one element a query finds, or a failed fixture.
+ * @param el - what the query answered.
+ * @returns the element.
+ */
+function found(el: Element | null): Element {
+  if (el === null) throw new Error('fixture has no such element')
+  return el
+}
+
+/**
+ * The document of the page's first frame.
+ * @returns the document.
+ */
+function frameDocument(): Document {
+  const inner = document.querySelector('iframe')?.contentDocument
+  if (inner === null || inner === undefined) throw new Error('jsdom gave the frame no document')
+  return inner
+}
+
+/**
+ * Put up a list of three items, each holding a click target with a heading
+ * and an icon: in the page, in an open shadow root, and in a frame.
+ * @returns the three icons.
+ */
+function itemsAcrossTrees(): Element[] {
+  document.body.innerHTML = `<ul><li><div data-pointer><h3>东风站</h3><i class="el-icon-edit" ${GLYPH}></i></div></li>`
+    + '<li><div id="host"></div></li><li><iframe title="明细"></iframe></li></ul>'
+  const shadow = found(document.querySelector('#host')).attachShadow({ mode: 'open' })
+  shadow.innerHTML = `<div data-pointer><h3>朝阳站</h3><i class="el-icon-view" ${GLYPH}></i></div>`
+  const inner = frameDocument()
+  inner.body.innerHTML = `<div data-pointer><h3>西湖站</h3><i class="el-icon-delete" ${GLYPH}></i></div>`
+  return [document.querySelector('i'), shadow.querySelector('i'), inner.querySelector('i')].map(found)
+}
+
+/**
+ * Put up a list item holding a frame whose page draws one icon, named `编辑`.
+ * @returns the icon.
+ */
+function itemInFrame(): Element {
+  document.body.innerHTML = '<ul><li><iframe title="明细"></iframe></li></ul>'
+  const inner = frameDocument()
+  inner.body.innerHTML = `<i id="edit" class="el-icon-edit" aria-label="编辑" ${GLYPH}></i>`
+  return found(inner.querySelector('#edit'))
+}
+
+/**
+ * The element one element is drawn inside: its parent, the host of the shadow
+ * root it tops, or the frame holding its document.
+ * @param el - the element.
+ * @returns the element around it, or null at the top of the page.
+ */
+function outside(el: Element): Element | null {
+  if (el.parentElement !== null) return el.parentElement
+  const tree = el.getRootNode()
+  return tree instanceof ShadowRoot ? tree.host : el.ownerDocument.defaultView?.frameElement ?? null
+}
+
+/**
+ * Every element one element is drawn inside, nearest first: each is a scope a
+ * read can be asked for.
+ * @param el - the element.
+ * @returns the elements around it.
+ */
+function around(el: Element): Element[] {
+  const elements: Element[] = []
+  for (let at = outside(el); at !== null; at = outside(at)) elements.push(at)
+  return elements
+}
+
+/**
+ * The name each row of one listing naming an element prints for it: the quoted
+ * name, or the empty string where the row prints a mark. The `[eN opens]` on a
+ * field's row is no row of the element's own.
+ * @param text - the listing.
+ * @param refs - the numbering it was printed with.
+ * @param el - the element.
+ * @returns one name per row.
+ */
+function printedNames(text: string, refs: RefTable, el: Element): string[] {
+  return [...text.matchAll(/(?<![\w[])(e\d+) [a-z]+(?: "([^"]*)")?/gu)]
+    .filter(match => refs.resolve(match[1] ?? '') === el)
+    .map(match => match[2] ?? '')
+}
+
+/**
+ * The icons whose names disagree: one that two reads print two names for, one
+ * printed under a name `itemName` does not answer, and one no read prints a
+ * row for that `itemName` names anything. The reads asked are one scoped at
+ * the icon itself, the whole page, and one scoped at each element around the
+ * icon.
+ * @param label - what the page is called in the answer.
+ * @param icons - the icons on the page.
+ * @param ask - how the page is read.
+ * @returns one line per icon that disagrees, saying every name it was printed with.
+ */
+function disagreements(label: string, icons: readonly Element[], ask: Ask): string[] {
+  const refs = new RefTable()
+  const options = { refs, budgetChars: 100_000, isVisible, computedStyle, ...ask }
+  return icons.flatMap((icon) => {
+    const printed = [icon, undefined, ...around(icon)].flatMap(scope => printedNames(
+      snapshot(document, scope === undefined ? options : { ...options, scope: refs.ref(scope) }).text, refs, icon))
+    const named = itemName(icon, options, document)
+    if (printed.every(name => name === named) && (printed.length > 0 || named === '')) return []
+    const which = icon.id === '' ? `.${icon.getAttribute('class') ?? ''}` : `#${icon.id}`
+    return [`${label} ${which}: itemName ${JSON.stringify(named)}, printed ${JSON.stringify(printed)}`]
+  })
+}
+
+describe('an icon a table cell or a repeated item draws', () => {
+  const pointer = (el: Element): boolean => el.closest('[data-pointer]') !== null
+
+  // The 操作 column of a console's list draws edit, warning and delete as three
+  // `<i>` elements with no role, no text, and a cursor of `auto`: the cursor is
+  // no part of what makes them controls.
+  const OPERATIONS = `<i class="el-icon-edit operation-modify" style="cursor: auto" ${GLYPH}></i>`
+    + `<i class="el-icon-warning" style="cursor: auto" ${GLYPH}></i>`
+    + `<i class="el-icon-delete operation-delete" style="cursor: auto" ${GLYPH}></i>`
+
+  it('reads each command of an operation column as an icon of its own, with its own mark', () => {
+    const refs = page(tableOf(OPERATIONS))
+    expect(read(refs).text).toBe([
+      'e1 table "设备" 1 rows × 2 cols',
+      '  header: 名称 | 操作',
+      '  sample: 东风站 | [icon icon icon]',
+      "  rows: pass scope with this table's ref to list rows, or find a row by its text",
+    ].join('\n'))
+    expect(read(refs, { scope: 'e1' }).text.split('\n')[2]).toBe('  row 1: 东风站 | '
+      + 'e3 icon {class: el-icon-edit operation-modify}  e4 icon {class: el-icon-warning}  '
+      + 'e5 icon {class: el-icon-delete operation-delete}')
+  })
+
+  it('reads an icon an icon font draws on a span the way it reads one drawn on an i', () => {
+    const refs = page(tableOf(`<span class="iconfont icon-edit" ${GLYPH}></span>`))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | e3 icon {class: iconfont icon-edit}')
+  })
+
+  it('reads the same elements outside a cell or an item as nothing', () => {
+    const refs = page(`<div class="ops">${OPERATIONS}</div><p>说明</p>`)
+    expect(read(refs).text).toBe('text "说明"')
+  })
+
+  it('reads an element holding words or holding an element as what it holds', () => {
+    // Words make a run of text, and a wrapper is read through to what it
+    // holds: the bold element inside this one carries no class.
+    const refs = page(tableOf(`<i class="el-icon-edit" ${GLYPH}>编辑</i><span class="op-wrap"><b ${GLYPH}></b></span>`))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | 编辑')
+  })
+
+  it('reads an element carrying no class as nothing, because it has no mark to be named by', () => {
+    const refs = page(tableOf(`<i ${GLYPH}></i><i class="" ${GLYPH}></i><i class="  " ${GLYPH}></i>`))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | ')
+  })
+
+  it('marks a sprite drawing that carries no class by the symbol it points at', () => {
+    // The symbol id is the drawing's own word for itself where it carries no
+    // class. A reference to another file keeps what follows its `#`, and a
+    // reference without one marks nothing.
+    const refs = page(tableOf('<svg><use href="#icon-edit"></use></svg>'
+      + '<svg><use xlink:href="#icon-warning"></use></svg>'
+      + '<svg><use href="/static/sprite.svg#icon-delete"></use></svg>'
+      + '<svg><use href="/static/sprite.svg"></use></svg>'
+      + '<svg><use></use></svg>'
+      + '<svg><path d="M0 0"></path></svg>'))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | e3 icon {class: icon-edit}  e4 icon {class: icon-warning}  '
+      + 'e5 icon {class: icon-delete}')
+  })
+
+  it('marks a sprite drawing that carries a class by its class tokens and then the symbol it points at', () => {
+    // A sprite sheet draws every command with the same class, so the symbol is
+    // what tells two of them in one cell apart. A reference to another file or
+    // host keeps only what follows its `#`, and one without a `#` adds nothing.
+    const refs = page(tableOf('<svg class="svg-icon"><use href="#icon-edit"></use></svg>'
+      + '<svg class="svg-icon"><use href="#icon-delete"></use></svg>'
+      + '<svg class="svg-icon"><use xlink:href="#icon-warning"></use></svg>'
+      + '<svg class="svg-icon"><use href="https://cdn.example.com/static/sprite.svg#icon-share"></use></svg>'
+      + '<svg class="svg-icon"><use href="/static/sprite.svg"></use></svg>'))
+    const row = rowOf(refs)
+    expect(row).toBe('  row 1: 东风站 | e3 icon {class: svg-icon icon-edit}  e4 icon {class: svg-icon icon-delete}  '
+      + 'e5 icon {class: svg-icon icon-warning}  e6 icon {class: svg-icon icon-share}  e7 icon {class: svg-icon}')
+    expect(row).not.toMatch(/sprite\.svg|example\.com/)
+  })
+
+  it('adds no symbol a sprite drawing\'s class already holds as a token of its own', () => {
+    // A token is compared whole: a class holding `icon-editor` does not hold
+    // `icon-edit`. The whitespace a URL parser drops around a reference is no
+    // part of the symbol, so the mark stays the single-spaced string a step's
+    // mark is read as.
+    const refs = page(tableOf('<svg class="svg-icon icon-edit"><use href="#icon-edit"></use></svg>'
+      + '<svg class="icon-editor"><use href="#icon-edit"></use></svg>'
+      + '<svg class="svg-icon"><use href=" #icon-copy "></use></svg>'))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | e3 icon {class: svg-icon icon-edit}  '
+      + 'e4 icon {class: icon-editor icon-edit}  e5 icon {class: svg-icon icon-copy}')
+  })
+
+  it('reads an icon of a repeated item the walk reads through', () => {
+    const refs = page(`<ul aria-label="站点"><li>东风站<i class="el-icon-edit" ${GLYPH}></i></li>`
+      + `<li>朝阳站<i class="el-icon-edit" ${GLYPH}></i></li></ul>`)
+    expect(read(refs).text).toBe([
+      'e1 list "站点"',
+      '  text "东风站" (in list "站点")',
+      '  e2 icon {class: el-icon-edit} (in list "站点")',
+      '  text "朝阳站" (in list "站点")',
+      '  e3 icon {class: el-icon-edit} (in list "站点")',
+    ].join('\n'))
+    // A map counts an icon among the things to click.
+    expect(read(refs, { mode: 'map' }).text).toBe('e1 list "站点"  2 buttons, 2 texts')
+  })
+
+  it('reads an icon in every kind of repeated item, and in nothing else', () => {
+    const refs = page(`<div role="list"><div role="listitem">甲<i class="a" ${GLYPH}></i></div></div>`
+      + `<div role="row">乙<i class="b" ${GLYPH}></i></div>`
+      + `<table role="presentation"><tr><td>丙<i class="c" ${GLYPH}></i></td></tr></table>`
+      + `<div role="feed"><article>丁<i class="d" ${GLYPH}></i></article></div>`
+      + `<article>戊<i class="f" ${GLYPH}></i></article>`
+      + '<ol><li>己<svg class="g"><path d="M0 0"></path></svg><svg><use href="#h"></use></svg></li></ol>'
+      + `<div role="tree"><div role="treeitem"><i class="e" ${GLYPH}></i>`
+      + '<div role="group"><div role="treeitem">北京</div></div></div></div>')
+    expect(read(refs).text).toBe([
+      'e1 list',
+      '  text "甲" (list)',
+      '  e2 icon {class: a} (list)',
+      'text "乙"',
+      'e3 icon {class: b}',
+      'text "丙"',
+      'e4 icon {class: c}',
+      'e5 list',
+      '  text "丁" (list)',
+      '  e6 icon {class: d} (list)',
+      'text "戊"',
+      'e7 list',
+      '  text "己" (list)',
+      '  e8 icon {class: g} (list)',
+      '  e9 icon {class: h} (list)',
+      'e10 tree',
+      '  e11 treeitem',
+      '    e12 icon {class: e} (treeitem)',
+      '    e13 treeitem "北京" (treeitem)',
+    ].join('\n'))
+  })
+
+  it('reads an icon in a row of a layout table, whatever role the page gives the row', () => {
+    // A `tr` the page marks as presentation or none has no row role left, and
+    // is still one of the rows the page repeats.
+    const refs = page(`<table role="presentation"><tr role="presentation"><td>丙<i class="c" ${GLYPH}></i></td></tr></table>`
+      + `<table role="none"><tbody><tr role="none"><td role="none">丁<i class="d" ${GLYPH}></i></td></tr></tbody></table>`)
+    expect(read(refs).text).toBe(['text "丙"', 'e1 icon {class: c}', 'text "丁"', 'e2 icon {class: d}'].join('\n'))
+  })
+
+  it('reads an icon in an option when a read is scoped inside that option', () => {
+    // A whole-page read prints the option as one named row; a read scoped
+    // inside it reads what it holds, and the option around the scope holds the
+    // icon.
+    const refs = page(OPTION_SCOPED)
+    expect(read(refs).text).toBe(['e1 listbox "选项"', '  e2 option "甲" (in listbox "选项")'].join('\n'))
+    expect(read(refs, { scope: refOf(refs, '#inside') }).text).toBe(['text "甲"', 'e4 icon {class: o}'].join('\n'))
+  })
+
+  it('reads an icon whatever cursor the page draws over it', () => {
+    // The role is the structure's, not the cursor's: a pointer over one of the
+    // commands and not over its neighbour would otherwise print two kinds of
+    // row for one column.
+    const refs = page(tableOf(`<i class="el-icon-edit" data-pointer ${GLYPH}></i><i class="el-icon-delete" ${GLYPH}></i>`))
+    expect(rowOf(refs, { isClickable: pointer }))
+      .toBe('  row 1: 东风站 | e3 icon {class: el-icon-edit}  e4 icon {class: el-icon-delete}')
+    const listed = page(`<ul><li data-pointer><span>东风站</span><i class="el-icon-edit" data-pointer ${GLYPH}></i></li></ul>`
+      + `<ul><li><span>朝阳站</span><i class="el-icon-edit" data-pointer ${GLYPH}></i></li></ul>`)
+    expect(read(listed, { isClickable: pointer }).text).toBe([
+      'e1 list',
+      '  e2 clickable "东风站" (list)',
+      'e3 list',
+      '  text "朝阳站" (list)',
+      '  e4 icon {class: el-icon-edit} (list)',
+    ].join('\n'))
+  })
+
+  it('names an icon by what the page wrote on it', () => {
+    const refs = page(tableOf(`<i class="el-icon-edit" aria-label="编辑" ${GLYPH}></i><i class="el-icon-view" title="查看" ${GLYPH}></i>`))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | e3 icon "编辑"  e4 icon {class: el-icon-view}')
+  })
+
+  it('reads the tick box a label holds rather than the box the label draws beside it', () => {
+    // What a `label` naming a control holds is that control's name and hit
+    // area, so the drawing beside the box is no control of its own.
+    const refs = page(CELL_TICK)
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | e3 checkbox "选中" [ ]')
+    const listed = page(ITEM_TICK)
+    expect(read(listed).text).toBe(['e1 list', '  e2 checkbox "选中" [ ] (list)'].join('\n'))
+  })
+
+  it('reads a control drawn inside a drawing before the drawing as an icon', () => {
+    // A chart a cell draws with a link inside it offers the link: the class on
+    // the drawing does not stand in front of what the reader can operate.
+    const refs = page(tableOf('<svg class="chart"><a href="#x">详情</a></svg>'))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | e3 link "详情"')
+  })
+
+  it('folds an icon drawn inside a field into the field\'s row as the half that opens it', () => {
+    const refs = page('<ul><li><div class="el-input"><input aria-label="状态" readonly>'
+      + `<span class="el-input__suffix"><i class="el-icon-arrow-down" ${GLYPH}></i></span></div></li></ul>`)
+    expect(read(refs).text).toBe(['e1 list', '  e2 textbox "状态" = "" (readonly) [e3 opens] (list)'].join('\n'))
+  })
+
+  it('reads an icon in an item the same way when a read is scoped inside that item', () => {
+    // The item is around the scope rather than inside it, through a shadow root
+    // and a frame alike.
+    const refs = new RefTable()
+    itemsAcrossTrees()
+    const whole = read(refs, { isClickable: pointer }).text
+    expect(whole).toBe([
+      'e1 list',
+      '  e2 clickable "东风站"',
+      '    e3 heading "东风站" (in clickable "东风站")',
+      '    e4 icon {class: el-icon-edit} (in clickable "东风站")',
+      '  e5 clickable "朝阳站"',
+      '    e6 heading "朝阳站" (in clickable "朝阳站")',
+      '    e7 icon {class: el-icon-view} (in clickable "朝阳站")',
+      '  e8 frame "明细"',
+      '    e9 clickable "西湖站"',
+      '      e10 heading "西湖站" (in clickable "西湖站")',
+      '      e11 icon {class: el-icon-delete} (in clickable "西湖站")',
+    ].join('\n'))
+    for (const [scope, icon] of [['e2', 'e4'], ['e5', 'e7'], ['e9', 'e11']] as const) {
+      expect(read(refs, { isClickable: pointer, scope }).text).toContain(`${icon} icon {class: `)
+    }
+  })
+
+  it('names an icon the same way for a step as for the listing that printed it', () => {
+    const refs = page(NAMED_COMMANDS)
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | 分享  e3 icon "编辑"  e4 icon "查看"  e5 icon {class: el-icon-delete}')
+    // The one holding words prints no row of its own, and a step naming it is
+    // held to the nothing it is called.
+    const options = { refs, budgetChars: 4000, isVisible, computedStyle }
+    expect(['#named', '#drawn', '#bare', '#worded']
+      .map(selector => itemName(document.querySelector(selector) as Element, options, document)))
+      .toEqual(['编辑', '查看', '', ''])
+  })
+
+  it('names the same element outside a cell or an item as nothing, as the listing that prints no row for it', () => {
+    // A step can reach a toolbar's icon through a markup read, and is held to
+    // the nothing a listing would call it rather than to its `aria-label`.
+    const refs = page(`<div class="toolbar"><i id="loose" class="el-icon-refresh" aria-label="刷新" ${GLYPH}></i>`
+      + '<svg id="drawn" aria-label="查看"><use href="#icon-view"></use></svg></div>'
+      + tableOf(`<i id="held" class="el-icon-refresh" aria-label="刷新" ${GLYPH}></i>`))
+    expect(read(refs).text).toBe([
+      'e1 table "设备" 1 rows × 2 cols',
+      '  header: 名称 | 操作',
+      '  sample: 东风站 | [刷新]',
+      "  rows: pass scope with this table's ref to list rows, or find a row by its text",
+    ].join('\n'))
+    const options = { refs, budgetChars: 4000, isVisible, computedStyle }
+    expect(['#loose', '#drawn', '#held']
+      .map(selector => itemName(document.querySelector(selector) as Element, options, document)))
+      .toEqual(['', '', '刷新'])
+  })
+
+  it('names an icon an item holds across a frame by looking for the item up to the document the read started from', () => {
+    const refs = new RefTable()
+    const edit = itemInFrame()
+    expect(read(refs).text).toBe(['e1 list', '  e2 frame "明细"', '    e3 icon "编辑" (in frame "明细")'].join('\n'))
+    const options = { refs, budgetChars: 4000, isVisible, computedStyle }
+    expect(itemName(edit, options, document)).toBe('编辑')
+  })
+
+  it('reads a click target holding words in a cell as the click target it is', () => {
+    const refs = page(tableOf('<span class="op-link" data-pointer>详情</span>'))
+    expect(rowOf(refs, { isClickable: pointer })).toBe('  row 1: 东风站 | e3 clickable "详情"')
+  })
+
+  it('names an icon a label naming a control holds by what the page wrote on it, where the listing prints no row for it', () => {
+    // The listing prints the box and not the glyph beside it, and a step that
+    // reaches the glyph through a markup read is held to the name a read
+    // scoped at the glyph prints for it. A group inside the label starts names
+    // of its own, as it does in the walk.
+    const refs = page(LABELLED_ICONS)
+    const listing = read(refs).text
+    expect(listing.split('\n').filter(line => line.includes(' icon '))).toEqual([
+      '  e5 icon "勾" (in list "标签列表")',
+      '  e6 icon "勾" (in list "标签列表")',
+    ])
+    const options = { refs, budgetChars: 4000, isVisible, computedStyle }
+    expect(['#tick', '#drawn', '#grouped', '#loose']
+      .map(selector => itemName(document.querySelector(selector) as Element, options, document)))
+      .toEqual(['勾', '勾', '勾', '勾'])
+  })
+
+  it('names an icon inside a named node, an option or a control the walk reads no row inside by what the page wrote on it', () => {
+    // The label area of a named node holding a group is that node's name, and
+    // a named single-row node, an option and a button in a cell are one row
+    // each, read no further, as they are in a read scoped at one of them. A
+    // step reaching an icon one of them holds directly through a markup read
+    // is held to the name a read scoped at the icon prints for it; the icon in
+    // a node the page named nothing is the row the listing prints.
+    const refs = page(UNREAD_ICONS)
+    expect(read(refs).text).toBe([
+      'e1 tree "区域"',
+      '  e2 treeitem "节点甲"',
+      '    e3 treeitem "乙" (in treeitem "节点甲")',
+      '  e4 treeitem "节点丙" (in tree "区域")',
+      '  e5 treeitem',
+      '    e6 icon "勾" (treeitem)',
+      'e7 listbox "选项"',
+      '  e8 option "选项一" (in listbox "选项")',
+      'e9 table "设备" 1 rows × 2 cols',
+      '  header: 名称 | 操作',
+      '  sample: 东风站 | [删除 编辑]',
+      "  rows: pass scope with this table's ref to list rows, or find a row by its text",
+    ].join('\n'))
+    const options = { refs, budgetChars: 4000, isVisible, computedStyle }
+    expect(['#t1', '#t2', '#t3', '#o1', '#b1', '#c1']
+      .map(selector => itemName(document.querySelector(selector) as Element, options, document)))
+      .toEqual(['勾', '勾', '勾', '勾', '勾', '编辑'])
+  })
+
+  it('names an icon a read scoped inside an option, a named node, a button or a label prints by the name it prints', () => {
+    // A whole-page read prints the option, the node and the button as one row
+    // each and reads the label as the tick box's name. A read scoped at the
+    // span one of them draws its icon in starts inside it and prints the icon.
+    const refs = page(WRAPPED_ICONS)
+    expect(read(refs).text.split('\n').filter(line => line.includes(' icon '))).toEqual([])
+    expect(['#inside', '#t2in', '#bin', '#lin'].map(selector => read(refs, { scope: refOf(refs, selector) }).text))
+      .toEqual(['text "甲"\ne9 icon "勾"', 'e11 icon "勾"\ntext "丙"', 'e13 icon "勾"', 'e15 icon "勾"'])
+    const options = { refs, budgetChars: 4000, isVisible, computedStyle }
+    expect(['#o1', '#t2', '#b2', '#l1']
+      .map(selector => itemName(document.querySelector(selector) as Element, options, document)))
+      .toEqual(['勾', '勾', '勾', '勾'])
+  })
+
+  it('names an icon a listed row of its table prints by the name that row prints', () => {
+    // A listed row names a click target inside a `label` as a control of its
+    // own, where a read scoped at the cell prints the tick box the label names
+    // and no row for the target.
+    const refs = page(CLICKABLE_TICK)
+    read(refs, { isClickable: pointer })
+    expect(read(refs, { isClickable: pointer, scope: refOf(refs, 'table') }).text.split('\n')[2])
+      .toBe('  row 1: 东风站 | e3 checkbox "选中" [ ]  e4 clickable "勾"')
+    expect(read(refs, { isClickable: pointer, scope: refOf(refs, 'td:last-child') }).text).toBe('e3 checkbox "选中" [ ]')
+    const options = { refs, budgetChars: 4000, isVisible, computedStyle, isClickable: pointer }
+    expect(itemName(found(document.querySelector('#lt')), options, document)).toBe('勾')
+  })
+
+  it('names an icon what every read printing a row for it prints, the read scoped at the icon itself among them', () => {
+    // Each page is read whole, scoped at each icon it draws, and scoped at
+    // every element around each icon, through shadow roots and frames:
+    // wherever a row is printed for an icon, it carries the one name a step
+    // naming that icon is held to.
+    const probes: ReadonlyArray<readonly [string, () => readonly Element[], Ask]> = [
+      ['unread', () => shown(UNREAD_ICONS, 'i'), {}],
+      ['wrapped', () => shown(WRAPPED_ICONS, 'i'), {}],
+      ['headed', () => shown(HEADED_ICONS, 'i'), {}],
+      ['held directly', () => shown(HELD_DIRECTLY, 'i'), {}],
+      ['option', () => shown(OPTION_SCOPED, 'i'), {}],
+      ['operations', () => shown(tableOf(OPERATIONS), 'i'), {}],
+      ['commands', () => shown(NAMED_COMMANDS, 'i, svg'), {}],
+      ['labelled', () => shown(LABELLED_ICONS, 'i, svg'), {}],
+      ['cell tick', () => shown(CELL_TICK, 'span'), {}],
+      ['item tick', () => shown(ITEM_TICK, 'span'), {}],
+      ['clickable tick', () => shown(CLICKABLE_TICK, 'i'), { isClickable: pointer }],
+      ['trees', itemsAcrossTrees, { isClickable: pointer }],
+      ['frame', () => [itemInFrame()], {}],
+    ]
+    expect(probes.flatMap(([label, icons, ask]) => disagreements(label, icons(), ask))).toEqual([])
+  })
+})
+
+describe('whether an icon draws a picture', () => {
+  // A leaf a cell or an item holds is an icon only where it draws something:
+  // a drawing or a picture, generated content in front of or behind it, or an
+  // image painted as its background or through its mask. What is read is the
+  // rendering, and no class says which is which.
+
+  it('reads a leaf an icon font writes a glyph into, in front of it or behind it, as an icon', () => {
+    const refs = page(tableOf(`<i class="el-icon-edit" ${GLYPH}></i><i class="el-icon-share" data-after='"\ue793"'></i>`))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | e3 icon {class: el-icon-edit}  e4 icon {class: el-icon-share}')
+  })
+
+  it('reads a leaf that paints an image as its background or through a mask as an icon', () => {
+    const refs = page(tableOf('<span class="op-edit" style="background-image: url(edit.png)"></span>'
+      + '<span class="op-copy" style="mask-image: url(copy.svg)"></span>'
+      + '<span class="op-share" style="-webkit-mask-image: url(share.svg)"></span>'))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | '
+      + 'e3 icon {class: op-edit}  e4 icon {class: op-copy}  e5 icon {class: op-share}')
+  })
+
+  it('reads a leaf that paints only a colour as nothing, however it is sized', () => {
+    const refs = page(tableOf('<i class="op op-a" style="display: inline-block; width: 16px; height: 16px; '
+      + 'background-color: rgb(51, 102, 204)"></i>'))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | ')
+  })
+
+  it('reads generated content that is none, normal or an empty string as drawing nothing', () => {
+    // An empty string is how a page gives a pseudo-element a box and no glyph:
+    // a clearfix, or the tick a library draws with a border. An engine that
+    // computes no `content` for a pseudo-element answers `normal` or nothing.
+    const refs = page(tableOf('<i class="a" data-before="none" data-after="none"></i>'
+      + '<i class="b" data-before="normal" data-after="normal"></i>'
+      + '<i class="c" data-before=\'""\' data-after=\'""\'></i>'
+      + '<i class="d" data-before="" data-after=""></i>'))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | ')
+  })
+
+  it('reads a glyph from each of the three private use areas as an icon, as the character or as an escape', () => {
+    // Chromium serializes a private use character as the character itself; the
+    // escape a stylesheet writes it with is read the same.
+    const refs = page(tableOf(leaves('""', '"\u{f0000}"', '"\u{10fffd}"', '"\\e78c"', '"\\f0000"', '"\\10fffd"')))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | e3 icon {class: g1}  e4 icon {class: g2}  e5 icon {class: g3}  '
+      + 'e6 icon {class: g4}  e7 icon {class: g5}  e8 icon {class: g6}')
+  })
+
+  it('reads plain text, a counter, a quote and an attribute generated in front of a leaf as drawing nothing', () => {
+    // The placeholder an empty value is drawn with, and a tick or a cross drawn
+    // as an ordinary character, are text. A browser resolves `attr()` to the
+    // attribute's string before it answers; these values stand for what the
+    // functions spell, which draws no picture either.
+    const refs = page(tableOf(leaves('"--"', '"✓"', '"✗"', 'attr(x)', 'counter(n)', 'open-quote')))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | ')
+  })
+
+  it('reads an image or a gradient generated in front of a leaf as an icon', () => {
+    // An image set reads as one whether or not its images are written with
+    // `url()`: the string inside it is the image.
+    const refs = page(tableOf(leaves(
+      'url("edit.png")',
+      'image-set(url("edit.png") 1dppx)',
+      '-webkit-image-set(url("edit.png") 1x)',
+      'image-set("edit.png" 1x)',
+      '-webkit-image-set("edit.png" 1x)',
+      'linear-gradient(rgb(255, 0, 0), rgb(0, 0, 255))',
+      'radial-gradient(rgb(255, 0, 0), rgb(0, 0, 255))',
+      'conic-gradient(rgb(255, 0, 0), rgb(0, 0, 255))',
+      'repeating-linear-gradient(rgb(255, 0, 0), rgb(0, 0, 255) 10%)',
+      'repeating-radial-gradient(rgb(255, 0, 0), rgb(0, 0, 255) 10%)',
+      'repeating-conic-gradient(rgb(255, 0, 0), rgb(0, 0, 255) 10%)',
+    )))
+    expect(rowOf(refs)).toBe(`  row 1: 东风站 | ${[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+      .map((ref, at) => `e${ref} icon {class: g${at + 1}}`).join('  ')}`)
+  })
+
+  it('decodes an escape by the rules of CSS before it looks for a glyph', () => {
+    // Hex digits in either case, up to six of them, end at the first space
+    // after them; an escaped backslash is a backslash, so the digits after it
+    // are text. Zero, a surrogate, and a value past the last code point decode
+    // to the replacement character. The first and last code point of each area
+    // are glyphs, and the code points either side of an area are not.
+    const refs = page(tableOf(leaves(
+      '"\\E78C"', '"\\00e78c"', '"a\\e78c b"', '"\\e000"', '"\\f8ff"', '"\\ffffd"', '"\\100000"',
+      '"\\\\e78c"', '"\\110000"', '"\\0"', '"\\d800"', '"\\f900"', '"\\effff"', '"\\ffffe"', '"\\10fffe"',
+      '"url(edit.png)"',
+    )))
+    expect(rowOf(refs)).toBe(`  row 1: 东风站 | ${[3, 4, 5, 6, 7, 8, 9]
+      .map((ref, at) => `e${ref} icon {class: g${at + 1}}`).join('  ')}`)
+  })
+
+  it('reads the empty value and the indent of a tree table as nothing, and the icon beside them as one', () => {
+    // A library that draws every cell inside a `div class="cell"` draws an
+    // empty value as that wrapper holding nothing, and a tree table indents a
+    // row with a padded span and a placeholder beside it. None of them draws a
+    // picture, so whether a cell prints an icon does not depend on the record.
+    const refs = page('<table aria-label="设备">'
+      + '<thead><tr><th>名称</th><th>备注</th><th>操作</th></tr></thead><tbody><tr>'
+      + '<td><div class="cell"><span class="el-table__indent" style="padding-left: 16px"></span>'
+      + '<span class="el-table__placeholder"></span>东风站</div></td>'
+      + '<td><div class="cell"></div></td>'
+      + `<td><div class="cell"><i class="el-icon-edit" ${GLYPH}></i></div></td>`
+      + '</tr></tbody></table>')
+    expect(read(refs).text.split('\n')[2]).toBe('  sample: 东风站 |  | [icon]')
+    expect(read(refs, { scope: 'e1' }).text.split('\n')[2]).toBe('  row 1: 东风站 |  | e3 icon {class: el-icon-edit}')
+  })
+
+  it('reads a drawing as drawn, and a picture by the role HTML gives it, without asking either for its style', () => {
+    // HTML gives every `img` a role, `img` or — for an empty `alt` — `presentation`,
+    // so an `img` reaches the test only where the page wrote a role ARIA does
+    // not define, which reads as no role at all. Neither tag is asked what it
+    // paints: what it draws is what it is.
+    const asked: Element[] = []
+    const recorded = (el: Element, pseudo?: GeneratedPseudo): StyleRead => {
+      asked.push(el)
+      return computedStyle(el, pseudo)
+    }
+    const refs = page(tableOf('<svg class="svg-icon"><use href="#icon-edit"></use></svg>'
+      + '<img class="op-view" role="x-icon" src="view.png">'
+      + '<img class="avatar" src="avatar.png"><img class="spacer" alt="" src="spacer.png">'
+      + `<i class="el-icon-delete" ${GLYPH}></i>`))
+    expect(rowOf(refs, { computedStyle: recorded })).toBe('  row 1: 东风站 | '
+      + 'e3 icon {class: svg-icon icon-edit}  e4 icon {class: op-view}  e5 icon {class: el-icon-delete}')
+    expect(asked.map(el => el.localName).filter((tag, at, tags) => tags.indexOf(tag) === at)).toEqual(['i'])
+  })
+
+  it('reads the computed style of the window an element is drawn in where the read injects none', () => {
+    const refs = page(tableOf('<span class="op-edit" style="background-image: url(edit.png)"></span>'
+      + '<i class="op op-a" style="background-color: rgb(51, 102, 204)"></i>'))
+    const options = { refs, budgetChars: 4000, isVisible }
+    snapshot(document, options)
+    expect(snapshot(document, { ...options, scope: refOf(refs, 'table') }).text.split('\n')[2])
+      .toBe('  row 1: 东风站 | e3 icon {class: op-edit}')
   })
 })
 
@@ -2044,7 +2790,7 @@ describe('what a row says where the page named nothing', () => {
     read(refs, { isClickable: pointer })
     const el = document.querySelector('#edit')
     if (el === null) throw new Error('fixture has no icon')
-    expect(itemName(el, { refs, budgetChars: 4000, isVisible, isClickable: pointer })).toBe('')
+    expect(itemName(el, { refs, budgetChars: 4000, isVisible, isClickable: pointer }, document)).toBe('')
   })
 })
 
@@ -2064,8 +2810,8 @@ describe('the console table this reader was written against', () => {
     '是否默认展示', '操作',
   ]
   const VALUES = ['', '东风站', 'element:gas_transport_vehicle_info', '公用专题', '延吉市燃气监测预警平台V2']
-  const COMMANDS = '<i class="el-tooltip operation-modify el-icon-edit"></i>'
-    + '<span class="el-popover__reference"><i class="el-icon-delete"></i></span>'
+  const COMMANDS = `<i class="el-tooltip operation-modify el-icon-edit" ${GLYPH}></i>`
+    + `<span class="el-popover__reference"><i class="el-icon-delete" ${GLYPH}></i></span>`
   const LEFT = [0, 1]
   const RIGHT = [19]
 
@@ -2106,11 +2852,14 @@ describe('the console table this reader was written against', () => {
       'e6 table 2 rows × 20 cols',
     ])
     // Each piece draws the columns it was pinned for and hides the rest, so the
-    // names are on one table and the commands the page draws as bare classes
-    // are on another — where they reach the model as an empty column.
+    // names are on one table and the commands the page draws as glyphs are on
+    // another, where each command reads as an icon of its cell. The tick-box
+    // column this fixture leaves empty is an empty `div class="cell"` in every
+    // cell, which draws nothing and reads as an empty cell.
     const listing = read(refs).text
+    expect(listing).toContain('  header:  | 名称 | ')
     expect(listing).toContain('  sample:  | 东风站 | ')
-    expect(listing).toContain('e6 table 2 rows × 20 cols')
+    expect(listing).toContain(`  sample: ${[...Array.from({ length: 19 }, () => ''), '[icon icon]'].join(' | ')}`)
   })
 
   it('lists the rows of the half a read names by ref', () => {
@@ -2439,23 +3188,24 @@ describe('tables', () => {
     expect(sample.length - '  sample: '.length).toBeLessThanOrEqual(24)
   })
 
-  it('offers the icons a page makes clickable in a cell, which is where a row keeps what it can do', () => {
+  it('offers the icons a cell draws, which is where a row keeps what it can do, whatever cursor is over them', () => {
     const pointer = (el: Element): boolean => el.closest('[data-pointer]') !== null
     const refs = page(`
       <table>
         <thead><tr><th>名称</th><th>操作</th></tr></thead>
         <tbody><tr><td>东风站</td><td><div class="cell">
-          <i data-pointer class="modify"></i><i data-pointer class="remove"></i>
+          <i data-pointer class="modify" ${GLYPH}></i><i data-pointer class="remove" ${GLYPH}></i>
           <div data-hidden>确定删除吗？ 取消</div>
         </div></td></tr></tbody>
       </table>`)
     // The icon a table draws for editing a row carries no role and no name of
     // any kind. Read as text it is nothing at all, and the column the reader
-    // can see would offer the model nothing to click.
-    expect(read(refs, { isClickable: pointer }).text.split('\n')[2]).toBe('  sample: 东风站 | [clickable clickable]')
+    // can see would offer the model nothing to click. The pointer over these
+    // two makes them no different from the icons a page draws without one.
+    expect(read(refs, { isClickable: pointer }).text.split('\n')[2]).toBe('  sample: 东风站 | [icon icon]')
     const listed = read(refs, { scope: refOf(refs, 'table'), isClickable: pointer }).text
     expect(listed.split('\n')[2])
-      .toBe('  row 1: 东风站 | e3 clickable {class: modify}  e4 clickable {class: remove}')
+      .toBe('  row 1: 东风站 | e3 icon {class: modify}  e4 icon {class: remove}')
     // The confirmation the page keeps beside them is drawn nowhere until the
     // reader asks for it, and reaches the cell nowhere either.
     expect(listed).not.toContain('确定删除吗')

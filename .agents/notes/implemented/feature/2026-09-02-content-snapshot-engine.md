@@ -86,7 +86,7 @@ The strip that pages a table is drawn after every piece of it, so the pieces of 
 
 A cell names the controls it holds rather than reading them as text, and a run the page makes clickable is one of them, named the way a row of its own would name it. A cell that read a click target as text would leave the model a column it can see and cannot use. The judgement is the walk's own, so a cell inside a run the page made clickable higher up offers nothing: the top of the run is above the table, and the row is not a thing to click.
 
-This rule reaches a click target the page marks with a pointer cursor, and a button whose whole content is an icon was already reached by its role. Neither is what the console this note is written against draws: the commands of its rows carry no cursor of their own, which is why the rule below exists.
+This rule reaches a click target the page marks with a pointer cursor, and a button whose whole content is an icon was already reached by its role. Neither is what the console this note is written against draws: the commands of its rows carry no cursor of their own, which is why the rule below existed. A cell now reads an element with the structure of an icon that draws a picture as an `icon` before it asks about the cursor, so those commands are icons of their cells; [the structural icons note](2026-10-05-content-reader-structural-icons.md) owns that rule.
 
 ### An icon a page draws as a command is a thing to act on
 
@@ -166,7 +166,7 @@ Those were the consequences of the pinned-column reading and of the pager beside
 
 Only a `label` names a field the page tied nothing to, so a form drawing those words in a `div` leaves its fields unnamed rather than risk naming one after a notice beside it. A field taking its name from a `label` drawn inside a longer run keeps that run as a row, so those words reach the reader twice. The drawn mark is read on the labels a page ties to a field and on the one drawn in front of it, so a field the page names itself with `aria-label` and stars on a label it ties to nothing is not reported as required.
 
-The icon rule's own blind spots retire with it. What stands in their place is one blind spot: a drawing carrying no role, no name and no pointer cursor prints no row at all, wherever the page draws it.
+The icon rule's own blind spots retire with it. What stands in their place is one blind spot: a drawing carrying no role, no name and no pointer cursor prints no row outside a table cell or a repeated item, and inside one it is an `icon` row only where it holds no element and no text, carries a mark, and draws a picture ([the structural icons note](2026-10-05-content-reader-structural-icons.md)).
 
 Nine counter-examples to the rule that model-visible means readable are open.
 

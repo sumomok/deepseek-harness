@@ -54,4 +54,26 @@ describe('ServerSidebarRoot.module.css identity band', () => {
     expect(declarations('.avatarName')?.get('white-space')).toBe('nowrap')
     expect(declarations('.signOut')?.get('flex')).toBe('none')
   })
+
+  it('lays out the menu trigger at rest exactly as the bare circle and name: same gap, no border or fill, and padding its margin cancels', () => {
+    const trigger = declarations('.identityTrigger')
+    expect(trigger?.get('gap')).toBe(declarations('.avatarRow')?.get('gap'))
+    expect(trigger?.get('border')).toBe('none')
+    expect(trigger?.get('background')).toBe('none')
+    expect(trigger?.get('font')).toBe('inherit')
+    expect(trigger?.get('color')).toBe('inherit')
+    const padding = trigger?.get('padding')?.split(' ')
+    const margin = trigger?.get('margin')?.split(' ')
+    expect(margin).toEqual(padding?.map(value => `-${value}`))
+    // The anchor wrapper takes the name's place and gives ground the way the name does.
+    expect(declarations('.identityMenu')?.get('min-width')).toBe('0')
+    expect(trigger?.get('min-width')).toBe('0')
+  })
+
+  it('draws the trigger as a button only on hover, while its menu is open, and on keyboard focus', () => {
+    expect(declarations('.identityTrigger:hover')?.get('background')).toMatch(/^var\(--dsw-/)
+    expect(declarations(".identityTrigger[aria-expanded='true']")?.get('background')).toMatch(/^var\(--dsw-/)
+    expect(declarations('.identityTrigger:focus-visible')?.get('outline')).toMatch(/var\(--dsw-/)
+    expect(declarations('.identityTrigger')?.get('border-radius')).toMatch(/^var\(--dsw-radius-/)
+  })
 })

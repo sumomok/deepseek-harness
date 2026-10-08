@@ -40,7 +40,19 @@
  * `@deepseek-ai/dsh-experimental-page-refresh` in place of `client-hmr`, and
  * that a second page whose connection the test refuses draws the
  * connection-loss notice in `server-layout`'s overlay layer, clear of the
- * composer.
+ * composer. The first describe also checks that the identity row offers no
+ * menu without the organization plugin.
+ *
+ * A describe composed with the organization fixture
+ * (`fixtures/plugins/fixture-org`: a `sumomok-org` Settings section and an
+ * in-memory `sumomokOrgNotice` Remote) checks the identity row's menu, which
+ * opens that section through the opener seat the compact settings row hides,
+ * and the organization notice card: clear of the identity row, its settings
+ * button, and the composer on wide and narrow frames, held to its height cap
+ * on the narrowest wide frame (1024×768), covered by an open drawer, recorded
+ * as read or agreed through the fixture, shown again for a new version, and
+ * after 稍后 (Later) shown again on the next load. Inside the open drawer an
+ * Escape on the identity menu closes only the menu.
  *
  * The last describe block owns the `console-auto-compact` Web snapshot: it
  * replays an authored conversation through the same composition and checks
@@ -694,6 +706,17 @@ describe('web e2e: the product-console sidebar', () => {
       return Math.abs((left.top + left.bottom) / 2 - (right.top + right.bottom) / 2) < 1
     })).resolves.toBe(true)
   }, 60_000)
+
+  it('draws no identity menu without the organization plugin\'s settings section', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-no-identity-menu'))
+    const identityRow = sidebar(page).locator('[data-server-sidebar-section="identity"]')
+    await identityRow.getByRole('button', { name: 'Sign out' }).waitFor()
+    // The settings shell is mounted with its trigger-action list, so the
+    // opener seat inside it has published: only the missing section keeps the
+    // menu away.
+    await expect.poll(() => identityRow.locator('[class*="triggerActions"]').count(), { timeout: 10_000 }).toBe(1)
+    expect(await identityRow.locator('[data-server-sidebar-action="identity-menu"]').count()).toBe(0)
+  }, 30_000)
 
   it('replaces the hero fish mark and headline with the sidebar\'s own brand copy, hides the preview badge and the live workspace row, and drops the agent-preset dropdown entirely', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-hero-facade'))
@@ -2087,6 +2110,371 @@ describe('web e2e: the product-console sidebar with no workspace connected', () 
   it('leaves the console clean', () => {
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
+  })
+})
+
+/** Identical to {@link OVERLAY}, plus the organization fixture's row. */
+const ORG_OVERLAY = fileURLToPath(new URL('./server-sidebar-org.overlay.yml', import.meta.url))
+/**
+ * A stand-in for the organization plugin: its `sumomok-org` Settings section
+ * and its `sumomokOrgNotice` Remote, answered from in-memory state.
+ */
+const ORG_FIXTURE = fileURLToPath(new URL('./fixtures/plugins/fixture-org', import.meta.url))
+/** {@link CONSOLE_ROWS} plus the row {@link ORG_OVERLAY} adds. */
+const ORG_ROWS = [...CONSOLE_ROWS, ['@fixture/org', ORG_FIXTURE]] as const
+
+/** The organization fixture's state for its one member, which a scenario reads and sets. */
+interface OrgFixtureState {
+  acceptance: 'organization' | 'member'
+  /** The disclosure's current version. */
+  version: number
+  /** The highest version the member read. */
+  seen: number
+  /** The highest version the member agreed to. */
+  agreed: number
+  /** How many times each method was called. */
+  asked: number
+  seenCalls: number
+  confirmCalls: number
+}
+
+/**
+ * Narrow the fixture service's `state` field.
+ * @param value - the field.
+ * @returns whether it carries every field {@link OrgFixtureState} names.
+ */
+function isOrgFixtureState(value: unknown): value is OrgFixtureState {
+  if (typeof value !== 'object' || value === null) return false
+  return (['version', 'seen', 'agreed', 'asked', 'seenCalls', 'confirmCalls'] as const)
+    .every(field => typeof Reflect.get(value, field) === 'number')
+    && ['organization', 'member'].includes(String(Reflect.get(value, 'acceptance')))
+}
+
+/**
+ * The organization fixture's live state, in the Host's own process.
+ * @param scaffold - the launched console.
+ * @returns the state object the fixture answers from.
+ */
+function orgFixture(scaffold: WebScaffold): OrgFixtureState {
+  const service: unknown = scaffold.ctx.get('sumomokOrgNotice')
+  const state: unknown = typeof service === 'object' && service !== null ? Reflect.get(service, 'state') : undefined
+  if (!isOrgFixtureState(state)) throw new Error('the organization fixture is not running')
+  return state
+}
+
+/** One element's box on the page. */
+interface Box {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/**
+ * An element's box, failing when it is not rendered.
+ * @param locator - the element.
+ * @returns its box.
+ */
+async function boxOf(locator: Locator): Promise<Box> {
+  const box = await locator.boundingBox()
+  if (box === null) throw new Error('element is not rendered')
+  return box
+}
+
+/**
+ * Whether two boxes share any area.
+ * @param a - one box.
+ * @param b - the other.
+ * @returns whether they overlap.
+ */
+function overlaps(a: Box, b: Box): boolean {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+}
+
+/** The narrow frames the notice is checked on: the smallest common phone, and two common widths. */
+const NARROW_VIEWPORTS = [[320, 568], [360, 740], [390, 844]] as const
+
+describe('web e2e: the product-console sidebar with the organization plugin', () => {
+  let scaffold: WebScaffold
+  let browser: Browser
+  let page: Page
+  let harnessHome: string
+  let tripwire: ReturnType<typeof watchConsole>
+  /** Every browser-console line the organization notice reports. */
+  const noticeReports: string[] = []
+  const inheritedAppRoot = process.env.DSH_CONTENT_APP_ROOT
+
+  const identityRow = (): Locator => sidebar(page).locator('[data-server-sidebar-section="identity"]')
+  const noticeCard = (): Locator => page.locator('[data-shell-overlay] [data-server-sidebar-org-notice]')
+  const heroComposer = (): Locator => composer(page, HERO_PLACEHOLDER)
+
+  /**
+   * Resize the page and wait until the shell's animated column tracks have
+   * settled: the chat column across the frame on a narrow frame, and beside
+   * the session column's 3/24 share, at least 180px, on a wide one.
+   * @param width - the viewport width.
+   * @param height - the viewport height.
+   */
+  async function resize(width: number, height: number): Promise<void> {
+    await page.setViewportSize({ width, height })
+    const session = width < 1024 ? 0 : Math.max(180, Math.round(width * 3 / 24))
+    await expect.poll(() => columnWidth(shellColumn(page, 'chat')), { timeout: 10_000 }).toBe(width - session)
+  }
+
+  /**
+   * Click a card's button and wait until the page has the answer to the call
+   * it makes, so a reload right after does not cut that answer off.
+   * @param button - the card's button.
+   * @param method - the notice method the button calls.
+   */
+  async function clickAndAnswer(button: Locator, method: 'markSeen' | 'confirm'): Promise<void> {
+    const answer = page.waitForResponse(response => new URL(response.url()).pathname === `/api/sumomokOrgNotice/${method}`)
+    await button.click()
+    await (await answer).finished()
+  }
+
+  /**
+   * Reload the page and wait until the notice has been asked again.
+   * @returns once the sidebar is back and the fixture has answered the page's ask.
+   */
+  async function reloadAndAsk(): Promise<void> {
+    const asked = orgFixture(scaffold).asked
+    const warningStart = tripwire.warnings.length
+    await page.reload({ waitUntil: 'load' })
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
+    await sidebar(page).waitFor({ timeout: 15_000 })
+    await expect.poll(() => orgFixture(scaffold).asked, { timeout: 15_000 }).toBeGreaterThan(asked)
+  }
+
+  /**
+   * Assert the card is clear of the composer, holds no focus, and leaves the
+   * composer writable.
+   * @param card - the card.
+   */
+  async function expectNonModal(card: Locator): Promise<void> {
+    expect(overlaps(await boxOf(card), await boxOf(heroComposer()))).toBe(false)
+    await expect(card.evaluate(element => element.contains(document.activeElement))).resolves.toBe(false)
+    expect(await card.getAttribute('aria-modal')).toBeNull()
+    await expect(page.locator('#root').evaluate(element => element instanceof HTMLElement && element.inert)).resolves.toBe(false)
+    await writeComposerDraft(page, heroComposer(), 'A draft beside the notice')
+    await expect(heroComposer().innerText()).resolves.toContain('A draft beside the notice')
+    await writeComposerDraft(page, heroComposer(), '')
+  }
+
+  beforeAll(async () => {
+    harnessHome = await harnessHomeWithRowLinks(ORG_ROWS)
+    process.env.DSH_CONTENT_APP_ROOT = APP_ROOT
+    scaffold = await launchConsole(harnessHome, ORG_OVERLAY)
+    const workspaceDir = join(scaffold.workspaceCwd, 'server-sidebar-org-workspace')
+    await mkdir(workspaceDir, { recursive: true })
+    await scaffold.ctx.workspaceRegistry.create(workspaceDir)
+
+    browser = await chromium.launch()
+    page = await newEnglishPage(browser)
+    tripwire = watchConsole(page)
+    page.on('console', (message) => {
+      if (/organization (notice|did not)/.test(message.text())) noticeReports.push(message.text())
+    })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
+    await sidebar(page).waitFor({ timeout: 30_000 })
+    await heroComposer().waitFor({ timeout: 15_000 })
+  }, 180_000)
+
+  afterAll(async () => {
+    await browser?.close()
+    await scaffold?.close()
+    await rm(harnessHome, { recursive: true, force: true })
+    if (inheritedAppRoot === undefined) delete process.env.DSH_CONTENT_APP_ROOT
+    else process.env.DSH_CONTENT_APP_ROOT = inheritedAppRoot
+  })
+
+  it('opens the organization section from the identity menu, through the opener seat the compact settings row hides', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-org-menu'))
+    // The settings shell renders its trigger-action list hidden in the compact
+    // row, and the seat inside it stays mounted: the menu below works only
+    // with the opener that seat publishes.
+    const triggerActions = identityRow().locator('[class*="triggerActions"]')
+    await expect.poll(() => triggerActions.count(), { timeout: 10_000 }).toBe(1)
+    await expect(triggerActions.evaluate(element => getComputedStyle(element).display)).resolves.toBe('none')
+    const trigger = identityRow().locator('[data-server-sidebar-action="identity-menu"]')
+    await trigger.waitFor({ timeout: 15_000 })
+    expect(await trigger.getAttribute('aria-haspopup')).toBe('menu')
+    expect(await trigger.innerText()).toBe('User')
+    await expect(identityRow().getByRole('button', { name: 'Sign out' }).isVisible()).resolves.toBe(true)
+    await trigger.click()
+    const item = page.getByRole('menuitem', { name: 'Organization' })
+    await item.waitFor({ timeout: 10_000 })
+    expect(await page.getByRole('menuitem').count()).toBe(1)
+    await evidence(page, 'server-sidebar-org-identity-menu')
+    await item.click()
+    const settings = page.getByRole('dialog', { name: 'Settings' })
+    await settings.waitFor({ timeout: 10_000 })
+    const row = settings.getByRole('group', { name: 'Account & usage' }).getByRole('button', { name: 'Organization' })
+    await expect.poll(() => row.getAttribute('aria-current'), { timeout: 10_000 }).toBe('true')
+    await settings.locator('[data-fixture-org-section]').waitFor({ timeout: 10_000 })
+    await evidence(page, 'server-sidebar-org-settings-section')
+    await page.keyboard.press('Escape')
+    await expect.poll(() => settings.count(), { timeout: 10_000 }).toBe(0)
+  }, 60_000)
+
+  it('shows the organization\'s notice over the sidebar\'s lower rows, clear of the identity row, its settings button, and the composer, without taking the focus', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-org-notice-wide'))
+    const card = page.getByRole('dialog', { name: 'About the data we collect (version 1)' })
+    await card.waitFor({ timeout: 15_000 })
+    expect(await card.getAttribute('data-server-sidebar-org-notice')).toBe('notice')
+    expect(await card.getByRole('button').allInnerTexts()).toEqual(['Got it'])
+    const cardBox = await boxOf(card)
+    expect(overlaps(cardBox, await boxOf(identityRow()))).toBe(false)
+    expect(overlaps(cardBox, await boxOf(identityRow().getByRole('button', { name: 'Settings', exact: true })))).toBe(false)
+    // It stands over the column's lower rows, not past the column's edge.
+    const column = await boxOf(sidebar(page))
+    expect(cardBox.x).toBeGreaterThanOrEqual(column.x)
+    expect(cardBox.x + cardBox.width).toBeLessThanOrEqual(column.x + column.width)
+    await expectNonModal(card)
+    await evidence(page, 'server-sidebar-org-notice-wide')
+    // On the narrowest wide frame the column is 180px and the card's text fills it to the height cap.
+    try {
+      await resize(1024, 768)
+      await expect.poll(async () => (await boxOf(card)).width, { timeout: 10_000 }).toBe(164)
+      const bottom = Number.parseFloat(await card.evaluate(element => element.style.getPropertyValue('--server-sidebar-notice-bottom')))
+      const smallBox = await boxOf(card)
+      expect(smallBox.height).toBeCloseTo(Math.min(0.7 * 768, 520, 768 - bottom - 20), 0)
+      expect(overlaps(smallBox, await boxOf(identityRow()))).toBe(false)
+      expect(overlaps(smallBox, await boxOf(heroComposer()))).toBe(false)
+      await evidence(page, 'server-sidebar-org-notice-1024x768')
+    } finally {
+      await resize(1680, 1000)
+    }
+  }, 60_000)
+
+  it('keeps the notice under the drawer button and clear of the composer on a narrow frame, and under an open drawer', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-org-notice-narrow'))
+    try {
+      for (const [width, height] of NARROW_VIEWPORTS) {
+        await resize(width, height)
+        const hamburger = page.locator('[data-shell-drawer-toggle]')
+        await hamburger.waitFor({ timeout: 10_000 })
+        const card = noticeCard()
+        await card.waitFor({ timeout: 10_000 })
+        const [cardBox, hamburgerBox, composerBox] = await Promise.all([boxOf(card), boxOf(hamburger), boxOf(heroComposer())])
+        // The composer is on screen, so clearing it is not clearing an element off the frame.
+        expect(composerBox.x + composerBox.width).toBeLessThanOrEqual(width)
+        expect({ width, overlapsComposer: overlaps(cardBox, composerBox) }).toEqual({ width, overlapsComposer: false })
+        expect({ width, overlapsButton: overlaps(cardBox, hamburgerBox) }).toEqual({ width, overlapsButton: false })
+        expect(cardBox.y).toBeGreaterThanOrEqual(hamburgerBox.y + hamburgerBox.height)
+        if (width === 390) await evidence(page, 'server-sidebar-org-notice-narrow')
+      }
+      await expectNonModal(noticeCard())
+      // An open drawer covers the card as it covers the rest of the page.
+      await page.locator('[data-shell-drawer-toggle]').click()
+      const drawer = page.locator('[data-shell-drawer]')
+      await drawer.waitFor({ timeout: 10_000 })
+      await expect.poll(async () => (await boxOf(drawer)).x, { timeout: 10_000 }).toBe(0)
+      const [drawerBox, cardBox] = await Promise.all([boxOf(drawer), boxOf(noticeCard())])
+      const point = { x: cardBox.x + 24, y: cardBox.y + 24 }
+      expect(point.x).toBeLessThan(drawerBox.x + drawerBox.width)
+      await expect(page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest('[data-shell-drawer]') !== null, point))
+        .resolves.toBe(true)
+      await evidence(page, 'server-sidebar-org-notice-under-drawer')
+      await page.keyboard.press('Escape')
+      await drawer.waitFor({ state: 'detached', timeout: 10_000 })
+      await expect(noticeCard().isVisible()).resolves.toBe(true)
+    } finally {
+      await resize(1680, 1000)
+    }
+  }, 90_000)
+
+  it('closes only the identity menu on Escape inside the open drawer, and the drawer on the next Escape', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-org-drawer-menu-escape'))
+    try {
+      await resize(390, 844)
+      await page.locator('[data-shell-drawer-toggle]').click()
+      const drawer = page.locator('[data-shell-drawer]')
+      await drawer.waitFor({ timeout: 10_000 })
+      const trigger = drawer.locator('[data-server-sidebar-action="identity-menu"]')
+      await trigger.waitFor({ timeout: 10_000 })
+      await trigger.click()
+      const item = page.getByRole('menuitem', { name: 'Organization' })
+      await item.waitFor({ timeout: 10_000 })
+      await page.keyboard.press('Escape')
+      await item.waitFor({ state: 'detached', timeout: 10_000 })
+      expect(await drawer.count()).toBe(1)
+      await expect(trigger.evaluate(element => element === document.activeElement)).resolves.toBe(true)
+      await page.keyboard.press('Escape')
+      await drawer.waitFor({ state: 'detached', timeout: 10_000 })
+    } finally {
+      await resize(1680, 1000)
+    }
+  }, 60_000)
+
+  it('records the notice as read on Got it, and shows it again only for a new version', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-org-notice-read'))
+    await clickAndAnswer(page.getByRole('dialog', { name: 'About the data we collect (version 1)' }).getByRole('button', { name: 'Got it' }), 'markSeen')
+    await noticeCard().waitFor({ state: 'detached', timeout: 10_000 })
+    await expect.poll(() => orgFixture(scaffold).seen, { timeout: 10_000 }).toBe(1)
+    await reloadAndAsk()
+    expect(await noticeCard().count()).toBe(0)
+    orgFixture(scaffold).version = 2
+    await reloadAndAsk()
+    const card = page.getByRole('dialog', { name: 'About the data we collect (version 2)' })
+    await card.waitFor({ timeout: 15_000 })
+    await clickAndAnswer(card.getByRole('button', { name: 'Got it' }), 'markSeen')
+    expect(orgFixture(scaffold).seen).toBe(2)
+  }, 90_000)
+
+  it('asks a member to agree with Later and I agree, clear of the composer, and Later puts it away for this page only', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-org-consent'))
+    const fixture = orgFixture(scaffold)
+    fixture.acceptance = 'member'
+    fixture.version = 3
+    await reloadAndAsk()
+    const card = page.getByRole('dialog', { name: 'About the data we collect (version 3)' })
+    await card.waitFor({ timeout: 15_000 })
+    expect(await card.getAttribute('data-server-sidebar-org-notice')).toBe('consent')
+    expect(await card.getByRole('button').allInnerTexts()).toEqual(['Later', 'I agree'])
+    const cardBox = await boxOf(card)
+    expect(overlaps(cardBox, await boxOf(identityRow()))).toBe(false)
+    expect(overlaps(cardBox, await boxOf(identityRow().getByRole('button', { name: 'Settings', exact: true })))).toBe(false)
+    await expectNonModal(card)
+    await evidence(page, 'server-sidebar-org-consent-wide')
+    try {
+      for (const [width, height] of NARROW_VIEWPORTS) {
+        await resize(width, height)
+        const composerBox = await boxOf(heroComposer())
+        expect(composerBox.x + composerBox.width).toBeLessThanOrEqual(width)
+        expect({ width, overlapsComposer: overlaps(await boxOf(card), composerBox) })
+          .toEqual({ width, overlapsComposer: false })
+        if (width === 390) {
+          await expectNonModal(card)
+          await evidence(page, 'server-sidebar-org-consent-narrow')
+        }
+      }
+    } finally {
+      await resize(1680, 1000)
+    }
+    const { seenCalls, confirmCalls } = orgFixture(scaffold)
+    await card.getByRole('button', { name: 'Later' }).click()
+    await noticeCard().waitFor({ state: 'detached', timeout: 10_000 })
+    expect(orgFixture(scaffold)).toMatchObject({ seenCalls, confirmCalls, agreed: 0 })
+    await reloadAndAsk()
+    await card.waitFor({ timeout: 15_000 })
+  }, 90_000)
+
+  it('records a member\'s agreement on I agree, after which the disclosure is not asked again', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-org-consent-agreed'))
+    const card = page.getByRole('dialog', { name: 'About the data we collect (version 3)' })
+    await card.waitFor({ timeout: 15_000 })
+    await clickAndAnswer(card.getByRole('button', { name: 'I agree' }), 'confirm')
+    await noticeCard().waitFor({ state: 'detached', timeout: 10_000 })
+    expect(orgFixture(scaffold)).toMatchObject({ agreed: 3, confirmCalls: 1 })
+    await reloadAndAsk()
+    expect(await noticeCard().count()).toBe(0)
+  }, 60_000)
+
+  it('leaves the console clean', () => {
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+    expect(noticeReports).toEqual([])
   })
 })
 

@@ -29,8 +29,8 @@
 
 import type { ActStep, ActStepResult } from '../../access/wire.ts'
 import {
-  cannotActReason, disabledReason, hiddenReason, labelChangedReason, markChangedReason, noOptionReason,
-  occludedReason, outOfTimeReason, refGoneReason, waitedReason,
+  cannotActReason, disabledReason, hiddenReason, labelChangedReason, markChangedReason, namedHereReason,
+  noOptionReason, occludedReason, outOfTimeReason, refGoneReason, waitedReason,
 } from '../../access/act-text.ts'
 import {
   DIALOG_SELECTOR, containerName, isDisabled, isHiddenAround, isPassword, isSkipped, queryInOrder, visibleText,
@@ -78,10 +78,17 @@ export interface ActPage {
   /**
    * Injected marking, the reader's own: what a listing prints in place of a
    * name for a row the page named nothing. One row has one identity, so a row
-   * with a name is checked by {@link ActPage.name} and one without by this,
-   * against the same computation that printed it.
+   * with a name is checked by {@link ActPage.name} and one without by this or
+   * by {@link ActPage.treeMark}, against the same computation that printed it.
    */
   readonly mark: (el: Element) => string
+  /**
+   * Injected marking, the reader's own: the class tokens a markup tree prints
+   * for an element. A step naming a row it found in that tree carries these,
+   * and they differ from {@link ActPage.mark} only for a drawing whose `use`
+   * points at a symbol, which the listing marks with that symbol as well.
+   */
+  readonly treeMark: (el: Element) => string
 }
 
 /** How long the steps may wait, as the deployment configured it. */
@@ -326,6 +333,18 @@ async function waitFor(
 }
 
 /**
+ * True where a step's mark is one a read printed for the element: the mark a
+ * listing prints for it, or the class tokens a markup tree prints.
+ * @param el - the element the ref resolved to.
+ * @param mark - the mark the step carries.
+ * @param page - the reader's own marking.
+ * @returns whether the element carries that mark.
+ */
+function carriesMark(el: Element, mark: string, page: ActPage): boolean {
+  return page.mark(el) === mark || page.treeMark(el) === mark
+}
+
+/**
  * Run one step against the element its ref names.
  * @param step - the step to run.
  * @param page - the documents, the numbering, and the visibility test.
@@ -350,13 +369,19 @@ async function runStep(
   // under the refs stops the call here rather than acting on what took its
   // place.
   const name = page.name(el)
-  if (name !== step.label) return labelChangedReason(step.ref, name, step.label)
-  // A row the listing named nothing is held to the mark it printed instead: the
-  // page redrawing that position leaves the ref resolving to something else,
-  // and the mark is all either side has to tell the two apart.
-  if (step.mark !== undefined) {
-    const mark = page.mark(el)
-    if (mark !== step.mark) return markChangedReason(step.ref, mark, step.mark)
+  if (name !== step.label) {
+    // An empty label beside a mark the element carries is the identity of a
+    // row the read printed with no name: the element is the one the step
+    // meant, and the page names it.
+    const unnamed = step.label === '' && step.mark !== undefined && carriesMark(el, step.mark, page)
+    return unnamed ? namedHereReason(step.ref, name) : labelChangedReason(step.ref, name, step.label)
+  }
+  // A row the listing named nothing is held to the mark it printed instead, or
+  // to the class tokens a markup tree printed for it: the page redrawing that
+  // position leaves the ref resolving to something else, and the mark is all
+  // either side has to tell the two apart.
+  if (step.mark !== undefined && !carriesMark(el, step.mark, page)) {
+    return markChangedReason(step.ref, page.mark(el), step.mark)
   }
   const dialog = occluder(page, el)
   if (dialog !== undefined) {

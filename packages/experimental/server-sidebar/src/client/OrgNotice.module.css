@@ -1,0 +1,133 @@
+/* The organization notice card, in server-layout's overlay layer, which
+   passes pointer events to its children only.
+
+   Wide frame: inside the sidebar column, 8px in from its sides, and 8px above
+   its foot band, the three numbers the sidebar measured (foot-placement.ts),
+   so it covers the column's lower rows but never the identity row, its
+   settings button, or the composer beside the column. The card grows upward
+   and stops short of the viewport's top. Until the first measurement arrives
+   it takes its place but draws nothing, so it never stands over the foot band.
+
+   Narrow frame (server-layout marks its frame `data-narrow`): under the
+   drawer button (36px at 12px from the top), across the frame with 12px
+   gutters. Its bottom edge stays 12px above `50vh - 14px`, where an empty
+   conversation's composer starts: that composer is centred in the chat
+   column and lifted by its 32px foot, so the card never covers it either. No
+   sidebar is mounted there while the drawer is closed, so this placement
+   reads no measurement.
+
+   `z-index: 0` keeps the card under the narrow frame's drawer scrim (1),
+   drawer (2), and drawer button (3) in the same layer: an open drawer covers
+   it as it covers the rest of the page. */
+.card {
+  position: fixed;
+  z-index: 0;
+  left: calc(var(--server-sidebar-notice-left) + 8px);
+  bottom: calc(var(--server-sidebar-notice-bottom) + 8px);
+  width: calc(var(--server-sidebar-notice-width) - 16px);
+  max-height: min(70vh, 520px, calc(100vh - var(--server-sidebar-notice-bottom) - 20px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  box-sizing: border-box;
+  border-radius: var(--dsw-radius-lg);
+  background: var(--dsw-alias-bg-base);
+  box-shadow: var(--dsw-elevation-prominent);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 20px;
+  /* Elevated surface: the shared scrollbar takes the l2 thumb. */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+.card[data-unplaced] {
+  visibility: hidden;
+}
+
+:global([data-narrow]) .card {
+  top: 56px;
+  left: 12px;
+  right: 12px;
+  bottom: auto;
+  width: auto;
+  max-height: calc(50vh - 82px);
+  visibility: visible;
+}
+
+.title {
+  flex: none;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+}
+
+/* The disclosure's text scrolls inside the card; the title and the buttons stay put. */
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+
+.text {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.facts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+
+.term {
+  font-weight: 500;
+}
+
+.detail {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.categories {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.line {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.link {
+  color: var(--dsw-alias-brand-primary);
+}
+
+.where {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.error {
+  flex: none;
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.actions {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

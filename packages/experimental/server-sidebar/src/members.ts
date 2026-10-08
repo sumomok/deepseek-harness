@@ -23,7 +23,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context, Logger } from '@deepseek-ai/cordis'
 // Type-only: resolves ctx.loader, whose settling is when a mismatched composition is reported.
 import type {} from '@deepseek-ai/cordis-plugin-loader'
-import type { ConsoleMemberDirectory, MemberStore, PrincipalKey } from '@deepseek-ai/dsh-experimental-console-members'
+import type { ConsoleMemberDirectory, MemberStore, PrincipalKey } from '@deepseek-ai/dsh-experimental-console-members/types'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-settings'
@@ -227,7 +227,7 @@ async function answerMemberMenu(
     return
   }
   if (posting && (rejectCrossSite(req, res, ROUTE_LABEL) || rejectNonJson(req, res, ROUTE_LABEL))) return
-  const members = ctx.get('consoleMembers')
+  const members: Context['consoleMembers'] | undefined = ctx.get('consoleMembers')
   if (members === undefined) {
     answerJson(res, 503, { error: `server-sidebar: the ${ROUTE_LABEL} needs the consoleMembers service, which is not running` })
     return

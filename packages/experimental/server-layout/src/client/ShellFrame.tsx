@@ -13,12 +13,12 @@
  * Below the {@link isNarrow} breakpoint the session column leaves the grid
  * (its track solves to 0) and the session list is reached through an off-canvas
  * drawer the frame draws into its own overlay layer: a top-left hamburger opens
- * it, a scrim and the Escape key close it, and the same `sidebar` slot fills it
- * at {@link SIDEBAR_DRAWER} width. The occupant is unchanged — it renders full
- * content against whatever width it is handed, in the grid column or the
- * drawer. The drawer is forced closed as the frame widens back past the
- * breakpoint (stores.ts `setNarrow`) so no stale overlay survives onto a wide
- * layout.
+ * it, a scrim and an Escape that no layer inside it handled close it, and the
+ * same `sidebar` slot fills it at {@link SIDEBAR_DRAWER} width. The occupant is
+ * unchanged — it renders full content against whatever width it is handed, in
+ * the grid column or the drawer. The drawer is forced closed as the frame
+ * widens back past the breakpoint (stores.ts `setNarrow`) so no stale overlay
+ * survives onto a wide layout.
  *
  * The content column additionally collapses to zero width while the current
  * session's content surface has shown nothing — read defensively off the
@@ -113,14 +113,16 @@ export function ShellFrame({ useStore, useSessions, usePanelInfo, renderSlot, t,
   // back past it.
   useEffect(() => { actions.setNarrow(narrow) }, [actions, narrow])
 
-  // The drawer's own keyboard dismissal: Escape while it is open. Pointer
-  // dismissal is the scrim's click; a navigation tap does not auto-close (the
-  // sidebar reuses the current session for a page or view, so no switch
-  // reaches this frame — see the package README).
+  // The drawer's own keyboard dismissal: Escape while it is open, unless a
+  // layer inside it already took that Escape (a menu or a dialog calls
+  // preventDefault before this window listener runs). Pointer dismissal is
+  // the scrim's click; a navigation tap does not auto-close (the sidebar
+  // reuses the current session for a page or view, so no switch reaches this
+  // frame — see the package README).
   useEffect(() => {
     if (!panels.drawerOpen) return
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') actions.closeDrawer()
+      if (event.key === 'Escape' && !event.defaultPrevented) actions.closeDrawer()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => { window.removeEventListener('keydown', onKeyDown) }
