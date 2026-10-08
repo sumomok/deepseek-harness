@@ -64,9 +64,9 @@
 | `plugin-manager/changed` | `emit` | [`packages/boot/plugin-manager/src/types.ts:259`](../packages/boot/plugin-manager/src/types.ts) | [`plugin-manager`](../packages/boot/plugin-manager) (`emit`) | `remotes` |
 | `plugin-manager/install-log` | `emit` | [`packages/boot/plugin-manager/src/types.ts:265`](../packages/boot/plugin-manager/src/types.ts) | [`plugin-manager`](../packages/boot/plugin-manager) (`emit`) | `remotes` |
 | `plugin-manager/install-state` | `emit` | [`packages/boot/plugin-manager/src/types.ts:272`](../packages/boot/plugin-manager/src/types.ts) | [`plugin-manager`](../packages/boot/plugin-manager) (`emit`) | `remotes` |
-| `remote-stream/socket-closed` | `emit` | [`packages/api/gateway/src/index.ts:107`](../packages/api/gateway/src/index.ts) | `gateway` (`emit`) | - |
-| `remote-stream/socket-opened` | `emit` | [`packages/api/gateway/src/index.ts:97`](../packages/api/gateway/src/index.ts) | `gateway` (`emit`) | - |
-| `remote/invoke` | `waterfall` | [`packages/api/gateway/src/index.ts:143`](../packages/api/gateway/src/index.ts) | `gateway` (`waterfall`) | - |
+| `remote-stream/socket-closed` | `emit` | [`packages/api/gateway/src/index.ts:111`](../packages/api/gateway/src/index.ts) | `gateway` (`emit`) | - |
+| `remote-stream/socket-opened` | `emit` | [`packages/api/gateway/src/index.ts:101`](../packages/api/gateway/src/index.ts) | `gateway` (`emit`) | - |
+| `remote/invoke` | `waterfall` | [`packages/api/gateway/src/index.ts:147`](../packages/api/gateway/src/index.ts) | `gateway` (`waterfall`) | - |
 | `schedule/changed` | `emit` | [`packages/schedule/schedule/src/types.ts:478`](../packages/schedule/schedule/src/types.ts) | [`schedule`](../packages/schedule/schedule) (`emit`) | `remotes` |
 | `session-persistence/relocated` | `parallel` | [`packages/session/session-persistence/src/index.ts:142`](../packages/session/session-persistence/src/index.ts) | [`session-persistence-jsonl`](../packages/session/session-persistence-jsonl) (`parallel`) | [`session-projection-cache`](../packages/session/session-projection-cache), [`workspace`](../packages/workspace/workspace) |
 | `session-telemetry/record` | `waterfall` | [`packages/session/session-telemetry/src/index.ts:44`](../packages/session/session-telemetry/src/index.ts) | [`session-telemetry`](../packages/session/session-telemetry) (`waterfall`) | - |
