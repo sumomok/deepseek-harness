@@ -614,8 +614,8 @@ export function acceptsOutput(source: PropsFieldSchema, target: PropsFieldSchema
  * Why one of a component's own properties cannot be read from another block.
  *
  * Three things refuse a binding on it: the component's `sanitize` names the
- * property, something nested in it is read as something narrower than text
- * ({@link carriesReading}), or it is declared {@link PropsField.unbindable}. A
+ * property, something nested in it is read as something narrower than text,
+ * or it is declared {@link PropsField.unbindable}. A
  * property that is both read as something narrower than text and declared
  * unbindable is refused with the first, which names what it is read as.
  * @param entry - the component.
