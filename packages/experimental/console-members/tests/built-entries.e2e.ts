@@ -6,6 +6,9 @@
  * the built entries by package name in a plain Node subprocess, mounts the row
  * through the root entry, attaches a reader through `ctx.consoleMembers`, and
  * requires `./credential-access` to read that reader and the registry.
+ * Without the built entries it skips, except in lib mode
+ * (`DSH_EXAMPLE_MODE=lib`, which the built-bin smoke gate sets), where it
+ * fails.
  */
 
 import { execFile } from 'node:child_process'
@@ -19,6 +22,10 @@ import { describe, expect, it } from 'vitest'
 const packageRoot = fileURLToPath(new URL('../', import.meta.url))
 const builtEntries = ['lib/index.js', 'lib/credential-access.js'].map(entry => join(packageRoot, entry))
 const execFileAsync = promisify(execFile)
+const builtEntriesExist = builtEntries.every(entry => existsSync(entry))
+if (process.env.DSH_EXAMPLE_MODE === 'lib' && !builtEntriesExist) {
+  throw new Error('the console-members built-entries smoke requires lib/index.js and lib/credential-access.js in lib mode; run pnpm run build first')
+}
 
 const builtProbe = String.raw`
 import { generateKeyPairSync, randomUUID } from "node:crypto";
@@ -59,7 +66,7 @@ await ctx.fiber.dispose();
 process.stdout.write(JSON.stringify(answer));
 `
 
-describe.skipIf(!builtEntries.every(entry => existsSync(entry)))('the BUILT package root and ./credential-access', () => {
+describe.skipIf(!builtEntriesExist)('the BUILT package root and ./credential-access', () => {
   it('read one directory state: the reader attached through ctx.consoleMembers and the registry', async () => {
     const temporary = realpathSync.native(tmpdir())
     const top = realpathSync.native(mkdtempSync(join(temporary, 'dsh-console-members-built-')))
