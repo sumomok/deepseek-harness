@@ -345,6 +345,8 @@
       "@deepseek-ai/dsh-experimental-page-refresh": ["./packages/experimental/page-refresh/src"],
       "@deepseek-ai/dsh-experimental-page-refresh/client": ["./packages/experimental/page-refresh/src/client/index.ts"],
       "@deepseek-ai/dsh-experimental-server-base": ["./packages/experimental/server-base/src"],
+      // No proxy.mts exists: TypeScript reads that candidate as the declarations in proxy.d.mts, and Vite skips it for proxy.mjs.
+      "@deepseek-ai/dsh-experimental-server-base/deploy/proxy": ["./packages/experimental/server-base/deploy/proxy.mts", "./packages/experimental/server-base/deploy/proxy.mjs"],
       "@deepseek-ai/dsh-experimental-server-layout": ["./packages/experimental/server-layout/src"],
       "@deepseek-ai/dsh-experimental-skill-pack": ["./packages/experimental/skill-pack/src"],
       "@deepseek-ai/dsh-experimental-skill-pack-components": ["./packages/experimental/skill-pack-components/src"],

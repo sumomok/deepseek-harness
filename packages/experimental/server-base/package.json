@@ -16,11 +16,17 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./deploy/proxy": {
+      "types": "./deploy/proxy.d.mts",
+      "default": "./deploy/proxy.mjs"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/index.js",
+    "deploy/proxy.d.mts",
+    "deploy/proxy.mjs",
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",

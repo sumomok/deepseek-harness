@@ -10,10 +10,18 @@ describe('builtDeclarationPath', () => {
       .toBe('./packages/core/session/lib/types/types.d.ts')
     expect(builtDeclarationPath('./packages/experimental/claude-code-mods/examples/*'))
       .toBe('./packages/experimental/claude-code-mods/examples/*')
+    expect(builtDeclarationPath('./packages/experimental/server-base/deploy/proxy.mts'))
+      .toBe('./packages/experimental/server-base/deploy/proxy.mts')
+    expect(builtDeclarationPath('./packages/experimental/server-base/deploy/proxy.mjs'))
+      .toBe('./packages/experimental/server-base/deploy/proxy.mjs')
   })
 
   it('rejects aliases without a supported source target', () => {
     expect(() => builtDeclarationPath('./packages/core/session/source/index.ts'))
+      .toThrow('cannot map workspace source path')
+    expect(() => builtDeclarationPath('./packages/experimental/server-base/deploy/nested/proxy.mjs'))
+      .toThrow('cannot map workspace source path')
+    expect(() => builtDeclarationPath('./packages/experimental/server-base/deploy/proxy.js'))
       .toThrow('cannot map workspace source path')
   })
 })

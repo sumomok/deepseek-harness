@@ -211,6 +211,9 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   // The console's permission row ships beside its bundle layer: a deployment
   // applies it above the profile patch so no settings write can change it.
   '@deepseek-ai/dsh-experimental-console-profile': ['permission-lock.patch.yml'],
+  // The deployment proxy's assertion signer is the ./deploy/proxy export, plain JavaScript with
+  // hand-written declarations that no build emits.
+  '@deepseek-ai/dsh-experimental-server-base': ['deploy/proxy.d.mts', 'deploy/proxy.mjs'],
   '@deepseek-ai/dsh-skill-office': ['assets'],
   '@deepseek-ai/dsh-subprocess': ['lib/control.js'],
   // SSH launches a private helper and shares wire definitions and TLS setup
