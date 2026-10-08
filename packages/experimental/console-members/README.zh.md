@@ -44,7 +44,7 @@ declare const req: IncomingMessage
 const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(req)
 ```
 
-`/types` 入口不导入任何宿主入口，所以宿主插件和客户端程序都从它导入。包根再导出同样的类型，但包根留给提供这个目录的插件，那个插件会导入宿主入口；客户端程序从不导入包根。
+`/types` 入口不导入任何宿主入口，所以宿主插件和客户端程序都从它导入。包根再导出同样的类型，但包根留给将来提供这个目录的插件；客户端程序从不导入包根。
 
 `principalOfRequest` 是 fork 的 webServer 路由取得请求背后成员的唯一方式：路由不自己读身份头，也不自己调 `connection.admit`。`principalOfSession` 沿子会话的父链追到最上层的会话，`attachCustomerCredentials` 同一时刻只持有一个客户 token 读取器，且没有方法交出它。[子系统页](../../../docs/subsystems/console-members.zh.md) 解释这三条规则；[`src/types.ts`](src/types.ts) 写明每个方法的契约。
 

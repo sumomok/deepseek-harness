@@ -44,7 +44,7 @@ declare const req: IncomingMessage
 const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(req)
 ```
 
-The `/types` entry imports no Host entry point, so Host plugins and Client programs both import it. The package root re-exports the same types, but it is reserved for the plugin that provides the directory, which imports Host entry points; a Client program never imports the package root.
+The `/types` entry imports no Host entry point, so Host plugins and Client programs both import it. The package root re-exports the same types, but it is reserved for the plugin that will provide the directory; a Client program never imports the package root.
 
 `principalOfRequest` is the only way a fork webServer route obtains a request's member: the route reads no identity header and calls no `connection.admit` of its own. `principalOfSession` follows a child Session's parent chain to the topmost Session, and `attachCustomerCredentials` holds one customer-token reader at a time, which no method returns. The [subsystem page](../../../docs/subsystems/console-members.md) explains these three rules; [`src/types.ts`](src/types.ts) states every method's contract.
 
