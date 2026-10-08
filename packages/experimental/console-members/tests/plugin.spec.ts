@@ -6,6 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { HostConnectionService } from '@deepseek-ai/dsh-client-connection'
 import type { BrowserAuth } from '@deepseek-ai/dsh-client-connection/src/browser-auth.ts'
 import { afterEach, describe, expect, it } from 'vitest'
+import { readSettings } from '../src/config.ts'
 import { Config, apply, inject, name, type RootSeed } from '../src/index.ts'
 import { captureLogs, useTempHome } from './support.ts'
 
@@ -129,6 +130,11 @@ describe('the Config fields', () => {
   it('accepts a header name in any case', async () => {
     expect((await load(config({ assertionHeader: 'X-Console-Member' }))).error).toBeUndefined()
   })
+
+  it('compares the assertion header in lower case and defaults it to x-dsh-member', () => {
+    expect(readSettings(Config(config({ assertionHeader: 'X-Console-Member' }) as never)).assertionHeader).toBe('x-console-member')
+    expect(readSettings(Config(config() as never)).assertionHeader).toBe('x-dsh-member')
+  })
 })
 
 describe('the assertion key', () => {
@@ -148,6 +154,20 @@ describe('the assertion key', () => {
 
   it('accepts an Ed25519 SPKI key with surrounding whitespace', async () => {
     expect((await load(config({ assertionPublicKey: `\n  ${PUBLIC_PEM}\n` }))).error).toBeUndefined()
+  })
+})
+
+describe('comparing seed roots on the row\'s platform', () => {
+  const seeds = (): RootSeed[] => [{ path: join(temp.base, 'Alpha'), principal: ALICE }, { path: join(temp.base, 'alpha'), principal: BOB }]
+
+  it.runIf(process.platform === 'darwin')('reads two seeds that differ only in letter case as one directory on macOS', async () => {
+    const loaded = await load(config({ rootSeeds: seeds() }))
+    expect(messageOf(loaded.error)).toBe('console-members: rootSeeds[1] names a directory rootSeeds[0] registers to another owner')
+    expectNoLeak(loaded, ALICE, BOB)
+  })
+
+  it.runIf(process.platform === 'linux')('keeps two seeds that differ only in letter case apart on Linux', async () => {
+    expect((await load(config({ rootSeeds: seeds() }))).error).toBeUndefined()
   })
 })
 

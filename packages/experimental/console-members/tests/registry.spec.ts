@@ -224,6 +224,13 @@ describe('migration seeds', () => {
       .toThrow('console-members: rootSeeds[1] and rootSeeds[0] lie one inside the other')
   })
 
+  it('reads a directory whose name starts with .. as lying inside its parent', () => {
+    const outer = directory('outer')
+    const dotted = directory('outer/..x')
+    expect(() => open([seedFor(ALICE, outer), unowned(dotted)]))
+      .toThrow('console-members: rootSeeds[1] and rootSeeds[0] lie one inside the other')
+  })
+
   it('refuses a seed that is, contains, or lies inside membersRoot', () => {
     mkdirSync(membersRoot(), { recursive: true })
     for (const path of [membersRoot(), temp.base, join(membersRoot(), 'legacy')]) {
