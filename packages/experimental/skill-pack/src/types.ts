@@ -329,10 +329,15 @@ export type IntakeRefusalCode =
   /** Another entry of the set declares one of its view ids with a file of different bytes. */
   | 'view-id-conflict'
   /**
-   * The set names the same `name@version` more than once, two that differ
-   * only in letter case or Unicode normalization counting as one, because
-   * they name one directory on macOS and Windows. Every occurrence is
-   * refused, because nothing says which of them is the one meant.
+   * The set names the same `name@version` more than once, two that are equal
+   * after Unicode NFC, lower case, upper case, lower case again and NFC again
+   * counting as one. Two that differ only in letter case name one directory on
+   * macOS and Windows, and two that differ only in Unicode normalization name
+   * one on macOS; both are refused on every platform, so that one rule holds
+   * wherever the set is written. The fold is wider than any one file
+   * system's, so a few pairs a file system keeps apart, such as `ı` and `I`,
+   * are refused too. Every occurrence is refused, because nothing says which
+   * of them is the one meant.
    */
   | 'duplicate'
 

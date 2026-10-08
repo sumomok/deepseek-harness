@@ -186,11 +186,11 @@ describe('replacing a pack root', () => {
     await syncPackRoot(root, { kind: 'packs', packs: [pack('a', 'A.')] })
     const nfc = 'v\u00e9'
     const nfd = 've\u0301'
-    for (const [first, second] of [['a-guide@RC', 'a-guide@rc'], [`a-guide@${nfc}`, `a-guide@${nfd}`]] as const) {
+    for (const [first, second] of [['a-guide@RC', 'a-guide@rc'], [`a-guide@${nfc}`, `a-guide@${nfd}`], ['a-guide@stra\u00dfe', 'a-guide@strasse']] as const) {
       await expect(syncPackRoot(root, { kind: 'packs', packs: [pack(first, 'One.'), pack(second, 'Two.')] }))
         .rejects.toMatchObject({ refusal: 'duplicate-entry', entry: second })
     }
-    for (const [first, second] of [['views/a.yml', 'views/A.yml'], [`views/${nfc}.yml`, `views/${nfd}.yml`]] as const) {
+    for (const [first, second] of [['views/a.yml', 'views/A.yml'], [`views/${nfc}.yml`, `views/${nfd}.yml`], ['views/stra\u00dfe.yml', 'views/strasse.yml']] as const) {
       const files = [{ path: first, content: 'id: one\n' }, { path: second, content: 'id: two\n' }]
       await expect(syncPackRoot(root, { kind: 'packs', packs: [{ name: 'b', files }] }))
         .rejects.toMatchObject({ refusal: 'duplicate-entry', entry: `b/${second}` })

@@ -20,7 +20,8 @@ export type PackInstallRefusal =
   | 'not-a-pack'
   /**
    * The delivery names one pack twice, or one path twice inside a pack; two
-   * names that differ only in letter case or Unicode normalization count as one.
+   * names that are equal after Unicode NFC, lower case, upper case, lower case
+   * again and NFC again count as one.
    */
   | 'duplicate-entry'
   /** The archive's bytes are not an archive this installer can read. */

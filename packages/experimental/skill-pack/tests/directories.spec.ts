@@ -1,7 +1,7 @@
 /**
  * The form configured directories are compared in, per platform: names folded
- * to NFC and lower case where the platform's file systems ignore letter case,
- * and compared as written where they do not, whichever platform runs the test.
+ * by `collisionKey` where the platform's file systems ignore letter case, and
+ * compared as written where they do not, whichever platform runs the test.
  */
 
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
@@ -43,8 +43,31 @@ describe('configured directories compared per platform', () => {
     }).toThrow('must be separate directories, neither inside the other, because replacing one would write into the other')
   })
 
-  // Under a directory that does not exist, so the host's own file system,
-  // which may ignore case, never reads either name back.
+  // The cases below compare names under a directory that does not exist, so
+  // the host's own file system, which may ignore case, never reads either
+  // name back.
+  it.each(['darwin', 'win32'] as const)('refuses two names under a missing directory that differ only in letter case on %s', async (platform) => {
+    const missing = join(await newWorld(), 'missing')
+    expect(() => {
+      refuseSharedDirectories([
+        { field: 'organizationRoot', path: join(missing, 'PACKS') },
+        { field: 'root', path: join(missing, 'packs') },
+      ], platform)
+    }).toThrow(`skill-pack: organizationRoot ${JSON.stringify(join(missing, 'PACKS'))} and root ${JSON.stringify(join(missing, 'packs'))}`)
+  })
+
+  it.each(['darwin', 'win32'] as const)('refuses two names under a missing directory that lower case alone tells apart and APFS reads as one on %s', async (platform) => {
+    const missing = join(await newWorld(), 'missing')
+    for (const [left, right] of [['stra\u00dfe', 'strasse'], ['\u03c3', '\u03c2'], ['\u00b5', '\u03bc'], ['\u017f', 's']] as const) {
+      expect(() => {
+        refuseSharedDirectories([
+          { field: 'organizationRoot', path: join(missing, left) },
+          { field: 'root', path: join(missing, right) },
+        ], platform)
+      }).toThrow(`skill-pack: organizationRoot ${JSON.stringify(join(missing, left))} and root ${JSON.stringify(join(missing, right))}`)
+    }
+  })
+
   it('compares names as written on linux, where letter case and normalization tell directories apart', async () => {
     const missing = join(await newWorld(), 'missing')
     expect(() => {
@@ -53,6 +76,8 @@ describe('configured directories compared per platform', () => {
         { field: 'root', path: join(missing, 'packs') },
         { field: 'deliveries.directory', path: join(missing, 'v\u00e9') },
         { field: 'other', path: join(missing, 've\u0301') },
+        { field: 'sharp', path: join(missing, 'stra\u00dfe') },
+        { field: 'double', path: join(missing, 'strasse') },
       ], 'linux')
     }).not.toThrow()
   })

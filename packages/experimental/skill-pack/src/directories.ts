@@ -9,11 +9,14 @@
  *
  * That form follows every symbolic link the path passes through: the longest
  * leading part of the path that exists is replaced by its real path, and the
- * rest is joined back on unchanged. On macOS and Windows it is also folded to
- * Unicode NFC and lower case, because APFS and NTFS ignore letter case by
- * default and APFS also ignores which Unicode normalization form a name is
- * written in. A pair that differs only in normalization is therefore refused
- * on Windows too, where NTFS would keep the two apart.
+ * rest is joined back on unchanged. On macOS and Windows it is also folded by
+ * {@link collisionKey}, the key the pack rules compare names with, because
+ * APFS and NTFS ignore letter case by default and APFS also ignores which
+ * Unicode normalization form a name is written in. One fold serves both
+ * platforms, and it is wider than either file system's: a pair that differs
+ * only in normalization is refused on Windows too, where NTFS keeps the two
+ * apart, and so is a pair such as `ı` and `I`, which the key folds and APFS
+ * keeps apart.
  * @module @deepseek-ai/dsh-experimental-skill-pack/src/directories
  */
 

@@ -72,6 +72,13 @@ const PLATFORM_VERSION = '0.5.2'
 const NFC_VE = 'v\u00e9'
 const NFD_VE = 've\u0301'
 
+/**
+ * Pairs of versions APFS reads as one name that lower case alone tells apart:
+ * a word with a sharp s and the same word with `ss`, final and medial sigma,
+ * the micro sign and mu, and long s and `s`.
+ */
+const FULL_FOLD_PAIRS = [['stra\u00dfe', 'strasse'], ['\u03c3', '\u03c2'], ['\u00b5', '\u03bc'], ['\u017f', 's']] as const
+
 /** The detail a `duplicate` refusal states for an entry key. */
 const DUPLICATED = (key: string): string => `${key} is named more than once in this set, ignoring letter case and Unicode normalization`
 
@@ -698,6 +705,7 @@ describe('an entry refused', () => {
       entry('a-guide', 'rc', 'trial', { views: { 'two.yml': viewText('two', 'TWO') } }),
       entry('a-guide', NFC_VE, 'stable'),
       entry('a-guide', NFD_VE, 'trial'),
+      ...FULL_FOLD_PAIRS.flat().map(version => entry('a-guide', version, 'stable')),
       entry('a-guide', '2', 'stable'),
     ])
     expect(result.kind === 'ok' ? result.refused : result).toEqual([
@@ -705,6 +713,7 @@ describe('an entry refused', () => {
       { name: 'a-guide', version: 'rc', code: 'duplicate', detail: DUPLICATED('a-guide@rc') },
       { name: 'a-guide', version: NFC_VE, code: 'duplicate', detail: DUPLICATED(`a-guide@${NFC_VE}`) },
       { name: 'a-guide', version: NFD_VE, code: 'duplicate', detail: DUPLICATED(`a-guide@${NFD_VE}`) },
+      ...FULL_FOLD_PAIRS.flat().map(version => ({ name: 'a-guide', version, code: 'duplicate', detail: DUPLICATED(`a-guide@${version}`) })),
     ])
     expect(await readdir(paths.organizationRoot)).toEqual(['a-guide@2'])
     expect(intake.isActive('a-guide', 'RC')).toBe(false)
@@ -725,14 +734,20 @@ describe('an entry refused', () => {
         extra: [{ path: `views/${NFD_VE}.yml`, content: viewText('two', 'ON-DISK') }],
       }),
       entry('c-guide', '1', 'stable'),
+      entry('d-guide', '1', 'stable', {
+        views: { 'stra\u00dfe.yml': viewText('three', 'JUDGED') },
+        extra: [{ path: 'views/strasse.yml', content: viewText('three', 'ON-DISK') }],
+      }),
     ])
     const refused = result.kind === 'ok' ? result.refused : []
     expect(refused.map(({ name, code }) => ({ name, code }))).toEqual([
       { name: 'a-guide', code: 'pack-invalid' },
       { name: 'b-guide', code: 'pack-invalid' },
+      { name: 'd-guide', code: 'pack-invalid' },
     ])
     expect(refused[0]?.detail).toContain('refused a-guide@1/views/A.yml — a pack carries each path once, ignoring letter case and Unicode normalization')
     expect(refused[1]?.detail).toContain(`refused b-guide@1/views/${NFD_VE}.yml — a pack carries each path once`)
+    expect(refused[2]?.detail).toContain('refused d-guide@1/views/strasse.yml \u2014 a pack carries each path once')
     expect(await readdir(paths.organizationRoot)).toEqual(['c-guide@1'])
     expect(await viewIds(ctx)).toEqual([])
   })

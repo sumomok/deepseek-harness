@@ -32,13 +32,19 @@ const PACK_FILE_EXTENSIONS: ReadonlySet<string> = new Set([
 
 /**
  * The form two names are compared in to find the ones a file system ignoring
- * letter case and Unicode normalization reads as one name: Unicode NFC, then
- * lower case.
+ * letter case and Unicode normalization reads as one name: Unicode NFC, lower
+ * case, upper case, lower case again, and NFC again. Lower case alone keeps
+ * apart pairs APFS reads as one, among them `ß` and `ss`, `σ` and `ς`, `µ`
+ * and `μ`, and `ſ` and `s`; the pass through upper case maps each pair to one
+ * form. The key folds more widely than any one file system does: it also makes
+ * one name of a few pairs that file systems keep apart, such as `ı` and `I`,
+ * and refuses them, because refusing a pair costs less than writing two names
+ * into one directory.
  * @param name - a name or a path.
  * @returns the folded form; two names with equal forms collide.
  */
 export function collisionKey(name: string): string {
-  return name.normalize('NFC').toLowerCase()
+  return name.normalize('NFC').toLowerCase().toUpperCase().toLowerCase().normalize('NFC')
 }
 
 /**

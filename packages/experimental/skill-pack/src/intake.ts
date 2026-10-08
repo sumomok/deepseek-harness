@@ -45,9 +45,9 @@ import type {
  * empty; free of `/`, `\`, `:`, `*`, `?`, `"`, `<`, `>`, `|` and the control
  * characters U+0000 to U+001F; and not ending in `.` or a space, which also
  * excludes `.` and `..`. The organization contract states no format for a
- * version up to 0.4.0; contract 0.5.0 gives it this format and
- * {@link WINDOWS_DEVICE_NAME}'s, and against that contract this check
- * repeats the one the organization plugin makes.
+ * version up to 0.4.0. The planned contract 0.5.0 will state this format and
+ * {@link WINDOWS_DEVICE_NAME}'s, and from then on this check repeats the one
+ * the organization plugin makes.
  */
 const DIRECTORY_NAME = /^[^/\\:*?"<>|\u0000-\u001f]*[^/\\:*?"<>|\u0000-\u001f. ]$/u
 
