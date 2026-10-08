@@ -564,6 +564,66 @@ describe('an entry refused', () => {
     })
   })
 
+  it('refuses as pack-invalid a version holding a lone UTF-16 surrogate, which a file system cannot name as given, and writes the rest', async () => {
+    const paths = await newWorld()
+    const ctx = await boot(paths)
+    const { intake } = await organization(ctx)
+    const result = await intake.replace([
+      entry('a-guide', '\ud800', 'stable', { views: { 'one.yml': viewText('one', 'ONE') } }),
+      entry('a-guide', '\ud801', 'trial', { views: { 'two.yml': viewText('two', 'TWO') } }),
+      entry('b-guide', '1', 'stable'),
+    ])
+    expect(result).toEqual({
+      kind: 'ok',
+      refused: ['\ud800', '\ud801'].map(version => ({
+        name: 'a-guide',
+        version,
+        code: 'pack-invalid',
+        detail: `the version ${JSON.stringify(version)} is not one directory name`,
+      })),
+    })
+    expect(await readdir(paths.organizationRoot)).toEqual(['b-guide@1'])
+    expect(intake.isActive('a-guide', '\ud800')).toBe(false)
+    expect(intake.isActive('a-guide', '\ud801')).toBe(false)
+  })
+
+  it('refuses as pack-invalid an entry whose directory name is longer than 255 bytes of UTF-8, and writes the rest', async () => {
+    const paths = await newWorld()
+    const ctx = await boot(paths)
+    const { intake } = await organization(ctx)
+    const fits = '1'.repeat(255 - 'c-guide@'.length)
+    const over = ['1'.repeat(300), `${fits}1`, '\u00e9'.repeat(124)]
+    const result = await intake.replace([
+      ...over.map(version => entry('c-guide', version, 'stable')),
+      entry('c-guide', fits, 'stable'),
+      entry('b-guide', '1', 'stable'),
+    ])
+    expect(refusalsOf(result)).toEqual(over.map(version => ({ name: 'c-guide', version, code: 'pack-invalid' })))
+    for (const refusal of result.kind === 'ok' ? result.refused : []) {
+      expect(refusal.detail).toContain(`refused c-guide@${refusal.version} \u2014 a name is at most 255 bytes of UTF-8`)
+    }
+    expect((await readdir(paths.organizationRoot)).sort()).toEqual(['b-guide@1', `c-guide@${fits}`])
+  })
+
+  it('refuses as pack-invalid an entry carrying a path segment longer than 255 bytes of UTF-8 or holding a lone UTF-16 surrogate, and writes the rest', async () => {
+    const paths = await newWorld()
+    const ctx = await boot(paths)
+    const { intake } = await organization(ctx)
+    const fits = `${'n'.repeat(252)}.md`
+    const over = [`notes/n${fits}`, `${'d'.repeat(256)}/n.md`, 'notes/\udc00.md']
+    const result = await intake.replace([
+      ...over.map((path, index) => entry(`${'cde'[index]!}-guide`, '1', 'stable', { extra: [{ path, content: 'x' }] })),
+      entry('f-guide', '1', 'stable', { extra: [{ path: `notes/${fits}`, content: 'x' }] }),
+    ])
+    expect(refusalsOf(result)).toEqual(['c', 'd', 'e'].map(letter => ({ name: `${letter}-guide`, version: '1', code: 'pack-invalid' })))
+    const details = result.kind === 'ok' ? result.refused.map(refusal => refusal.detail) : []
+    expect(details[0]).toContain(`refused c-guide@1/${over[0]!} \u2014 a name is at most 255 bytes of UTF-8`)
+    expect(details[1]).toContain(`refused d-guide@1/${over[1]!} \u2014 a name is at most 255 bytes of UTF-8`)
+    expect(details[2]).toContain(`refused e-guide@1/${over[2]!} \u2014 a name holds no lone UTF-16 surrogate`)
+    expect(await readdir(paths.organizationRoot)).toEqual(['f-guide@1'])
+    expect(await readdir(join(paths.organizationRoot, 'f-guide@1', 'notes'))).toEqual([fits])
+  })
+
   it('names a declared view file an entry does not carry by its path inside the entry, not by where the entry would be written', async () => {
     const paths = await newWorld()
     const ctx = await boot(paths)

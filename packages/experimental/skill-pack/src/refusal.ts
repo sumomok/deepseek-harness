@@ -12,7 +12,11 @@
 export type PackInstallRefusal =
   /** The file's extension is not one a pack may carry. */
   | 'code-file'
-  /** The path leaves the pack directory, or names no pack directory at all. */
+  /**
+   * The path leaves the pack directory or names no pack directory at all, or
+   * a pack name or path segment is no name every file system can hold as
+   * written: it holds a lone UTF-16 surrogate, or is over 255 bytes of UTF-8.
+   */
   | 'path-escape'
   /** The entry is a symbolic link, which would carry the root's contents outside it. */
   | 'symlink'

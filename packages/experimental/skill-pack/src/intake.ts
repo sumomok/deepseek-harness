@@ -44,10 +44,13 @@ import type {
  * A version that is one directory name on Linux, macOS and Windows: not
  * empty; free of `/`, `\`, `:`, `*`, `?`, `"`, `<`, `>`, `|` and the control
  * characters U+0000 to U+001F; and not ending in `.` or a space, which also
- * excludes `.` and `..`. The organization contract states no format for a
- * version up to 0.4.0. The planned contract 0.5.0 will state this format and
- * {@link WINDOWS_DEVICE_NAME}'s, and from then on this check repeats the one
- * the organization plugin makes.
+ * excludes `.` and `..`. A version also holds no lone UTF-16 surrogate,
+ * which `isWellFormed` checks beside this pattern, and `<name>@<version>` is
+ * held to the pack-name rules of `validatePacks`, among them a limit of
+ * `NAME_BYTES_MAX` bytes of UTF-8. The organization contract states no
+ * format for a version up to 0.4.0. The planned contract 0.5.0 will state
+ * this pattern's format and {@link WINDOWS_DEVICE_NAME}'s, and from then on
+ * this check repeats the one the organization plugin makes.
  */
 const DIRECTORY_NAME = /^[^/\\:*?"<>|\u0000-\u001f]*[^/\\:*?"<>|\u0000-\u001f. ]$/u
 
@@ -341,7 +344,7 @@ export class OrganizationPackIntake extends Service implements SkillPackIntake {
    */
   private async judgeEntry(pack: OrgPackInput): Promise<EntryJudgement> {
     if (!isSkillName(pack.name)) return refusedAs(pack, 'pack-invalid', `the name ${JSON.stringify(pack.name)} is not a skill name`)
-    if (!DIRECTORY_NAME.test(pack.version) || WINDOWS_DEVICE_NAME.test(pack.version)) {
+    if (!DIRECTORY_NAME.test(pack.version) || WINDOWS_DEVICE_NAME.test(pack.version) || !pack.version.isWellFormed()) {
       return refusedAs(pack, 'pack-invalid', `the version ${JSON.stringify(pack.version)} is not one directory name`)
     }
     const directoryName = keyOf(pack)

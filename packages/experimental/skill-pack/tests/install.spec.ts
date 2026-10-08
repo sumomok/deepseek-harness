@@ -180,6 +180,31 @@ describe('replacing a pack root', () => {
     await expect(stat(root)).rejects.toThrow()
   })
 
+  it('refuses a pack name or a path segment holding a lone UTF-16 surrogate or longer than 255 bytes of UTF-8, and leaves the root as it was', async () => {
+    const base = await workspace()
+    const root = join(base, 'packs')
+    await syncPackRoot(root, { kind: 'packs', packs: [pack('a', 'A.')] })
+    for (const name of ['b\ud800', 'x'.repeat(256), '\u00e9'.repeat(128)]) {
+      await expect(syncPackRoot(root, { kind: 'packs', packs: [pack(name, 'B.')] }))
+        .rejects.toMatchObject({ refusal: 'path-escape', entry: name })
+    }
+    for (const path of ['notes/\udc00.md', `notes/${'n'.repeat(253)}.md`, `${'d'.repeat(256)}/n.md`]) {
+      await expect(syncPackRoot(root, { kind: 'packs', packs: [{ name: 'b', files: [{ path, content: 'x' }] }] }))
+        .rejects.toMatchObject({ refusal: 'path-escape', entry: `b/${path}` })
+    }
+    expect(await tree(root)).toEqual(['a/SKILL.md', 'a/views/v.yml'])
+    expect(await readdir(base)).toEqual(['packs'])
+  })
+
+  it('installs a path segment of exactly 255 bytes of UTF-8', async () => {
+    const base = await workspace()
+    const root = join(base, 'packs')
+    const fits = `notes/${'n'.repeat(252)}.md`
+    const a = pack('a', 'A.')
+    await syncPackRoot(root, { kind: 'packs', packs: [{ name: 'a', files: [...a.files, { path: fits, content: 'x' }] }] })
+    expect(await tree(root)).toEqual(['a/SKILL.md', `a/${fits}`, 'a/views/v.yml'])
+  })
+
   it('refuses two packs, or two paths of one pack, that differ only in letter case or Unicode normalization, and leaves the root as it was', async () => {
     const base = await workspace()
     const root = join(base, 'packs')

@@ -31,6 +31,16 @@ const PACK_FILE_EXTENSIONS: ReadonlySet<string> = new Set([
 ])
 
 /**
+ * The most bytes of UTF-8 one name may take: a pack name, which is a
+ * directory name, and each segment of a pack file path. It is a limit of the
+ * file systems a root lives on, not a deployment choice. ext4 holds a name of
+ * at most 255 bytes; APFS and NTFS hold one of at most 255 UTF-16 code units,
+ * and a name never has more UTF-16 code units than UTF-8 bytes, so a name
+ * within 255 bytes fits all three.
+ */
+export const NAME_BYTES_MAX = 255
+
+/**
  * The form two names are compared in to find the ones a file system ignoring
  * letter case and Unicode normalization reads as one name: Unicode NFC, lower
  * case, upper case, lower case again, and NFC again. Lower case alone keeps
@@ -53,7 +63,8 @@ export function collisionKey(name: string): string {
  * @returns the same packs, once every name and every path has passed.
  * @throws {PackInstallError} when a pack name is not one directory name, a pack or a path is
  *   delivered twice — two names or two paths of one pack whose {@link collisionKey} forms are equal
- *   count as one — a path leaves its pack, or a file carries an extension a pack may not carry.
+ *   count as one — a path leaves its pack, a pack name or a path segment is a name no file system
+ *   can hold as written, or a file carries an extension a pack may not carry.
  */
 export function validatePacks(packs: readonly DeliveredPack[]): DeliveredPack[] {
   const names = new Set<string>()
@@ -109,12 +120,30 @@ async function readPackFiles(directory: string, prefix: string): Promise<Deliver
   return files
 }
 
-/** Refuse a pack directory name that is not one path segment. */
+/** Refuse a pack directory name that is not one path segment, or that no file system can hold as written. */
 function requirePackName(name: string): string {
   if (name === '' || name === '.' || name === '..' || name.includes('/') || name.includes(sep) || name.includes('\0')) {
     throw new PackInstallError('path-escape', name, 'a pack name is one directory name')
   }
+  requireWritableName(name, name)
   return name
+}
+
+/**
+ * Refuse a name a file system cannot hold as written. Node writes a lone
+ * UTF-16 surrogate as U+FFFD, so two names differing only in one would land
+ * in one directory entry. A name over {@link NAME_BYTES_MAX} bytes does not
+ * fit ext4, and is refused on every platform so that a set installing on one
+ * installs on all.
+ * @param entry - the entry, as a refusal names it.
+ * @param name - one pack name or one path segment.
+ * @throws {PackInstallError} `path-escape`, when the name holds a lone surrogate or is too long.
+ */
+function requireWritableName(entry: string, name: string): void {
+  if (!name.isWellFormed()) throw new PackInstallError('path-escape', entry, 'a name holds no lone UTF-16 surrogate')
+  if (Buffer.byteLength(name, 'utf8') > NAME_BYTES_MAX) {
+    throw new PackInstallError('path-escape', entry, `a name is at most ${String(NAME_BYTES_MAX)} bytes of UTF-8`)
+  }
 }
 
 /** Refuse a pack-relative path that escapes its pack, and any extension a pack may not carry. */
@@ -126,6 +155,7 @@ function checkFile(pack: string, file: DeliveredFile): DeliveredFile {
     || posix.normalize(file.path) !== file.path) {
     throw new PackInstallError('path-escape', entry, 'a pack file path stays inside its pack')
   }
+  for (const segment of segments) requireWritableName(entry, segment)
   requirePackExtension(entry)
   return file
 }

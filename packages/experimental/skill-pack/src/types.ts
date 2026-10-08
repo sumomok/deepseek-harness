@@ -290,8 +290,9 @@ export interface OrgPackInput {
    * or control character U+0000 to U+001F, no `.` or space at its end, and
    * not a Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1` to `COM9`,
    * `LPT1` to `LPT9`) in any letter case, with or without an extension. It
-   * need not equal the pack's own `metadata.pack.version`, and nothing here
-   * compares the two.
+   * holds no lone UTF-16 surrogate, and `<name>@<version>` is at most 255
+   * bytes of UTF-8. It need not equal the pack's own `metadata.pack.version`,
+   * and nothing here compares the two.
    */
   readonly version: string
   /** Shown on `GET /skill-pack/status` only; this package chooses no version by it. */
@@ -316,8 +317,10 @@ export type IntakeRefusalCode =
   /**
    * A file, path, extension, frontmatter, manifest or view file breaks the
    * pack rules, two paths that differ only in letter case or Unicode
-   * normalization among them; or the frontmatter `name` is not the entry's
-   * name, or the version is not one directory name.
+   * normalization among them, and a path segment or `<name>@<version>` that
+   * holds a lone UTF-16 surrogate or is over 255 bytes of UTF-8; or the
+   * frontmatter `name` is not the entry's name, or the version is not one
+   * directory name.
    */
   | 'pack-invalid'
   /** `metadata.pack.anchorFormat` states an anchor format this build does not read. */
