@@ -118,7 +118,7 @@ describe('attaching the customer credential reader', () => {
     access.onChange((member, kind) => { changes.push([member, kind]) })
     const holder = fakeReader([[ALICE, ALICE_TOKEN]])
     const replaying: CustomerCredentialReader = {
-      read: holder.reader.read,
+      read: member => holder.reader.read(member),
       onChange: (listener) => {
         listener(ALICE, 'set')
         return holder.reader.onChange(listener)
