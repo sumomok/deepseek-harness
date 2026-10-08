@@ -1909,7 +1909,7 @@ export type NavSnapshotKind = 'page' | 'view'
 ## `@deepseek-ai/dsh-experimental-skill-pack`
 
 - `inject`: `skills`
-- `source`: [`packages/experimental/skill-pack/src/index.ts:156`](../packages/experimental/skill-pack/src/index.ts)
+- `source`: [`packages/experimental/skill-pack/src/index.ts:157`](../packages/experimental/skill-pack/src/index.ts)
 
 ```ts config-catalog
 /**

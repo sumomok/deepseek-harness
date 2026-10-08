@@ -115,6 +115,14 @@ export interface PackManifest {
   readonly views: readonly string[]
 }
 
+/** One key a manifest or a view file may carry, and whether a file that leaves it out is refused. */
+export interface PackDocumentField {
+  /** The key's dotted path, from inside `metadata` for a manifest and from the top of the file for a view file. */
+  readonly path: string
+  /** Whether a file that leaves the key out is refused. */
+  readonly required: boolean
+}
+
 /** A manifest that parsed, or the field that stopped it. */
 export type PackManifestResult =
   | { readonly ok: true; readonly manifest: PackManifest }

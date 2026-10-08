@@ -14,7 +14,7 @@
 
 import semver from 'semver'
 import { z } from 'zod'
-import type { PackManifest, PackManifestResult, PackMissing } from './types.ts'
+import type { PackDocumentField, PackManifest, PackManifestResult, PackMissing } from './types.ts'
 
 /** The `metadata` key under which a pack manifest is read, and the prefix every refused field carries. */
 const MANIFEST_FIELD = 'metadata'
@@ -65,6 +65,31 @@ const manifestSchema = z.strictObject({
   }).optional(),
   views: z.array(z.string().min(1)).optional(),
 })
+
+/**
+ * List the leaf keys of one object of the manifest schema.
+ * @param shape - the object's keys and their schemas.
+ * @param prefix - the dotted path of the object, with its trailing dot; empty at the top.
+ * @param required - whether the object itself must be present.
+ * @returns one field per leaf key, in declaration order; a key inside an optional object is optional.
+ */
+function manifestFields(shape: z.core.$ZodShape, prefix: string, required: boolean): PackDocumentField[] {
+  return Object.entries(shape).flatMap(([key, field]) => {
+    const optional = field instanceof z.ZodOptional
+    const inner = field instanceof z.ZodOptional ? field.unwrap() : field
+    const path = `${prefix}${key}`
+    return inner instanceof z.ZodObject
+      ? manifestFields(inner.shape, `${path}.`, required && !optional)
+      : [{ path, required: required && !optional }]
+  })
+}
+
+/**
+ * Every key a manifest may carry inside `metadata`, read off the schema a
+ * manifest is parsed with. A key outside this list refuses the manifest, and
+ * so does a manifest leaving out a required one.
+ */
+export const PACK_MANIFEST_FIELDS: readonly PackDocumentField[] = manifestFields(manifestSchema.shape, '', true)
 
 /**
  * Name the refused field the way a person reading the status route finds it in

@@ -18,8 +18,12 @@ import { join, posix, sep } from 'node:path'
 import { PackInstallError } from './refusal.ts'
 import type { DeliveredFile, DeliveredPack } from './types.ts'
 
-/** File extensions a pack may carry, lowercase and including the dot. */
-const PACK_FILE_EXTENSIONS: ReadonlySet<string> = new Set([
+/**
+ * File extensions a pack may carry, lowercase and including the dot. A file's
+ * extension is compared in lower case, and a pack carrying a file with any
+ * other extension, or with none, is refused.
+ */
+export const PACK_FILE_EXTENSIONS: ReadonlySet<string> = new Set([
   '.md',
   '.yml',
   '.yaml',

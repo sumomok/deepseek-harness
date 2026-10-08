@@ -65,6 +65,7 @@ import { readPackRoot, type PackSource } from './scan.ts'
 import type {
   ActivePackView,
   DeliveryRecord,
+  PackArchiveLimits,
   PackManifest,
   PackStatus,
   PackStatusDocument,
@@ -79,8 +80,9 @@ export type { PackInstallRefusal } from './refusal.ts'
 export { syncPackRoot } from './install.ts'
 export type { PackArchiveSyncResult, StagedPack, StagedPackRefusal, SyncPackRootResult, VerifyStagedPacks } from './install.ts'
 export { describeMissing, reconcilePacks, type PackObservation } from './reconcile.ts'
-export { PACK_ANCHOR_FORMATS, PACK_VIEW_FORMATS, parsePackManifest } from './manifest.ts'
-export { parsePackView } from './views.ts'
+export { PACK_FILE_EXTENSIONS } from './delivery.ts'
+export { PACK_ANCHOR_FORMATS, PACK_MANIFEST_FIELDS, PACK_VIEW_FORMATS, parsePackManifest } from './manifest.ts'
+export { PACK_VIEW_FIELDS, parsePackView } from './views.ts'
 export { SKILL_PACK_STATUS_ROUTE } from './route.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -117,24 +119,23 @@ const DELIVERY_SETTLE_MS = 300
 const DELIVERY_POLL_MS = 50
 
 /**
- * Largest delivery archive a deployment reads by default. A set of packs is
- * instructions, view files and pictures; 32 MiB carries a large one, and a
- * file over it is something other than the delivery this root installs.
+ * The limits a delivery archive is read under where the `deliveries` block
+ * sets none of its own.
+ *
+ * - `maxArchiveBytes`, 32 MiB: a set of packs is instructions, view files and
+ *   pictures; 32 MiB carries a large one, and a file over it is something
+ *   other than the delivery this root installs.
+ * - `maxFileBytes`, 4 MiB: enough for an illustrated instruction page, far
+ *   below what any view file or manifest is.
+ * - `maxFiles`, 512: a pack is a `SKILL.md` with its views and pictures beside
+ *   it, so this is room for dozens of packs and a ceiling on what one archive
+ *   can make a deployment write.
  */
-const DEFAULT_MAX_ARCHIVE_BYTES = 32 * 1024 * 1024
-
-/**
- * Largest single file inside a delivery archive by default: enough for an
- * illustrated instruction page, far below what any view file or manifest is.
- */
-const DEFAULT_MAX_FILE_BYTES = 4 * 1024 * 1024
-
-/**
- * Most entries a delivery archive may carry by default. A pack is a `SKILL.md`
- * with its views and pictures beside it, so this is room for dozens of packs
- * and a ceiling on what one archive can make a deployment write.
- */
-const DEFAULT_MAX_FILES = 512
+export const DEFAULT_PACK_ARCHIVE_LIMITS: PackArchiveLimits = {
+  maxArchiveBytes: 32 * 1024 * 1024,
+  maxFileBytes: 4 * 1024 * 1024,
+  maxFiles: 512,
+}
 
 /** Where a deployment's delivery archives are dropped, and the limits one is read under. */
 export interface PackDeliveryDirectory {
@@ -202,9 +203,9 @@ export class SkillPackRegistry extends Service {
     // value of the block's own type, which is what the cast says.
     deliveries: z.object({
       directory: z.string().required(),
-      maxArchiveBytes: z.natural().min(1).default(DEFAULT_MAX_ARCHIVE_BYTES),
-      maxFileBytes: z.natural().min(1).default(DEFAULT_MAX_FILE_BYTES),
-      maxFiles: z.natural().min(1).default(DEFAULT_MAX_FILES),
+      maxArchiveBytes: z.natural().min(1).default(DEFAULT_PACK_ARCHIVE_LIMITS.maxArchiveBytes),
+      maxFileBytes: z.natural().min(1).default(DEFAULT_PACK_ARCHIVE_LIMITS.maxFileBytes),
+      maxFiles: z.natural().min(1).default(DEFAULT_PACK_ARCHIVE_LIMITS.maxFiles),
     }).default(undefined as never),
     organizationRoot: z.string(),
     perMember: z.boolean().default(false),
