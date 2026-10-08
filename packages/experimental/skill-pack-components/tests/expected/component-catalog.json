@@ -9,7 +9,7 @@
       "package": "@sumomok/toy-crud-kit",
       "version": "0.4.5"
     },
-    "bodySha256": "2f3034f8cbba32c1f1f7f5783067b29f8fd08b483a61f03b6ad4f6fc21d47e2f",
+    "bodySha256": "baa827d67f71dcd16ff65fce9a444ea8186938578109b15026a10516fd440510",
     "exampleViewSha256": null
   },
   "body": {
@@ -1163,6 +1163,15 @@
           "maxLength": 24
         },
         "maxSpecBytes": 65536,
+        "specKeys": [
+          "nodes",
+          "layout"
+        ],
+        "nodeKeys": [
+          "id",
+          "component",
+          "props"
+        ],
         "nodes": {
           "min": 1,
           "max": 12,
@@ -1175,8 +1184,10 @@
           }
         },
         "rules": [
+          "A spec carries nodes and may leave out layout; a spec without a layout stacks its blocks in one column, in the order nodes lists them.",
+          "Every node carries id, component and props, and props is an object. No two nodes of a view share an id.",
           "A view places at most one toy.data-page block; a second one is refused.",
-          "The querySort of a toy.data-page block names asc or desc, not both."
+          "The querySort of a toy.data-page block names at most one of asc and desc."
         ]
       },
       "layout": {
@@ -1191,7 +1202,10 @@
           "lg"
         ],
         "maxDepth": 4,
-        "maxChildren": 12,
+        "children": {
+          "min": 1,
+          "max": 12
+        },
         "flex": {
           "min": 1,
           "max": 12,
@@ -1209,6 +1223,11 @@
           "node",
           "id",
           "flex"
+        ],
+        "rules": [
+          "A stack carries node \"stack\", dir and children, and may leave out gap, wrap and flex; the outermost stack carries no flex.",
+          "A placed block carries node \"component\" and the id of a node, and may leave out flex.",
+          "A layout places every node of nodes exactly once; a node it leaves out, or places twice, is refused."
         ]
       },
       "binding": {
@@ -1226,7 +1245,7 @@
       "param": {
         "key": "$param",
         "rules": [
-          "A parameter reference is an object whose only key is $param, written as the whole value of a property; one standing for an item of a list is refused.",
+          "A parameter reference is an object whose only key is $param. It may stand for any value in the spec except one item of a list, which is refused.",
           "It names one entry of the view file's params, and that entry is text, a number, true or false.",
           "It is replaced when the view is read, before the view is judged; $from references are left as written."
         ]

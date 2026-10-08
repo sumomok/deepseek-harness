@@ -9,10 +9,11 @@
  * the reference keys and the data page's id from the component surface's
  * exports, the manifest key, the field lists, the file extensions and the
  * archive limits from the pack root's. Written here instead, because no module
- * exports them as values: the lower bounds of the node count and of `flex`,
- * that `flex` is a whole number, the root kind of a layout, the `otherKeys`
- * words, and the `rules` sentences, which restate how the two packages judge a
- * view and a manifest.
+ * exports them as values: the lower bounds of the node count, of a stack's
+ * children and of `flex`, that `flex` is a whole number, the root kind of a
+ * layout, the `otherKeys` words, and the `rules` sentences, which restate how
+ * the two packages judge a view and a manifest. The tests pin each sentence's
+ * text and check the judgement it states.
  *
  * The file is versioned by {@link COMPONENT_CATALOG_FORMAT} and carries the
  * versions of the two packages its components come from. It carries no commit
@@ -41,7 +42,9 @@ import {
   MAX_OUTPUT_ID_LENGTH,
   MAX_SPEC_BYTES,
   MAX_TITLE_LENGTH,
+  NODE_KEYS,
   PARAM_KEY,
+  SPEC_KEYS,
   STACK_KEYS,
   TOKEN_CHARSET,
   TOKEN_HINT,
@@ -260,7 +263,8 @@ function componentFacts(entry: ComponentCatalogEntry): CatalogObject {
     label: entry.label,
     purpose: entry.purpose,
     // TODO: read the entry's own placement once ComponentCatalogEntry declares
-    // one. No entry can be restricted to views yet, so a call places every one.
+    // one; the entry-key test fails the typecheck until then. No entry can be
+    // restricted to views yet, so a call places every one.
     placement: 'call',
     deploymentSwitches: requiredSwitches(entry.id),
     props: propsFacts(entry),
@@ -285,10 +289,14 @@ function catalogRules(): CatalogObject {
       id: { maxLength: MAX_ENTRY_ID_LENGTH, charset: token },
       title: { maxLength: MAX_TITLE_LENGTH },
       maxSpecBytes: MAX_SPEC_BYTES,
+      specKeys: [...SPEC_KEYS],
+      nodeKeys: [...NODE_KEYS],
       nodes: { min: 1, max: MAX_NODES, id: { maxLength: MAX_NODE_ID_LENGTH, charset: token } },
       rules: [
+        'A spec carries nodes and may leave out layout; a spec without a layout stacks its blocks in one column, in the order nodes lists them.',
+        'Every node carries id, component and props, and props is an object. No two nodes of a view share an id.',
         `A view places at most one ${DATA_PAGE_ID} block; a second one is refused.`,
-        `The querySort of a ${DATA_PAGE_ID} block names asc or desc, not both.`,
+        `The querySort of a ${DATA_PAGE_ID} block names at most one of asc and desc.`,
       ],
     },
     layout: {
@@ -296,10 +304,15 @@ function catalogRules(): CatalogObject {
       directions: [...LAYOUT_DIRECTIONS],
       gaps: [...LAYOUT_GAPS],
       maxDepth: MAX_LAYOUT_DEPTH,
-      maxChildren: MAX_LAYOUT_CHILDREN,
+      children: { min: 1, max: MAX_LAYOUT_CHILDREN },
       flex: { min: 1, max: MAX_FLEX, integer: true },
       stackKeys: [...STACK_KEYS],
       blockKeys: [...BLOCK_KEYS],
+      rules: [
+        'A stack carries node "stack", dir and children, and may leave out gap, wrap and flex; the outermost stack carries no flex.',
+        'A placed block carries node "component" and the id of a node, and may leave out flex.',
+        'A layout places every node of nodes exactly once; a node it leaves out, or places twice, is refused.',
+      ],
     },
     binding: {
       key: BINDING_KEY,
@@ -316,7 +329,7 @@ function catalogRules(): CatalogObject {
     param: {
       key: PARAM_KEY,
       rules: [
-        `A parameter reference is an object whose only key is ${PARAM_KEY}, written as the whole value of a property; one standing for an item of a list is refused.`,
+        `A parameter reference is an object whose only key is ${PARAM_KEY}. It may stand for any value in the spec except one item of a list, which is refused.`,
         'It names one entry of the view file\'s params, and that entry is text, a number, true or false.',
         `It is replaced when the view is read, before the view is judged; ${BINDING_KEY} references are left as written.`,
       ],

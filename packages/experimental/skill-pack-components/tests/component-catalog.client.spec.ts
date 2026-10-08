@@ -15,6 +15,7 @@ import {
   DATA_PAGE_VIEW_PROP_NAMES,
   readCatalog,
   withheldComponents,
+  type ComponentCatalogEntry,
 } from '@deepseek-ai/dsh-experimental-component-surface'
 import { validateComponentCall } from '@deepseek-ai/dsh-experimental-component-surface/src/validate.ts'
 import { judgeView } from '@deepseek-ai/dsh-experimental-component-surface/src/views.ts'
@@ -65,13 +66,17 @@ interface CatalogFile {
       readonly props: Readonly<Record<string, PropFacts>>
     }[]
     readonly rules: {
-      readonly view: { readonly nodes: { readonly min: number; readonly max: number } }
+      readonly view: { readonly nodes: { readonly min: number; readonly max: number }; readonly rules: readonly string[] }
       readonly layout: {
         readonly root: string
+        readonly children: { readonly min: number; readonly max: number }
         readonly flex: { readonly min: number; readonly max: number; readonly integer: boolean }
+        readonly rules: readonly string[]
       }
+      readonly binding: { readonly rules: readonly string[] }
+      readonly param: { readonly rules: readonly string[] }
       readonly viewFile: { readonly otherKeys: string }
-      readonly manifest: { readonly key: string; readonly otherKeys: string }
+      readonly manifest: { readonly key: string; readonly otherKeys: string; readonly rules: readonly string[] }
     }
   }
 }
@@ -85,8 +90,55 @@ async function checkedIn(): Promise<{ text: string; file: CatalogFile }> {
 /** Every component the kit registers, as a deployment offering all of them judges a call against. */
 const catalog = readCatalog(COMPONENT_KIT_ENTRIES)
 
+/**
+ * Every key a catalog entry may carry, each one the generator states. Typed over
+ * the entry, so a key added to `ComponentCatalogEntry` fails the typecheck here;
+ * list it once the generator writes it into the file.
+ */
+const ENTRY_KEYS: Readonly<Record<keyof ComponentCatalogEntry, true>> = {
+  id: true,
+  label: true,
+  purpose: true,
+  propsSchema: true,
+  actions: true,
+  outputs: true,
+  sanitize: true,
+}
+
 /** A node every catalog built from the kit accepts on its own. */
 const METRIC = { id: 'a', component: 'el.metric', props: { process: 50 } }
+
+/** A table every catalog built from the kit accepts on its own, which reports `selectionDetail`. */
+const TABLE = { id: 't', component: 'toy.table', props: { tableConfig: { gridItems: [{ relatedMetaAttr: 'a' }] }, displayValueList: [{ a: 1 }] } }
+
+/**
+ * A record whose `dataList` is the given value.
+ * @param dataList - the value, a `$from` reference or a list.
+ * @param id - the node id.
+ * @returns the node.
+ */
+function record(dataList: unknown, id = 'r'): unknown {
+  return { id, component: 'toy.record', props: { dataList } }
+}
+
+/**
+ * A data page with the given properties beside the two it requires.
+ * @param id - the node id, or a reference standing for it.
+ * @param extra - the other properties.
+ * @returns the node.
+ */
+function dataPage(id: unknown, extra: Readonly<Record<string, unknown>> = {}): unknown {
+  return { id, component: DATA_PAGE_ID, props: { relatedMeta: 'orders', metaLabel: '订单', ...extra } }
+}
+
+/**
+ * A layout of one column placing the given children.
+ * @param children - the stack's children.
+ * @returns the layout.
+ */
+function column(children: readonly unknown[]): unknown {
+  return { node: 'stack', dir: 'col', children }
+}
 
 /**
  * Judge one spec the way a call is judged.
@@ -96,6 +148,17 @@ const METRIC = { id: 'a', component: 'el.metric', props: { process: 50 } }
 function refusedAt(spec: unknown): string | undefined {
   const result = validateComponentCall(catalog, { id: 'v', title: 't', spec })
   return result.ok ? undefined : result.failure.path
+}
+
+/**
+ * Judge one view the way a pack view is judged, on a deployment offering the data page.
+ * @param spec - the spec as the view file writes it.
+ * @param params - the view file's params.
+ * @returns the refusal's path, or `undefined` where the view is accepted.
+ */
+function viewRefusedAt(spec: unknown, params: Readonly<Record<string, unknown>> = {}): string | undefined {
+  const result = judgeView(catalog, true, { id: 'v', title: 't', spec, params })
+  return result.ok ? undefined : result.refusal.path
 }
 
 describe('the component catalog file', () => {
@@ -123,6 +186,12 @@ describe('the component catalog file', () => {
     expect(manifest.dependencies['@sumomok/toy-crud-kit'])
       .toBe(`file:./vendor/sumomok-toy-crud-kit-${file.header.toyCrudKit.version}.tgz`)
     expect(file.header.toyCrudKit.package).toBe('@sumomok/toy-crud-kit')
+  })
+
+  it('reads every key a catalog entry carries', () => {
+    const unread = COMPONENT_KIT_ENTRIES.flatMap(entry =>
+      Object.keys(entry).filter(key => !Object.hasOwn(ENTRY_KEYS, key)).map(key => `${entry.id}.${key}`))
+    expect(unread).toEqual([])
   })
 
   it('lists every component the kit registers, in registration order, each placed by a call', async () => {
@@ -183,11 +252,17 @@ describe('the component catalog file', () => {
   it('writes out the lower bounds and the root kind the component surface judges a spec by', async () => {
     const { file } = await checkedIn()
     const { nodes } = file.body.rules.view
-    const { root, flex } = file.body.rules.layout
+    const { root, children, flex } = file.body.rules.layout
     const nodeList = (count: number): unknown[] => Array.from({ length: count }, (_, index) => ({ ...METRIC, id: `n${index}` }))
     expect(refusedAt({ nodes: nodeList(nodes.min) })).toBeUndefined()
     expect(refusedAt({ nodes: nodeList(nodes.min - 1) })).toBe('spec.nodes')
     expect(refusedAt({ nodes: nodeList(nodes.max + 1) })).toBe('spec.nodes')
+    const block = { node: 'component', id: 'a' }
+    expect(refusedAt({ nodes: [METRIC], layout: column(Array.from({ length: children.min }, () => block)) })).toBeUndefined()
+    expect(refusedAt({ nodes: [METRIC], layout: column(Array.from({ length: children.min - 1 }, () => block)) }))
+      .toBe('spec.layout.children')
+    expect(refusedAt({ nodes: [METRIC], layout: column(Array.from({ length: children.max + 1 }, () => block)) }))
+      .toBe('spec.layout.children')
     const placed = (share: number): unknown => ({
       nodes: [METRIC],
       layout: { node: root, dir: 'row', children: [{ node: 'component', id: 'a', flex: share }] },
@@ -200,21 +275,108 @@ describe('the component catalog file', () => {
     expect(refusedAt({ nodes: [METRIC], layout: { node: 'component', id: 'a' } })).toBe('spec.layout.node')
   })
 
-  it('refuses a view placing a second data page, or sorting one both ways, as its view rules say', () => {
-    const page = (id: string, extra: Readonly<Record<string, unknown>> = {}): unknown =>
-      ({ id, component: DATA_PAGE_ID, props: { relatedMeta: 'orders', metaLabel: '订单', ...extra } })
-    const judged = (nodes: readonly unknown[]): string | undefined => {
-      const result = judgeView(catalog, true, { id: 'v', title: 't', spec: { nodes } })
-      return result.ok ? undefined : result.refusal.path
+  it('states the view rules the component surface judges a spec, its nodes and its data page by', async () => {
+    const { file } = await checkedIn()
+    expect(file.body.rules.view.rules).toEqual([
+      'A spec carries nodes and may leave out layout; a spec without a layout stacks its blocks in one column, in the order nodes lists them.',
+      'Every node carries id, component and props, and props is an object. No two nodes of a view share an id.',
+      'A view places at most one toy.data-page block; a second one is refused.',
+      'The querySort of a toy.data-page block names at most one of asc and desc.',
+    ])
+    expect(refusedAt({ nodes: [METRIC] })).toBeUndefined()
+    expect(refusedAt({ layout: column([{ node: 'component', id: 'a' }]) })).toBe('spec.nodes')
+    expect(refusedAt({ nodes: [{ component: 'el.metric', props: { process: 50 } }] })).toBe('spec.nodes[0].id')
+    expect(refusedAt({ nodes: [{ id: 'a', props: { process: 50 } }] })).toBe('spec.nodes[0].component')
+    expect(refusedAt({ nodes: [{ id: 'a', component: 'el.metric' }] })).toBe('spec.nodes[0].props')
+    expect(refusedAt({ nodes: [{ ...METRIC, props: [] }] })).toBe('spec.nodes[0].props')
+    expect(refusedAt({ nodes: [METRIC, METRIC] })).toBe('spec.nodes[1].id')
+    expect(viewRefusedAt({ nodes: [dataPage('p'), METRIC] })).toBeUndefined()
+    expect(viewRefusedAt({ nodes: [dataPage('p'), dataPage('q')] })).toBe('spec.nodes[1]')
+    for (const querySort of [{}, { asc: 'a' }, { desc: 'a' }]) {
+      expect(viewRefusedAt({ nodes: [dataPage('p', { querySort })] })).toBeUndefined()
     }
-    expect(judged([page('p'), METRIC])).toBeUndefined()
-    expect(judged([page('p'), page('q')])).toBe('spec.nodes[1]')
-    expect(judged([page('p', { querySort: { asc: 'a' } })])).toBeUndefined()
-    expect(judged([page('p', { querySort: { asc: 'a', desc: 'b' } })])).toBe('spec.nodes[0].props.querySort.desc')
+    expect(viewRefusedAt({ nodes: [dataPage('p', { querySort: { asc: 'a', desc: 'b' } })] })).toBe('spec.nodes[0].props.querySort.desc')
+  })
+
+  it('states the layout rules the component surface judges a stack, a placed block and the placement by', async () => {
+    const { file } = await checkedIn()
+    expect(file.body.rules.layout.rules).toEqual([
+      'A stack carries node "stack", dir and children, and may leave out gap, wrap and flex; the outermost stack carries no flex.',
+      'A placed block carries node "component" and the id of a node, and may leave out flex.',
+      'A layout places every node of nodes exactly once; a node it leaves out, or places twice, is refused.',
+    ])
+    const placing = (layout: unknown, nodes: readonly unknown[] = [METRIC]): string | undefined => refusedAt({ nodes, layout })
+    const block = { node: 'component', id: 'a' }
+    expect(placing(column([block]))).toBeUndefined()
+    expect(placing({ node: 'stack', children: [block] })).toBe('spec.layout.dir')
+    expect(placing({ node: 'stack', dir: 'col' })).toBe('spec.layout.children')
+    expect(placing({ node: 'stack', dir: 'col', flex: 1, children: [block] })).toBe('spec.layout.flex')
+    expect(placing(column([{ node: 'stack', dir: 'row', gap: 'sm', wrap: true, flex: 1, children: [block] }]))).toBeUndefined()
+    expect(placing(column([{ node: 'component' }]))).toBe('spec.layout.children[0].id')
+    expect(placing(column([{ node: 'block', id: 'a' }]))).toBe('spec.layout.children[0].node')
+    expect(placing(column([block]), [METRIC, { ...METRIC, id: 'b' }])).toBe('spec.nodes[1].id')
+    expect(placing(column([block, block]))).toBe('spec.layout.children[1].id')
+  })
+
+  it('states the binding rules the component surface judges a $from by', async () => {
+    const { file } = await checkedIn()
+    expect(file.body.rules.binding.rules).toEqual([
+      'A bound property is an object whose only key is $from, written as the whole value of the property; one inside a list item or a nested object is refused.',
+      'The node is another node of the same view, the output is one that node\'s component declares, and an index takes one item of a list output.',
+      'A property whose unbindable is true cannot be bound, and a bound property must accept the output\'s shape: the same kind, and nothing past its limits.',
+      'The value is resolved in the page from what the other block reports; the view file carries only the reference.',
+    ])
+    const beside = (node: unknown): string | undefined => refusedAt({ nodes: [TABLE, node] })
+    const bound = (from: unknown): string | undefined => beside(record(from))
+    expect(bound({ $from: 'node:t.selectionDetail' })).toBeUndefined()
+    expect(bound({ $from: 'node:t.selectionDetail', note: 'x' })).toBe('spec.nodes[1].props.dataList.$from')
+    expect(bound([{ $from: 'node:t.selectionDetail[0]' }])).toBe('spec.nodes[1].props.dataList[0].$from')
+    const filter = { id: 'f', component: 'el.filter-bar', props: { relatedMeta: 'a', metaConfig: { attributes: { $from: 'node:t.selectionDetail' } } } }
+    expect(beside(filter)).toBe('spec.nodes[1].props.metaConfig.attributes.$from')
+    expect(refusedAt({ nodes: [record({ $from: 'node:r.selectionDetail' })] })).toBe('spec.nodes[0].props.dataList.$from')
+    expect(bound({ $from: 'node:x.selectionDetail' })).toBe('spec.nodes[1].props.dataList.$from')
+    expect(bound({ $from: 'node:t.nope' })).toBe('spec.nodes[1].props.dataList.$from')
+    expect(bound({ $from: 'node:t.selectionDetail[0]' })).toBe('spec.nodes[1].props.dataList.$from')
+    const metric = (props: Readonly<Record<string, unknown>>): unknown => ({ id: 'm', component: 'el.metric', props: { process: 1, ...props } })
+    expect(beside(metric({ text: { $from: 'node:t.selectionDetail' } }))).toBe('spec.nodes[1].props.text.$from')
+    expect(beside(metric({ background: { $from: 'node:t.selectionDetail' } }))).toBe('spec.nodes[1].props.background')
+    const judged = judgeView(catalog, true, { id: 'v', title: 't', spec: { nodes: [TABLE, record({ $from: 'node:t.selectionDetail' })] } })
+    expect(judged.ok && judged.call.spec.nodes[1]?.props).toEqual({ dataList: { $from: 'node:t.selectionDetail' } })
+  })
+
+  it('states the param rules a view is judged with its params by', async () => {
+    const { file } = await checkedIn()
+    expect(file.body.rules.param.rules).toEqual([
+      'A parameter reference is an object whose only key is $param. It may stand for any value in the spec except one item of a list, which is refused.',
+      'It names one entry of the view file\'s params, and that entry is text, a number, true or false.',
+      'It is replaced when the view is read, before the view is judged; $from references are left as written.',
+    ])
+    const params = { table: 'orders', node: 'p', column: 'name' }
+    expect(viewRefusedAt({ nodes: [dataPage('p', { relatedMeta: { $param: 'table' } })] }, params)).toBeUndefined()
+    expect(viewRefusedAt({ nodes: [dataPage({ $param: 'node' })] }, params)).toBeUndefined()
+    expect(viewRefusedAt({ nodes: [dataPage('p', { querySort: { asc: { $param: 'column' } } })] }, params)).toBeUndefined()
+    expect(viewRefusedAt({ nodes: [{ $param: 'node' }] }, params)).toBe('spec.nodes[0]')
+    expect(viewRefusedAt({ nodes: [dataPage('p', { relatedMeta: { $param: 'table', note: 'x' } })] }, params))
+      .toBe('spec.nodes[0].props.relatedMeta')
+    expect(viewRefusedAt({ nodes: [dataPage('p', { relatedMeta: { $param: 'other' } })] }, params)).toBe('spec.nodes[0].props.relatedMeta')
+    expect(viewRefusedAt({ nodes: [dataPage('p', { relatedMeta: { $param: 'table' } })] }, { table: { name: 'orders' } }))
+      .toBe('spec.nodes[0].props.relatedMeta')
+    const judged = judgeView(catalog, true, {
+      id: 'v',
+      title: 't',
+      spec: { nodes: [TABLE, record({ $from: 'node:t.selectionDetail' }), dataPage('p', { relatedMeta: { $param: 'table' } })] },
+      params,
+    })
+    expect(judged.ok && judged.call.spec.nodes.map(node => node.props['dataList'] ?? node.props['relatedMeta']))
+      .toEqual([undefined, { $from: 'node:t.selectionDetail' }, 'orders'])
   })
 
   it('states the manifest key and the conditions on the two format fields as the pack root reads them', async () => {
     const { file } = await checkedIn()
+    expect(file.body.rules.manifest.rules).toEqual([
+      'pack.viewFormat is required when views lists any file, and is one of viewFormats; a pack that lists views without it, or with another format, is withheld.',
+      'pack.anchorFormat is stated by a pack exported with element anchors, and is one of anchorFormats; a pack stating another format is withheld.',
+    ])
     expect(parsePackManifest({ pack: { version: '1.0.0' }, notes: 'x' }))
       .toMatchObject({ ok: false, field: `${file.body.rules.manifest.key}.notes` })
     expect(PACK_MANIFEST_FIELDS.map(field => field.path)).toEqual(expect.arrayContaining(['pack.viewFormat', 'pack.anchorFormat', 'views']))

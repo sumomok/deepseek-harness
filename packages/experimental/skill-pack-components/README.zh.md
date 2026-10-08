@@ -89,7 +89,7 @@ kind: "package-reference"
 <a id="the-component-catalog-file"></a>
 ## 组件目录文件
 
-`tests/expected/component-catalog.json` 给不在任何部署旁边写技能包的人用来拼视图：里面有组件包注册的每个组件、判视图文件的规则，以及读技能包和它的 `.dshpack` 发放包时的规则。改了目录条目、组件表面的上限或技能包规则之后，要重新生成它：
+`tests/expected/component-catalog.json` 给不在任何部署旁边写技能包的人用来拼视图：里面有组件包注册的每个组件、判视图文件的规则，以及读技能包和它的 `.dshpack` 发放包时的规则。改了目录条目、组件表面的上限或技能包规则之后，以及组件包或它 vendor 进来的 kit 版本变了之后，都要重新生成它。`scripts/release/bump.ts` 会把组件包的版本和其他私有包一起改掉，所以升版本之后也要重新生成：
 
 ```sh
 pnpm --filter @deepseek-ai/dsh-experimental-skill-pack-components run component-catalog
@@ -104,11 +104,11 @@ pnpm --filter @deepseek-ai/dsh-experimental-skill-pack-components run component-
 | `header.bodySha256` | `JSON.stringify(body)` 的 UTF-8 字节的 SHA-256，小写十六进制：不带空白，键按文件里的顺序。读的一方从解析出来的文件重算它；不用 JavaScript 重算时，序列化结果必须与 `JSON.stringify` 写出的逐字相同，包括非 ASCII 字符不转义，否则摘要对不上。 |
 | `header.exampleViewSha256` | `null`，因为这个文件还不带示例视图。 |
 | `body.components` | 每个组件：`id`、`label`（用户看到的中文名）、`purpose`、`placement`、`deploymentSwitches`、`props`、`outputs`（`id`、`summary`、`shape`）、`actions`（`id`、`report`），以及组件把某个字符串读成路径、颜色或渲染器名时的 `sanitize`。 |
-| `body.rules` | `view`（id、标题、spec 大小、节点，以及判视图时针对完整数据页的规则）、`layout`、`binding`（`$from`）、`param`（`$param`）、`viewFile`、`manifest`（frontmatter 键、字段，以及 `pack.viewFormat` 与 `pack.anchorFormat` 何时必须写）、`packFiles`（技能包能带的扩展名）和 `archive`（`.dshpack` 的格式和默认读取上限）。 |
+| `body.rules` | `view`（id、标题、spec 大小、spec 和节点能带的键、节点数与节点 id，以及判 spec、节点和完整数据页的规则）、`layout`（根的种类、方向、间距、层数、一个 stack 的子项数、`flex`、stack 和放进布局的块能带的键，以及判它们和摆放的规则）、`binding`（`$from`）、`param`（`$param`）、`viewFile`、`manifest`（frontmatter 键、字段，以及 `pack.viewFormat` 与 `pack.anchorFormat` 何时必须写）、`packFiles`（技能包能带的扩展名）和 `archive`（`.dshpack` 的格式和默认读取上限）。 |
 
-每个属性写出：`summary`，工具描述给它写的记法；`required`；`viewOnly`，为真表示只有视图文件能设它；`unbindable`，为真表示它不能写成 `$from` 引用，取自组件表面的 `unbindableReason`，所以组件把它读成路径、颜色或渲染器名的属性，即使没有声明不可绑定，也写为真；`schema`，它的类型和全部上限、名单、字符集，字符集写成带标志位的正则字面量。对象属性里面的字段只写 `summary`、`required` 和 `schema`：对象属性里面的 `$from` 一律被拒，`viewOnly` 也只对组件自己的属性判。`deploymentSwitches` 列出部署要打开哪些 `show_component` 开关才会交出这个组件，从组件表面的 `withheldComponents` 读出；某套部署有没有打开它们，文件里不写。每个组件的 `placement` 都是 `call`：目录还没有声明放置方式，所以视图能放的组件，调用也都能放。
+每个属性写出：`summary`，工具描述给它写的记法；`required`；`viewOnly`，为真表示只有视图文件能设它；`unbindable`，为真表示它不能写成 `$from` 引用，取自组件表面的 `unbindableReason`，所以组件把它读成路径、颜色或渲染器名的属性，即使没有声明不可绑定，也写为真；`schema`，它的类型和全部上限、名单、字符集，字符集写成带标志位的正则字面量。对象属性里面的字段只写 `summary`、`required` 和 `schema`：对象属性里面的 `$from` 一律被拒，`viewOnly` 也只对组件自己的属性判。`deploymentSwitches` 列出部署要打开哪些 `show_component` 开关才会交出这个组件，从组件表面的 `withheldComponents` 读出；某套部署有没有打开它们，文件里不写。每个组件的 `placement` 都是 `call`：目录还没有声明放置方式，所以视图能放的组件，调用也都能放。有一条测试列出目录条目能带的每个键，类型按条目定义，所以条目新加一个键（比如放置方式），在生成器写出它之前类型检查不通过。
 
-组件、所有上限、名单和键都从执行这条规则的模块读出。其余几项没有模块把它们作为值导出，由生成器自己写：`view.nodes` 和 `layout.flex` 的下限、`layout.flex.integer`、`layout.root`、两个 `otherKeys` 的取值，以及各处的 `rules` 句子，这些句子复述组件表面怎样判视图、技能包根怎样读清单。这些值和 `view.rules`、`manifest.rules` 两组句子，都有测试拿它们复述的判定来核对。
+组件、所有上限、名单和键都从执行这条规则的模块读出。其余几项没有模块把它们作为值导出，由生成器自己写：`view.nodes`、`layout.children` 和 `layout.flex` 的下限、`layout.flex.integer`、`layout.root`、两个 `otherKeys` 的取值，以及各处的 `rules` 句子，这些句子复述组件表面怎样判视图、技能包根怎样读清单。测试拿这些值复述的判定逐一核对它们；每一句 `rules` 的原文也由测试逐字钉住，并核对这句话说的判定，所以改了句子或者改了判定，都会有测试失败。
 
 <a id="model-experience"></a>
 ## 模型体验
