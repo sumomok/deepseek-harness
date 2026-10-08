@@ -91,7 +91,7 @@ The root registry, `roots.json` under `$DSH_HOME/console-members`, maps each reg
 | [`src/member-store.ts`](src/member-store.ts) | Per-member JSON files, replaced through a rename |
 | [`src/default-workspace.ts`](src/default-workspace.ts) | One default-workspace registration step per member and process, and whether it has succeeded |
 
-The registry writes `roots.json` synchronously, through a random-suffix sibling opened with exclusive create and mode 0600 and a rename, because the member admitter that records a first sighting is synchronous. A member's default workspace `<member root>/workspace` is registered after admission by a step that creates the directory and calls `workspace.create`, which returns the workspace already registered for that path. A failed step is logged without the principal key or the failure text and starts again on the next call; until a step succeeds in the current process, the member's default workspace counts as not ready.
+The registry writes `roots.json` synchronously, through a random-suffix sibling opened with exclusive create and mode 0600 and a rename, because the member admitter that records a first sighting is synchronous. A member's default workspace `<member root>/workspace` is registered after admission by a step that creates the directory, refuses it when its real path is another directory (a symbolic link stands at it), and calls `workspace.create`, which returns the workspace already registered for that path; a workspace registered at any other path also fails the step. A failed step is logged without the principal key or the failure text and starts again on the next call; until a step succeeds in the current process, the member's default workspace counts as not ready.
 
 </details>
 

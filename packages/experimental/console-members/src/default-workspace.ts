@@ -4,7 +4,10 @@
  *
  * The admitter is synchronous and cannot wait for `workspace.create`, so
  * admission starts the registration step and returns. The step creates the
- * directory when it is missing and calls `workspace.create`, which returns
+ * directory when it is missing, fails when the directory's real path is not
+ * `<member root>/workspace` itself, so a symbolic link planted there cannot
+ * register another directory as the member's workspace, and calls
+ * `workspace.create`, which returns
  * the workspace already registered for the same canonical path, so running
  * it again for a member registered by an earlier process finds that
  * workspace. Within one process each member has at most one step in flight or
@@ -16,7 +19,7 @@
  * @module @deepseek-ai/dsh-experimental-console-members/src/default-workspace
  */
 
-import { mkdir } from 'node:fs/promises'
+import { mkdir, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Logger } from '@deepseek-ai/cordis'
 import type { Workspace } from '@deepseek-ai/dsh-workspace/types'
@@ -100,13 +103,20 @@ export class DefaultWorkspaces {
   }
 
   /**
-   * Create `<member root>/workspace` when missing and register it.
+   * Create `<member root>/workspace` when missing and register it. The member
+   * root is a real path, so the directory's real path equals its own path
+   * unless a symbolic link stands at it; the step refuses that directory, and
+   * a workspace registered at any other path, before the member counts as ready.
    * @param principal - the member.
    * @returns the registered workspace.
+   * @throws {Error} when the directory or the registered workspace is not at `<member root>/workspace`.
    */
   private async register(principal: PrincipalKey): Promise<Workspace> {
     const directory = join(this.memberRoot(principal), 'workspace')
     await mkdir(directory, { recursive: true, mode: 0o700 })
-    return await this.workspaces.create(directory)
+    if (await realpath(directory) !== directory) throw new Error('the default workspace directory resolves to another directory')
+    const workspace = await this.workspaces.create(directory)
+    if (workspace.path !== directory) throw new Error('the registered default workspace is at another directory')
+    return workspace
   }
 }

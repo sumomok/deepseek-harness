@@ -1,5 +1,5 @@
 /** Default workspaces: one registration step per member and process, retried after a failure, found again after a restart. */
-import { readdirSync, statSync } from 'node:fs'
+import { readdirSync, statSync, symlinkSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import SessionStore from '@deepseek-ai/dsh-session'
@@ -129,6 +129,38 @@ describe('default workspace registration', () => {
     creator.calls[1]!.resolve(workspaceAt(creator.calls[1]!.path))
     await retried
     expect(defaults.defaultWorkspaceReady(ALICE)).toBe(true)
+  })
+
+  it('refuses a symbolic link planted at <member root>/workspace without calling workspace.create', async () => {
+    const BOB = principal('login-uid-bob-7702')
+    const members = roots()
+    const aliceRoot = members.ensureMember(ALICE)
+    const bobRoot = members.ensureMember(BOB)
+    symlinkSync(bobRoot, join(aliceRoot, 'workspace'))
+    const creator = controlledCreator()
+    const { ctx, lines } = loggingContext()
+    const defaults = new DefaultWorkspaces(principal => members.memberRoot(principal), creator, ctx.logger('console-members'))
+
+    await expect(defaults.ensureDefaultWorkspace(ALICE)).rejects.toBeInstanceOf(DefaultWorkspaceUnregisteredError)
+    expect(creator.calls).toEqual([])
+    expect(defaults.defaultWorkspaceReady(ALICE)).toBe(false)
+    expect(lines.filter(line => line.startsWith('warn'))).toHaveLength(1)
+    for (const line of lines) {
+      expect(line).not.toContain(ALICE)
+      expect(line).not.toContain(bobRoot)
+    }
+  })
+
+  it('refuses a workspace the registry answers at another directory', async () => {
+    const members = roots()
+    const root = members.ensureMember(ALICE)
+    const create = vi.fn(async () => workspaceAt(join(temp.base, 'elsewhere')))
+    const { ctx } = loggingContext()
+    const defaults = new DefaultWorkspaces(principal => members.memberRoot(principal), { create }, ctx.logger('console-members'))
+
+    await expect(defaults.ensureDefaultWorkspace(ALICE)).rejects.toBeInstanceOf(DefaultWorkspaceUnregisteredError)
+    expect(create).toHaveBeenCalledWith(join(root, 'workspace'))
+    expect(defaults.defaultWorkspaceReady(ALICE)).toBe(false)
   })
 
   it('fails the step for a member whose root is not registered', async () => {

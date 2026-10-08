@@ -91,7 +91,7 @@ const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(r
 | [`src/member-store.ts`](src/member-store.ts) | 按成员的 JSON 文件，经 rename 整份替换 |
 | [`src/default-workspace.ts`](src/default-workspace.ts) | 每位成员在每个进程里一个默认工作区登记步骤，以及它是否已成功 |
 
-登记表同步写 `roots.json`：先以独占创建、0600 权限写一个随机后缀的同目录文件，再 rename 过去，因为记下首次见到的准入器是同步的。成员的默认工作区 `<成员根目录>/workspace` 由准入之后的登记步骤登记：先建目录，再调 `workspace.create`，它对同一路径返回已登记的工作区。登记步骤失败时写一行不带主体键、不带失败文本的日志，下一次调用重新开始；在当前进程里有一次登记步骤成功之前，这位成员的默认工作区算作未就绪。
+登记表同步写 `roots.json`：先以独占创建、0600 权限写一个随机后缀的同目录文件，再 rename 过去，因为记下首次见到的准入器是同步的。成员的默认工作区 `<成员根目录>/workspace` 由准入之后的登记步骤登记：先建目录，它的真实路径是别的目录（那里是一个符号链接）时拒绝，再调 `workspace.create`，它对同一路径返回已登记的工作区；登记到别的路径的工作区同样让这一步失败。登记步骤失败时写一行不带主体键、不带失败文本的日志，下一次调用重新开始；在当前进程里有一次登记步骤成功之前，这位成员的默认工作区算作未就绪。
 
 </details>
 
