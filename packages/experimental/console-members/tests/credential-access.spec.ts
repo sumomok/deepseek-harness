@@ -111,6 +111,28 @@ describe('attaching the customer credential reader', () => {
     expect(access.read(ALICE)).toBeUndefined()
   })
 
+  it('attaches a reader that reports changes while subscribing, without forwarding them, and releases its subscription', async () => {
+    const row = await mountMembers()
+    const access = customerCredentialAccess(directory(row))
+    const changes: unknown[] = []
+    access.onChange((member, kind) => { changes.push([member, kind]) })
+    const holder = fakeReader([[ALICE, ALICE_TOKEN]])
+    const replaying: CustomerCredentialReader = {
+      read: holder.reader.read,
+      onChange: (listener) => {
+        listener(ALICE, 'set')
+        return holder.reader.onChange(listener)
+      },
+    }
+    const release = directory(row).attachCustomerCredentials(replaying)
+    expect(changes).toEqual([])
+    expect(access.read(ALICE)).toBe(ALICE_TOKEN)
+    holder.report(BOB, 'set')
+    expect(changes).toEqual([[BOB, 'set']])
+    release()
+    expect(holder.subscribers()).toBe(0)
+  })
+
   it('leaves the slot free when the reader\'s onChange throws', async () => {
     const row = await mountMembers()
     const broken: CustomerCredentialReader = {

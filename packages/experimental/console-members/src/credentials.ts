@@ -18,11 +18,20 @@ import type { Logger } from '@deepseek-ai/cordis'
 import { Listeners } from './listeners.ts'
 import type { CustomerCredentialReader, PrincipalKey } from './types.ts'
 
-/** One attached reader. */
-interface Attachment {
-  readonly reader: CustomerCredentialReader
+/** One attached reader and its `onChange` subscription. */
+class Attachment {
   /** Stops the forwarding of the reader's changes. */
   readonly stopForwarding: () => void
+
+  /**
+   * Subscribe to the reader. `forward` receives this attachment with each
+   * change, including a change the reader reports while subscribing.
+   * @param reader - the token holder's reader.
+   * @param forward - called with this attachment and each change the reader reports.
+   */
+  constructor(readonly reader: CustomerCredentialReader, forward: (source: Attachment, principal: PrincipalKey, kind: 'set' | 'dropped') => void) {
+    this.stopForwarding = reader.onChange((principal, kind) => { forward(this, principal, kind) })
+  }
 }
 
 /** The customer-token reader slot. */
@@ -44,6 +53,8 @@ export class CustomerCredentials {
 
   /**
    * Attach a reader and start forwarding its changes.
+   * A change the reader reports while its `onChange` is subscribing is not
+   * forwarded, because the reader is not attached until `onChange` returns.
    * @param reader - the token holder's reader.
    * @returns the disposer that detaches this reader.
    * @throws {Error} when a reader holds the slot, including while its disposer is notifying detach listeners, and
@@ -53,12 +64,9 @@ export class CustomerCredentials {
     if (this.holder !== undefined) {
       throw new Error('console-members: a customer credential reader is already attached; its disposer must run before another reader attaches')
     }
-    const attachment: Attachment = {
-      reader,
-      stopForwarding: reader.onChange((principal, kind) => {
-        if (this.live === attachment) this.changed.emit(principal, kind)
-      }),
-    }
+    const attachment = new Attachment(reader, (source, principal, kind) => {
+      if (this.live === source) this.changed.emit(principal, kind)
+    })
     this.holder = attachment
     this.live = attachment
     return () => { this.detach(attachment) }
