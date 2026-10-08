@@ -291,7 +291,7 @@ patch 是整体替换目标行的 `config` 而非把键并入其中，所以那�
 
 **一句失败只说这次调用为何被拒，别的都不说。** 没有哪句拒绝会点名该改调哪件工具、要求去问用户、或者叫人重试：栏是空的、在前面那一项不是页面、等待窗口内没有控制台标签页认领、答案超出了预算。拒绝确实会点名这件工具自己的参数——比如 `scope must be a ref like "e12" printed by an earlier read of this page`——因为那正是理由，而不是补救。
 
-两条规则是在一次真机 A/B 之后一起改的：两条提示，每格一个全新会话，互相点名的文案对只写自己的文案。互相点名那一臂里，提示 A 被拒的那一次调用是 `content_read` 传 `mode: "dom"`，提示 B 是 `content_read` 传 `scope: ""`，各一次。只写自己那一臂里，提示 A 直接调了 `content_read_dom`，但另花两次调用给 `content_read` 传 `mode: "find"`；提示 B 首调 `content_read` 传 `scope: "__page__"`——被拒调用分别是两次和一次。这次改动针对的那个误路由没有复现；两臂都仍然在首调时自己编了一个 `scope` 值，也都把一个词当成了 `mode` 的取值，所以那一行参数说明现在写明「不传 `scope` 即读整页」。调用总数从 13→11、11→9，整树 DOM 读取从 3→1、2→1，四格答案全部正确；每格 n = 1 且温度未控，这些数字是观察，不是测量。[`tests/self-contained-copy.client.spec.ts`](tests/self-contained-copy.client.spec.ts) 走遍两个文案模块的全部导出、一次读取回复的清单，以及七件工具装配后定义里的每一段描述，其中出现任何工具名都会失败。
+两条规则是在一次真机 A/B 之后一起改的：两条提示，每格一个全新会话，互相点名的文案对只写自己的文案。互相点名那一臂里，提示 A 被拒的那一次调用是 `content_read` 传 `mode: "dom"`，提示 B 是 `content_read` 传 `scope: ""`，各一次。只写自己那一臂里，提示 A 直接调了 `content_read_dom`，但另花两次调用给 `content_read` 传 `mode: "find"`；提示 B 首调 `content_read` 传 `scope: "__page__"`——被拒调用分别是两次和一次。这次改动针对的那个误路由没有复现；两臂都仍然在首调时自己编了一个 `scope` 值，也都把一个词当成了 `mode` 的取值，所以那一行参数说明现在写明「不传 `scope` 即读整页」。调用总数从 13→11、11→9，整树 DOM 读取从 3→1、2→1，四格答案全部正确；每格 n = 1 且温度未控，这些数字是观察，不是测量。[`tests/self-contained-copy.client.spec.ts`](tests/self-contained-copy.client.spec.ts) 是这两条规则的门禁；它走哪些地方，由那份 Agent Note 记载。
 
 <a id="model-experience"></a>
 ## Model Experience

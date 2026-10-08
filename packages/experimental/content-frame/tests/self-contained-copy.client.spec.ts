@@ -4,13 +4,15 @@
  * [the self-contained-copy Agent Note](../../../../.agents/notes/implemented/feature/2026-09-04-self-contained-tool-copy.md)
  * records: no tool description, parameter description, refusal, result hint or
  * output-schema field description of this package names a tool of this package
- * — not a sibling, and not the tool that produced it. The request-context lines
+ * — not a sibling, and not the tool that produced it. A sentence names a tool
+ * when it carries one of the seven names or any other `content_` word, the
+ * names this package gives its tools. The request-context lines
  * in `src/perception/text.ts` are outside the rule and outside this walk; the
  * Note's "Where the rules do not reach"
  * [section](../../../../.agents/notes/implemented/feature/2026-09-04-self-contained-tool-copy.md#where-the-rules-do-not-reach)
  * owns them.
  *
- * This spec walks three surfaces. It reads the three text modules' whole export
+ * This spec walks four surfaces. It reads the three text modules' whole export
  * surface rather than a list of strings, so a constant or a sentence added
  * later is covered the day it is written: an exported function with no
  * arguments recorded here fails, and so does an export that is neither a string
@@ -23,12 +25,24 @@
  * `act-tool.ts` and `read-value.ts` rather than exported as sentences. And the
  * map listing's closing line is checked through a real read, because
  * `render.ts` composes it privately and the rendered listing is where the model
- * meets it.
+ * meets it. Last, it reads every string literal, template piece and JSX text
+ * in `src/`, which is what covers a sentence written outside the text modules,
+ * such as the scope and cursor errors the browser seat composes in
+ * `client/access/render.ts` and `client/access/snapshot.ts`. A literal that is
+ * a tool name by itself and stands as a constant's value, a literal type or a
+ * property's value is the name, not a sentence; the same literal joined into a
+ * sentence is not exempt. The one load-time error an operator reads is listed
+ * below. That walk reads literals only: a name spliced into a sentence through
+ * an expression is seen by the first three walks, and only for the sentences
+ * they reach.
  *
  * The `.client.` suffix names the typecheck aggregate this package belongs to,
  * not the face under test.
  */
 
+import { readdirSync, readFileSync } from 'node:fs'
+import { join, relative, resolve, sep } from 'node:path'
+import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import * as actText from '../src/access/act-text.ts'
@@ -66,6 +80,33 @@ const TOOL_NAMES = [
   CONTENT_SHOW_TOOL_NAME,
 ]
 
+/** The words a tool name of this package is made of: the seven names, and any name given later. */
+const TOOL_NAME = /content_[a-z_]+/
+
+/** This package's source, the tree the literal walk reads. */
+const SOURCE_ROOT = resolve(import.meta.dirname, '../src')
+
+/** Files under `src/` whose sentences the rule does not reach: the Note's "Where the rules do not reach". */
+const OUTSIDE_THE_RULE = ['perception/text.ts']
+
+/** The load-time error a deployment with no pages fails with, which an operator reads and no model does. */
+const OPERATOR_SENTENCES = [
+  'content-frame: pages must list at least one page — the content_show tool has nothing to offer otherwise',
+]
+
+/** Where a literal that is a tool name by itself is the name: a constant, a literal type, a property's value. */
+const NAME_HOLDERS: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.VariableDeclaration,
+  ts.SyntaxKind.LiteralType,
+  ts.SyntaxKind.PropertyAssignment,
+])
+
+/** One literal a source file writes: its text, and the kind of node that holds it. */
+interface SourceLiteral {
+  readonly text: string
+  readonly holder: ts.SyntaxKind
+}
+
 /** One step both the approval request and the answer are composed from. */
 const CLICK: ActStep = { action: 'click', ref: 'e5', label: '查询' }
 
@@ -86,7 +127,7 @@ const STEP_REFUSALS: ActStepRefusal[] = [
 
 /**
  * The arguments each exported text function is read with. Every function of the
- * two modules has an entry; one it does not have fails the walk, which is what
+ * three modules has an entry; one it does not have fails the walk, which is what
  * keeps a sentence added later from reaching the model unchecked.
  */
 const ARGUMENTS: Record<string, readonly unknown[][]> = {
@@ -253,7 +294,7 @@ describe('every sentence this package puts in front of the model', () => {
     ]
     // The walk is worthless if it found nothing to walk.
     expect(sentences.length).toBeGreaterThan(60)
-    expect(sentences.filter(sentence => TOOL_NAMES.some(tool => sentence.includes(tool)))).toEqual([])
+    expect(sentences.filter(sentence => TOOL_NAME.test(sentence))).toEqual([])
   })
 
   it('names no tool in any description of the seven tools the model is offered', () => {
@@ -266,7 +307,7 @@ describe('every sentence this package puts in front of the model', () => {
     // The walk is worthless if a tool went missing or a schema read as empty.
     expect([...tools.map(tool => tool.name)].sort()).toEqual([...TOOL_NAMES].sort())
     expect(descriptions.length).toBeGreaterThan(60)
-    expect(descriptions.filter(one => TOOL_NAMES.some(tool => one.includes(tool)))).toEqual([])
+    expect(descriptions.filter(one => TOOL_NAME.test(one))).toEqual([])
   })
 
   it('names no tool in the listing a read answers with, closing line included', () => {
@@ -276,6 +317,59 @@ describe('every sentence this package puts in front of the model', () => {
     // where to read next, which is the line that named a tool.
     expect(listing.kind).toBe('map')
     expect(listing.text).toContain('Read a part with scope')
-    expect(TOOL_NAMES.filter(tool => listing.text.includes(tool))).toEqual([])
+    expect(listing.text.match(TOOL_NAME)).toBeNull()
+  })
+
+  it('names no tool in any sentence its source writes, wherever it is written', () => {
+    const literals = sourceFiles(SOURCE_ROOT).flatMap(file => literalsIn(file).map(literal => ({
+      file: relative(SOURCE_ROOT, file).split(sep).join('/'),
+      ...literal,
+    })))
+    // The walk is worthless if it found nothing to walk, and an exception that
+    // no longer matches a literal is one nobody would notice going stale.
+    expect(new Set(literals.map(literal => literal.file)).size).toBeGreaterThan(40)
+    expect(literals.filter(literal => OPERATOR_SENTENCES.includes(literal.text)).map(literal => literal.text))
+      .toEqual(OPERATOR_SENTENCES)
+    expect(OUTSIDE_THE_RULE.filter(file => literals.some(literal => literal.file === file && TOOL_NAME.test(literal.text))))
+      .toEqual(OUTSIDE_THE_RULE)
+    expect(literals.filter(literal => (
+      TOOL_NAME.test(literal.text)
+      && !(TOOL_NAMES.includes(literal.text) && NAME_HOLDERS.has(literal.holder))
+      && !OPERATOR_SENTENCES.includes(literal.text)
+      && !OUTSIDE_THE_RULE.includes(literal.file)
+    )).map(({ file, text }) => ({ file, text }))).toEqual([])
   })
 })
+
+/**
+ * Every TypeScript source file under a directory, declaration files excluded.
+ * @param dir - the directory to walk.
+ * @returns the files' paths, in directory order.
+ */
+function sourceFiles(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) return sourceFiles(path)
+    return /\.tsx?$/.test(entry.name) && !entry.name.endsWith('.d.ts') ? [path] : []
+  })
+}
+
+/**
+ * Every string literal, template piece and JSX text one file writes.
+ * @param file - the source file to parse.
+ * @returns the literals, in source order.
+ */
+function literalsIn(file: string): SourceLiteral[] {
+  const kind = file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+  const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, kind)
+  const literals: SourceLiteral[] = []
+  const visit = (node: ts.Node): void => {
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateHead(node)
+      || ts.isTemplateMiddle(node) || ts.isTemplateTail(node) || ts.isJsxText(node)) {
+      literals.push({ text: node.text, holder: node.parent.kind })
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(source)
+  return literals
+}

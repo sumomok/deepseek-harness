@@ -68,7 +68,7 @@ Status: implemented
 
 **骨架清单保住了参数，丢掉了调用写法。** `Read a part with scope, e.g. content_read({ scope: "e1" }).` 现在是 `Read a part with scope "e1".`。
 
-**一道机械可查的门禁。** [`tests/self-contained-copy.client.spec.ts`](../../../../packages/experimental/content-frame/tests/self-contained-copy.client.spec.ts) 走遍 `text.ts` 与 `act-text.ts` 的整个导出面——每个字符串，以及每个用记录参数调用过的函数——并驱动一次真实读取直到骨架清单，从而覆盖 `render.ts` 里那句私有的收尾行。它还会装配六件工具的定义，读出每件定义里的每一段 `description`——工具自己的、参数 schema 里任意深度的、以及输出 schema 里的——由此覆盖 `tool.ts`、`read-tool.ts`、`markup-tool.ts`、`act-tool.ts` 与 `read-value.ts` 里那些装配时才拼出、并未作为句子导出的说明。没有在这里登记参数的导出函数会让这次遍历失败，因此后来添加的句子在写下来的当天就被覆盖。工具名取自 `wire.ts` 与 `tool.ts` 而不是字面量，这也是 `content_show` 的 wire 名现在成为导出常量 `CONTENT_SHOW_TOOL_NAME` 的原因。
+**一道机械可查的门禁。** [`tests/self-contained-copy.client.spec.ts`](../../../../packages/experimental/content-frame/tests/self-contained-copy.client.spec.ts) 把带有七个工具名之一、或任何其他 `content_` 词的句子算作点名工具。它走四个面。它走遍 `text.ts`、`act-text.ts` 与 `switch-text.ts` 的整个导出面——每个字符串，以及每个用记录参数调用过的函数——没有在这里登记参数的导出函数会让遍历失败，因此后来添加的句子在写下来的当天就被覆盖。它装配七件工具的定义，读出每件定义里的每一段 `description`——工具自己的、参数 schema 里任意深度的、以及输出 schema 里的——由此覆盖 `tool.ts`、`read-tool.ts`、`markup-tool.ts`、`image-tool.ts`、`act-tool.ts` 与 `read-value.ts` 里装配时才拼出的说明。它驱动一次真实读取直到骨架清单，从而覆盖 `render.ts` 里那句私有的收尾行。它还读出 `src/` 下每个字符串字面量、模板片段和 JSX 文本，从而覆盖写在文案模块之外的句子，例如浏览器座位在 `client/access/render.ts` 里拼出的错误；本身就是一个工具名、并且作为常量的值、字面量类型或属性的值出现的字面量、`src/perception/text.ts`、以及没有页面的部署在加载时报的那句错误不在这一遍之内，列出的那个文件或那句错误不再对得上源码时这道门禁就失败。经表达式拼进句子、而不是写在字面量里的工具名，只有前三遍看得到，而且只限它们走到的那些句子。工具名取自 `wire.ts` 与 `tool.ts` 而不是字面量，这也是 `content_show` 的 wire 名是导出常量 `CONTENT_SHOW_TOOL_NAME` 的原因。
 
 **四个 Web fixture 承载着工具 schema 与拒绝文案**，因此这次文案改动在装配后的完整对话里可见，而不只是在单测的逐字断言里。
 
