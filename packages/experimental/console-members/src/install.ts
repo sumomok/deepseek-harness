@@ -4,10 +4,12 @@
  * Everything is registered in one synchronous call, and the Peer admitter is
  * installed last, so no request is admitted before every listener that judges
  * member Peers is in place. Cordis starts a fiber's disposers in reverse
- * registration order, so unloading the row withdraws the admitter first, then
- * disposes every member Peer the row opened, closing their sockets with code
- * 1001, and waits for the default-workspace steps in flight, then removes the
- * listeners.
+ * registration order and does not wait for one before starting the next, so
+ * unloading the row withdraws the admitter first, then removes every member
+ * Peer the row opened from its table and starts disposing them, closing their
+ * sockets with code 1001, then removes the listeners without waiting for the
+ * Peer disposals or the default-workspace steps in flight. The unload settles
+ * once both have settled.
  * @module @deepseek-ai/dsh-experimental-console-members/src/install
  */
 
