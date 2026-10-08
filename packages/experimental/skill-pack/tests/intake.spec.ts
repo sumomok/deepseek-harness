@@ -549,6 +549,28 @@ describe('an entry refused', () => {
     })
   })
 
+  it('names a declared view file an entry does not carry by its path inside the entry, not by where the entry would be written', async () => {
+    const paths = await newWorld()
+    const ctx = await boot(paths)
+    const { intake } = await organization(ctx)
+    const result = await intake.replace([{
+      name: 'gone-guide',
+      version: '1',
+      channel: 'stable',
+      files: [{ path: 'SKILL.md', content: skillText('gone-guide', { views: { 'gone.yml': '' } }) }],
+    }])
+    expect(result).toEqual({
+      kind: 'ok',
+      refused: [{
+        name: 'gone-guide',
+        version: '1',
+        code: 'pack-invalid',
+        detail: 'view views/gone.yml is unreadable: Error: views/gone.yml is not among the entry\'s files',
+      }],
+    })
+    expect(JSON.stringify(result)).not.toContain(world!)
+  })
+
   it('refuses an entry whose files do not make it the pack it names as pack-invalid', async () => {
     const paths = await newWorld()
     const ctx = await boot(paths)
@@ -1081,6 +1103,7 @@ describe('the calls themselves', () => {
     expect((await stat(paths.organizationRoot)).ino).toBe(written)
     expect(await organizationStates(ctx)).toEqual(['layer-guide@2 active'])
   })
+
 })
 
 describe('the lifetime of the offered set', () => {

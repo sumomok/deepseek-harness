@@ -19,7 +19,7 @@
  * @module @deepseek-ai/dsh-experimental-skill-pack/src/intake
  */
 
-import { join, resolve } from 'node:path'
+import { join, relative, resolve, sep } from 'node:path'
 import { FiberState, Service, type Context, type Fiber } from '@deepseek-ai/cordis'
 import { isSkillName } from '@deepseek-ai/dsh-skill'
 import { collisionKey, validatePacks } from './delivery.ts'
@@ -464,7 +464,8 @@ function clashOf(entry: HeldEntry, contested: ReadonlySet<string>, held: HeldVie
  * read with.
  * @param directory - absolute path of the entry's directory in the organization root.
  * @param files - each of the entry's files, by absolute path under `directory`, to its bytes.
- * @returns what that reader makes of the entry, and how one of its files' bytes are looked up.
+ * @returns what that reader makes of the entry, and how one of its files' bytes are looked up; a
+ *   lookup of a path that is not one of `files` throws an error naming the path inside the entry.
  */
 async function observeFiles(
   directory: string,
@@ -472,7 +473,7 @@ async function observeFiles(
 ): Promise<{ source: PackSource | undefined; bytesAt: (path: string) => Buffer }> {
   const bytesAt = (path: string): Buffer => {
     const content = files.get(path)
-    if (content === undefined) throw new Error(`${path} is not among the entry's files`)
+    if (content === undefined) throw new Error(`${relative(directory, path).split(sep).join('/')} is not among the entry's files`)
     return content
   }
   // Decoded as `readFile(path, 'utf8')` decodes, which keeps a byte-order
