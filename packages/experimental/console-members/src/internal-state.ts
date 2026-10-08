@@ -11,6 +11,7 @@
  */
 
 import type { HostConnectionHandle } from '@deepseek-ai/dsh-client-connection'
+import type { CustomerCredentials } from './credentials.ts'
 import type { MemberPeers } from './peers.ts'
 import type { RootRegistry } from './registry.ts'
 
@@ -25,4 +26,34 @@ export interface DirectoryState {
   readonly registry: RootRegistry
   /** The member Peer table. */
   readonly members: MemberPeers
+  /** The customer-token reader slot. */
+  readonly credentials: CustomerCredentials
+}
+
+/** A directory instance, or the proxy of one, as {@link directoryState} recognises it. */
+interface StatefulDirectory {
+  readonly [DIRECTORY_STATE]: DirectoryState
+}
+
+/**
+ * Whether a value carries a directory state under this module's symbol.
+ * @param value - the value.
+ * @returns `true` for a directory created with this module's symbol, or the proxy of one.
+ */
+function isStateful(value: object): value is StatefulDirectory {
+  return DIRECTORY_STATE in value
+}
+
+/**
+ * The state of a directory, read through the symbol so that the traceable
+ * proxy another plugin receives works as the instance does.
+ * @param directory - `ctx.consoleMembers` or the instance behind it.
+ * @returns the directory's state.
+ * @throws {Error} when the value is not a directory this package's plugin row created with this module's symbol.
+ */
+export function directoryState(directory: object): DirectoryState {
+  if (!isStateful(directory)) {
+    throw new Error('console-members: the value is not a console member directory this package\'s plugin row provided')
+  }
+  return directory[DIRECTORY_STATE]
 }

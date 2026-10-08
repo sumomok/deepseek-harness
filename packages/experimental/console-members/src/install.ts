@@ -16,6 +16,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-gateway'
 import type {} from '@deepseek-ai/dsh-workspace'
+import { CustomerCredentials } from './credentials.ts'
 import { DefaultWorkspaces } from './default-workspace.ts'
 import { ConsoleMembersDirectory } from './directory.ts'
 import type { LoadedMembers } from './load.ts'
@@ -42,7 +43,7 @@ export function installDirectory(ctx: Context, loaded: LoadedMembers): void {
     peerIdleMs: settings.peerIdleMs,
     logger,
   })
-  new ConsoleMembersDirectory(ctx, { connection, registry, members })
+  new ConsoleMembersDirectory(ctx, { connection, registry, members, credentials: new CustomerCredentials(logger) })
   // Listeners that judge member Peers are registered here, before the admitter.
   ctx.on('connection/peer-closed', (peer) => { members.peerClosed(peer) })
   ctx.on('remote-stream/socket-opened', (peer, socketId) => { members.socketOpened(peer, socketId) })

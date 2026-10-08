@@ -3,8 +3,7 @@
  *
  * Every method reads the row's state through {@link DIRECTORY_STATE}, so it
  * works when called through the traceable proxy another plugin receives.
- * `principalOfSession` and `attachCustomerCredentials` are not implemented
- * in this build: both throw.
+ * `principalOfSession` is not implemented in this build and throws.
  * @module @deepseek-ai/dsh-experimental-console-members/src/directory
  */
 
@@ -113,12 +112,17 @@ export class ConsoleMembersDirectory extends Service implements ConsoleMemberDir
   }
 
   /**
-   * Not implemented in this build.
-   * @param _reader - the customer-token reader.
-   * @returns never.
-   * @throws {Error} always.
+   * Attach the customer-token reader to the row's slot. The holder owns the
+   * attachment: it calls this inside its own `ctx.effect` and runs the
+   * returned disposer from that effect's cleanup, so its teardown order,
+   * revoking the reader and then detaching it, is the order the detach
+   * listeners observe.
+   * @param reader - the customer-token reader.
+   * @returns the disposer that detaches the reader.
+   * @throws {Error} when a reader is attached, including inside an `onDetached` listener of
+   *   `./credential-access`, which runs before the slot is free.
    */
-  attachCustomerCredentials(_reader: CustomerCredentialReader): () => void {
-    throw new Error('console-members: attachCustomerCredentials is not implemented in this build')
+  attachCustomerCredentials(reader: CustomerCredentialReader): () => void {
+    return this[DIRECTORY_STATE].credentials.attach(reader)
   }
 }

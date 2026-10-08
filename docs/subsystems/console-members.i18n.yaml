@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/console-members.md
 /console-members:
-  en: 960e8303622bb589
-  zh: 2abdf6c79a130338
+  en: 9de85fd66d1334b0
+  zh: d4a8681c6bcb71ca
 /console-members/a-request-s-member-has-one-source:
   en: f5b9f721fb52075f
   zh: 9aaf74caefa39224
@@ -12,5 +12,5 @@
   en: 39a6f949e4b05a9b
   zh: 9da412b58b1d85df
 /console-members/the-directory-is-not-a-path-to-customer-tokens:
-  en: a054cb9469213138
-  zh: f8d83eb45e42fa13
+  en: dedb32f4e7d5f877
+  zh: 622341d9f99d555f

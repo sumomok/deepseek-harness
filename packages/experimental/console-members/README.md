@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Type a console-line plugin against `ctx.consoleMembers`: ask which signed-in member a browser request, a Remote caller, or a Session belongs to, list that member's registered roots, and keep non-secret data per member. The `/types` entry exports the directory's types and declares the context key. The package root is the plugin row: at load it checks its configuration and opens the root registry, then provides `ctx.consoleMembers` and installs Connection's Peer admitter, which admits each request as the member its signed assertion names. In this build `principalOfSession` and `attachCustomerCredentials` throw.
+Type a console-line plugin against `ctx.consoleMembers`: ask which signed-in member a browser request, a Remote caller, or a Session belongs to, list that member's registered roots, and keep non-secret data per member. The `/types` entry exports the directory's types and declares the context key. The package root is the plugin row: at load it checks its configuration and opens the root registry, then provides `ctx.consoleMembers` and installs Connection's Peer admitter, which admits each request as the member its signed assertion names. The `/credential-access` entry reads members' customer tokens and the registered members. In this build `principalOfSession` throws.
 
 ## Table of Contents
 
@@ -46,9 +46,30 @@ const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(r
 
 The `/types` entry imports no Host entry point, so Host plugins and Client programs both import it. The package root re-exports the same types, but it is the plugin and imports Host entry points; a Client program never imports the package root.
 
-`principalOfRequest` is the only way a fork webServer route obtains a request's member: the route reads no identity header and calls no `connection.admit` of its own. `principalOfSession` follows a child Session's parent chain to the topmost Session, and `attachCustomerCredentials` holds one customer-token reader at a time, which no method returns. The [subsystem page](../../../docs/subsystems/console-members.md) explains these three rules; [`src/types.ts`](src/types.ts) states every method's contract.
+`principalOfRequest` is the only way a fork webServer route obtains a request's member: the route reads no identity header and calls no `connection.admit` of its own. `principalOfSession` follows a child Session's parent chain to the topmost Session, and `attachCustomerCredentials` holds one customer-token reader at a time, which no method of `ctx.consoleMembers` returns. The [subsystem page](../../../docs/subsystems/console-members.md) explains these three rules; [`src/types.ts`](src/types.ts) states every method's contract.
 
 `PrincipalKey` is `Branded<'PrincipalKey'>` from `@deepseek-ai/dsh-brand`, and its value is the member's `login_uid`. A consumer treats it as opaque, and it reaches no model request, log line, or upload.
+
+### Customer tokens and registered members
+
+The token holder, auth-gate with `shareWithMemberDirectory`, calls `ctx.consoleMembers.attachCustomerCredentials(reader)` inside its own `ctx.effect` and runs the returned disposer from that effect's cleanup. The row holds one reader at a time: attaching while a reader is attached throws, and once the disposer has run another reader may attach. Running the disposer counts as every member's token being dropped, and the reader reports no `dropped` for it. The disposer acts once: it stops reading and forwarding the reader, calls every `onDetached` listener synchronously, and then frees the slot, so a reader attached from inside an `onDetached` listener is refused. A repeated or late call of one disposer notifies nobody and leaves a reader attached since in place.
+
+The console line's credential source reads the tokens through `@deepseek-ai/dsh-experimental-console-members/credential-access`, which `ctx.consoleMembers` does not offer:
+
+```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { customerCredentialAccess, memberRegistryAccess } from '@deepseek-ai/dsh-experimental-console-members/credential-access'
+
+declare const ctx: Context
+
+const tokens = customerCredentialAccess(ctx.consoleMembers)
+const registry = memberRegistryAccess(ctx.consoleMembers)
+ctx.effect(() => tokens.onDetached(() => { /* discard what was derived from every token */ }), 'credential source: reader detached')
+ctx.effect(() => registry.onAdded((member) => { void member }), 'credential source: member added')
+const everyMember = registry.principals()
+```
+
+`read(principal)` answers the attached reader's token, or `undefined` when no reader is attached or its disposer has started. `onChange` forwards the attached reader's `set` and `dropped`, and stays registered across detach and attach. An `onDetached` listener must not read tokens: the holder may have revoked its reader before running the disposer, and `read` already answers `undefined`. `principals()` lists every member admitted at least once, including members with no open Peer; a principal that only a `rootSeeds` entry names joins at its first admission. `onAdded` reports that first admission, synchronously and before the member's Peer opens, and never again for the member; the registry has no removal. Each `onChange`, `onDetached` and `onAdded` returns a plain disposer, so the caller registers it inside its own `ctx.effect`. A listener that throws is logged without its error or the member, and the others still run.
 
 ### Configure the row
 
@@ -86,7 +107,7 @@ A member keeps one Peer while it lives, so every request of that member, and eve
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-`src/types.ts` holds the type declarations and one `declare module '@deepseek-ai/cordis'` merge that adds `consoleMembers: ConsoleMemberDirectory` to `Context`; the package root re-exports those types and exports the plugin. `src/install.ts` registers, in one synchronous call, the directory service, the listeners that follow member Peers and their sockets, the unload disposal of the row's Peers, and last the admitter; Cordis starts disposers in reverse order, so unloading withdraws the admitter before anything else. The directory keeps its state under one symbol from `src/internal-state.ts`, because `ctx.consoleMembers` is a traceable proxy and its methods run with the proxy as `this`.
+`src/types.ts` holds the type declarations and one `declare module '@deepseek-ai/cordis'` merge that adds `consoleMembers: ConsoleMemberDirectory` to `Context`; the package root re-exports those types and exports the plugin. `src/install.ts` registers, in one synchronous call, the directory service, the listeners that follow member Peers and their sockets, the unload disposal of the row's Peers, and last the admitter; Cordis starts disposers in reverse order, so unloading withdraws the admitter before anything else. The directory keeps its state under one symbol from `src/internal-state.ts`, because `ctx.consoleMembers` is a traceable proxy and its methods run with the proxy as `this`. `./credential-access` reads the state through the same symbol, so `tsdown.config.ts` builds the package root and that entry in one build, which places `src/internal-state.ts` in one chunk both import; a separate build of either entry would create a second symbol, and `tests/built-entries.e2e.ts` checks the built entries for it.
 
 | File | Contents |
 |---|---|
@@ -98,8 +119,11 @@ A member keeps one Peer while it lives, so every request of that member, and eve
 | [`src/assertion.ts`](src/assertion.ts) | Member assertion verification |
 | [`src/peers.ts`](src/peers.ts) | The member Peer table, the admitter, socket tracking and the idle close |
 | [`src/directory.ts`](src/directory.ts) | The `ctx.consoleMembers` service |
-| [`src/internal-state.ts`](src/internal-state.ts) | The symbol the directory's state is kept under |
-| [`src/registry.ts`](src/registry.ts) | `roots.json`, the seed merge, member roots on first sighting, `memberRoot`, `rootsOf` and `memberStore` |
+| [`src/internal-state.ts`](src/internal-state.ts) | The symbol the directory's state is kept under, and the read of that state from a directory or its proxy |
+| [`src/credentials.ts`](src/credentials.ts) | The customer-token reader slot: attach, detach, reads and forwarded changes |
+| [`src/credential-access.ts`](src/credential-access.ts) | The `/credential-access` entry: `customerCredentialAccess` and `memberRegistryAccess` |
+| [`src/listeners.ts`](src/listeners.ts) | Listener sets whose throwing listener is logged without its arguments |
+| [`src/registry.ts`](src/registry.ts) | `roots.json`, the seed merge, member roots on first sighting and their listeners, the registered members, `memberRoot`, `rootsOf` and `memberStore` |
 | [`src/paths.ts`](src/paths.ts) | The form root paths are compared in |
 | [`src/member-store.ts`](src/member-store.ts) | Per-member JSON files, replaced through a rename |
 | [`src/default-workspace.ts`](src/default-workspace.ts) | One default-workspace registration step per member and process, and whether it has succeeded |
@@ -130,7 +154,7 @@ The row adds no model input, so provider cache reuse is unaffected.
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- **Two directory methods are not implemented.** `principalOfSession` and `attachCustomerCredentials` throw in this build, so a plugin that asks for a Session's member, or a token holder that attaches its reader, fails instead of acting for no member. The method contracts in [`src/types.ts`](src/types.ts) bind their implementation.
+- **`principalOfSession` is not implemented.** It throws in this build, so a plugin that asks for a Session's member fails instead of acting for no member. The method contract in [`src/types.ts`](src/types.ts) binds its implementation.
 - **No Remote call, route or event is judged per member yet.** The row registers no `remote/invoke` or `connection/fetch` listener and no `$events` filter. With its admitter installed, Connection answers 503 on exact routes and channels, the Gateway answers `gateway/service-unavailable` to every Remote call, and `$events` delivers no event.
 - **A failed first-sighting write leaves an empty directory.** When `roots.json` cannot be replaced after a member's root was created, the member stays unregistered and the empty `<membersRoot>/<UUID>` remains; the next first sighting creates another.
 - **A process killed while replacing `roots.json` leaves its temporary sibling.** A kill between writing `roots.json.<random hex>.tmp` and renaming it leaves that file, mode 0600, in `$DSH_HOME/console-members`; it holds the same paths and principal keys as `roots.json`, and nothing removes it.

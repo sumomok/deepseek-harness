@@ -3,7 +3,7 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'
 import { inspect } from 'node:util'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context, type Logger } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { afterEach, beforeEach, expect } from 'vitest'
 import type { PrincipalKey } from '../src/types.ts'
@@ -60,4 +60,19 @@ export function captureLogs(ctx: Context): string[] {
     export: (message) => { lines.push(`${message.type} ${inspect(message.args, { depth: 8 })}`) },
   })
   return lines
+}
+
+/** A logger outside any row, and every line written to it. */
+export interface CapturedLogger {
+  readonly logger: Logger
+  readonly lines: string[]
+}
+
+/**
+ * A logger on a fresh root context, for units that take the row's logger.
+ * @returns the logger and its collected lines.
+ */
+export function capturedLogger(): CapturedLogger {
+  const ctx = new Context()
+  return { logger: ctx.logger('console-members'), lines: captureLogs(ctx) }
 }

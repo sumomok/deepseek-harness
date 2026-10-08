@@ -334,6 +334,7 @@
       "@deepseek-ai/dsh-experimental-console-profile": ["./packages/experimental/console-profile/src"],
       "@deepseek-ai/dsh-experimental-console-mcp": ["./packages/experimental/console-mcp/src"],
       "@deepseek-ai/dsh-experimental-console-members": ["./packages/experimental/console-members/src"],
+      "@deepseek-ai/dsh-experimental-console-members/credential-access": ["./packages/experimental/console-members/src/credential-access.ts"],
       "@deepseek-ai/dsh-experimental-console-members/types": ["./packages/experimental/console-members/src/types.ts"],
       "@deepseek-ai/dsh-experimental-content-column": ["./packages/experimental/content-column/src"],
       "@deepseek-ai/dsh-experimental-content-column/client": ["./packages/experimental/content-column/src/client/index.ts"],

@@ -208,6 +208,9 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   // The bundled library-knowledge SKILLs are the package: its patch mounts
   // this directory as one isolated skill root, so they travel with its version.
   '@deepseek-ai/dsh-experimental-library-skills': ['skills'],
+  // The plugin root and ./credential-access read one directory state symbol,
+  // which tsdown places in a hashed chunk both entries import.
+  '@deepseek-ai/dsh-experimental-console-members': ['lib/credential-access.js', 'lib/internal-state-*.js'],
   // The console's permission row ships beside its bundle layer: a deployment
   // applies it above the profile patch so no settings write can change it.
   '@deepseek-ai/dsh-experimental-console-profile': ['permission-lock.patch.yml'],

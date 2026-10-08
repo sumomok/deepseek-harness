@@ -9,8 +9,9 @@
  * registry with the `rootSeeds` merged in; a failed check fails the load.
  * Then it provides `ctx.consoleMembers` and installs the Peer admitter that
  * admits each request as the member its signed assertion names.
- * `principalOfSession` and `attachCustomerCredentials` are not implemented in
- * this build and throw. Client programs import the types from
+ * `principalOfSession` is not implemented in this build and throws. The
+ * `./credential-access` entry reads a loaded row's customer tokens and
+ * registered members. Client programs import the types from
  * `@deepseek-ai/dsh-experimental-console-members/types`, never this root,
  * which imports Host entry points.
  *

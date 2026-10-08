@@ -3,11 +3,12 @@ import {
   existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync,
 } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
+import type { Logger } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 import type { CheckedRootSeed } from '../src/config.ts'
 import { foldName } from '../src/paths.ts'
 import { openRootRegistry, type RootRegistry } from '../src/registry.ts'
-import { principal, useTempHome } from './support.ts'
+import { capturedLogger, principal, useTempHome } from './support.ts'
 
 const temp = useTempHome()
 
@@ -23,8 +24,12 @@ function membersRoot(): string {
   return join(temp.base, 'members')
 }
 
+function logger(): Logger {
+  return capturedLogger().logger
+}
+
 function open(seeds: readonly CheckedRootSeed[] = [], platform: NodeJS.Platform = process.platform): RootRegistry {
-  return openRootRegistry({ file: rootsFile(), membersRoot: membersRoot(), seeds, platform })
+  return openRootRegistry({ file: rootsFile(), membersRoot: membersRoot(), seeds, platform, logger: logger() })
 }
 
 function seedFor(owner: typeof ALICE, path: string): CheckedRootSeed {
@@ -244,7 +249,8 @@ describe('the row\'s state directory', () => {
 
   it('refuses a membersRoot that is, contains, or lies inside the directory holding roots.json', () => {
     for (const members of [state(), temp.home, join(state(), 'members')]) {
-      const error = thrown(() => openRootRegistry({ file: rootsFile(), membersRoot: members, seeds: [], platform: process.platform }))
+      const options = { file: rootsFile(), membersRoot: members, seeds: [], platform: process.platform, logger: logger() }
+      const error = thrown(() => openRootRegistry(options))
       expect(error.message).toBe(`console-members: membersRoot overlaps the row's state directory ${state()}`)
     }
     expect(existsSync(state())).toBe(false)
@@ -268,10 +274,10 @@ describe('the row\'s state directory', () => {
     const file = join(linkedHome, 'console-members', 'roots.json')
     const linkedState = dirname(file)
 
-    const members = thrown(() => openRootRegistry({ file, membersRoot: state(), seeds: [], platform: process.platform }))
+    const members = thrown(() => openRootRegistry({ file, membersRoot: state(), seeds: [], platform: process.platform, logger: logger() }))
     expect(members.message).toBe(`console-members: membersRoot overlaps the row's state directory ${linkedState}`)
     const seeds = [seedFor(ALICE, temp.home)]
-    const seed = thrown(() => openRootRegistry({ file, membersRoot: membersRoot(), seeds, platform: process.platform }))
+    const seed = thrown(() => openRootRegistry({ file, membersRoot: membersRoot(), seeds, platform: process.platform, logger: logger() }))
     expect(seed.message).toBe(`console-members: rootSeeds[0] overlaps the row's state directory ${linkedState}`)
     expect(existsSync(linkedState)).toBe(false)
   })

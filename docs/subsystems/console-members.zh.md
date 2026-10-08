@@ -2,7 +2,7 @@
 
 [English](console-members.md) | 中文
 
-`ctx.consoleMembers` 是控制台成员目录。一个控制台进程服务多位已登录成员时，每个替其中一位成员办事的插件——替请求背后的成员作答的 webServer 路由、替调用方作答的 Remote 方法、花会话所属者数据的工具、按成员各持一个 token 槽位的凭据解析器——都需要对「自己替哪位成员办事」得到同一个答案；这个目录就是这个答案唯一的出处。这个包声明这个键，它的插件行提供这个键，并把每个请求准入为其签名断言所点名的成员；这一版里目录的 `principalOfSession` 与 `attachCustomerCredentials` 会抛错。[包 README](../../packages/experimental/console-members/README.zh.md) 拥有类型声明和各项限制，下面的生成段落写着每个方法的契约；这一页记的是消费者从签名上读不出来的三个决定。
+`ctx.consoleMembers` 是控制台成员目录。一个控制台进程服务多位已登录成员时，每个替其中一位成员办事的插件——替请求背后的成员作答的 webServer 路由、替调用方作答的 Remote 方法、花会话所属者数据的工具、按成员各持一个 token 槽位的凭据解析器——都需要对「自己替哪位成员办事」得到同一个答案；这个目录就是这个答案唯一的出处。这个包声明这个键，它的插件行提供这个键，并把每个请求准入为其签名断言所点名的成员；这一版里目录的 `principalOfSession` 会抛错。[包 README](../../packages/experimental/console-members/README.zh.md) 拥有类型声明和各项限制，下面的生成段落写着每个方法的契约；这一页记的是消费者从签名上读不出来的三个决定。
 
 来源：[`packages/experimental/console-members/src/types.ts`](../../packages/experimental/console-members/src/types.ts)。
 
@@ -16,7 +16,7 @@
 
 ## 目录不是通往客户 token 的路
 
-进程里任何插件都能注入 `ctx.consoleMembers`，所以目录不把客户 token 交给其中任何一个：token 持有方挂上一个只读读取器，没有方法返回这个读取器或 token；目录同一时刻只持有一个读取器，持有方的读取器挂着时，别的插件挂不上。持有方撤下读取器时（它的插件重启），每位成员的 token 都算已丢弃，之后可以挂上新的读取器；别的插件趁这个间隙挂上的读取器，只能提供它自己已有的 token，读不到持有方的。握有目录的任何插件都能用任何单元名打开任何成员的存储，所以按成员的存储只放非秘密数据；成员的目录 id 不含主体键，所以存储路径里没有成员的 `login_uid`。
+进程里任何插件都能注入 `ctx.consoleMembers`，所以目录不把客户 token 交给其中任何一个：token 持有方挂上一个只读读取器，目录没有方法返回这个读取器或 token；目录同一时刻只持有一个读取器，持有方的读取器挂着时，别的插件挂不上。控制台线的凭据来源经本包的 `/credential-access` 入口读取 token，这个入口以目录为参数；导入这个入口的任何插件都能同样读取，所以由组合决定哪些插件握有这个入口。持有方撤下读取器时（它的插件重启），每位成员的 token 都算已丢弃，之后可以挂上新的读取器；别的插件趁这个间隙挂上的读取器，只能提供它自己已有的 token，读不到持有方的。握有目录的任何插件都能用任何单元名打开任何成员的存储，所以按成员的存储只放非秘密数据；成员的目录 id 不含主体键，所以存储路径里没有成员的 `login_uid`。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -126,13 +126,16 @@ memberStore(principal: PrincipalKey, unit: string): MemberStore
  * Attach the reader of members' customer tokens. The directory holds one
  * reader at a time: attaching while a reader is attached throws, and once
  * the returned disposer has run a new reader may be attached, as the token
- * holder's plugin does when it restarts. Running the disposer counts as
- * every member's token being dropped: the directory stops reading the
- * reader, and whatever was derived from those tokens is discarded; the
- * reader emits no `dropped` for it.
+ * holder's plugin does when it restarts. The holder calls this inside its
+ * own `ctx.effect` and runs the disposer from that effect's cleanup.
+ * Running the disposer counts as every member's token being dropped: the
+ * directory stops reading and forwarding the reader, calls every detach
+ * listener synchronously, and only then accepts another reader; the reader
+ * emits no `dropped` for it. The disposer acts once, and a late call leaves
+ * a reader attached since in place.
  * @param reader - the read-only customer-token reader.
  * @returns the disposer that detaches the reader.
- * @throws Error when a reader is already attached.
+ * @throws Error when a reader is already attached, including while its disposer calls the detach listeners.
  */
 attachCustomerCredentials(reader: CustomerCredentialReader): () => void
 ```

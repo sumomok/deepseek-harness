@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-让控制台线插件按 `ctx.consoleMembers` 写类型：问一个浏览器请求、一个 Remote 调用方或一个会话属于哪位已登录成员，列出这位成员已登记的根目录，并按成员保存非秘密数据。`/types` 入口导出目录的类型并声明这个 context 键。包根是插件行：加载时核对配置、打开根目录登记表，然后提供 `ctx.consoleMembers` 并安装 Connection 的 Peer 准入器，把每个请求准入为其签名断言所点名的成员。这一版里 `principalOfSession` 与 `attachCustomerCredentials` 会抛错。
+让控制台线插件按 `ctx.consoleMembers` 写类型：问一个浏览器请求、一个 Remote 调用方或一个会话属于哪位已登录成员，列出这位成员已登记的根目录，并按成员保存非秘密数据。`/types` 入口导出目录的类型并声明这个 context 键。包根是插件行：加载时核对配置、打开根目录登记表，然后提供 `ctx.consoleMembers` 并安装 Connection 的 Peer 准入器，把每个请求准入为其签名断言所点名的成员。`/credential-access` 入口读取成员的客户 token 与已登记成员。这一版里 `principalOfSession` 会抛错。
 
 ## 目录
 
@@ -46,9 +46,30 @@ const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(r
 
 `/types` 入口不导入任何宿主入口，所以宿主插件和客户端程序都从它导入。包根再导出同样的类型，但包根是插件、会导入宿主入口；客户端程序从不导入包根。
 
-`principalOfRequest` 是 fork 的 webServer 路由取得请求背后成员的唯一方式：路由不自己读身份头，也不自己调 `connection.admit`。`principalOfSession` 沿子会话的父链追到最上层的会话，`attachCustomerCredentials` 同一时刻只持有一个客户 token 读取器，且没有方法交出它。[子系统页](../../../docs/subsystems/console-members.zh.md) 解释这三条规则；[`src/types.ts`](src/types.ts) 写明每个方法的契约。
+`principalOfRequest` 是 fork 的 webServer 路由取得请求背后成员的唯一方式：路由不自己读身份头，也不自己调 `connection.admit`。`principalOfSession` 沿子会话的父链追到最上层的会话，`attachCustomerCredentials` 同一时刻只持有一个客户 token 读取器，`ctx.consoleMembers` 没有方法交出它。[子系统页](../../../docs/subsystems/console-members.zh.md) 解释这三条规则；[`src/types.ts`](src/types.ts) 写明每个方法的契约。
 
 `PrincipalKey`（主体键）是 `@deepseek-ai/dsh-brand` 的 `Branded<'PrincipalKey'>`，值是成员的 `login_uid`。消费方把它当作不透明的值，它不进模型请求、不进日志、不上传。
+
+### 客户 token 与已登记成员
+
+token 持有方（开了 `shareWithMemberDirectory` 的 auth-gate）在自己的 `ctx.effect` 里调 `ctx.consoleMembers.attachCustomerCredentials(reader)`，并在这个 effect 的清理里执行返回的 disposer。插件行同一时刻只持有一个读取器：已挂着时再挂抛错，disposer 执行之后可以挂另一个。执行 disposer 等于每位成员的 token 都已丢弃，读取器不为此报 `dropped`。disposer 只生效一次：先停止读取和转发这个读取器，再同步调用每个 `onDetached` 监听者，然后才腾出位置，所以在 `onDetached` 监听者里挂读取器会被拒。同一个 disposer 重复调用或迟到调用都不再通知任何人，也不动在那之后挂上的读取器。
+
+控制台线的凭据来源经 `@deepseek-ai/dsh-experimental-console-members/credential-access` 读取 token，`ctx.consoleMembers` 不提供这些：
+
+```ts
+import type { Context } from '@deepseek-ai/cordis'
+import { customerCredentialAccess, memberRegistryAccess } from '@deepseek-ai/dsh-experimental-console-members/credential-access'
+
+declare const ctx: Context
+
+const tokens = customerCredentialAccess(ctx.consoleMembers)
+const registry = memberRegistryAccess(ctx.consoleMembers)
+ctx.effect(() => tokens.onDetached(() => { /* discard what was derived from every token */ }), 'credential source: reader detached')
+ctx.effect(() => registry.onAdded((member) => { void member }), 'credential source: member added')
+const everyMember = registry.principals()
+```
+
+`read(principal)` 答已挂读取器里的 token；没有读取器挂着，或它的 disposer 已经开始时答 `undefined`。`onChange` 转发已挂读取器的 `set` 与 `dropped`，跨越撤下与重挂一直有效。`onDetached` 监听者不得读取 token：持有方可能在执行 disposer 之前已经吊销了读取器，而且 `read` 此时已经答 `undefined`。`principals()` 列出至少准入过一次的每位成员，包括当前没有打开 Peer 的成员；只被某条 `rootSeeds` 点名的主体在首次准入时加入。`onAdded` 报告这次首次准入，同步发生在这位成员的 Peer 打开之前，之后不再为这位成员报告；登记表没有移除。每个 `onChange`、`onDetached` 与 `onAdded` 都返回普通的 disposer，所以调用方在自己的 `ctx.effect` 里注册。抛错的监听者被记入日志，但不记它的错误或成员，其余监听者照常调用。
 
 ### 配置插件行
 
@@ -86,7 +107,7 @@ const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(r
 <details>
 <summary>实现内部——点击展开</summary>
 
-`src/types.ts` 放类型声明和一处 `declare module '@deepseek-ai/cordis'` 合并，它给 `Context` 加上 `consoleMembers: ConsoleMemberDirectory`；包根再导出这些类型并导出插件。`src/install.ts` 在一次同步调用里依次注册目录服务、跟踪成员 Peer 及其 socket 的监听器、卸载时释放本插件行 Peer 的处理，最后是准入器；Cordis 按注册的逆序启动各个 disposer，所以卸载时最先撤下准入器。目录的状态挂在 `src/internal-state.ts` 的一个 symbol 下，因为 `ctx.consoleMembers` 是可追踪代理，它的方法以代理为 `this` 运行。
+`src/types.ts` 放类型声明和一处 `declare module '@deepseek-ai/cordis'` 合并，它给 `Context` 加上 `consoleMembers: ConsoleMemberDirectory`；包根再导出这些类型并导出插件。`src/install.ts` 在一次同步调用里依次注册目录服务、跟踪成员 Peer 及其 socket 的监听器、卸载时释放本插件行 Peer 的处理，最后是准入器；Cordis 按注册的逆序启动各个 disposer，所以卸载时最先撤下准入器。目录的状态挂在 `src/internal-state.ts` 的一个 symbol 下，因为 `ctx.consoleMembers` 是可追踪代理，它的方法以代理为 `this` 运行。`./credential-access` 经同一个 symbol 读取状态，所以 `tsdown.config.ts` 在一次构建里打包包根和这个入口，把 `src/internal-state.ts` 放进两者共同导入的一个 chunk；任一入口单独构建都会生成第二个 symbol，`tests/built-entries.e2e.ts` 在构建产物上检查这一点。
 
 | 文件 | 内容 |
 |---|---|
@@ -98,8 +119,11 @@ const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(r
 | [`src/assertion.ts`](src/assertion.ts) | 成员断言的验签 |
 | [`src/peers.ts`](src/peers.ts) | 成员 Peer 表、准入器、socket 跟踪与空闲关闭 |
 | [`src/directory.ts`](src/directory.ts) | `ctx.consoleMembers` 服务 |
-| [`src/internal-state.ts`](src/internal-state.ts) | 目录状态所挂的 symbol |
-| [`src/registry.ts`](src/registry.ts) | `roots.json`、种子合并、首次见到成员时的成员根目录、`memberRoot`、`rootsOf` 与 `memberStore` |
+| [`src/internal-state.ts`](src/internal-state.ts) | 目录状态所挂的 symbol，以及从目录或其代理读出这份状态 |
+| [`src/credentials.ts`](src/credentials.ts) | 客户 token 读取器的位置：挂上、撤下、读取与转发变化 |
+| [`src/credential-access.ts`](src/credential-access.ts) | `/credential-access` 入口：`customerCredentialAccess` 与 `memberRegistryAccess` |
+| [`src/listeners.ts`](src/listeners.ts) | 监听者集合，抛错的监听者记日志时不带它的参数 |
+| [`src/registry.ts`](src/registry.ts) | `roots.json`、种子合并、首次见到成员时的成员根目录及其监听者、已登记成员、`memberRoot`、`rootsOf` 与 `memberStore` |
 | [`src/paths.ts`](src/paths.ts) | 根目录路径的比较形式 |
 | [`src/member-store.ts`](src/member-store.ts) | 按成员的 JSON 文件，经 rename 整份替换 |
 | [`src/default-workspace.ts`](src/default-workspace.ts) | 每位成员在每个进程里一个默认工作区登记步骤，以及它是否已成功 |
@@ -130,7 +154,7 @@ const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(r
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- **目录有两个方法未实现。** 这一版里 `principalOfSession` 与 `attachCustomerCredentials` 会抛错，所以查询会话所属成员的插件、挂读取器的 token 持有方会失败，而不是当作没有成员继续办事。[`src/types.ts`](src/types.ts) 里的方法契约约束它们的实现。
+- **`principalOfSession` 未实现。** 这一版里它会抛错，所以查询会话所属成员的插件会失败，而不是当作没有成员继续办事。[`src/types.ts`](src/types.ts) 里的方法契约约束它的实现。
 - **还没有按成员裁决 Remote 调用、路由或事件。** 插件行没有注册 `remote/invoke` 或 `connection/fetch` 监听器，也没有 `$events` 过滤器。准入器装上之后，Connection 对精确路由与专用通道答 503，Gateway 对每个 Remote 调用答 `gateway/service-unavailable`，`$events` 不投递任何事件。
 - **首次见到成员时写盘失败会留下空目录。** 成员根目录建好之后 `roots.json` 替换失败时，这位成员仍未登记，空的 `<membersRoot>/<UUID>` 留在原处；下一次首次见到时再建一个。
 - **替换 `roots.json` 时进程被杀会留下临时文件。** 写完 `roots.json.<随机十六进制>.tmp`、rename 之前进程被杀，这个 0600 权限的文件留在 `$DSH_HOME/console-members` 里；它与 `roots.json` 一样含路径和主体键，没有谁删除它。

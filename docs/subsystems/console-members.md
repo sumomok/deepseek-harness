@@ -2,7 +2,7 @@
 
 English | [中文](console-members.zh.md)
 
-`ctx.consoleMembers` is the console member directory. When one console process serves several signed-in members, every plugin that acts for one of them — a webServer route answering for the member behind a request, a Remote method answering for its caller, a tool spending a Session owner's data, a credential resolver that holds one token slot per member — needs the same answer to which member it acts for, and the directory is the one place that answer comes from. This package declares the key, and its plugin row provides it and admits each request as the member its signed assertion names; in this build the directory's `principalOfSession` and `attachCustomerCredentials` throw. The [package README](../../packages/experimental/console-members/README.md) owns the type declarations and the limitations, and the generated section below holds every method's contract; this page records the three decisions a consumer cannot read off a signature.
+`ctx.consoleMembers` is the console member directory. When one console process serves several signed-in members, every plugin that acts for one of them — a webServer route answering for the member behind a request, a Remote method answering for its caller, a tool spending a Session owner's data, a credential resolver that holds one token slot per member — needs the same answer to which member it acts for, and the directory is the one place that answer comes from. This package declares the key, and its plugin row provides it and admits each request as the member its signed assertion names; in this build the directory's `principalOfSession` throws. The [package README](../../packages/experimental/console-members/README.md) owns the type declarations and the limitations, and the generated section below holds every method's contract; this page records the three decisions a consumer cannot read off a signature.
 
 Source: [`packages/experimental/console-members/src/types.ts`](../../packages/experimental/console-members/src/types.ts).
 
@@ -16,7 +16,7 @@ A subagent or fork can run in a working directory outside its parent's roots, so
 
 ## The directory is not a path to customer tokens
 
-Any plugin in the process can inject `ctx.consoleMembers`, so the directory hands none of them a customer token: the token holder attaches a read-only reader, no method returns the reader or a token, and the directory holds one reader at a time, so while the holder's reader is attached no other plugin can attach one. When the holder detaches its reader — its plugin restarting — every member's token counts as dropped and a new reader may attach; a reader another plugin attaches in that gap can supply only tokens that plugin already has, and reads none of the holder's. Any plugin holding the directory can open any member's store under any unit name, so per-member storage holds non-secret data only, and a member's directory id does not contain the principal key, so a storage path does not carry the member's `login_uid`.
+Any plugin in the process can inject `ctx.consoleMembers`, so the directory hands none of them a customer token: the token holder attaches a read-only reader, no method of the directory returns the reader or a token, and the directory holds one reader at a time, so while the holder's reader is attached no other plugin can attach one. The console line's credential source reads tokens through the package's `/credential-access` entry, which takes the directory as an argument; any plugin that imports that entry can read them the same way, so the composition decides which plugins hold the entry. When the holder detaches its reader — its plugin restarting — every member's token counts as dropped and a new reader may attach; a reader another plugin attaches in that gap can supply only tokens that plugin already has, and reads none of the holder's. Any plugin holding the directory can open any member's store under any unit name, so per-member storage holds non-secret data only, and a member's directory id does not contain the principal key, so a storage path does not carry the member's `login_uid`.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -126,13 +126,16 @@ memberStore(principal: PrincipalKey, unit: string): MemberStore
  * Attach the reader of members' customer tokens. The directory holds one
  * reader at a time: attaching while a reader is attached throws, and once
  * the returned disposer has run a new reader may be attached, as the token
- * holder's plugin does when it restarts. Running the disposer counts as
- * every member's token being dropped: the directory stops reading the
- * reader, and whatever was derived from those tokens is discarded; the
- * reader emits no `dropped` for it.
+ * holder's plugin does when it restarts. The holder calls this inside its
+ * own `ctx.effect` and runs the disposer from that effect's cleanup.
+ * Running the disposer counts as every member's token being dropped: the
+ * directory stops reading and forwarding the reader, calls every detach
+ * listener synchronously, and only then accepts another reader; the reader
+ * emits no `dropped` for it. The disposer acts once, and a late call leaves
+ * a reader attached since in place.
  * @param reader - the read-only customer-token reader.
  * @returns the disposer that detaches the reader.
- * @throws Error when a reader is already attached.
+ * @throws Error when a reader is already attached, including while its disposer calls the detach listeners.
  */
 attachCustomerCredentials(reader: CustomerCredentialReader): () => void
 ```

@@ -39,6 +39,7 @@ export function loadMembers(ctx: Context, config: Config): LoadedMembers {
     membersRoot: settings.membersRoot,
     seeds: settings.rootSeeds,
     platform: process.platform,
+    logger: ctx.logger('console-members'),
   })
   return { settings, assertionKey, registry }
 }

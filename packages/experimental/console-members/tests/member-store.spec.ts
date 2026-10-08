@@ -4,7 +4,7 @@ import { basename, dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { memberStoreAt, requireUnit } from '../src/member-store.ts'
 import { openRootRegistry } from '../src/registry.ts'
-import { principal, useTempHome } from './support.ts'
+import { capturedLogger, principal, useTempHome } from './support.ts'
 
 const temp = useTempHome()
 
@@ -17,6 +17,7 @@ function registry() {
     membersRoot: join(temp.base, 'members'),
     seeds: [],
     platform: process.platform,
+    logger: capturedLogger().logger,
   })
 }
 

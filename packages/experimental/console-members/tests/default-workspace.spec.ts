@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import { DefaultWorkspaces, DefaultWorkspaceUnregisteredError, type WorkspaceCreator } from '../src/default-workspace.ts'
 import { openRootRegistry, type RootRegistry } from '../src/registry.ts'
-import { captureLogs, principal, useTempHome } from './support.ts'
+import { captureLogs, capturedLogger, principal, useTempHome } from './support.ts'
 
 const temp = useTempHome()
 
@@ -30,6 +30,7 @@ function roots(): RootRegistry {
     membersRoot: join(temp.base, 'members'),
     seeds: [],
     platform: process.platform,
+    logger: capturedLogger().logger,
   })
 }
 

@@ -448,14 +448,12 @@ describe('the install order', () => {
 })
 
 describe('the directory', () => {
-  it('serves the registry\'s member roots and stores, and throws for the methods this build does not implement', async () => {
+  it('serves the registry\'s member roots and stores, and throws for principalOfSession, which this build does not implement', async () => {
     const row = await mountMembers()
     peerOf(row, assertionFor(ALICE))
     const members = directory(row)
     await members.memberStore(principal(ALICE), 'fixture-unit').write({ ok: true })
     expect(await members.memberStore(principal(ALICE), 'fixture-unit').read()).toEqual({ ok: true })
     expect(() => members.principalOfSession('session-1' as never)).toThrow('console-members: principalOfSession is not implemented in this build')
-    expect(() => members.attachCustomerCredentials({ read: () => undefined, onChange: () => () => undefined }))
-      .toThrow('console-members: attachCustomerCredentials is not implemented in this build')
   })
 })

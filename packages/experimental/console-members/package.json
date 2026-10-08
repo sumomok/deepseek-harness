@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-experimental-console-members",
-  "description": "The console member directory: which signed-in member a browser request, a Remote caller, or a Session belongs to, which directories are that member's roots, and per-member non-secret storage; the package root is the plugin row, and ./types holds the service definition types",
+  "description": "The console member directory: which signed-in member a browser request, a Remote caller, or a Session belongs to, which directories are that member's roots, and per-member non-secret storage; the package root is the plugin row, ./types holds the service definition types, and ./credential-access gives the console line's credential source members' customer tokens and the registered members",
   "version": "0.2.1-alpha.1",
   "private": true,
   "repository": {
@@ -16,6 +16,10 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./credential-access": {
+      "types": "./lib/types/credential-access.d.ts",
+      "default": "./lib/credential-access.js"
+    },
     "./types": {
       "types": "./lib/types/types.d.ts",
       "default": "./lib/types/types.js"
@@ -25,6 +29,8 @@
   },
   "files": [
     "lib/index.js",
+    "lib/credential-access.js",
+    "lib/internal-state-*.js",
     "lib/types/**/*.js",
     "lib/types/**/*.d.ts"
   ],

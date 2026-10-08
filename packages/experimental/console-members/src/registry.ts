@@ -25,8 +25,10 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join } from 'node:path'
+import type { Logger } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { CheckedRootSeed } from './config.ts'
+import { Listeners } from './listeners.ts'
 import { memberStoreAt, requireUnit } from './member-store.ts'
 import { canonicalPath, contains, overlaps, rootKey } from './paths.ts'
 import type { MemberStore, PrincipalKey } from './types.ts'
@@ -60,6 +62,8 @@ export interface RootRegistryOptions {
   readonly seeds: readonly CheckedRootSeed[]
   /** The platform the row runs on, which decides whether paths are compared case-insensitively. */
   readonly platform: NodeJS.Platform
+  /** The row's logger, which reports a member-added listener that throws. */
+  readonly logger: Logger
 }
 
 /**
@@ -69,12 +73,14 @@ export interface RootRegistryOptions {
 export class RootRegistry {
   private readonly roots: KeyedRoot[]
   private readonly members = new Map<PrincipalKey, Extract<RegisteredRoot, { kind: 'member' }>>()
+  private readonly added: Listeners<[PrincipalKey]>
 
   /**
-   * @param options - the registry file, `membersRoot`, and platform.
+   * @param options - the registry file, `membersRoot`, platform, and logger.
    * @param roots - the registered roots with their keys.
    */
   constructor(private readonly options: RootRegistryOptions, roots: KeyedRoot[]) {
+    this.added = new Listeners(options.logger, 'console-members: a memberRegistryAccess onAdded listener threw')
     this.roots = roots
     for (const { root } of roots) {
       if (root.kind === 'member') this.members.set(root.principal, root)
@@ -87,7 +93,8 @@ export class RootRegistry {
    * before returning. A member already registered gets their root back, and
    * nothing is created or written. When the file cannot be replaced, the
    * member stays unregistered and the empty directory is left behind; a later
-   * call creates another.
+   * call creates another. Once the file is replaced, every
+   * {@link onMemberAdded} listener is called before this returns.
    * @param principal - the member being admitted.
    * @returns the absolute path of the member's root.
    * @throws {Error} when the directory cannot be created or the file cannot be replaced.
@@ -104,7 +111,28 @@ export class RootRegistry {
     writeRoots(this.options.file, [...this.roots, keyed])
     this.roots.push(keyed)
     this.members.set(principal, root)
+    this.added.emit(principal)
     return root.path
+  }
+
+  /**
+   * The members that have a member root: every member admitted at least
+   * once, whether or not their Peer is open. A principal that only a seed
+   * root names is not one of them until its first admission.
+   * @returns their keys, in the order their member roots were registered.
+   */
+  memberPrincipals(): readonly PrincipalKey[] {
+    return [...this.members.keys()]
+  }
+
+  /**
+   * Observe {@link ensureMember} registering a member root. Loading
+   * `roots.json` and merging seeds notify nobody.
+   * @param listener - called with the member, synchronously inside the admission that registers it.
+   * @returns the disposer that removes the listener.
+   */
+  onMemberAdded(listener: (principal: PrincipalKey) => void): () => void {
+    return this.added.add(listener)
   }
 
   /**
@@ -155,7 +183,7 @@ export class RootRegistry {
 /**
  * Read `roots.json`, check it, merge the seeds, and write the file back when a
  * seed added a root.
- * @param options - the registry file, `membersRoot`, seeds and platform.
+ * @param options - the registry file, `membersRoot`, seeds, platform, and logger.
  * @returns the registry.
  * @throws {Error} when `membersRoot` overlaps the directory that holds the file, the file is not a registry, its
  *   roots overlap each other or that directory, or a seed conflicts with a registered root, another seed,
