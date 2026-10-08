@@ -306,7 +306,7 @@ describe('idle close', () => {
 
   async function idleRow(): Promise<MountedRow> {
     const row = await mountMembers({ peerIdleMs: IDLE })
-    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+    vi.useFakeTimers({ toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout'] })
     return row
   }
 
@@ -342,6 +342,18 @@ describe('idle close', () => {
     expect(row.ctx.connection.peers.get(peer.id)).toBe(peer)
     await vi.advanceTimersByTimeAsync(1)
     expect(row.ctx.connection.peers.get(peer.id)).toBeUndefined()
+  })
+
+  it('closes an idle Peer peerIdleMs after its last admission when the system clock is set back, checking once', async () => {
+    const row = await idleRow()
+    const peer = peerOf(row, assertionFor(ALICE, nowSeconds() + 90 * 24 * 3600))
+    vi.setSystemTime(Date.now() - 30 * 24 * 3600 * 1000)
+    await vi.advanceTimersByTimeAsync(IDLE - 1)
+    expect(row.ctx.connection.peers.get(peer.id)).toBe(peer)
+    expect(vi.getTimerCount()).toBe(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(row.ctx.connection.peers.get(peer.id)).toBeUndefined()
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('ignores socket events of the operator and of Peers it did not open', async () => {

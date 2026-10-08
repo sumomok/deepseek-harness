@@ -12,7 +12,10 @@
  *
  * A Peer is idle while no Remote stream socket is bound to it. An idle Peer
  * is disposed once `peerIdleMs` has passed since the later of its last
- * admission and the close of its last socket.
+ * admission and the close of its last socket. That time is measured with
+ * `performance.now()`, a monotonic clock, so setting the system clock back or
+ * forward neither delays nor hastens the close, and every pending idle check
+ * is due within `peerIdleMs`.
  *
  * No log line or error text of this module carries a principal key, an
  * assertion, or a header value.
@@ -40,7 +43,7 @@ interface MemberEntry {
   readonly peer: PeerScope
   /** The Remote stream sockets bound to the Peer. */
   readonly sockets: Set<RemoteSocketId>
-  /** When the Peer was last admitted, or its last socket closed, in epoch milliseconds. */
+  /** When the Peer was last admitted, or its last socket closed, in `performance.now()` milliseconds. */
   lastActive: number
   /** The pending idle check, armed only while no socket is bound. */
   idleTimer: ReturnType<typeof setTimeout> | undefined
@@ -155,7 +158,7 @@ export class MemberPeers {
     if (entry === undefined) return
     entry.sockets.delete(socketId)
     if (entry.sockets.size > 0) return
-    entry.lastActive = Date.now()
+    entry.lastActive = performance.now()
     this.armIdle(entry, this.options.peerIdleMs)
   }
 
@@ -192,7 +195,7 @@ export class MemberPeers {
     const { principal } = verdict
     const entry = this.liveEntry(principal) ?? this.open(principal)
     void this.options.ensureDefaultWorkspace(principal)
-    entry.lastActive = Date.now()
+    entry.lastActive = performance.now()
     if (entry.sockets.size === 0) this.armIdle(entry, this.options.peerIdleMs)
     return entry.peer
   }
@@ -228,7 +231,7 @@ export class MemberPeers {
       void peer.dispose()
       return recorded
     }
-    const entry: MemberEntry = { principal, peer, sockets: new Set(), lastActive: Date.now(), idleTimer: undefined }
+    const entry: MemberEntry = { principal, peer, sockets: new Set(), lastActive: performance.now(), idleTimer: undefined }
     this.byPrincipal.set(principal, entry)
     this.byPeer.set(peer.id, entry)
     this.announce({ principal, kind: 'opened' })
@@ -265,7 +268,7 @@ export class MemberPeers {
    */
   private idleCheck(entry: MemberEntry): void {
     entry.idleTimer = undefined
-    const remaining = entry.lastActive + this.options.peerIdleMs - Date.now()
+    const remaining = entry.lastActive + this.options.peerIdleMs - performance.now()
     if (remaining > 0) {
       this.armIdle(entry, remaining)
       return
