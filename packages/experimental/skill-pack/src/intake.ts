@@ -320,9 +320,9 @@ export class OrganizationPackIntake extends Service implements SkillPackIntake {
   /**
    * Judge every entry of a set, and split it into what is written and what is
    * refused, in the order the set names them. Two keys whose
-   * {@link collisionKey} forms are equal name one directory on a file system
-   * that ignores letter case and Unicode normalization, so they count as one
-   * key named twice.
+   * {@link collisionKey} forms are equal count as one key named twice: a file
+   * system that ignores letter case and Unicode normalization reads most such
+   * pairs as one directory, and the fold is wider than any one file system's.
    */
   private async judgeSet(packs: readonly OrgPackInput[], held: HeldViewIds): Promise<{ accepted: HeldEntry[]; refused: IntakeRefusal[] }> {
     const keys = packs.map(pack => collisionKey(keyOf(pack)))
