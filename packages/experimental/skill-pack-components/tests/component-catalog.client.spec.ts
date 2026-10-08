@@ -113,12 +113,24 @@ const catalog = readCatalog(COMPONENT_KIT_ENTRIES)
  * written.
  */
 const ENTRY_CHECKS: Readonly<Record<keyof ComponentCatalogEntry, (entry: ComponentCatalogEntry, component: ComponentFacts) => void>> = {
-  id: (entry, component) => expect(component.id).toBe(entry.id),
-  label: (entry, component) => expect(component.label).toBe(entry.label),
-  purpose: (entry, component) => expect(component.purpose).toBe(entry.purpose),
-  propsSchema: (entry, component) => expect(Object.keys(component.props)).toEqual(Object.keys(entry.propsSchema)),
-  outputs: (entry, component) => expect(component.outputs.map(output => output.id)).toEqual(entry.outputs.map(output => output.id)),
-  actions: (entry, component) => expect(component.actions).toEqual(entry.actions.map(action => ({ id: action.id, report: action.report }))),
+  id: (entry, component) => {
+    expect(component.id).toBe(entry.id)
+  },
+  label: (entry, component) => {
+    expect(component.label).toBe(entry.label)
+  },
+  purpose: (entry, component) => {
+    expect(component.purpose).toBe(entry.purpose)
+  },
+  propsSchema: (entry, component) => {
+    expect(Object.keys(component.props)).toEqual(Object.keys(entry.propsSchema))
+  },
+  outputs: (entry, component) => {
+    expect(component.outputs.map(output => output.id)).toEqual(entry.outputs.map(output => output.id))
+  },
+  actions: (entry, component) => {
+    expect(component.actions).toEqual(entry.actions.map(action => ({ id: action.id, report: action.report })))
+  },
   sanitize: (entry, component) => {
     if (entry.sanitize === undefined) expect(component).not.toHaveProperty('sanitize')
     else expect(component.sanitize).toEqual(entry.sanitize)
@@ -249,7 +261,8 @@ describe('the component catalog file', () => {
     expect(file.body.components.map(component => component.id)).toEqual(COMPONENT_KIT_ENTRIES.map(entry => entry.id))
     file.body.components.forEach((component, index) => {
       const entry = COMPONENT_KIT_ENTRIES[index]
-      if (entry !== undefined) Object.values(ENTRY_CHECKS).forEach(check => check(entry, component))
+      if (entry === undefined) return
+      for (const check of Object.values(ENTRY_CHECKS)) check(entry, component)
     })
   })
 
