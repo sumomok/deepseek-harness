@@ -37,11 +37,19 @@
  * sentence through an expression is seen by the first four walks, and only in
  * the sentences they reach.
  *
+ * Three controls then run the same readers over names planted on purpose: a
+ * name of every family, every named tool and every quoted word, beside two
+ * ordinary phrases that must not match; a name appended to one purpose, read
+ * through the description and the catalog lines; and a name in each kind of
+ * literal of two files written for the control. A reader that stopped
+ * matching fails there instead of letting every walk pass.
+ *
  * The `.client.` suffix names the typecheck aggregate this package belongs to,
  * not the face under test.
  */
 
-import { readdirSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, relative, resolve, sep } from 'node:path'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
@@ -57,8 +65,10 @@ import {
   FORM_PAGE_ID,
   INFO_CARD_ID,
   placedOnlyByViews,
+  readCatalog,
   TABLE_ID,
   type ComponentActionNotice,
+  type ComponentCatalogEntry,
   type ComponentNode,
   type PropsFieldSchema,
   type PropsSchema,
@@ -90,6 +100,7 @@ const TOOL_FAMILIES: readonly RegExp[] = [
   /job_[a-z_]+/,
   /team_task_[a-z_]+/,
   /[a-z]+_mcp_[a-z_]+/,
+  /stagehand_[a-z_]+/,
   /mcp__[\w-]+/,
 ]
 
@@ -484,6 +495,52 @@ describe('every sentence this package writes', () => {
       const name = toolNameIn(text)
       return name === undefined ? [] : [{ file, text, name }]
     })).toEqual([])
+  })
+})
+
+/** One name of every family in {@link TOOL_FAMILIES}, each a tool another package registers. */
+const FAMILY_SAMPLES: readonly string[] = [
+  'content_read', 'system_map_model', 'session_search', 'terminal_open', 'schedule_create', 'job_list',
+  'team_task_create', 'list_mcp_resources', 'mcp__github__create_issue', 'stagehand_act',
+]
+
+describe('the gate itself', () => {
+  it('reads a name of every family, every named tool and every quoted word, and not the words in ordinary prose', () => {
+    // A family no sample matches is a family this control does not check.
+    expect(TOOL_FAMILIES.filter(family => !FAMILY_SAMPLES.some(name => family.test(name))).map(String)).toEqual([])
+    const names = [...FAMILY_SAMPLES, ...NAMED_TOOLS, ...WORD_TOOLS.flatMap(word => [`\`${word}\``, `"${word}"`])]
+    expect(names.filter(name => toolNameIn(`Then call ${name} on the same rows.`) !== name)).toEqual([])
+    const prose = ['read-only', '\'read-only\'', 'written down', '\'written down\'', 'a view written down for this deployment']
+    expect(prose.filter(sentence => toolNameIn(sentence) !== undefined)).toEqual([])
+  })
+
+  it('reports a name appended to one purpose, through the description and through the catalog lines', () => {
+    const entries = COMPONENT_KIT_ENTRIES.map((entry): ComponentCatalogEntry => (
+      entry.id === TABLE_ID ? { ...entry, purpose: `${entry.purpose} Then call content_read.` } : entry
+    ))
+    const catalog = readCatalog(entries)
+    const described = OFFERS.map(options => showComponentTool(new Context(), catalog, options, new dataPageText.PendingLoads()).description)
+    expect(described.map(description => namingAnotherTool([description]).map(found => found.name)))
+      .toEqual(OFFERS.map(() => ['content_read']))
+    expect(namingAnotherTool([describeCatalog(catalog.entries)]).map(found => found.name)).toEqual(['content_read'])
+  })
+
+  it('reports a name in a string literal, in a template piece and in JSX text of a file it walks', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'self-contained-copy-'))
+    try {
+      writeFileSync(
+        join(dir, 'line.ts'),
+        'export const line = (count: number): string => `Ask todo_write for ${count} rows.`\n'
+        + 'export const word = \'Run `bash` first.\'\n',
+      )
+      writeFileSync(join(dir, 'view.tsx'), 'export const View = () => <p>Fetch it with web_fetch.</p>\n')
+      const files = sourceFiles(dir)
+      expect(files.map(file => relative(dir, file)).sort()).toEqual(['line.ts', 'view.tsx'])
+      const names = files.flatMap(file => literalsIn(file)).flatMap(text => toolNameIn(text) ?? [])
+      expect(names.sort()).toEqual(['`bash`', 'todo_write', 'web_fetch'])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 
