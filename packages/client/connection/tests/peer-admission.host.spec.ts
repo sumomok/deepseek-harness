@@ -54,6 +54,8 @@ async function mount(config?: ConnectionConfig): Promise<Mounted> {
   provideBrowserCredentials(ctx)
   const connectionFiber = ctx.plugin({ inject: [...inject], apply }, config)
   await connectionFiber
+  // Stands in for the deployment's route guard: with member admission on, an unguarded exact route or channel answers 503.
+  ctx.on('connection/fetch', (_call, next) => next())
   const seen: Mounted['seen'][number][] = []
   const answer = async (path: ProbePath, peer: PeerScope): Promise<{ ok: true; value: null }> => {
     seen.push({ path, peer })

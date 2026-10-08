@@ -82,6 +82,8 @@ Connection 在每个精确 Fetch 路由与每个经 `rpc.handle` 登记的通道
 
 这里的监听器同样共用一个 `next()`（[Connection README](../../../../packages/client/connection/README.zh.md#browser-authentication-and-request-trust)），所以控制台只注册一个 `connection/fetch` 监听器。调用了 `next()` 之后又拒绝或抛错的监听器会留下一个没人读的路由 Response，而没人读的流式 body 会让它的生产者以及它正在读的文件一直开着：没人读的 `/api/session.export` ZIP 会一直占着它正在读的已存附件，直到 body 被取消。因此 Connection 对路由或通道为 waterfall 结束前调用的 `next()` 产生、调用方收不到的每个 Response 取消其 body，除非调用方收到的 Response 带着那个 body。waterfall 的结果带未锁住的 body 时，取消要等调用方把那个 body 读完、取消了它或读取失败，因为监听器返回的 body 可能在调用方读它时才去读路由的 body；Connection 交给调用方一个转交监听器 body 的新 Response，借此观察到这一点。waterfall 结束之后才到达路由或通道的 `next()` 产生的 Response 不在任何取消的范围内，所以它不再分发、直接 reject。`next()` 分发时再查一次精确路由，所以监听器等待期间所在插件已卸载的路由不会运行，`next()` resolve 为 404。监听器抛错与路由抛错一样让分发 reject，HTTP 载体答 400。
 
+成员准入开启时，发往精确路由或通道、却找不到 `connection/fetch` 监听器的请求答 503，两者都到不了，所以守卫插件仍在加载、正在重启或 apply 失败时，每个精确路由与通道都是关着的。Connection 在 waterfall 本该运行的时刻、即桥接器处理完请求体之后查找监听器，所以比守卫活得更久的缓冲上传同样被拒绝；进程内载体的操作者也同样被拒绝。为了不做第二次解析就作出这个判断，Connection 用 Cordis 的 `events.dispatch()` 解析监听器，它的上下文过滤与 `waterfall()` 相同，并且只发一次 `internal/dispatch`，共用的 `next()` 由 Connection 自己组装。成员准入关闭时，没有监听器的请求照上游到达它的路由或通道。
+
 `webServer.routes()` 列出当前生效的具名路由、upgrade 路由与已被占用的回退座位。直接登记在 webserver 上的路由不经过 Connection 的任何钩子；列表里也有 Connection 自己登记的 `/api` 前缀与各通道前缀，它们经过 Connection 的钩子。控制台的门禁测试读这份列表，所以上游同步带来的新路由在被分类之前会让门禁失败。
 
 ### 转发事件经过唯一的投递过滤器

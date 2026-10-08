@@ -52,6 +52,9 @@ interface RegisteredFetchRoute {
   readonly fetch: ConnectionFetchRoute['fetch']
 }
 
+/** One `connection/fetch` listener as Cordis resolves it for a dispatch. */
+type FetchListener = (call: ConnectionFetchCall, next: () => Promise<Response>) => Promise<Response>
+
 /** One Response a `next()` of `connection/fetch` produced, and that Response once it has resolved. */
 interface DispatchedResponse {
   readonly pending: Promise<Response>
@@ -130,7 +133,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
   /** Member Peer registry; the admitter registration belongs to the Context reading this service. */
   get peers(): HostConnectionPeers {
     const owner = this.ctx
-    const isMemberAdmission = (): boolean => this.admitter !== undefined || this.requireAdmitter
+    const isMemberAdmission = (): boolean => this.isMemberAdmission()
     return {
       requireAdmitter: this.requireAdmitter,
       get memberAdmission() { return isMemberAdmission() },
@@ -212,7 +215,8 @@ export class HostConnectionService extends Service implements HostConnectionHand
   }
 
   /**
-   * Run `connection/fetch` around one dispatch to a route or channel. The body of each Response the
+   * Run `connection/fetch` around one dispatch to a route or channel. While member admission is on and no listener
+   * is registered, answer 503 without dispatching. The body of each Response the
    * route or channel produced for a `next()` called before the waterfall ended is cancelled unless the
    * caller receives that Response or its body: once the waterfall ends when the waterfall's result has
    * no body or a locked one, otherwise once the caller has read that body to its end, cancelled it, or
@@ -221,10 +225,10 @@ export class HostConnectionService extends Service implements HostConnectionHand
    * the route or channel dispatches nothing and rejects.
    * @param call - the request as listeners see it.
    * @param dispatch - hand the request to the route or channel.
-   * @returns the waterfall's result itself when every such `next()` has resolved to a Response the caller
-   * receives or whose body it receives, or when the result has no body or a locked one; otherwise a
-   * Response with the result's status, status text, and headers over a body that relays the result's
-   * body. Rejects with the waterfall's failure.
+   * @returns 503 when member admission is on and no listener is registered; the waterfall's result itself when
+   * every such `next()` has resolved to a Response the caller receives or whose body it receives, or when the
+   * result has no body or a locked one; otherwise a Response with the result's status, status text, and headers
+   * over a body that relays the result's body. Rejects with the waterfall's failure.
    */
   private async guardFetch(call: ConnectionFetchCall, dispatch: () => Promise<Response>): Promise<Response> {
     // A listener may call next() more than once, so each call's Response is recorded.
@@ -239,10 +243,16 @@ export class HostConnectionService extends Service implements HostConnectionHand
       dispatched.push(entry)
       return entry.pending
     }
+    // The listeners `waterfall()` would run: the event has no `this` argument, so Cordis applies no context filter.
+    // Resolving them here emits `internal/dispatch` once, as `waterfall()` does, with the same arguments.
+    const listeners: FetchListener[] = this.peerOwner.events.dispatch('waterfall', ['connection/fetch', call, next])
+    if (listeners.length === 0 && this.isMemberAdmission()) return unguardedResponse()
+    // Cordis's waterfall: every listener receives the same `next()`, which runs the next listener not yet run.
+    const run = (): Promise<Response> => (listeners.shift() ?? next)(call, run)
     let result: Response
     try {
-      // A listener that throws synchronously makes `waterfall()` throw rather than reject.
-      result = await this.peerOwner.waterfall('connection/fetch', call, next)
+      // A listener that throws synchronously makes `run()` throw rather than reject.
+      result = await run()
     } catch (error) {
       ended = true
       discardDispatched(dispatched, undefined)
@@ -261,6 +271,14 @@ export class HostConnectionService extends Service implements HostConnectionHand
       return result
     }
     return observeBody(result, body, () => { discardDispatched(dispatched, result) })
+  }
+
+  /**
+   * Report whether member admission is on.
+   * @returns `true` while an admitter is installed or `requireAdmitter` is true.
+   */
+  private isMemberAdmission(): boolean {
+    return this.admitter !== undefined || this.requireAdmitter
   }
 
   private fenceRejection(request: ConnectionTrustRequest): ConnectionRequestRejection {
@@ -476,6 +494,14 @@ function observeBody(result: Response, body: ReadableStream<Uint8Array>, done: (
     },
   }, { highWaterMark: 0 })
   return new Response(relay, { status: result.status, statusText: result.statusText, headers: result.headers })
+}
+
+/**
+ * Answer an exact-route or channel request that no `connection/fetch` listener guards while member admission is on.
+ * @returns a 503 Response.
+ */
+function unguardedResponse(): Response {
+  return new Response('service unavailable', { status: 503 })
 }
 
 /**
