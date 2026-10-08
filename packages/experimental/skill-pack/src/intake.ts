@@ -40,8 +40,22 @@ import type {
   SkillPackIntake,
 } from './types.ts'
 
-/** A version that is one directory name: not empty, not `.` or `..`, and free of `/`, `\` and NUL. */
-const DIRECTORY_NAME = /^(?!\.{1,2}$)[^/\\\0]+$/u
+/**
+ * A version that is one directory name on Linux, macOS and Windows: not
+ * empty; free of `/`, `\`, `:`, `*`, `?`, `"`, `<`, `>`, `|` and the control
+ * characters U+0000 to U+001F; and not ending in `.` or a space, which also
+ * excludes `.` and `..`. The organization contract states no format for a
+ * version up to 0.4.0; contract 0.5.0 gives it this format and
+ * {@link WINDOWS_DEVICE_NAME}'s, and against that contract this check
+ * repeats the one the organization plugin makes.
+ */
+const DIRECTORY_NAME = /^[^/\\:*?"<>|\u0000-\u001f]*[^/\\:*?"<>|\u0000-\u001f. ]$/u
+
+/**
+ * A name Windows reserves for a device, in any letter case and with or
+ * without an extension, which a version may not be.
+ */
+const WINDOWS_DEVICE_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu
 
 /** What the intake reads from the row that provides it. */
 export interface IntakeHost {
@@ -327,7 +341,7 @@ export class OrganizationPackIntake extends Service implements SkillPackIntake {
    */
   private async judgeEntry(pack: OrgPackInput): Promise<EntryJudgement> {
     if (!isSkillName(pack.name)) return refusedAs(pack, 'pack-invalid', `the name ${JSON.stringify(pack.name)} is not a skill name`)
-    if (!DIRECTORY_NAME.test(pack.version)) {
+    if (!DIRECTORY_NAME.test(pack.version) || WINDOWS_DEVICE_NAME.test(pack.version)) {
       return refusedAs(pack, 'pack-invalid', `the version ${JSON.stringify(pack.version)} is not one directory name`)
     }
     const directoryName = keyOf(pack)

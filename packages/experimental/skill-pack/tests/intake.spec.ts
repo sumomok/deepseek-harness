@@ -504,6 +504,51 @@ describe('an organization set handed over', () => {
 })
 
 describe('an entry refused', () => {
+  /**
+   * Hand over one entry per version and a plain entry beside them, and read
+   * which versions were refused as not one directory name and what was written.
+   */
+  async function versionsRefused(versions: readonly string[]): Promise<{ refused: readonly string[]; written: readonly string[] }> {
+    const paths = await newWorld()
+    const ctx = await boot(paths)
+    const { intake } = await organization(ctx)
+    const result = await intake.replace([...versions.map(version => entry('layer-guide', version, 'stable')), entry('kept-guide', '1', 'stable')])
+    if (result.kind !== 'ok') throw new Error(`replace answered failed: ${result.detail}`)
+    for (const refusal of result.refused) {
+      expect(refusal).toEqual({
+        name: 'layer-guide',
+        version: refusal.version,
+        code: 'pack-invalid',
+        detail: `the version ${JSON.stringify(refusal.version)} is not one directory name`,
+      })
+    }
+    return { refused: result.refused.map(refusal => refusal.version), written: (await readdir(paths.organizationRoot)).sort() }
+  }
+
+  it('refuses as pack-invalid a version holding a character Windows refuses in a file name, and writes the rest', async () => {
+    const versions = ['a:b', 'a*b', 'a?b', 'a"b', 'a<b', 'a>b', 'a|b']
+    expect(await versionsRefused(versions)).toEqual({ refused: versions, written: ['kept-guide@1'] })
+  })
+
+  it('refuses as pack-invalid a version holding a control character, and writes the rest', async () => {
+    const versions = ['a\u0001b', 'a\tb', 'a\nb', 'a\u001fb']
+    expect(await versionsRefused(versions)).toEqual({ refused: versions, written: ['kept-guide@1'] })
+  })
+
+  it('refuses as pack-invalid a version ending in a dot or a space, and writes the rest', async () => {
+    const versions = ['1.', '1 ', '1. ', ' ']
+    expect(await versionsRefused(versions)).toEqual({ refused: versions, written: ['kept-guide@1'] })
+  })
+
+  it('refuses as pack-invalid a version that is a Windows device name in any letter case, with or without an extension, and writes the rest', async () => {
+    const reserved = ['CON', 'prn', 'Aux', 'nul', 'COM1', 'com9', 'LPT1', 'lpt9', 'con.txt', 'NUL.tar.gz']
+    const near = ['COM10', 'LPT10', 'CONSOLE', 'con-1', 'aux1.0']
+    expect(await versionsRefused([...reserved, ...near])).toEqual({
+      refused: reserved,
+      written: ['kept-guide@1', ...near.map(version => `layer-guide@${version}`)].sort(),
+    })
+  })
+
   it('refuses an entry whose files do not make it the pack it names as pack-invalid', async () => {
     const paths = await newWorld()
     const ctx = await boot(paths)

@@ -285,9 +285,13 @@ export interface OrgPackInput {
   readonly name: string
   /**
    * The `version` of the organization manifest entry, which keys the entry and
-   * names its directory `<name>@<version>`; it must be one directory name (no
-   * `/`, `\` or NUL, and neither `.` nor `..`). It need not equal the pack's
-   * own `metadata.pack.version`, and nothing here compares the two.
+   * names its directory `<name>@<version>`; it must be one directory name on
+   * Linux, macOS and Windows: no `/`, `\`, `:`, `*`, `?`, `"`, `<`, `>`, `|`
+   * or control character U+0000 to U+001F, no `.` or space at its end, and
+   * not a Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1` to `COM9`,
+   * `LPT1` to `LPT9`) in any letter case, with or without an extension. It
+   * need not equal the pack's own `metadata.pack.version`, and nothing here
+   * compares the two.
    */
   readonly version: string
   /** Shown on `GET /skill-pack/status` only; this package chooses no version by it. */

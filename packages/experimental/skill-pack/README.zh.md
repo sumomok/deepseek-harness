@@ -309,7 +309,7 @@ interface PartsSource {
 | `OrgPackInput` 字段 | 含义 |
 |---|---|
 | `name` | 技能名；条目 `SKILL.md` frontmatter 的 `name` 必须与它相同。 |
-| `version` | 组织清单条目的 `version`，它作这个条目的键，并把目录命名为 `<name>@<version>`，所以同一技能的 stable 版和 trial 版可以并排放着。它必须能作一个目录名：不含 `/`、`\`、NUL，也不是 `.` 或 `..`。它不必等于 `metadata.pack.version`，后者只用于显示和追溯，这里不比对两者。 |
+| `version` | 组织清单条目的 `version`，它作这个条目的键，并把目录命名为 `<name>@<version>`，所以同一技能的 stable 版和 trial 版可以并排放着。它必须在 Linux、macOS 和 Windows 上都能作一个目录名：不含 `/`、`\`、`:`、`*`、`?`、`"`、`<`、`>`、`\|` 和 U+0000 到 U+001F 的控制字符，不以 `.` 或空格结尾，也不是 Windows 的设备名——`CON`、`PRN`、`AUX`、`NUL`、`COM1` 到 `COM9`、`LPT1` 到 `LPT9`——不论大小写、带不带扩展名；违反这一条的版本被拒成 `pack-invalid`，集合里其余的照样写下。它不必等于 `metadata.pack.version`，后者只用于显示和追溯，这里不比对两者。 |
 | `channel` | `stable` 或 `trial`，显示在状态路由上；这里不按它选版本。 |
 | `files` | 技能目录里的全部文件，路径相对这个目录，用 `/` 分隔。内容可以是字节，也可以是按 UTF-8 写入的字符串；组织插件交的是它按组织摘要核对过的原始字节。判断的字节就是写下的字节，字节顺序标记也在内，所以一个条目在内存里的判断，和同一份文件从盘上读出来时完全一样。 |
 
