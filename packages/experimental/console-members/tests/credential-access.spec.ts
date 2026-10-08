@@ -245,6 +245,19 @@ describe('the disposer', () => {
     expect(calls).toBe(1)
   })
 
+  it('forwards nothing the reader reports while its onChange disposer runs, and reads nothing then', async () => {
+    const row = await mountMembers()
+    const access = customerCredentialAccess(directory(row))
+    const changes: unknown[] = []
+    access.onChange((member, kind) => { changes.push([member, kind, access.read(member)]) })
+    const reader: CustomerCredentialReader = {
+      read: () => ALICE_TOKEN,
+      onChange: listener => () => { listener(ALICE, 'dropped') },
+    }
+    directory(row).attachCustomerCredentials(reader)()
+    expect(changes).toEqual([])
+  })
+
   it('stops calling an onDetached listener once its own disposer has run', async () => {
     const row = await mountMembers()
     const access = customerCredentialAccess(directory(row))
@@ -291,6 +304,27 @@ describe('forwarding the reader\'s changes', () => {
     directory(row).attachCustomerCredentials(reader)()
     kept?.(ALICE, 'set')
     expect(changes).toEqual([])
+  })
+
+  it('drops a change a detached reader reports through a kept subscription while a newer reader is attached', async () => {
+    const row = await mountMembers()
+    const access = customerCredentialAccess(directory(row))
+    const changes: unknown[] = []
+    access.onChange((member, kind) => { changes.push([member, kind]) })
+    let keptOld: ((member: PrincipalKey, kind: 'set' | 'dropped') => void) | undefined
+    const old: CustomerCredentialReader = {
+      read: () => ALICE_TOKEN,
+      onChange: (listener) => {
+        keptOld = listener
+        return () => undefined
+      },
+    }
+    directory(row).attachCustomerCredentials(old)()
+    const newer = fakeReader()
+    directory(row).attachCustomerCredentials(newer.reader)
+    keptOld?.(ALICE, 'set')
+    newer.report(BOB, 'set')
+    expect(changes).toEqual([[BOB, 'set']])
   })
 
   it('stops a change being forwarded at the listener that runs the holder\'s disposer', async () => {
