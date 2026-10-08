@@ -83,6 +83,18 @@ describe('member roots', () => {
     expect(registry.rootsOf(ALICE)).toEqual([root])
   })
 
+  it('reports a new member once roots.json lists them and the registry answers for them', () => {
+    const registry = open()
+    const seen: unknown[] = []
+    registry.onMemberAdded((member) => {
+      const stored: unknown = JSON.parse(storedText())
+      seen.push([member, registry.memberPrincipals(), registry.rootsOf(member).length, JSON.stringify(stored).includes(member)])
+    })
+    registry.ensureMember(ALICE)
+
+    expect(seen).toEqual([[ALICE, [ALICE], 1, true]])
+  })
+
   it('returns the same root on a second admission and creates no other directory', () => {
     const registry = open()
     const first = registry.ensureMember(ALICE)
@@ -168,9 +180,12 @@ describe('member roots', () => {
 
   it('leaves the member unregistered and no temporary file behind when roots.json cannot be replaced', () => {
     const registry = open()
+    const added: unknown[] = []
+    registry.onMemberAdded((member) => { added.push(member) })
     mkdirSync(join(rootsFile(), 'occupied'), { recursive: true })
 
     expect(() => registry.ensureMember(ALICE)).toThrow()
+    expect(added).toEqual([])
     expect(siblings()).toEqual(['roots.json'])
     expect(registry.rootsOf(ALICE)).toEqual([])
     expect(() => registry.memberRoot(ALICE)).toThrow(/has no registered root/)
