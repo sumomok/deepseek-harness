@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/data-page-view-rules/guide.md
+/:
+  en: 277d342239b6eb7f
+  zh: 0dc25d2a52b2ee3a
+/a-data-page-view-cannot-keep-a-button-whose-form-it-switches-off:
+  en: 360f72a80a2eccfe
+  zh: 0bd50754949bc2e7
+/a-data-page-view-cannot-keep-a-button-whose-form-it-switches-off/change:
+  en: 122a1fdb97364f81
+  zh: 557bf4004c6c3875
+/a-data-page-view-cannot-keep-a-button-whose-form-it-switches-off/migration:
+  en: de78377c5c698a68
+  zh: 7917d7d82490b350
