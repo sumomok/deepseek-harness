@@ -141,6 +141,7 @@ describe('the assertion key', () => {
   it.each([
     ['an RSA public key', RSA_PEM],
     ['an Ed25519 private key', PRIVATE_PEM],
+    ['an Ed25519 private key block followed by a public key end line', `${PRIVATE_PEM}-----END PUBLIC KEY-----\n`],
     ['an undecodable public key block', '-----BEGIN PUBLIC KEY-----\nAAAAnotakey\n-----END PUBLIC KEY-----\n'],
     ['text that is not PEM', 'ed25519:abcdef'],
     ['a public key block followed by a private key block', `${PUBLIC_PEM}${PRIVATE_PEM}`],
@@ -150,6 +151,12 @@ describe('the assertion key', () => {
     const loaded = await load(config({ assertionPublicKey: pem }))
     expect(messageOf(loaded.error)).toBe(KEY_REFUSAL)
     expectNoLeak(loaded, body(pem), body(PRIVATE_PEM), 'AAAAnotakey', 'abcdef')
+  })
+
+  it('refuses an undecodable public key block with an error that carries no decoder error as its cause', async () => {
+    const loaded = await load(config({ assertionPublicKey: '-----BEGIN PUBLIC KEY-----\nAAAAnotakey\n-----END PUBLIC KEY-----\n' }))
+    expect(messageOf(loaded.error)).toBe(KEY_REFUSAL)
+    expect((loaded.error as Error).cause).toBeUndefined()
   })
 
   it('accepts an Ed25519 SPKI key with surrounding whitespace', async () => {

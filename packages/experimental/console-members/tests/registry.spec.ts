@@ -260,6 +260,22 @@ describe('the row\'s state directory', () => {
     expect(existsSync(rootsFile())).toBe(false)
   })
 
+  it('refuses a membersRoot or a seed at the real path of a Harness home reached through a symbolic link', () => {
+    mkdirSync(temp.home, { recursive: true })
+    const linkedHome = join(temp.base, 'linked-home')
+    mkdirSync(temp.base, { recursive: true })
+    symlinkSync(temp.home, linkedHome)
+    const file = join(linkedHome, 'console-members', 'roots.json')
+    const linkedState = dirname(file)
+
+    const members = thrown(() => openRootRegistry({ file, membersRoot: state(), seeds: [], platform: process.platform }))
+    expect(members.message).toBe(`console-members: membersRoot overlaps the row's state directory ${linkedState}`)
+    const seeds = [seedFor(ALICE, temp.home)]
+    const seed = thrown(() => openRootRegistry({ file, membersRoot: membersRoot(), seeds, platform: process.platform }))
+    expect(seed.message).toBe(`console-members: rootSeeds[0] overlaps the row's state directory ${linkedState}`)
+    expect(existsSync(linkedState)).toBe(false)
+  })
+
   it('refuses a recorded root that overlaps that directory', () => {
     mkdirSync(state(), { recursive: true })
     writeFileSync(rootsFile(), `{"version":1,"roots":[{"kind":"none","path":"${temp.home}"}]}`)
