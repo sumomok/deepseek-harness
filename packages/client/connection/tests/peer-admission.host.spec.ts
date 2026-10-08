@@ -526,7 +526,7 @@ describe('Connection member Peer admission', () => {
       expect(await send(mounted.port, `${PROBE_CHANNEL}/${PROBE_ENDPOINT}`, 'POST', headers, JSON.stringify(envelope))).toBe(200)
       expect(await send(mounted.port, `${API_PATH}/${PROBE_ENDPOINT}`, 'POST', headers, JSON.stringify(envelope))).toBe(200)
       expect(mounted.seen.map(entry => entry.peer)).toEqual([member, member, member])
-      // A shell-owned carrier naming no Peer speaks for the operator, which is never released.
+      // A shell-owned carrier naming no Peer speaks for the operator, which Connection releases only when it unloads.
       const direct = await mounted.ctx.connection.createSharedFetchHandler(API_PATH)
         .fetch(new Request(`http://127.0.0.1${UPLOAD}`, { method: 'POST', body: '{}' }))
       expect(direct.status).toBe(200)
