@@ -295,6 +295,37 @@ describe('connection/fetch', () => {
     expect(seen.at(-1)).toEqual(['exact-route', connection.operator])
   })
 
+  it('keeps call.peer fixed, so a listener cannot show the listeners after it another Peer', async () => {
+    const mounted = await mount()
+    const { connection } = mounted.ctx
+    const member = connection.peers.open()
+    connection.peers.admitWith(() => member)
+    const seen: Array<readonly [ConnectionFetchCall['kind'], PeerScope]> = []
+    mounted.ctx.on('connection/fetch', (call, next) => {
+      seen.push([call.kind, call.peer])
+      return next()
+    })
+    const written: boolean[] = []
+    const thrown: unknown[] = []
+    mounted.ctx.on('connection/fetch', (call, next) => {
+      written.push(Reflect.set(call, 'peer', connection.operator))
+      try {
+        Object.assign(call, { peer: connection.operator })
+      } catch (assignment) {
+        thrown.push(assignment)
+      }
+      return next()
+    }, { prepend: true })
+
+    expect((await send(mounted, EXACT, 'GET')).status).toBe(200)
+    expect((await callChannel(mounted)).status).toBe(200)
+
+    expect(written).toEqual([false, false])
+    expect(thrown).toEqual([expect.any(TypeError), expect.any(TypeError)])
+    expect(seen).toEqual([['exact-route', member], ['channel', member]])
+    expect(mounted.reached.map(entry => entry.peer)).toEqual([member, member])
+  })
+
   it('leaves the request body to the route when a listener reads a clone', async () => {
     const mounted = await mount()
     const streamed: string[] = []

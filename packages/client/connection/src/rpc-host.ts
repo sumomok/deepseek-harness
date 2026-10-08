@@ -195,9 +195,8 @@ export class HostConnectionService extends Service implements HostConnectionHand
         const pathname = new URL(request.url).pathname
         const route = this.fetchRoutes.get(pathname)
         if (route?.methods.has(request.method) === true) {
-          const call: ConnectionFetchCall = { kind: 'exact-route', path: pathname, method: request.method, request, peer }
           // A listener may await before next(); the Peer may be released and the route's plugin may unload meanwhile.
-          return this.guardFetch(call, () => {
+          return this.guardFetch(fetchCall('exact-route', pathname, request, peer), () => {
             if (!this.isDispatchable(peer)) return Promise.resolve(releasedPeerResponse())
             return this.fetchRoutes.get(pathname) === route
               ? route.fetch(request, peer)
@@ -401,7 +400,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
     const fetchHandler: ConnectionFetchHandler = {
       requestBodyMode: request => decode.requestBodyMode(request),
       fetch: (request, peer = this.operator) => this.guardFetch(
-        { kind: 'channel', path: channel, method: request.method, request, peer },
+        fetchCall('channel', channel, request, peer),
         () => this.isDispatchable(peer) ? decode.fetch(request, peer) : Promise.resolve(releasedPeerResponse()),
       ),
     }
@@ -451,6 +450,21 @@ export class HostConnectionService extends Service implements HostConnectionHand
       }
     }, `client-connection: ${channel} rpc interceptor`)
   }
+}
+
+/**
+ * Build the call `connection/fetch` listeners receive for one request.
+ * @param kind - `exact-route` or `channel`.
+ * @param path - the registered route path or channel prefix.
+ * @param request - the Fetch request the route or channel receives.
+ * @param peer - the Peer the request was admitted as.
+ * @returns the call, whose `peer` is a non-writable, non-configurable property.
+ */
+function fetchCall(kind: ConnectionFetchCall['kind'], path: string, request: Request, peer: PeerScope): ConnectionFetchCall {
+  const call: ConnectionFetchCall = { kind, path, method: request.method, request, peer }
+  // A listener reads the Peer to authorize the call, so none may replace it for the listeners after it.
+  Object.defineProperty(call, 'peer', { writable: false, configurable: false })
+  return call
 }
 
 /**

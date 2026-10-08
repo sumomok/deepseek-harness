@@ -254,7 +254,10 @@ export interface ConnectionFetchCall {
    * throws or answers its own error, and a channel answers 400 `body is not JSON`.
    */
   readonly request: Request
-  /** The Peer the request was admitted as; the operator when the carrier names none. */
+  /**
+   * The Peer the request was admitted as; the operator when the carrier names none.
+   * Connection fixes it when it builds the call as a non-writable property, so every listener sees it.
+   */
   readonly peer: PeerScope
 }
 
