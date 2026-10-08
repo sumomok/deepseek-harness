@@ -224,6 +224,27 @@ describe('the disposer', () => {
     directory(row).attachCustomerCredentials(fakeReader().reader)
   })
 
+  it('calls, in one detach, the listeners registered when it started, including one removed meanwhile', async () => {
+    const row = await mountMembers()
+    const access = customerCredentialAccess(directory(row))
+    const seen: string[] = []
+    let stopSecond = (): void => undefined
+    let calls = 0
+    const resubscribing = (): void => {
+      calls += 1
+      if (calls < 5) access.onDetached(resubscribing)
+    }
+    access.onDetached(() => {
+      seen.push('first')
+      stopSecond()
+    })
+    stopSecond = access.onDetached(() => { seen.push('second') })
+    access.onDetached(resubscribing)
+    directory(row).attachCustomerCredentials(fakeReader().reader)()
+    expect(seen).toEqual(['first', 'second'])
+    expect(calls).toBe(1)
+  })
+
   it('stops calling an onDetached listener once its own disposer has run', async () => {
     const row = await mountMembers()
     const access = customerCredentialAccess(directory(row))

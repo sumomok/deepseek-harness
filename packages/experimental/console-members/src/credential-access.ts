@@ -35,7 +35,7 @@ export interface CustomerCredentialAccess {
    * a change being forwarded at that moment. Detaching a reader reports no
    * `dropped`; {@link CustomerCredentialAccess.onDetached} reports it.
    * @param listener - called with the member and the kind of change.
-   * @returns the disposer that removes the listener.
+   * @returns the disposer that removes the listener; a notification already running still calls it.
    */
   onChange(listener: (principal: PrincipalKey, kind: 'set' | 'dropped') => void): () => void
   /**
@@ -46,7 +46,7 @@ export interface CustomerCredentialAccess {
    * disposer, so a listener must not read tokens; {@link CustomerCredentialAccess.read}
    * answers `undefined` from the moment the disposer starts.
    * @param listener - called with no argument.
-   * @returns the disposer that removes the listener.
+   * @returns the disposer that removes the listener; a notification already running still calls it.
    */
   onDetached(listener: () => void): () => void
 }
@@ -67,7 +67,7 @@ export interface MemberRegistryAccess {
    * admissions of the member, and the members `roots.json` held at load, are
    * not reported. The registry has no removal.
    * @param listener - called with the member.
-   * @returns the disposer that removes the listener.
+   * @returns the disposer that removes the listener; a notification already running still calls it.
    */
   onAdded(listener: (principal: PrincipalKey) => void): () => void
 }

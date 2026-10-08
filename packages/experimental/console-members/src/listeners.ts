@@ -21,7 +21,7 @@ export class Listeners<A extends readonly unknown[]> {
   /**
    * Add a listener. Adding one function twice registers it twice.
    * @param listener - the listener.
-   * @returns the disposer that removes this registration.
+   * @returns the disposer that removes this registration; an {@link emit} already running still calls it.
    */
   add(listener: (...args: A) => void): () => void {
     const registered = (...args: A): void => { listener(...args) }
@@ -30,7 +30,9 @@ export class Listeners<A extends readonly unknown[]> {
   }
 
   /**
-   * Call every listener registered when the call starts.
+   * Call every listener registered when the call starts, including one
+   * removed while the call runs; a listener added while it runs is not
+   * called.
    * @param args - the arguments each listener is called with.
    */
   emit(...args: A): void {
