@@ -39,6 +39,8 @@ describe('verifyAssertion', () => {
     const custom = { ...check, header: 'x-console-member' }
     expect(verifyAssertion({ 'x-console-member': assertionFor(ALICE, EXP) }, custom, NOW)).toEqual({ principal: ALICE })
     expect(verifyAssertion({ 'x-dsh-member': assertionFor(ALICE, EXP) }, custom, NOW)).toEqual({ refusal: 'missing' })
+    expect(verifyAssertion(new Headers({ 'X-Console-Member': assertionFor(ALICE, EXP) }), custom, NOW)).toEqual({ principal: ALICE })
+    expect(verifyAssertion(new Headers({ 'X-Dsh-Member': assertionFor(ALICE, EXP) }), custom, NOW)).toEqual({ refusal: 'missing' })
   })
 
   it('accepts the second before exp and refuses exp itself and every later second', () => {

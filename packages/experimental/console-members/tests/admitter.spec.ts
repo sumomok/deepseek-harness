@@ -102,6 +102,17 @@ describe('admitting a request', () => {
     expect(row.ctx.connection.peers.list()).toEqual([first, bob])
   })
 
+  it('answers principalOfRequest with the member each request asserts while several members are online', async () => {
+    const row = await mountMembers()
+    const alice = assertionFor(ALICE)
+    const bob = assertionFor(BOB)
+    peerOf(row, alice)
+    peerOf(row, bob)
+    expect(directory(row).principalOfRequest({ headers: requestHeaders(bob) } as never)).toBe(BOB)
+    expect(directory(row).principalOfRequest({ headers: requestHeaders(alice) } as never)).toBe(ALICE)
+    expect(row.ctx.connection.peers.list()).toHaveLength(2)
+  })
+
   it('answers principalOfRequest undefined for a refused request', async () => {
     const row = await mountMembers()
     expect(directory(row).principalOfRequest({ headers: requestHeaders(undefined) } as never)).toBeUndefined()
