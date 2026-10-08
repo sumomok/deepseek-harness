@@ -99,7 +99,7 @@ A test generates the file again and fails when the checked-in copy differs by on
 
 | Key | What it holds |
 |---|---|
-| `header.catalogFormat` | `1`, the file format. It changes whenever a key is renamed, removed or given another meaning, and a reader that does not know the number does not read the file. |
+| `header.catalogFormat` | `1`, the file format. Format `1` is not frozen until the first Beiming release that reads the file ships; from then on the number changes whenever a key is renamed, removed or given another meaning. A reader that does not know the number does not read the file. |
 | `header.componentKit`, `header.toyCrudKit` | The npm name and installed version of the component kit, which a pack's `requires.components` range is matched against, and of the kit it vendors to draw the data page. |
 | `header.bodySha256` | SHA-256, in lowercase hexadecimal, of the UTF-8 bytes of `JSON.stringify(body)`: no whitespace, keys in file order. A reader recomputes it from the parsed file; outside JavaScript, the serializer must write exactly what `JSON.stringify` writes, non-ASCII characters unescaped included, or the digest does not match. |
 | `header.exampleViewSha256` | `null`, because the file ships no example view yet. |

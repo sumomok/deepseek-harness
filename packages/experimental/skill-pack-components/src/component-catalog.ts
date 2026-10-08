@@ -67,8 +67,9 @@ import {
 
 /**
  * The format of the file this module writes. A reader that does not know the
- * number does not read the file; the number changes whenever a key is renamed,
- * removed or given a different meaning.
+ * number does not read the file. Format 1 is not frozen until the first Beiming
+ * release that reads the file ships; from then on the number changes whenever
+ * a key is renamed, removed or given a different meaning.
  */
 export const COMPONENT_CATALOG_FORMAT = 1
 

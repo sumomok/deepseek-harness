@@ -99,7 +99,7 @@ pnpm --filter @deepseek-ai/dsh-experimental-skill-pack-components run component-
 
 | 键 | 内容 |
 |---|---|
-| `header.catalogFormat` | `1`，文件格式号。任何键改名、删除或换了含义都要换号；读的一方不认识这个号就不读这个文件。 |
+| `header.catalogFormat` | `1`，文件格式号。北冥第一个读取这个文件的版本发布之前，格式 `1` 还不固定；从那以后，任何键改名、删除或换了含义都要换号。读的一方不认识这个号就不读这个文件。 |
 | `header.componentKit`、`header.toyCrudKit` | 组件包的 npm 名和装上的版本（技能包 `requires.components` 的区间就拿它来匹配），以及组件包为画完整数据页 vendor 进来的 kit 的 npm 名和版本。 |
 | `header.bodySha256` | `JSON.stringify(body)` 的 UTF-8 字节的 SHA-256，小写十六进制：不带空白，键按文件里的顺序。读的一方从解析出来的文件重算它；不用 JavaScript 重算时，序列化结果必须与 `JSON.stringify` 写出的逐字相同，包括非 ASCII 字符不转义，否则摘要对不上。 |
 | `header.exampleViewSha256` | `null`，因为这个文件还不带示例视图。 |
