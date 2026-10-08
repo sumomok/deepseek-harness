@@ -68,6 +68,13 @@ function writeStarts(): Promise<void> {
 
 const PLATFORM_VERSION = '0.5.2'
 
+/** One version, `vé`, in its composed (NFC) and its decomposed (NFD) Unicode form. */
+const NFC_VE = 'v\u00e9'
+const NFD_VE = 've\u0301'
+
+/** The detail a `duplicate` refusal states for an entry key. */
+const DUPLICATED = (key: string): string => `${key} is named more than once in this set, ignoring letter case and Unicode normalization`
+
 /** Whether this platform's default file systems ignore letter case, so the row compares directories with names folded. */
 const FOLDS_NAMES = process.platform === 'darwin' || process.platform === 'win32'
 const KIT = '@deepseek-ai/dsh-experimental-component-kit'
@@ -608,11 +615,59 @@ describe('an entry refused', () => {
       entry('layer-guide', '2', 'trial'),
     ])
     expect(result.kind === 'ok' ? result.refused : []).toEqual([
-      { name: 'layer-guide', version: '1', code: 'duplicate', detail: 'layer-guide@1 is named more than once in this set' },
-      { name: 'layer-guide', version: '1', code: 'duplicate', detail: 'layer-guide@1 is named more than once in this set' },
+      { name: 'layer-guide', version: '1', code: 'duplicate', detail: DUPLICATED('layer-guide@1') },
+      { name: 'layer-guide', version: '1', code: 'duplicate', detail: DUPLICATED('layer-guide@1') },
     ])
     expect(await readdir(paths.organizationRoot)).toEqual(['layer-guide@2'])
     expect(intake.isActive('layer-guide', '1')).toBe(false)
+  })
+
+  it('refuses every entry whose version differs from another\'s only in letter case or Unicode normalization as duplicate', async () => {
+    const paths = await newWorld()
+    const ctx = await boot(paths)
+    const { intake } = await organization(ctx)
+    const result = await intake.replace([
+      entry('a-guide', 'RC', 'stable', { views: { 'one.yml': viewText('one', 'ONE') } }),
+      entry('a-guide', 'rc', 'trial', { views: { 'two.yml': viewText('two', 'TWO') } }),
+      entry('a-guide', NFC_VE, 'stable'),
+      entry('a-guide', NFD_VE, 'trial'),
+      entry('a-guide', '2', 'stable'),
+    ])
+    expect(result.kind === 'ok' ? result.refused : result).toEqual([
+      { name: 'a-guide', version: 'RC', code: 'duplicate', detail: DUPLICATED('a-guide@RC') },
+      { name: 'a-guide', version: 'rc', code: 'duplicate', detail: DUPLICATED('a-guide@rc') },
+      { name: 'a-guide', version: NFC_VE, code: 'duplicate', detail: DUPLICATED(`a-guide@${NFC_VE}`) },
+      { name: 'a-guide', version: NFD_VE, code: 'duplicate', detail: DUPLICATED(`a-guide@${NFD_VE}`) },
+    ])
+    expect(await readdir(paths.organizationRoot)).toEqual(['a-guide@2'])
+    expect(intake.isActive('a-guide', 'RC')).toBe(false)
+    expect(intake.isActive('a-guide', NFC_VE)).toBe(false)
+  })
+
+  it('refuses an entry carrying two paths that differ only in letter case or Unicode normalization as pack-invalid', async () => {
+    const paths = await newWorld()
+    const ctx = await boot(paths)
+    const { intake } = await organization(ctx)
+    const result = await intake.replace([
+      entry('a-guide', '1', 'stable', {
+        views: { 'a.yml': viewText('one', 'JUDGED') },
+        extra: [{ path: 'views/A.yml', content: viewText('one', 'ON-DISK') }],
+      }),
+      entry('b-guide', '1', 'stable', {
+        views: { [`${NFC_VE}.yml`]: viewText('two', 'JUDGED') },
+        extra: [{ path: `views/${NFD_VE}.yml`, content: viewText('two', 'ON-DISK') }],
+      }),
+      entry('c-guide', '1', 'stable'),
+    ])
+    const refused = result.kind === 'ok' ? result.refused : []
+    expect(refused.map(({ name, code }) => ({ name, code }))).toEqual([
+      { name: 'a-guide', code: 'pack-invalid' },
+      { name: 'b-guide', code: 'pack-invalid' },
+    ])
+    expect(refused[0]?.detail).toContain('refused a-guide@1/views/A.yml — a pack carries each path once, ignoring letter case and Unicode normalization')
+    expect(refused[1]?.detail).toContain(`refused b-guide@1/views/${NFD_VE}.yml — a pack carries each path once`)
+    expect(await readdir(paths.organizationRoot)).toEqual(['c-guide@1'])
+    expect(await viewIds(ctx)).toEqual([])
   })
 })
 

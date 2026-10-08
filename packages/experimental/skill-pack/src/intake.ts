@@ -22,7 +22,7 @@
 import { join, resolve } from 'node:path'
 import { FiberState, Service, type Context, type Fiber } from '@deepseek-ai/cordis'
 import { isSkillName } from '@deepseek-ai/dsh-skill'
-import { validatePacks } from './delivery.ts'
+import { collisionKey, validatePacks } from './delivery.ts'
 import { readInstalledPacks, syncPackRoot } from './install.ts'
 import { anchorFormatMissing, readsDeclaredViews, viewFormatMissing } from './manifest.ts'
 import { compareCodeUnits } from './order.ts'
@@ -289,14 +289,20 @@ export class OrganizationPackIntake extends Service implements SkillPackIntake {
     return { bytes: firstDeclared(entries), holder: 'the organization root' }
   }
 
-  /** Judge every entry of a set, and split it into what is written and what is refused, in the order the set names them. */
+  /**
+   * Judge every entry of a set, and split it into what is written and what is
+   * refused, in the order the set names them. Two keys whose
+   * {@link collisionKey} forms are equal name one directory on a file system
+   * that ignores letter case and Unicode normalization, so they count as one
+   * key named twice.
+   */
   private async judgeSet(packs: readonly OrgPackInput[], held: HeldViewIds): Promise<{ accepted: HeldEntry[]; refused: IntakeRefusal[] }> {
-    const keys = packs.map(keyOf)
+    const keys = packs.map(pack => collisionKey(keyOf(pack)))
     const duplicated = new Set(keys.filter((key, index) => keys.indexOf(key) !== index))
     const judgements: EntryJudgement[] = []
     for (const pack of packs) {
-      judgements.push(duplicated.has(keyOf(pack))
-        ? refusedAs(pack, 'duplicate', `${keyOf(pack)} is named more than once in this set`)
+      judgements.push(duplicated.has(collisionKey(keyOf(pack)))
+        ? refusedAs(pack, 'duplicate', `${keyOf(pack)} is named more than once in this set, ignoring letter case and Unicode normalization`)
         : await this.judgeEntry(pack))
     }
     const candidates = judgements.flatMap(judgement => judgement.kind === 'accepted' ? [judgement.entry] : [])

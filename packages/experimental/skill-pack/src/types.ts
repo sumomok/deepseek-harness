@@ -311,8 +311,9 @@ export interface OrgPackInput {
 export type IntakeRefusalCode =
   /**
    * A file, path, extension, frontmatter, manifest or view file breaks the
-   * pack rules; or the frontmatter `name` is not the entry's name, or the
-   * version is not one directory name.
+   * pack rules, two paths that differ only in letter case or Unicode
+   * normalization among them; or the frontmatter `name` is not the entry's
+   * name, or the version is not one directory name.
    */
   | 'pack-invalid'
   /** `metadata.pack.anchorFormat` states an anchor format this build does not read. */
@@ -324,7 +325,9 @@ export type IntakeRefusalCode =
   /** Another entry of the set declares one of its view ids with a file of different bytes. */
   | 'view-id-conflict'
   /**
-   * The set names the same `name@version` more than once. Every occurrence is
+   * The set names the same `name@version` more than once, two that differ
+   * only in letter case or Unicode normalization counting as one, because
+   * they name one directory on macOS and Windows. Every occurrence is
    * refused, because nothing says which of them is the one meant.
    */
   | 'duplicate'

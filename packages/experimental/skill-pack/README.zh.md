@@ -242,7 +242,7 @@ interface PartsSource {
 | `archive-entry` | 清单没声明的条目，或者清单声明了而发放包里没有的文件 |
 | `archive-digest` | 字节和清单写的对不上的那个文件 |
 | `archive-oversize` | 发放包本身、其中某个文件，或者条目数，超过了它被读时的上限 |
-| `duplicate-entry` | 被发放了两遍的技能包、技能包内路径，或者条目名 |
+| `duplicate-entry` | 被发放了两遍的技能包、技能包内路径，或者条目名；只差大小写或 Unicode 规范化形式的两个技能包名、或者一个技能包里的两个路径，算同一个 |
 
 技能包规则对发放包的要求和对目录一模一样：`code-file`、`path-escape`、`symlink` 和 `not-a-pack` 按同样的名字拒同样的东西，一份发放自己那些技能包要过的[五项检查](#what-a-delivery-is-checked-for)也一样。
 
@@ -324,12 +324,12 @@ interface PartsSource {
 
 | `IntakeRefusalCode` | 拒的是什么 |
 |---|---|
-| `pack-invalid` | 文件、路径、扩展名、frontmatter、清单或视图文件违反技能包规则；frontmatter 的 `name` 不是这个条目的；版本不能作一个目录名 |
+| `pack-invalid` | 文件、路径、扩展名、frontmatter、清单或视图文件违反技能包规则，只差大小写或 Unicode 规范化形式的两个路径也在其中；frontmatter 的 `name` 不是这个条目的；版本不能作一个目录名 |
 | `anchor-format` | 写了这套构建读不了的锚点格式的条目 |
 | `view-format` | 用这套构建读不了的视图格式声明视图、或者没写视图格式的条目 |
 | `view-refused` | 其他要求都满足、而组合好的组件表面拒绝画它的某个视图的条目 |
 | `view-id-conflict` | 声明了一个视图 id、而集合里另一个条目用字节不同的文件声明了同一个 id 的条目 |
-| `duplicate` | 集合里出现不止一次的 `name@version` 的每一次出现，因为没有办法判断哪一份是想要的 |
+| `duplicate` | 集合里出现不止一次的 `name@version` 的每一次出现，只差大小写或 Unicode 规范化形式的两个算同一个，因为它们在 macOS 和 Windows 上是同一个目录；没有办法判断哪一份是想要的 |
 
 拒收码会随技能包规则增加，所以消费方遇到不认识的码时显示一句通用文案。每条拒收还带 `detail`，一句给运维看的英文，点出被拒的值；它进诊断日志，不进界面，也不进模型请求。
 

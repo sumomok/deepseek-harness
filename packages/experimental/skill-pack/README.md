@@ -242,7 +242,7 @@ All of it is verified before a single byte is staged, and an archive that fails 
 | `archive-entry` | an entry the manifest does not declare, or a file the manifest declares and the archive does not carry |
 | `archive-digest` | a file whose bytes are not the ones the manifest states |
 | `archive-oversize` | the archive, one file, or the entry count, over the limit it is read under |
-| `duplicate-entry` | a pack, a path inside a pack, or an entry name, delivered twice |
+| `duplicate-entry` | a pack, a path inside a pack, or an entry name, delivered twice; two pack names, or two paths of one pack, that differ only in letter case or Unicode normalization count as one |
 
 The pack rules apply to an archive exactly as they do to a directory: `code-file`, `path-escape`, `symlink` and `not-a-pack` refuse the same things by the same names, and so do the five [checks a delivery's own packs pass](#what-a-delivery-is-checked-for).
 
@@ -324,12 +324,12 @@ Each entry is judged on its own. An entry breaking a rule is refused and not wri
 
 | `IntakeRefusalCode` | What it refused |
 |---|---|
-| `pack-invalid` | a file, path, extension, frontmatter, manifest or view file breaking the pack rules; a frontmatter `name` other than the entry's; a version that is not one directory name |
+| `pack-invalid` | a file, path, extension, frontmatter, manifest or view file breaking the pack rules, two paths that differ only in letter case or Unicode normalization among them; a frontmatter `name` other than the entry's; a version that is not one directory name |
 | `anchor-format` | an entry stating an anchor format this build does not read |
 | `view-format` | an entry declaring views in a view format this build does not read, or stating none |
 | `view-refused` | an entry whose other requirements are met and whose view the composed surface will not draw |
 | `view-id-conflict` | an entry declaring a view id another entry of the set declares with a file of different bytes |
-| `duplicate` | every occurrence of a `name@version` the set names more than once, because nothing says which of them is meant |
+| `duplicate` | every occurrence of a `name@version` the set names more than once, two that differ only in letter case or Unicode normalization counting as one because they name one directory on macOS and Windows; nothing says which of them is meant |
 
 Codes are added as the pack rules grow, so a consumer shows one general sentence for a code it does not know. Each refusal also carries `detail`, one English sentence for an operator naming the refused value; it belongs in a diagnostic log, not in an interface or a model request.
 

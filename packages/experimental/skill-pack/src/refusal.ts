@@ -18,7 +18,10 @@ export type PackInstallRefusal =
   | 'symlink'
   /** The delivered set holds an entry that is not a pack directory. */
   | 'not-a-pack'
-  /** The delivery names one pack twice, or one path twice inside a pack. */
+  /**
+   * The delivery names one pack twice, or one path twice inside a pack; two
+   * names that differ only in letter case or Unicode normalization count as one.
+   */
   | 'duplicate-entry'
   /** The archive's bytes are not an archive this installer can read. */
   | 'archive-unreadable'

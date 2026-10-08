@@ -180,6 +180,25 @@ describe('replacing a pack root', () => {
     await expect(stat(root)).rejects.toThrow()
   })
 
+  it('refuses two packs, or two paths of one pack, that differ only in letter case or Unicode normalization, and leaves the root as it was', async () => {
+    const base = await workspace()
+    const root = join(base, 'packs')
+    await syncPackRoot(root, { kind: 'packs', packs: [pack('a', 'A.')] })
+    const nfc = 'vé'
+    const nfd = 'vé'
+    for (const [first, second] of [['a-guide@RC', 'a-guide@rc'], [`a-guide@${nfc}`, `a-guide@${nfd}`]] as const) {
+      await expect(syncPackRoot(root, { kind: 'packs', packs: [pack(first, 'One.'), pack(second, 'Two.')] }))
+        .rejects.toMatchObject({ refusal: 'duplicate-entry', entry: second })
+    }
+    for (const [first, second] of [['views/a.yml', 'views/A.yml'], [`views/${nfc}.yml`, `views/${nfd}.yml`]] as const) {
+      const files = [{ path: first, content: 'id: one\n' }, { path: second, content: 'id: two\n' }]
+      await expect(syncPackRoot(root, { kind: 'packs', packs: [{ name: 'b', files }] }))
+        .rejects.toMatchObject({ refusal: 'duplicate-entry', entry: `b/${second}` })
+    }
+    expect(await tree(root)).toEqual(['a/SKILL.md', 'a/views/v.yml'])
+    expect(await readdir(base)).toEqual(['packs'])
+  })
+
   it('refuses a link inside a delivered pack rather than copying what it points at', async () => {
     const base = await workspace()
     const source = join(base, 'delivery')

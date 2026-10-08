@@ -46,23 +46,24 @@ export function collisionKey(name: string): string {
  * @param packs - the packs as the delivery names them.
  * @returns the same packs, once every name and every path has passed.
  * @throws {PackInstallError} when a pack name is not one directory name, a pack or a path is
- *   delivered twice, a path leaves its pack, or a file carries an extension a pack may not carry.
+ *   delivered twice — two names or two paths of one pack whose {@link collisionKey} forms are equal
+ *   count as one — a path leaves its pack, or a file carries an extension a pack may not carry.
  */
 export function validatePacks(packs: readonly DeliveredPack[]): DeliveredPack[] {
   const names = new Set<string>()
   return packs.map((pack) => {
     const name = requirePackName(pack.name)
-    if (names.has(name)) {
-      throw new PackInstallError('duplicate-entry', name, 'a delivery names each pack once')
+    if (names.has(collisionKey(name))) {
+      throw new PackInstallError('duplicate-entry', name, 'a delivery names each pack once, ignoring letter case and Unicode normalization')
     }
-    names.add(name)
+    names.add(collisionKey(name))
     const paths = new Set<string>()
     const files = pack.files.map((file) => {
       const checked = checkFile(name, file)
-      if (paths.has(checked.path)) {
-        throw new PackInstallError('duplicate-entry', `${name}/${checked.path}`, 'a pack carries each path once')
+      if (paths.has(collisionKey(checked.path))) {
+        throw new PackInstallError('duplicate-entry', `${name}/${checked.path}`, 'a pack carries each path once, ignoring letter case and Unicode normalization')
       }
-      paths.add(checked.path)
+      paths.add(collisionKey(checked.path))
       return checked
     })
     return { name, files }
