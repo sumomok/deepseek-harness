@@ -2451,7 +2451,7 @@ const DATA_PAGE_ACTIONS: readonly ComponentActionDefinition[] = [
       const named = namedRecords(context.payload['names'] as readonly string[], succeeded)
       return {
         text: `The user deleted ${recordCount(succeeded)} ${where}${named.agent}.`
-          + `${failed === 0 ? '' : ` ${failed} could not be deleted.`}`,
+          + (failed === 0 ? '' : ` ${failed} could not be deleted.`),
         summary: `用户在「${entryName(context)}」里删除了 ${succeeded} 条${named.user}`,
       }
     },
@@ -2486,7 +2486,7 @@ const DATA_PAGE_ACTIONS: readonly ComponentActionDefinition[] = [
       return {
         text: `The user changed ${recordCount(succeeded)} ${where}${named.agent}`
           + `${fields.length === 0 ? '' : `; fields changed: ${fields.join(', ')}`}.`
-          + `${failed === 0 ? '' : ` ${failed} could not be changed.`}`,
+          + (failed === 0 ? '' : ` ${failed} could not be changed.`),
         summary: `用户在「${entryName(context)}」里批量修改了 ${succeeded} 条`,
       }
     },
