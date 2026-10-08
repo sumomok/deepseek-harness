@@ -78,7 +78,7 @@ Cordis 的 `waterfall()` 把同一个 `next()` 交给每个监听器，第二次
 
 ### Fetch 路由与通道经过 `connection/fetch`
 
-Connection 在每个精确 Fetch 路由与每个经 `rpc.handle` 登记的通道前面跑 `connection/fetch` waterfall，把一个 `ConnectionFetchCall` 交给监听器：种类、登记的路径、方法、Fetch 请求与准入的 Peer（shell 自有的载体没有指明 Peer 时是操作者）。`call.peer` 是 Connection 构造调用时固定下来的不可写属性，所以监听器无法让它之后的监听器看到别的 Peer。`path` 就是登记时用的键，所以路由表的键与 `fetch.list()`、`rpc.channels()` 返回的字符串相同。RPC 拦截器分发的 `/api` 请求仍归 `remote/invoke`，所以 `/api` 上的一个请求至多经过两个 waterfall 中的一个。监听器不调用 `next()`、直接返回自己的 Response 即为拒绝。
+Connection 在每个精确 Fetch 路由与每个经 `rpc.handle` 登记的通道前面跑 `connection/fetch` waterfall，把一个 `ConnectionFetchCall` 交给监听器：种类、登记的路径、方法、Fetch 请求与准入的 Peer（shell 自有的载体没有指明 Peer 时是操作者）。`call.peer` 是 Connection 构造调用时固定下来的不可写、不可配置属性，所以监听器无法改变它之后的监听器看到的 Peer。`path` 就是登记时用的键，所以路由表的键与 `fetch.list()`、`rpc.channels()` 返回的字符串相同。RPC 拦截器分发的 `/api` 请求仍归 `remote/invoke`，所以 `/api` 上的一个请求至多经过两个 waterfall 中的一个。监听器不调用 `next()`、直接返回自己的 Response 即为拒绝。
 
 这个 waterfall 在准入之后、在桥接器缓存或开始流式传输请求体之后运行，因为监听器拿到的是桥接器构造的 Fetch `Request`；超过缓存上限的请求体在任何监听器运行之前就答 413。监听器只经 `request.clone()` 读请求体，路由照样收到它。
 

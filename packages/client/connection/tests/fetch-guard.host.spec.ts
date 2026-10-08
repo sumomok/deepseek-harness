@@ -295,7 +295,7 @@ describe('connection/fetch', () => {
     expect(seen.at(-1)).toEqual(['exact-route', connection.operator])
   })
 
-  it('keeps call.peer fixed, so a listener cannot show the listeners after it another Peer', async () => {
+  it('keeps call.peer fixed, so no listener can change the Peer the listeners after it see', async () => {
     const mounted = await mount()
     const { connection } = mounted.ctx
     const member = connection.peers.open()
@@ -306,9 +306,13 @@ describe('connection/fetch', () => {
       return next()
     })
     const written: boolean[] = []
+    const redefined: boolean[] = []
+    const deleted: boolean[] = []
     const thrown: unknown[] = []
     mounted.ctx.on('connection/fetch', (call, next) => {
       written.push(Reflect.set(call, 'peer', connection.operator))
+      redefined.push(Reflect.defineProperty(call, 'peer', { value: connection.operator }))
+      deleted.push(Reflect.deleteProperty(call, 'peer'))
       try {
         Object.assign(call, { peer: connection.operator })
       } catch (assignment) {
@@ -321,6 +325,8 @@ describe('connection/fetch', () => {
     expect((await callChannel(mounted)).status).toBe(200)
 
     expect(written).toEqual([false, false])
+    expect(redefined).toEqual([false, false])
+    expect(deleted).toEqual([false, false])
     expect(thrown).toEqual([expect.any(TypeError), expect.any(TypeError)])
     expect(seen).toEqual([['exact-route', member], ['channel', member]])
     expect(mounted.reached.map(entry => entry.peer)).toEqual([member, member])
