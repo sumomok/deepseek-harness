@@ -47,7 +47,7 @@ const NO_MARK_REFUSAL = 'label "" is for a row the read printed with no name, an
   + 'class tokens the read printed for that row: where the read printed e7 clickable {class: row-action danger}, '
   + 'pass ref "e7", label "" and mark "row-action danger" — the tokens alone, without the braces and without the '
   + '"class:" printed in front of them. A row printed with neither a name nor class tokens gives a step nothing '
-  + 'to copy; for an element the page gives a name, a step passes that name as label'
+  + 'to copy; an element a read printed a name for is named by that name as label'
 
 /** One whole report of steps that ran, as a browser seat posts it. */
 const DONE: ActOutcome = {

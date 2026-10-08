@@ -121,7 +121,7 @@ export const PRESS_KEY_REFUSAL = 'a "press" step needs key, such as "Enter"'
 export const MARK_REFUSAL =
   'label "" is for a row the read printed with no name, and the step carries as mark the class tokens the '
   + `read printed for that row: ${MARK_EXAMPLE}. A row printed with neither a name nor class tokens gives a `
-  + 'step nothing to copy; for an element the page gives a name, a step passes that name as label'
+  + 'step nothing to copy; an element a read printed a name for is named by that name as label'
 
 /** Refusal for a mark carrying the listing's own punctuation rather than the tokens inside it. */
 export const MARK_PRINTED_REFUSAL =

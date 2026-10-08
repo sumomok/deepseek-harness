@@ -90,7 +90,7 @@ describe('what the model reads when a call is refused before it runs', () => {
       + 'the read printed for that row: where the read printed e7 clickable {class: row-action danger}, pass '
       + 'ref "e7", label "" and mark "row-action danger" — the tokens alone, without the braces and without '
       + 'the "class:" printed in front of them. A row printed with neither a name nor class tokens gives a '
-      + 'step nothing to copy; for an element the page gives a name, a step passes that name as label',
+      + 'step nothing to copy; an element a read printed a name for is named by that name as label',
       'mark is the class tokens themselves, not the whole of what the read printed there: where the read '
       + 'printed e7 clickable {class: row-action danger}, pass ref "e7", label "" and mark "row-action '
       + 'danger" — the tokens alone, without the braces and without the "class:" printed in front of them',
