@@ -873,10 +873,10 @@ describe('an entry refused', () => {
     const result = await intake.replace([
       ...pairs.flat().map(version => entry('a-guide', version, 'stable')),
       entry('b-guide', '1', 'stable', {
-        extra: [{ path: 'notes/ﬁ.md', content: 'one' }, { path: 'notes/fi.md', content: 'two' }],
+        extra: [{ path: 'notes/\ufb01.md', content: 'one' }, { path: 'notes/fi.md', content: 'two' }],
       }),
       entry('c-guide', '1', 'stable', {
-        extra: [{ path: 'notes/ı.md', content: 'one' }, { path: 'notes/I.md', content: 'two' }],
+        extra: [{ path: 'notes/\u0131.md', content: 'one' }, { path: 'notes/I.md', content: 'two' }],
       }),
       entry('d-guide', '1', 'stable'),
     ])
