@@ -26,6 +26,7 @@ import type {
   SessionHeader,
   SessionId,
 } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {
   ProjectionCheckpoint,
   ProjectionSnapshot,
@@ -98,8 +99,9 @@ interface DirtyState {
  * (count/interval triggers from {@link Config}) plus three mandatory points —
  * session creation, `turn/end`, and session disposal (the live-to-cold
  * moment) — and serves the
- * cached rows for a session header. Every durable write is fail-soft:
- * failures log a warning and the cache self-heals on the next write.
+ * cached rows for a session header. A `session-persistence/relocated` event
+ * rebinds the moved session's record to its new cwd. Every durable write is
+ * fail-soft: failures log a warning and the cache self-heals on the next write.
  */
 export class SessionProjectionCache extends Service {
   static inject = ['storageDomain', 'sessionProjections', 'sessions']
@@ -113,12 +115,30 @@ export class SessionProjectionCache extends Service {
     super(ctx, 'sessionProjectionCache')
   }
 
-  /** Open the domain and install the write-behind listeners. */
+  /** Open the domain and install the write-behind and relocation listeners. */
   protected async [Service.init](): Promise<void> {
     const domain = await this.ctx.storageDomain.open(projectionCacheDomainSpec)
     this.ctx.effect(() => () => domain.close(), 'sessionProjectionCache.domainClose')
     this.table = domain.table('sessions')
     this.installWritePath()
+    this.ctx.on('session-persistence/relocated', (id, previous, current) => {
+      void this.rekey(id, previous, current.header).catch((error: unknown) => {
+        this.ctx.logger.warn(`session projection cache: re-keying relocated "${id}" failed (cache stays stale): ${String(error)}`)
+      })
+    })
+  }
+
+  /**
+   * Bind a relocated session's record to its new cwd. A record whose
+   * lifecycle (`createdAt`, `cwd`, `isSeeded`) matches the header before the
+   * move, at the current or a predecessor format generation, keeps its rows:
+   * relocation leaves every event unchanged.
+   */
+  private async rekey(id: SessionId, previous: SessionHeader, current: SessionHeader): Promise<void> {
+    const table = this.requireTable()
+    const record = table.get(id)
+    if (record === undefined || !lifecycleIdentityMatches(record.identity, lifecycleIdentityOf(previous))) return
+    await table.put(id, { identity: { ...record.identity, cwd: current.cwd }, rows: record.rows })
   }
 
   /**

@@ -2,6 +2,7 @@
 
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
+import type { Branded } from '@deepseek-ai/dsh-brand'
 import { Deque } from '@deepseek-ai/dsh-deque'
 import { RemoteError, remoteErrorOf, type PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import WebSocket, { WebSocketServer, type RawData } from 'ws'
@@ -37,7 +38,30 @@ type BoundStreamOpener = (
 /** Convert an invocation or carrier failure to a stable wire value. */
 export type RemoteStreamFailureMapper = (error: unknown) => RemoteStreamFailure
 
+/** Host-minted identity of one accepted Remote stream WebSocket; it never crosses the wire. */
+export type RemoteSocketId = Branded<'RemoteSocketId'>
+
+/** Receives each accepted socket's start and end of speaking for its Peer. */
+export interface RemoteSocketObserver {
+  /**
+   * The socket is bound to its Peer and begins serving logical streams.
+   * @param peer - Peer admitted at upgrade.
+   * @param socketId - identity repeated by the matching {@link closed} call.
+   */
+  opened(peer: PeerScope, socketId: RemoteSocketId): void
+
+  /**
+   * The socket has closed and every logical stream it carried has finished.
+   * @param peer - Peer admitted at upgrade.
+   * @param socketId - identity given to {@link opened}.
+   */
+  closed(peer: PeerScope, socketId: RemoteSocketId): void
+}
+
 const MAX_MISSED_HEARTBEATS = 2
+
+/** Process-wide count of accepted sockets, so socket ids stay distinct across mux instances. */
+let acceptedSockets = 0
 
 /** Own the no-server WebSocket acceptor and every active logical stream. */
 export class RemoteStreamMuxServer {
@@ -51,18 +75,23 @@ export class RemoteStreamMuxServer {
    * @param failure - Gateway error-to-wire mapper.
    * @param heartbeatIntervalMs - interval between WebSocket Ping control frames.
    * @param streamInboxBytes - buffered uplink frame bytes one logical stream may hold before it fails.
+   * @param sockets - optional observer of each accepted socket's binding to its Peer.
    */
   constructor(
     private readonly open: RemoteStreamOpener,
     private readonly failure: RemoteStreamFailureMapper,
     private readonly heartbeatIntervalMs: number,
     private readonly streamInboxBytes: number,
+    private readonly sockets?: RemoteSocketObserver,
   ) {}
 
   /**
    * Upgrade one admitted request and begin serving its logical streams. Every
    * stream the socket opens speaks for the Peer admitted at upgrade, and the
-   * socket closes when that Peer's scope is disposed.
+   * socket closes with 1001 when that Peer's scope is disposed. The observer
+   * hears `opened` once the socket is bound to the Peer and `closed` after the
+   * socket and its streams have finished; a Peer already disposed at upgrade
+   * closes the socket without either call.
    * @param req - authenticated HTTP upgrade request.
    * @param socket - carrier socket transferred to the WebSocket server.
    * @param head - bytes already read after the HTTP upgrade headers.
@@ -72,6 +101,9 @@ export class RemoteStreamMuxServer {
     this.server.handleUpgrade(req, socket, head, (websocket) => {
       const release = bindPeer(websocket, peer)
       if (release === undefined) return
+      acceptedSockets += 1
+      const socketId = `remote-socket-${String(acceptedSockets)}` as RemoteSocketId
+      this.sockets?.opened(peer, socketId)
       this.missedHeartbeats.set(websocket, 0)
       websocket.on('pong', () => { this.missedHeartbeats.set(websocket, 0) })
       this.startHeartbeat()
@@ -83,6 +115,7 @@ export class RemoteStreamMuxServer {
       void done.then(() => {
         this.connections.delete(done)
         void release()
+        this.sockets?.closed(peer, socketId)
       })
     })
   }

@@ -86,6 +86,7 @@ await ctx.sessionPersistence.flush()                           // backend-wide d
 - **持久性。** `append` 尽力而为地持久化；`flush`——逐句柄或服务级——是承诺存储并同时把空会话实体化的屏障。
 - **遇到未知或无效格式时拒绝读取。** `validateStoredEvents` 拒绝未知事件词汇与已废弃的预发布形态；`assertVersion` 拒绝外来格式版本。
 - **每个后端实例单写者。** 提供方的进程内认领在 `create`/`open('write')` 时取得，在句柄关闭时释放。
+- **可选的 relocate。** 后端可以实现 `relocate(id, cwd)`：把已存会话移到另一个 cwd 对应的存储位置，只替换 header 的 cwd，id、谱系、inherited cut、事件与 seq 都不变。会话被写句柄或 pending create 占用时拒绝；已存 cwd 已等于 `cwd` 时不做任何改动；释放写所有权后用 `ctx.parallel` 分发 `session-persistence/relocated`，等所有监听器结束后才返回；抛错或拒绝的监听器记一条警告，不影响其他监听器，搬迁仍然成功。恢复中断的搬迁时不发该事件。读句柄可以保持打开：会话在两个位置之间不存在时，`open` 与访问存储的句柄读取以 `SessionPersistenceNotFoundError` 拒绝；在搬迁前一刻已定位到旧位置的 `open` 或读取会重新定位会话。调用方先判断 `typeof ctx.sessionPersistence.relocate === 'function'`。
 
 ### 源码地图
 
@@ -148,7 +149,7 @@ seam 不添加提示词或 schema。恢复会将已存储的表层事件还原�
 - **seam 只保证单个后端实例内的写所有权**——跨进程排他由具体提供方负责。随产品交付的 JSONL 提供方通过内核锁在不同实例和进程之间提供租约；其他提供方必须记录等效保证，或要求部署方阻止并发写入。
 - **在有活跃会话时重载后端插件会使其写入器明确报错**——重载后的后端无法服务旧实例签发的句柄；写入会持续失败直到会话重启，没有任何机制静默重新接管日志。
 - **只有通过句柄获取的会话才会持久化**——仅靠 `ctx.sessions.create` + `session/flush` 不存储任何内容；agent-loop 是生产环境的获取点，测试通过 `create`/`append`/`close` 写入初始存储数据。
-- **无删除或保留接口**——剪枝已存储会话属于带外后端维护。
+- **无删除或保留接口**——剪枝已存储会话属于带外后端维护；`relocate` 移动会话，不是删除。
 - **`list()` 无分页且无过滤**——它返回每个已存储会话的快照；适合本地存储，大规模时无索引。
 - **合成 closer 是唯一崩溃方案**——恢复通过写句柄追加 `interruptedTurnClosers`；没有继续中断轮次而不先关闭它的部分轮次恢复。
 

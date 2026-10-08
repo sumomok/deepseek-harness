@@ -837,7 +837,9 @@ describe('Typert Remote streams', () => {
     const pending = iterator.next()
     abort.abort(new Error('fixture cancellation'))
     await expect(pending).rejects.toThrow('Remote invocation "feed/follow" was aborted')
-    expect(service.signals).toEqual([abort.signal])
+    // A stream method's signal joins the carrier's with the one the Gateway aborts when `remote/invoke` fails the call.
+    expect(service.signals).toHaveLength(1)
+    expect(service.signals[0]?.reason).toBe(abort.signal.reason)
     expect(service.returns).toBe(1)
 
     await expect(collect(await ctx.typertGateway.stream({

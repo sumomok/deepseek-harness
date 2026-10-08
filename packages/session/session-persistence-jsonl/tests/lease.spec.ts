@@ -14,7 +14,7 @@
 import { existsSync } from 'node:fs'
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { SESSION_FORMAT_VERSION, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
@@ -47,6 +47,14 @@ const refuse = vi.hoisted(() => ({
   swapLockOnStat: 0,
   /** Next lock-path stat: unlink the file first, so the verify read finds nothing. */
   dropLockOnStat: false,
+  /**
+   * Next open of a lock file fails EINVAL, as APFS reports an `open(O_CREAT)`
+   * racing the removal of its directory: after removing that directory, or
+   * with the directory left in place.
+   */
+  einvalLockOpen: undefined as undefined | 'removing' | 'keeping',
+  /** Next stat of this path fails EACCES. */
+  deniedStat: undefined as string | undefined,
 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -61,10 +69,20 @@ vi.mock('node:fs/promises', async (importOriginal) => {
         refuse.lockOpen = false
         denied('open')
       }
+      const einval = refuse.einvalLockOpen
+      if (einval !== undefined && String(path).endsWith(LOCK)) {
+        refuse.einvalLockOpen = undefined
+        if (einval === 'removing') await actual.rm(dirname(String(path)), { recursive: true })
+        throw Object.assign(new Error('EINVAL: injected open refusal'), { code: 'EINVAL' })
+      }
       return (actual.open as (path: unknown, ...args: never[]) => Promise<unknown>)(path, ...rest)
     }) as typeof actual.open,
     stat: (async (path: unknown, ...rest: never[]) => {
       const at = String(path)
+      if (at === refuse.deniedStat) {
+        refuse.deniedStat = undefined
+        denied('stat')
+      }
       if (at.endsWith(LOCK)) {
         if (refuse.lockStat) {
           refuse.lockStat = false
@@ -111,6 +129,8 @@ afterEach(async () => {
   refuse.lockStat = false
   refuse.swapLockOnStat = 0
   refuse.dropLockOnStat = false
+  refuse.einvalLockOpen = undefined
+  refuse.deniedStat = undefined
   for (const ctx of contexts.splice(0)) await ctx.fiber.dispose()
   for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
 })
@@ -415,6 +435,21 @@ describe('cross-process write lock', () => {
     const successor = await SessionWriteLease.acquire(dir, SessionId('solo'))
     await successor.release()
     expect(existsSync(join(dir, LOCK))).toBe(true)
+  })
+
+  it.skipIf(process.platform === 'win32')('reports an EINVAL lock-file creation in a removed directory as that directory\'s ENOENT', async () => {
+    const root = await freshRoot()
+    const dir = join(root, 'raced')
+    refuse.einvalLockOpen = 'removing'
+    await expect(SessionWriteLease.acquire(dir, SessionId('raced'))).rejects.toMatchObject({ code: 'ENOENT', path: dir })
+    // The directory exists, or cannot be inspected: the EINVAL stands.
+    refuse.einvalLockOpen = 'keeping'
+    await expect(SessionWriteLease.acquire(dir, SessionId('raced'))).rejects.toMatchObject({ code: 'EINVAL' })
+    refuse.einvalLockOpen = 'keeping'
+    refuse.deniedStat = dir
+    await expect(SessionWriteLease.acquire(dir, SessionId('raced'))).rejects.toMatchObject({ code: 'EINVAL' })
+    const lease = await SessionWriteLease.acquire(dir, SessionId('raced'))
+    await lease.release()
   })
 
 

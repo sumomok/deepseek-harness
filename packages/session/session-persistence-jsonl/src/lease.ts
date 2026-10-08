@@ -15,14 +15,29 @@
  * verifies the locked inode is still the file at the lock path and retries
  * otherwise: an unlinked-and-recreated lock file carries a fresh inode, and
  * a lock on the orphaned one proves nothing. Removing a live session's lock
- * file therefore forfeits exclusion on POSIX (nothing in the harness does
- * so); Windows has no lock file at all. Readers never touch the lock.
+ * file therefore forfeits exclusion on POSIX; Windows has no lock file at
+ * all. Readers never touch the lock.
  * The lock is acquired at write-open of an existing artifact and, for a
  * created session, only right before its first materializing write — an
  * unmaterialized session has no filesystem footprint. Release never removes
  * the POSIX lock file: every acquired lock belongs to a materialized or
  * materializing session, and the surviving file keeps the stable inode later
- * lockers verify against. The browser worker stubs the native flock entry to
+ * lockers verify against. Only a holder of the lock removes one, and only to
+ * remove the session directory with it: a relocation retiring its source
+ * directory after publishing the session at its target, and the relocation,
+ * recovery, startup cleanup, and write-open paths that discard a directory
+ * holding nothing but the lock file (a target that a failed or rolled-back
+ * relocation created, a directory that a relocation which died before
+ * recording its intent left, or a directory the remover's own locking
+ * recreated). A writer that resolved a directory before its removal may then
+ * recreate it and lock a fresh file there, so a write open resolves the
+ * session again after locking; when the session no longer lives in the
+ * locked directory it discards the directory it recreated while still
+ * holding its lock, releases, and retries once. Precondition:
+ * every process that writes the root runs a build with this re-resolution. A
+ * write open in a build without it locks the recreated directory, then
+ * appends to the session at its new location while a writer there holds that
+ * location's lock. The browser worker stubs the native flock entry to
  * immediate success: it is single-process, so the in-process write claim
  * already excludes every writer.
  * @module @deepseek-ai/dsh-session-persistence-jsonl/lease
@@ -52,6 +67,27 @@ function isLockContention(error: unknown): boolean {
 }
 
 /**
+ * Open the lock file, creating it. On macOS APFS an `open(O_CREAT)` that
+ * races the removal of its directory fails with EINVAL far more often than
+ * with ENOENT (three runs of 20 000 races: 1526, 854, and 1307 EINVAL against
+ * 11, 9, and 8 ENOENT), so an EINVAL while the directory no longer exists
+ * rejects with that directory's ENOENT, the error callers handle as a
+ * removed directory. An EINVAL while the directory exists, or a failure to
+ * inspect it, rejects with the EINVAL.
+ */
+async function openLockFile(path: string, dir: string): Promise<FileHandle> {
+  try {
+    return await open(path, 'w')
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException | null)?.code !== 'EINVAL') throw error
+    await stat(dir).catch((inspection: unknown) => {
+      throw (inspection as NodeJS.ErrnoException | null)?.code === 'ENOENT' ? inspection : error
+    })
+    throw error
+  }
+}
+
+/**
  * One held write lock. Constructed only by {@link SessionWriteLease.acquire};
  * `release` closes the descriptor or handle, which is what releases the lock.
  */
@@ -66,6 +102,8 @@ export class SessionWriteLease {
    * @param id - the session the lock guards, for error identities.
    * @returns the held lock.
    * @throws {SessionAlreadyOwnedError} while another holder keeps the lock.
+   * @throws an ENOENT error on POSIX when the directory is removed while the
+   *   lock file is created; Windows creates no lock file.
    */
   static async acquire(dir: string, id: SessionId): Promise<SessionWriteLease> {
     const path = join(dir, LEASE_FILENAME)
@@ -88,7 +126,7 @@ export class SessionWriteLease {
     // Bounded retry: locking an inode a releasing creator just unlinked (or a
     // recreated path) re-opens the fresh file; steady state needs one pass.
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const handle = await open(path, 'w')
+      const handle = await openLockFile(path, dir)
       try {
         try {
           await tryLockExclusive(handle.fd)
@@ -116,8 +154,8 @@ export class SessionWriteLease {
   }
 
   /**
-   * Release the kernel lock by closing its descriptor or handle. The POSIX
-   * lock file is never removed: every acquired lock belongs to a
+   * Release the kernel lock by closing its descriptor or handle. Release
+   * never removes the POSIX lock file: every acquired lock belongs to a
    * materialized or materializing session, and keeping the file preserves
    * the stable inode later lockers verify against. Idempotent.
    */

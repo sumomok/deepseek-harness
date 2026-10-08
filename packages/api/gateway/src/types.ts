@@ -4,7 +4,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
+import type { InvocationDescriptor, PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import type { RemoteEventHostInfo } from './stream-protocol.ts'
 
 /** One Remote method request after a carrier has decoded its envelope. */
@@ -25,6 +25,38 @@ export interface InvokeRemoteRequest {
   /** Carrier or direct-caller cancellation injected only into cancellation-aware methods. */
   readonly signal?: AbortSignal
 }
+
+/**
+ * One Remote call as `remote/invoke` listeners see it: its descriptor has
+ * resolved and its arguments are not yet validated.
+ */
+export interface RemoteInvokeCall {
+  /** Canonical `<namespace>/<method>` endpoint. */
+  readonly endpoint: string
+  /**
+   * Entry point of the call: `unary` for `invoke()` and the `/api` RPC carrier, `stream` for `stream()` and the
+   * stream carriers. A method whose descriptor has the other mode fails inside `next()` with `gateway/signature-invalid`.
+   */
+  readonly mode: 'unary' | 'stream'
+  /** Peer the call speaks for: the Peer Connection admitted, or the operator for an in-process carrier that names none. */
+  readonly peer: PeerScope
+  /** Receiver selection: `direct`, or `context` with its Context kind and the wire field carrying its identity. */
+  readonly invocation: InvocationDescriptor['invocation']
+  /** Context projection of a direct call's sole lookup parameter; present only when the descriptor declares one. */
+  readonly scope?: InvocationDescriptor['scope']
+  /** Business parameters in order, each with its wire field, `json` or `lookup` source, and lookup key. */
+  readonly parameters: InvocationDescriptor['parameters']
+  /**
+   * Named wire values, unvalidated. A listener may assign a replacement before calling `next()`; `next()`
+   * validates and passes on whatever this field holds when it runs.
+   */
+  args: Readonly<Record<string, unknown>>
+}
+
+/** What `next()` of `remote/invoke` produced: a unary business result, or the stream the carrier delivers. */
+export type RemoteInvokeOutcome =
+  | { readonly kind: 'value'; readonly value: unknown }
+  | { readonly kind: 'stream'; readonly source: AsyncIterable<unknown> }
 
 /** One Host Cordis notification forwarded unchanged to Client Remote subscribers. */
 export interface TypertRemoteEventFrame {
@@ -121,6 +153,7 @@ export type TypertGatewayErrorCode =
   | 'gateway/context-not-found'
   | 'gateway/context-unavailable'
   | 'gateway/definition-unavailable'
+  | 'gateway/forbidden'
   | 'gateway/input-invalid'
   | 'gateway/invocation-unavailable'
   | 'gateway/lookup-failed'
@@ -170,6 +203,14 @@ export interface TypertGateway {
    * @returns a cancellation-aware iterable over the business results.
    */
   stream(request: InvokeRemoteRequest): Promise<AsyncIterable<unknown>>
+
+  /**
+   * List the method endpoints the `/api` carrier claims: every live strict definition and every SRC
+   * marker on an active Service, each a `<namespace>/<method>` the carrier accepts. The carrier also
+   * claims `$events/result` and withdrawn strict endpoints, which no method serves; neither is listed.
+   * @returns sorted endpoints, read from the registry and Services at call time.
+   */
+  claimedEndpoints(): readonly string[]
 }
 
 declare module '@deepseek-ai/cordis' {
