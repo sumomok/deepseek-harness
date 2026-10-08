@@ -14,6 +14,7 @@ import {
   catalogAction,
   catalogEntry,
   COMPONENT_KIT_ENTRIES,
+  COMPONENT_KIT_VIEW_ENTRIES,
   DATA_PAGE_ID,
   DATA_PAGE_QUERY_ID,
   describeCatalog,
@@ -37,6 +38,8 @@ import {
   type ComponentCallFailure,
 } from '../src/validate.ts'
 import { KIT_CATALOG, KIT_VIEW_CATALOG } from './kit-catalog.client.ts'
+import { CRUD_VIEW } from './crud-view.client.ts'
+import { probeDataSourceSpec, readDataSourceBlocks, resolveDataSourceTargets } from '../src/data-source.ts'
 
 /** One accepted confirmation bar, the shape every rejection case starts from. */
 function confirmBar(props: Record<string, unknown> = { buttons: [{ id: 'ok', label: '确认' }] }): Record<string, unknown> {
@@ -637,5 +640,51 @@ describe('refusing a block only a view places', () => {
     const spec = { nodes: [confirmBar(), { id: 'form', component: FORM_PAGE_ID, props: { bogus: 1 } }] }
     expect(validateComponentCall(KIT_VIEW_CATALOG, call(spec))).toMatchObject({ ok: false, failure: { path: 'spec.nodes[1].props.bogus' } })
     expect(refuseViewPlaced(KIT_VIEW_CATALOG, spec)).toEqual(placedByViews(1))
+  })
+})
+
+describe('the components a call is judged for placement on', () => {
+  // The tool judges placement once, on the spec as the call wrote it, and not
+  // again on the spec validation accepts. That covers the accepted spec only
+  // while neither validation nor the data source's stand-in spec gives a node
+  // a component other than the one written; a rewrite (a normalised or aliased
+  // id) fails here first, and the second judgement belongs back after it.
+  /** The component of every node of a spec, in order, as a new list. */
+  function components(spec: unknown): readonly unknown[] {
+    return (spec as { nodes: readonly { component: unknown }[] }).nodes.map(node => node.component)
+  }
+
+  it.each([...COMPONENT_KIT_ENTRIES, ...COMPONENT_KIT_VIEW_ENTRIES].map(entry => [entry.id, entry] as const))(
+    'are the ones written, for a %s node validation accepts',
+    (id, entry) => {
+      const written = { nodes: [{ id: 'n1', component: id, props: sampleProps(entry.propsSchema) }] }
+      const before = components(written)
+      const result = validateComponentCall(KIT_VIEW_CATALOG, call(written))
+      if (!result.ok) throw new Error(result.failure.text)
+      expect(components(result.call.spec)).toEqual(before)
+    },
+  )
+
+  it('are the ones written, for a view of several blocks validation accepts', () => {
+    const before = components(CRUD_VIEW)
+    const result = validateComponentCall(KIT_VIEW_CATALOG, call(CRUD_VIEW))
+    if (!result.ok) throw new Error(result.failure.text)
+    expect(components(result.call.spec)).toEqual(before)
+  })
+
+  it('gain none in the stand-in spec a data source is judged on', () => {
+    const written = {
+      nodes: [
+        { id: 'rows', component: TABLE_ID, props: {} },
+        { id: 'form', component: FORM_PAGE_ID, props: { relatedMeta: 'SpaceLayer' } },
+      ],
+    }
+    const blocks = readDataSourceBlocks([{ nodeId: 'rows', meta: 'SpaceLayer', metaLabel: '图层配置' }], 200)
+    if (!blocks.ok) throw new Error(blocks.failure.text)
+    const resolved = resolveDataSourceTargets(blocks.blocks, written)
+    if (!resolved.ok) throw new Error(resolved.failure.text)
+    // Taken before the stand-in is built, which hands unfilled nodes through as the very objects written.
+    const before = components(written)
+    expect(components(probeDataSourceSpec(written, resolved.nodes, resolved.targets))).toEqual(before)
   })
 })
