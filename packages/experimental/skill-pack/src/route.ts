@@ -11,9 +11,9 @@
  * organization entry's channel, refusal reasons, and the last delivery's
  * archive names, set, result and time, and nothing else: no file contents, no
  * paths inside the pack, no configuration. A delivery refusal's reason names
- * the archive entry it refused, and writes the pack root and the delivery
- * directory as `<pack root>` and `<delivery directory>`, so a path the file
- * system failed on inside either is relative to it.
+ * the archive entry it refused, and writes the pack root, the directories
+ * above it and the delivery directory by placeholder, as
+ * `DeliveryRecord.reason` states.
  * @module @deepseek-ai/dsh-experimental-skill-pack/src/route
  */
 

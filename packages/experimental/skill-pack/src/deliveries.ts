@@ -19,7 +19,7 @@
  */
 
 import { readdir, readFile, realpath, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 import { PACK_ARCHIVE_EXTENSION, readPackArchive } from './archive.ts'
 import { syncPackRoot, type VerifyStagedPacks } from './install.ts'
 import type { DeliveryRecord, PackArchiveLimits, PackSetIdentity } from './types.ts'
@@ -98,6 +98,21 @@ interface HiddenDirectories {
   readonly directory: string
 }
 
+/** One way a file-system error can spell a hidden directory, and what the record writes in its place. */
+interface Spelling {
+  /** The directory's absolute path, as configured or as its real path. */
+  readonly path: string
+  /** What the record writes where a path begins with this one. */
+  readonly placeholder: string
+}
+
+/**
+ * A letter, a digit, one of `_.~-`, or a path separator: a character a path
+ * continues through, so a spelling right after one is the tail of a longer
+ * name rather than the start of a path.
+ */
+const PATH_CHARACTER = /[\p{L}\p{N}_.~/\\-]/u
+
 /**
  * Report one refusal's line as it is, and record it with the pack root and
  * the delivery directory hidden.
@@ -121,20 +136,40 @@ async function recordRefusal(
 }
 
 /**
- * One line with every spelling of the pack root and the delivery directory
- * replaced by its placeholder. Each is spelled as configured and as its real
- * path, and a longer spelling is replaced before a shorter one, so a path
- * that begins with another one's spelling is still named by its own.
+ * One line with every path that begins with the pack root, a directory above
+ * it, or the delivery directory written from its placeholder on.
+ *
+ * Installing creates whichever directories above the pack root are missing,
+ * so a failure there names one of them; nothing creates or reads a directory
+ * above the delivery directory, so those are left as they are.
  * @param line - the line as the process log carries it.
  * @param hidden - the directories to replace.
- * @returns the line with neither directory's path in it.
+ * @returns the line with each path that begins with one of those directories written from its placeholder on.
  */
 async function hideDirectories(line: string, hidden: HiddenDirectories): Promise<string> {
-  const spellings = [
-    ...await spellingsOf(hidden.root, '<pack root>'),
-    ...await spellingsOf(hidden.directory, '<delivery directory>'),
-  ].sort((left, right) => right.path.length - left.path.length)
-  return spellings.reduce((text, { path, placeholder }) => text.replaceAll(path, placeholder), line)
+  const spellings = (await Promise.all([
+    spellingsOf(hidden.root, '<pack root>'),
+    ...ancestorsOf(hidden.root).map(({ path, placeholder }) => spellingsOf(path, placeholder)),
+    spellingsOf(hidden.directory, '<delivery directory>'),
+  ])).flat()
+  return writePlaceholders(line, spellings.sort((left, right) => right.path.length - left.path.length))
+}
+
+/**
+ * Every directory above the pack root short of the file-system root, which
+ * every absolute path begins with and no install creates.
+ * @param root - the pack root's absolute path as configured.
+ * @returns its parent as `<pack root>/..`, that directory's parent as `<pack root>/../..`, and so on,
+ *   with the host's path separator.
+ */
+function ancestorsOf(root: string): Spelling[] {
+  const ancestors: Spelling[] = []
+  let placeholder = '<pack root>'
+  for (let path = dirname(root); dirname(path) !== path; path = dirname(path)) {
+    placeholder += `${sep}..`
+    ancestors.push({ path, placeholder })
+  }
+  return ancestors
 }
 
 /**
@@ -143,16 +178,47 @@ async function hideDirectories(line: string, hidden: HiddenDirectories): Promise
  * @param placeholder - what the record writes in its place.
  * @returns the configured path, and its real path where it resolves.
  */
-async function spellingsOf(path: string, placeholder: string): Promise<{ path: string; placeholder: string }[]> {
+async function spellingsOf(path: string, placeholder: string): Promise<Spelling[]> {
   let real: string
   try {
     real = await realpath(path)
   } catch (_unresolved) {
-    // A pack root not yet installed, or a directory removed since it was
-    // listed, has no real path, so no error names one.
+    // A pack root not yet installed, a directory above it not yet created,
+    // or a directory removed since it was listed has no real path, so no
+    // error names one.
     return [{ path, placeholder }]
   }
   return [{ path, placeholder }, { path: real, placeholder }]
+}
+
+/**
+ * Write each spelling's placeholder in one pass over the line, wherever a
+ * path begins with that spelling.
+ *
+ * Where several spellings begin at one place the first, which is the longest,
+ * is written, so a path that begins with another one's spelling is named by
+ * its own. A place right after a character a path continues through is inside
+ * a longer name, such as a pack-relative path naming a directory the way a
+ * directory above the pack root is named, and keeps its text.
+ * @param line - the line as the process log carries it.
+ * @param spellings - every spelling to hide, longest first.
+ * @returns the line with each of those paths written from its placeholder on.
+ */
+function writePlaceholders(line: string, spellings: readonly Spelling[]): string {
+  let written = ''
+  let from = 0
+  let at = 0
+  while (at < line.length) {
+    const spelling = PATH_CHARACTER.test(line.charAt(at - 1)) ? undefined : spellings.find(({ path }) => line.startsWith(path, at))
+    if (spelling === undefined) {
+      at += 1
+    } else {
+      written += line.slice(from, at) + spelling.placeholder
+      at += spelling.path.length
+      from = at
+    }
+  }
+  return written + line.slice(from)
 }
 
 /**

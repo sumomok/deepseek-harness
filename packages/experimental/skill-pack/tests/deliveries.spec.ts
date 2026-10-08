@@ -3,14 +3,15 @@
  * reports and records, and what it leaves the pack root as when it names none,
  * names two, names one this deployment will not read or will not draw, or
  * names one while the pack root or the archive cannot be read; how a refusal
- * record names the pack root and the delivery directory; and which record the
- * status route keeps as reads follow one another.
+ * record names the pack root, the directories above it and the delivery
+ * directory; and which record the status route keeps as reads follow one
+ * another.
  */
 
 import { createHash } from 'node:crypto'
 import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { zipSync } from 'fflate'
 import { afterEach, describe, expect, it } from 'vitest'
 import { buildPackArchive, PACK_ARCHIVE_FORMAT, PACK_ARCHIVE_MANIFEST } from '../src/archive.ts'
@@ -43,21 +44,23 @@ interface DeploymentOptions {
   readonly limits?: typeof LIMITS
   /** Whether the delivery directory exists before the first read. */
   readonly create?: boolean
-  /** The delivery directory's name beside the pack root `packs`. */
+  /** The delivery directory's name in the directory the deployment is in. */
   readonly deliveries?: string
+  /** The pack root's path below the directory the deployment is in. */
+  readonly root?: string
   /** Configure both directories through a symbolic link to the directory they are in, so neither path is its real path. */
   readonly linked?: boolean
 }
 
-async function deployment({ limits = LIMITS, create = true, deliveries = 'deliveries', linked = false }: DeploymentOptions = {}): Promise<Deployment> {
+async function deployment({ limits = LIMITS, create = true, deliveries = 'deliveries', root: below = 'packs', linked = false }: DeploymentOptions = {}): Promise<Deployment> {
   const world = await mkdtemp(join(tmpdir(), 'dsh-skill-pack-deliveries-'))
   worlds.push(world)
   let base = world
   if (linked) {
     base = join(world, 'via')
-    await symlink(world, base, 'junction')
+    await symlink(world, base, process.platform === 'win32' ? 'junction' : 'dir')
   }
-  const root = join(base, 'packs')
+  const root = join(base, below)
   const directory = join(base, deliveries)
   if (create) await mkdir(directory, { recursive: true })
   const reported: string[] = []
@@ -292,6 +295,73 @@ describe('reading the delivery directory', () => {
       at: '<at>',
     })
     expect(await readdir(one.root)).toEqual(['a'])
+  })
+
+  // Mode 555 denies creating an entry in a directory to a non-root owner on
+  // POSIX; Windows has no such permission bits, and root bypasses them.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('names a directory above the pack root it could not create relative to the pack root', async () => {
+    const one = await deployment({ root: join('ro', 'a', 'b', 'packs') })
+    const readOnly = join(one.world, 'ro')
+    await mkdir(readOnly)
+    await drop(one.delivery, 'v1.dshpack', [pack('a', 'A.')])
+
+    await chmod(readOnly, 0o555)
+    let record: unknown
+    try {
+      record = await readAt(one)
+    } finally {
+      await chmod(readOnly, 0o755)
+    }
+    // Installing creates the directories above the root, and the first it cannot create is two above it.
+    expect(lineOf(one.reported)).toBe(`skill-pack: v1.dshpack was not installed: Error: EACCES: permission denied, mkdir '${join(readOnly, 'a')}'`)
+    expect(record).toEqual({
+      result: 'refused',
+      archives: ['v1.dshpack'],
+      set: SET,
+      reason: 'skill-pack: v1.dshpack was not installed: Error: EACCES: permission denied, mkdir \'<pack root>/../..\'',
+      at: '<at>',
+    })
+    expect(JSON.stringify(record)).not.toContain(dirname(one.world))
+    expect(await readdir(readOnly)).toEqual([])
+  })
+
+  it('names the pack root and the delivery directory by placeholder every time a refusal names them', async () => {
+    const one = await deployment()
+    await drop(one.delivery, 'v1.dshpack', [pack('a', 'A.')])
+    const said = `staged ${join(one.root, 'a')} over ${one.root} from ${join(one.delivery.directory, 'v1.dshpack')} in ${one.delivery.directory}`
+
+    const record = await readAt(one, () => ({ pack: 'a', file: 'SKILL.md', reason: said }))
+    expect(lineOf(one.reported)).toBe(`skill-pack: v1.dshpack was not installed: PackInstallError: skill-pack: refused a/SKILL.md — ${said}`)
+    expect(record).toEqual({
+      result: 'refused',
+      archives: ['v1.dshpack'],
+      set: SET,
+      reason: 'skill-pack: v1.dshpack was not installed: PackInstallError: skill-pack: refused a/SKILL.md — '
+        + `staged ${join('<pack root>', 'a')} over <pack root> from ${join('<delivery directory>', 'v1.dshpack')} in <delivery directory>`,
+      at: '<at>',
+    })
+  })
+
+  it('keeps a pack path whole where a name in it is the name of a directory above the pack root', async () => {
+    const one = await deployment()
+    let top = one.root
+    while (dirname(dirname(top)) !== dirname(top)) top = dirname(top)
+    const view = `views/${basename(top)}.yml`
+    await drop(one.delivery, 'v1.dshpack', [{
+      name: 'b',
+      files: [
+        {
+          path: 'SKILL.md',
+          content: `---\nname: b\ndescription: d\nmetadata:\n  pack:\n    version: 1.0.0\n    viewFormat: 1\n  views: [${view}]\n---\nB.`,
+        },
+        { path: view, content: 'id: b\ntitle: B\nspec: []\nparams: {}\n' },
+      ],
+    }])
+
+    const record = await readAt(one, () => ({ pack: 'b', file: view, reason: 'names no component of this deployment' }))
+    const line = `skill-pack: v1.dshpack was not installed: PackInstallError: skill-pack: refused b/${view} — names no component of this deployment`
+    expect(lineOf(one.reported)).toBe(line)
+    expect(record).toEqual({ result: 'refused', archives: ['v1.dshpack'], set: SET, reason: line, at: '<at>' })
   })
 
   it('reads only the archives, so a note, a hidden file and a directory beside them say nothing', async () => {
