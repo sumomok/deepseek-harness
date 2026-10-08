@@ -18,7 +18,7 @@ import { cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import { isVisible, TAB_ID, useContentRead, type ContentReadSeat } from '../src/client/access/executor.ts'
-import { looksClickable } from '../src/client/access/dom.ts'
+import { looksClickable, rowMark } from '../src/client/access/dom.ts'
 import { itemName } from '../src/client/access/collect.ts'
 import { snapshot } from '../src/client/access/snapshot.ts'
 import { markup } from '../src/client/access/markup.ts'
@@ -525,9 +525,9 @@ describe('what stops a call', () => {
   })
 
   it('refuses a sprite drawing the page names, reached by an empty label and the class a markup tree printed, by saying what it is named', async () => {
-    // A markup tree prints a sprite drawing's `class` attribute alone, and the
-    // listing marks it by its class tokens and the symbol it points at, so a
-    // step copied out of the tree carries a mark the listing never printed.
+    // A markup tree prints a sprite drawing's `class` attribute alone, and a
+    // listing prints the name the page gives it, so a step copied out of the
+    // tree carries a mark the listing never printed.
     mount('<main><ul><li>'
       + '<svg id="sprite" class="svg-icon" aria-label="编辑"><use href="#icon-edit"></use></svg>'
       + '</li></ul></main>')
@@ -536,6 +536,10 @@ describe('what stops a call', () => {
     const tree = markup(doc(), request, options).text
     const drawing = /(e\d+) svg#sprite \{class: svg-icon\}/.exec(tree)?.[1] ?? ''
     expect(refs.resolve(drawing)).toBe(at('#sprite'))
+    expect(snapshot(doc(), { ...options, scope: refs.ref(at('li')) }).text).toBe(`${drawing} icon "编辑"`)
+    // The mark a listing prints in the name's place for a drawing the page
+    // names nothing, which the seat holds this one to besides its class tokens.
+    expect(rowMark(at('#sprite'))).toBe('svg-icon icon-edit')
     const clicked = listen(at('#sprite'), ['click'])
     const byTree = await run([{ action: 'click', ref: drawing, label: '', mark: 'svg-icon' }])
     expect(byTree.steps).toEqual([{

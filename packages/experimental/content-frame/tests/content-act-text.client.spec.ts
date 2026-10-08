@@ -86,9 +86,11 @@ describe('what the model reads when a call is refused before it runs', () => {
       'every step but "wait" needs ref, a ref like "e12" printed by an earlier read of this page',
       'every step but "wait" needs label, the element\'s name exactly as the read printed it, '
       + 'or "" for a row it printed with no name',
-      'a row the read printed with no name is named by its mark: where the read printed e7 clickable '
-      + '{class: row-action danger}, pass ref "e7", label "" and mark "row-action danger" — the tokens '
-      + 'alone, without the braces and without the "class:" printed in front of them',
+      'label "" is for a row the read printed with no name, and the step carries as mark the class tokens '
+      + 'the read printed for that row: where the read printed e7 clickable {class: row-action danger}, pass '
+      + 'ref "e7", label "" and mark "row-action danger" — the tokens alone, without the braces and without '
+      + 'the "class:" printed in front of them. A row printed with neither a name nor class tokens gives a '
+      + 'step nothing to copy; for an element the page gives a name, a step passes that name as label',
       'mark is the class tokens themselves, not the whole of what the read printed there: where the read '
       + 'printed e7 clickable {class: row-action danger}, pass ref "e7", label "" and mark "row-action '
       + 'danger" — the tokens alone, without the braces and without the "class:" printed in front of them',

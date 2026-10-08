@@ -111,9 +111,17 @@ export const SELECT_VALUE_REFUSAL = 'a "select" step needs value, the option\'s 
 /** Refusal for a `press` with no key named. */
 export const PRESS_KEY_REFUSAL = 'a "press" step needs key, such as "Enter"'
 
-/** Refusal for a step naming a row the read printed with no name and carrying no mark for it. */
+/**
+ * Refusal for a step carrying `label: ""` and no mark.
+ *
+ * It presumes no class on the element: the step may have been copied from a
+ * row the read printed with neither a name nor class tokens, such as a markup
+ * tree's `e3 button` for a button the page names in its `aria-label`.
+ */
 export const MARK_REFUSAL =
-  `a row the read printed with no name is named by its mark: ${MARK_EXAMPLE}`
+  'label "" is for a row the read printed with no name, and the step carries as mark the class tokens the '
+  + `read printed for that row: ${MARK_EXAMPLE}. A row printed with neither a name nor class tokens gives a `
+  + 'step nothing to copy; for an element the page gives a name, a step passes that name as label'
 
 /** Refusal for a mark carrying the listing's own punctuation rather than the tokens inside it. */
 export const MARK_PRINTED_REFUSAL =

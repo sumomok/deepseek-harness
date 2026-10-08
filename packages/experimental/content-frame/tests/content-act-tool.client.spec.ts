@@ -42,6 +42,13 @@ const STEPS: ActStep[] = [
   { action: 'click', ref: 'e5', label: '查询' },
 ]
 
+/** What a step carrying `label: ""` and no mark is refused with, after its step prefix. */
+const NO_MARK_REFUSAL = 'label "" is for a row the read printed with no name, and the step carries as mark the '
+  + 'class tokens the read printed for that row: where the read printed e7 clickable {class: row-action danger}, '
+  + 'pass ref "e7", label "" and mark "row-action danger" — the tokens alone, without the braces and without the '
+  + '"class:" printed in front of them. A row printed with neither a name nor class tokens gives a step nothing '
+  + 'to copy; for an element the page gives a name, a step passes that name as label'
+
 /** One whole report of steps that ran, as a browser seat posts it. */
 const DONE: ActOutcome = {
   status: 'done',
@@ -381,12 +388,7 @@ describe('what content_act refuses before anyone is asked', () => {
       [[{ action: 'click', ref: 'e5', label: 'x'.repeat(257) }], 'step 1: label must be at most 256 characters'],
       // A row the read printed with no name is named by the mark it printed
       // instead, and a row has one identity: a name or a mark, never both.
-      [
-        [{ action: 'click', ref: 'e5', label: '' }],
-        'step 1: a row the read printed with no name is named by its mark: where the read printed '
-        + 'e7 clickable {class: row-action danger}, pass ref "e7", label "" and mark "row-action danger" — '
-        + 'the tokens alone, without the braces and without the "class:" printed in front of them',
-      ],
+      [[{ action: 'click', ref: 'e5', label: '' }], `step 1: ${NO_MARK_REFUSAL}`],
       // The row as the listing printed it, copied whole into the field: what a
       // console's own log shows a model doing three times over.
       [
@@ -417,6 +419,20 @@ describe('what content_act refuses before anyone is asked', () => {
       expect({ steps, isError: result.isError, text: text(result) })
         .toEqual({ steps, isError: true, text: `Error: ${refusal}` })
     }
+  })
+
+  it('refuses the whole call over a step copied from a tree line naming a button by nothing, which the page names', async () => {
+    // `<button aria-label="查询">` carries no class, and a markup tree prints
+    // neither its name nor any class tokens for it: `e3 button`. The step
+    // copied out of that line carries label "" and no mark, and the call is
+    // refused before its first step runs or anyone is asked about it.
+    const { asked, pending, run } = await bench()
+    const { callId, settled } = run({ steps: [STEPS[0], { action: 'click', ref: 'e3', label: '' }] })
+    const result = await settled
+    expect({ isError: result.isError, text: text(result) })
+      .toEqual({ isError: true, text: `Error: step 2: ${NO_MARK_REFUSAL}` })
+    expect(asked).toEqual([])
+    expect(await pending.claim({ callId, tabId: TAB })).toEqual({ claimed: false, reason: 'unknown' })
   })
 
   it('asks about nothing it has already refused', async () => {

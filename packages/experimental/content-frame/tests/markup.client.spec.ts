@@ -96,6 +96,13 @@ describe('printing one subtree as it was written', () => {
     expect(read.cursor).toBeUndefined()
   })
 
+  it('prints a button the page names in its aria-label and gives no class by its tag alone', () => {
+    // A tree line carries what the markup holds as text and class, not the
+    // name the page gives the element.
+    const refs = page('<section id="bar"><button aria-label="查询"></button></section>')
+    expect(tree(refs, '#bar').text).toBe('e1 section#bar\n  e2 button')
+  })
+
   it('prints an element the listing would have dropped for being invisible', () => {
     const refs = page('<div id="host"><span class="ghost" data-hidden>gone</span></div>')
     expect(tree(refs, '#host').text).toBe('e1 div#host\n  e2 span {class: ghost} "gone"')
