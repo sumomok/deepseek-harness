@@ -18,6 +18,7 @@ import {
   DATA_PAGE_QUERY_ID,
   describeCatalog,
   FILTER_BAR_ID,
+  FORM_PAGE_ID,
   MAX_ENTRY_ID_LENGTH,
   MAX_NODES,
   MAX_SPEC_BYTES,
@@ -30,6 +31,7 @@ import {
 import {
   acceptsActionPayload,
   acceptsOutput,
+  refuseViewPlaced,
   validateComponentCall,
   validateComponentSpec,
   type ComponentCallFailure,
@@ -601,5 +603,39 @@ describe('a count declared whole', () => {
     // 2.5 matching, page 1.5` is a sentence about nothing a browser can be
     // showing. Refused rather than shrunk, because sending less does not fix it.
     expect(acceptsActionPayload(payload, queryCounts())).toBe('refused')
+  })
+})
+
+describe('refusing a block only a view places', () => {
+  /** The refusal of a form page at one position of the spec as written. */
+  const placedByViews = (index: number): ComponentCallFailure => ({
+    path: `spec.nodes[${index}].component`,
+    text: `show_component: spec.nodes[${index}].component — names toy.form-page, which is placed only by a view written `
+      + 'down for this deployment, never by a call.',
+    oversize: false,
+  })
+
+  it.each([
+    ['no spec', undefined],
+    ['a spec that is a string', 'nodes'],
+    ['a spec that is null', null],
+    ['a spec with no nodes', {}],
+    ['nodes that are no list', { nodes: { 0: { component: FORM_PAGE_ID } } }],
+    ['nodes naming no view-placed component', { nodes: [confirmBar(), { component: TABLE_ID }] }],
+  ])('passes over %s, left to validation to refuse', (_case, spec) => {
+    expect(refuseViewPlaced(KIT_VIEW_CATALOG, spec)).toBeUndefined()
+  })
+
+  it('reads past nodes of any other form to the first one naming such a component, at its index as written', () => {
+    // A node validation would refuse first is not one this judgement can read
+    // a component off, and the call is refused for the form page all the same.
+    const spec = { nodes: [null, 7, [FORM_PAGE_ID], { id: 'x' }, { component: 3 }, { component: 'toy.nosuch' }, { component: FORM_PAGE_ID }] }
+    expect(refuseViewPlaced(KIT_VIEW_CATALOG, spec)).toEqual(placedByViews(6))
+  })
+
+  it('refuses a block whose properties validation would refuse, before naming any of them', () => {
+    const spec = { nodes: [confirmBar(), { id: 'form', component: FORM_PAGE_ID, props: { bogus: 1 } }] }
+    expect(validateComponentCall(KIT_VIEW_CATALOG, call(spec))).toMatchObject({ ok: false, failure: { path: 'spec.nodes[1].props.bogus' } })
+    expect(refuseViewPlaced(KIT_VIEW_CATALOG, spec)).toEqual(placedByViews(1))
   })
 })

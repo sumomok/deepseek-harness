@@ -2991,10 +2991,10 @@ export function readByViewsOnly(output: ComponentOutput): boolean {
 /**
  * The blocks of one spec whose component only a view may place.
  *
- * Read off the validated spec by every place that decides what a call may put
- * on screen — the tool before it asks or records anything, and the extractor
- * deciding which logged record becomes an entry — so the two cannot disagree
- * about which specs only a view may carry.
+ * Read off the validated spec by the extractor deciding which logged record
+ * becomes an entry. The tool's refusal reads the same {@link placedOnlyByViews}
+ * off the spec a call wrote, so the two cannot disagree about which specs only
+ * a view may carry.
  * @param catalog - the components this deployment offers.
  * @param spec - the spec, as validation accepted it.
  * @returns those nodes, in the order the spec wrote them.

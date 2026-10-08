@@ -95,6 +95,9 @@ const CARD_BLOCK = { id: 'card', component: INFO_CARD_ID, props: { record: { $fr
 /** A form page on its own, reading nothing. */
 const LONE_FORM = { id: 'form', component: FORM_PAGE_ID, props: { relatedMeta: 'device' } }
 
+/** A table a `dataSource` read fills, naming the one column it wants. */
+const ROWS = { id: 'rows', component: 'toy.table', props: { tableConfig: { gridItems: [{ relatedMetaAttr: 'zh_label' }] } } }
+
 /**
  * What a refusal of a withheld component lists as offered: the kit's six less
  * the data page, the two view-placed blocks withheld with it.
@@ -562,12 +565,54 @@ describe('a block only a view places, sent in a call', () => {
       const result = await run({
         id: 'rows',
         title: '设备',
-        spec: { nodes: [{ id: 'rows', component: 'toy.table', props: { tableConfig: { gridItems: [{ relatedMetaAttr: 'zh_label' }] } } }, LONE_FORM] },
+        spec: { nodes: [ROWS, LONE_FORM] },
         dataSource: [{ nodeId: 'rows', meta: 'device', metaLabel: '设备' }],
       })
       expect(refusal(result)).toBe(placedByViews(1))
       expect(asked).toEqual([])
       expect(resolvedEvents(session)).toEqual([])
+    },
+  )
+
+  it.each([
+    ['an undeclared property', { relatedMeta: 'device', bogus: 1 }],
+    ['a request outside its form', { relatedMeta: 'device', request: { mode: 'delete', type: 'device' } }],
+  ] as const)('is refused for where it is placed, not for %s, on both paths', async (_case, props) => {
+    // Judged after its properties, the refusal would list what the component
+    // accepts, which no call has any use for.
+    const misspelled = { ...LONE_FORM, props }
+    for (const dataSource of [false, true]) {
+      const { asked, run } = await bench('allowed-once', { ...OPENING, dataSource }, KIT_VIEW_CATALOG)
+      const result = await run({
+        id: 'form',
+        title: '表单',
+        spec: { nodes: dataSource ? [ROWS, misspelled] : [misspelled] },
+        ...dataSource ? { dataSource: [{ nodeId: 'rows', meta: 'device', metaLabel: '设备' }] } : {},
+      })
+      expect(`${dataSource}: ${refusal(result)}`).toBe(`${dataSource}: ${placedByViews(dataSource ? 1 : 0)}`)
+      expect(asked).toEqual([])
+    }
+  })
+
+  it.each([
+    ['offers', OPENING, false],
+    ['does not offer', PLAIN, false],
+    ['offers', OPENING, true],
+    ['does not offer', PLAIN, true],
+  ] as const)(
+    'is refused beside the data page where the deployment %s it (reading a data source: %s), before the page\'s own refusals',
+    async (_case, options, dataSource) => {
+      // The page's own refusals would send the model to write a call that is
+      // refused again for the form page.
+      const { asked, run } = await bench('allowed-once', { ...options, dataSource }, KIT_VIEW_CATALOG)
+      const result = await run({
+        id: 'page',
+        title: '设备',
+        spec: { nodes: dataSource ? [ROWS, PAGE, FORM] : [PAGE, FORM] },
+        ...dataSource ? { dataSource: [{ nodeId: 'rows', meta: 'device', metaLabel: '设备' }] } : {},
+      })
+      expect(refusal(result)).toBe(placedByViews(dataSource ? 2 : 1))
+      expect(asked).toEqual([])
     },
   )
 

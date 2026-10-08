@@ -61,7 +61,6 @@ import {
   STACK_KEYS,
   TOKEN_CHARSET,
   TOKEN_HINT,
-  viewPlacedNodes,
   type ComponentBinding,
   type ComponentCall,
   type ComponentCallArguments,
@@ -1245,19 +1244,31 @@ export function validateComponentCall(catalog: ComponentCatalog, args: Component
  * written down for this deployment may place.
  *
  * Kept out of {@link validateComponentCall}, because a view is judged by that
- * same pass and is the one source allowed to place such a block. The tool runs
- * it on every accepted call before it asks the user anything or appends a
- * record of its own, and the sentence is the same whether or not the
- * deployment offers the component: either way a call cannot place it.
+ * same pass and is the one source allowed to place such a block. It reads the
+ * spec as the call wrote it, so the tool runs it before that pass, and again
+ * over the spec the pass accepted, on every call before it asks the user
+ * anything or appends a record of its own: judged after the pass, such a block
+ * would be refused for its properties first, in a sentence listing what the
+ * component accepts. A spec, a node or a component of any other form is passed
+ * over and left to the pass to refuse. The sentence is the same whether or not
+ * the deployment offers the component: either way a call cannot place it.
  * @param catalog - the components this deployment offers.
- * @param spec - the spec, as validation accepted it.
- * @returns the refusal, or `undefined` when every block is one a call may place.
+ * @param spec - the spec as the call wrote it, however malformed, or as validation accepted it.
+ * @returns the refusal, or `undefined` when no block names a component only a view places.
  */
-export function refuseViewPlaced(catalog: ComponentCatalog, spec: ComponentSpec): ComponentCallFailure | undefined {
-  const first = viewPlacedNodes(catalog, spec)[0]
-  if (first === undefined) return undefined
-  return refuse(
-    `spec.nodes[${spec.nodes.indexOf(first)}].component`,
-    `names ${first.component}, which is placed only by a view written down for this deployment, never by a call.`,
-  )
+export function refuseViewPlaced(catalog: ComponentCatalog, spec: unknown): ComponentCallFailure | undefined {
+  if (typeof spec !== 'object' || spec === null || !('nodes' in spec)) return undefined
+  const written: unknown = spec.nodes
+  if (!Array.isArray(written)) return undefined
+  const nodes: readonly unknown[] = written
+  for (const [index, node] of nodes.entries()) {
+    if (typeof node !== 'object' || node === null || !('component' in node)) continue
+    const entry = catalogEntry(catalog, node.component)
+    if (entry === undefined || !placedOnlyByViews(entry)) continue
+    return refuse(
+      `spec.nodes[${index}].component`,
+      `names ${entry.id}, which is placed only by a view written down for this deployment, never by a call.`,
+    )
+  }
+  return undefined
 }

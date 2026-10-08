@@ -703,6 +703,10 @@ async function runDataSource(
   written: unknown,
   exec: ToolRunContext,
 ): Promise<ShowComponentValue> {
+  // First, so a block no call may place is refused for that, whether or not
+  // this deployment offers it, and never for its properties.
+  const unplaceable = refuseViewPlaced(catalog, args.spec)
+  if (unplaceable !== undefined) throw new Error(unplaceable.text)
   const blocks = readDataSourceBlocks(written, options.defaultPageSize)
   if (!blocks.ok) throw new Error(blocks.failure.text)
   const resolved = resolveDataSourceTargets(blocks.blocks, args.spec)
@@ -717,9 +721,8 @@ async function runDataSource(
     spec: probeDataSourceSpec(args.spec, resolved.nodes, resolved.targets),
   })
   if (!judged.ok) throw new Error(judged.failure.text)
-  // Before the data page's own refusals, so a block no call may place is
-  // refused for that whether or not this deployment offers it.
   const placed = refuseViewPlaced(catalog, judged.call.spec)
+  /* v8 ignore next -- validation keeps each component as the call wrote it, which the first judgement passed */
   if (placed !== undefined) throw new Error(placed.text)
   // A data page is its own question: a call cannot put two on one card. A
   // deployment that does not offer the page refuses it by name instead, because
@@ -915,11 +918,16 @@ export function showComponentTool(
     execute(args, exec): Promise<ShowComponentValue> {
       const written: unknown = (args as { dataSource?: unknown }).dataSource
       if (options.dataSource && written !== undefined) return runDataSource(ctx, catalog, options, args, written, exec)
+      // Before validation, so a block no call may place is refused for that
+      // and never for its properties.
+      const unplaceable = refuseViewPlaced(catalog, args.spec)
+      if (unplaceable !== undefined) throw new Error(unplaceable.text)
       const result = validateComponentCall(catalog, args)
       // A refusal changes nothing: the panel keeps showing whatever it showed,
       // and the model gets the offending path back to correct itself.
       if (!result.ok) throw new Error(result.failure.text)
       const placed = refuseViewPlaced(catalog, result.call.spec)
+      /* v8 ignore next -- validation keeps each component as the call wrote it, which the first judgement passed */
       if (placed !== undefined) throw new Error(placed.text)
       const page = dataPageNodes(result.call.spec)[0]
       if (page === undefined) return Promise.resolve({ entryId: result.call.id, text: acceptedText(catalog, result.call) })
