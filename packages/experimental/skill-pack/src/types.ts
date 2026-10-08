@@ -356,9 +356,12 @@ export type IntakeResult =
   /** Every entry not in `refused` is installed and offered; no refused entry was written. */
   | { readonly kind: 'ok'; readonly refused: readonly IntakeRefusal[] }
   /**
-   * The new set is not offered: the offered organization set is the one
-   * offered before the call. The organization root is as it was too, except
-   * where the calling fiber or the row stopped while the set was being
+   * The new set is not offered. The set offered before the call stays
+   * offered while the fiber holding it is active; a fiber that stops
+   * withdraws the set it handed over, so where the calling fiber held that
+   * set and stopped, before or while the new set was written, or where the
+   * row stopped, no set is offered. The organization root is as it was,
+   * except where the calling fiber or the row stopped while the set was being
    * written; then the root already holds the new set, and a later call
    * handing over the same files writes nothing.
    */

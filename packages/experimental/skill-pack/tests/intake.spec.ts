@@ -1104,6 +1104,29 @@ describe('the calls themselves', () => {
     expect(await organizationStates(ctx)).toEqual(['layer-guide@2 active'])
   })
 
+  it('offers no set when the fiber holding the offered set stops while its next set is written', async () => {
+    const paths = await newWorld()
+    const ctx = await boot(paths)
+    const caller = await organization(ctx)
+    const watcher = await organization(ctx)
+    await caller.intake.replace([entry('layer-guide', '1', 'stable')])
+
+    const write = gate()
+    rootControl.gate = write.promise
+    const started = writeStarts()
+    const writing = caller.intake.replace([entry('layer-guide', '2', 'stable')])
+    await started
+    await caller.fiber.dispose()
+    write.open()
+    expect(await writing).toEqual({
+      kind: 'failed',
+      detail: 'skill-pack: the fiber that called replace stopped while the set was written; the organization root holds it, and it is not offered',
+    })
+    expect(watcher.intake.isActive('layer-guide', '1')).toBe(false)
+    expect(watcher.intake.isActive('layer-guide', '2')).toBe(false)
+    expect(await organizationStates(ctx)).toEqual([])
+    expect(await readdir(paths.organizationRoot)).toEqual(['layer-guide@2'])
+  })
 })
 
 describe('the lifetime of the offered set', () => {
