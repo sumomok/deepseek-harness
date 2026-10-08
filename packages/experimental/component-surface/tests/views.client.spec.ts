@@ -252,9 +252,10 @@ describe('a view placing a form page and an info card beside its data page', () 
   describe('reading the right value from the wrong place', () => {
     /**
      * A component a call may place that reports what it edits, whole and as a
-     * list, and what it opened, in the data page's own forms: no shipped
-     * component reports any of them, so this is the one way a binding of the
-     * right form on the wrong block reaches a view's judgement.
+     * list, a draft in the same form, and what it opened, in the data page's
+     * own forms: no shipped component reports any of them, so this is the one
+     * way a binding of the right form on the wrong block, or on the wrong
+     * output of the right block, reaches a view's judgement.
      */
     const EDITOR: ComponentCatalogEntry = {
       id: catalogId('toy.editor-probe'),
@@ -265,6 +266,7 @@ describe('a view placing a form page and an info card beside its data page', () 
       outputs: [
         { id: 'editing', shape: EDITING_RECORD },
         { id: 'edits', shape: { kind: 'array', minItems: 0, maxItems: 3, item: EDITING_RECORD } },
+        { id: 'draft', shape: EDITING_RECORD },
         { id: 'opened', shape: OPENED_RECORD },
       ],
     }
@@ -286,8 +288,25 @@ describe('a view placing a form page and an info card beside its data page', () 
       outputs: [],
     }
 
-    /** The kit's eight and the two probes. */
-    const PROBED = readCatalog([...COMPONENT_KIT_ENTRIES, ...COMPONENT_KIT_VIEW_ENTRIES, EDITOR, LIST_FORM])
+    /** A component only a view places, declaring that it reads what {@link EDITOR} is editing. */
+    const EDIT_FORM: ComponentCatalogEntry = {
+      id: catalogId('toy.edit-form-probe'),
+      label: '编辑表单探针',
+      placement: 'view',
+      purpose: 'Reads what the editor is editing.',
+      propsSchema: {
+        request: {
+          required: false,
+          schema: EDITING_RECORD,
+          bindsFrom: { component: EDITOR.id, output: 'editing', reason: 'the probe reads what the editor is editing.' },
+        },
+      },
+      actions: [],
+      outputs: [],
+    }
+
+    /** The kit's eight and the three probes. */
+    const PROBED = readCatalog([...COMPONENT_KIT_ENTRIES, ...COMPONENT_KIT_VIEW_ENTRIES, EDITOR, LIST_FORM, EDIT_FORM])
 
     /** One editor block. */
     const EDITOR_BLOCK: WrittenNode = { id: 'editor', component: EDITOR.id, props: {} }
@@ -302,6 +321,17 @@ describe('a view placing a form page and an info card beside its data page', () 
       expect(refused([CRUD_PAGE, CRUD_FORM, card, EDITOR_BLOCK], PROBED)).toEqual(refusal(
         'spec.nodes[2].props.record.$from',
         `reads opened of "editor"; this property reads opened of a toy.data-page block and nothing else: ${CARD_REASON}`,
+      ))
+    })
+
+    it('refuses another output of the right block, of the same form', () => {
+      // The shared pass accepts the draft where the edit belongs, because the
+      // two have one form; only the name says which value the block reads.
+      const draft = { id: 'pick', component: EDIT_FORM.id, props: { request: { $from: 'node:editor.draft' } } }
+      expect(refused([EDITOR_BLOCK, draft], PROBED)).toEqual(refusal(
+        'spec.nodes[1].props.request.$from',
+        'reads draft of "editor"; this property reads editing of a toy.editor-probe block and nothing else: the probe '
+        + 'reads what the editor is editing.',
       ))
     })
 
@@ -337,6 +367,14 @@ describe('a view placing a form page and an info card beside its data page', () 
     expect(refused([CRUD_PAGE, rewritten(CRUD_FORM, { relatedMeta: 'SpaceLayerAttr' }), CRUD_CARD])).toEqual(refusal(
       'spec.nodes[1].props.relatedMeta',
       'is "SpaceLayerAttr", and the data page "page" it reads is opened on "SpaceLayer": a form saves into the table its '
+      + 'data page shows.',
+    ))
+  })
+
+  it('refuses a form page whose table differs from the page\'s only in case', () => {
+    expect(refused([CRUD_PAGE, rewritten(CRUD_FORM, { relatedMeta: 'spacelayer' }), CRUD_CARD])).toEqual(refusal(
+      'spec.nodes[1].props.relatedMeta',
+      'is "spacelayer", and the data page "page" it reads is opened on "SpaceLayer": a form saves into the table its '
       + 'data page shows.',
     ))
   })

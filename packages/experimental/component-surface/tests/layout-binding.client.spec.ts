@@ -572,6 +572,18 @@ describe('an output only a view-placed block reads', () => {
     expect(failure.text).toContain('reads {id, name?, type}, and request accepts {mode (add|modify), type, id?, name?}.')
   })
 
+  it.each(['node:page.opened', 'node:page.editing'])('refuses a binding into the table a form page saves into (%s)', (reference) => {
+    // The host reads the table back to name the save it reports, and the
+    // view pass compares it with the page's, so it is written out. Refused on
+    // the property, whatever it was going to read: no output here is text, so
+    // without that declaration the refusal would name the reference and what
+    // the property accepts instead.
+    const form = { request: from('node:page.editing') }
+    const failure = refusal({ nodes: [PAGE, reader(FORM_PAGE_ID, 'relatedMeta', reference, form)] }, KIT_VIEW_CATALOG)
+    expect(failure.path).toBe('spec.nodes[1].props.relatedMeta')
+    expect(failure.text).toContain('cannot be read from another block')
+  })
+
   it('lets an info card read what the page opened, and refuses it what the page is editing', () => {
     expect(accepted({ nodes: [PAGE, reader(INFO_CARD_ID, 'record', 'node:page.opened')] }, KIT_VIEW_CATALOG).ok).toBe(true)
     // A record being added has no id, and a card needs one to read.
