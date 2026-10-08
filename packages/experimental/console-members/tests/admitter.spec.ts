@@ -134,6 +134,22 @@ describe('admitting a request', () => {
     expect(row.workspaces.created).toEqual([join(root, 'workspace')])
   })
 
+  it('starts the default workspace registration again on the next admission after it failed, through the same Peer', async () => {
+    const row = await mountMembers()
+    const create = vi.spyOn(row.workspaces, 'create').mockRejectedValueOnce(new Error('workspace registry unavailable'))
+    const assertion = assertionFor(ALICE)
+    const peer = peerOf(row, assertion)
+    await vi.waitFor(() => {
+      expect(row.lines.some(line => line.includes('registering a member\'s default workspace failed'))).toBe(true)
+    })
+    expect(row.workspaces.created).toEqual([])
+
+    expect(peerOf(row, assertion)).toBe(peer)
+    const root = directory(row).memberRoot(principal(ALICE))
+    await vi.waitFor(() => { expect(row.workspaces.created).toEqual([join(root, 'workspace')]) })
+    expect(create).toHaveBeenCalledTimes(2)
+  })
+
   it('reads the configured header name in lower case, and x-dsh-member when none is configured', async () => {
     const custom = await mountMembers({ assertionHeader: 'X-Console-Member' })
     expect(rejectionOf(custom, assertionFor(ALICE), 'x-console-member')).toBeUndefined()
