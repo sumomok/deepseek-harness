@@ -1346,7 +1346,7 @@ export interface ServerAuthRequest {
 
 ## `@deepseek-ai/dsh-experimental-console-members`
 
-- `inject`: `connection`
+- `inject`: `connection` · `workspaceRegistry`
 - `source`: [`packages/experimental/console-members/src/config.ts:41`](../packages/experimental/console-members/src/config.ts)
 
 ```ts config-catalog

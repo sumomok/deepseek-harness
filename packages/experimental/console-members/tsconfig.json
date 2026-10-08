@@ -18,6 +18,9 @@
       "path": "../../typert/protocol"
     },
     {
+      "path": "../../api/gateway/tsconfig.host.json"
+    },
+    {
       "path": "../../client/connection/tsconfig.host.json"
     },
     {

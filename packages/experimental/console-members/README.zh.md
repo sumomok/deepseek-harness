@@ -1,5 +1,5 @@
 ---
-description: "控制台成员目录 ctx.consoleMembers：一个浏览器请求、一个 Remote 调用方或一个会话属于哪位已登录成员，每位成员已登记的根目录，以及按成员保存的非秘密数据；包括供替某一位成员办事的控制台线插件使用的类型声明，以及将要提供这个目录的插件行。"
+description: "控制台成员目录 ctx.consoleMembers：一个浏览器请求、一个 Remote 调用方或一个会话属于哪位已登录成员，每位成员已登记的根目录，以及按成员保存的非秘密数据；包括供替某一位成员办事的控制台线插件使用的类型声明，以及提供这个目录、并把每个请求准入为其签名断言所点名成员的插件行。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-让控制台线插件按 `ctx.consoleMembers` 写类型：问一个浏览器请求、一个 Remote 调用方或一个会话属于哪位已登录成员，列出这位成员已登记的根目录，并按成员保存非秘密数据。`/types` 入口导出目录的类型并声明这个 context 键。包根是将要提供这个目录的插件行；它在加载时核对配置、打开根目录登记表，目前还不提供服务，所以 `inject: ['consoleMembers']` 会一直挂起。
+让控制台线插件按 `ctx.consoleMembers` 写类型：问一个浏览器请求、一个 Remote 调用方或一个会话属于哪位已登录成员，列出这位成员已登记的根目录，并按成员保存非秘密数据。`/types` 入口导出目录的类型并声明这个 context 键。包根是插件行：加载时核对配置、打开根目录登记表，然后提供 `ctx.consoleMembers` 并安装 Connection 的 Peer 准入器，把每个请求准入为其签名断言所点名的成员。这一版里 `principalOfSession` 与 `attachCustomerCredentials` 会抛错。
 
 ## 目录
 
@@ -52,7 +52,7 @@ const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(r
 
 ### 配置插件行
 
-插件行是 `name: '@deepseek-ai/dsh-experimental-console-members'`，注入 `connection`。没有字段是 volatile；部署方把它们写在锁层。
+插件行是 `name: '@deepseek-ai/dsh-experimental-console-members'`，注入 `connection` 与 `workspaceRegistry`。没有字段是 volatile；部署方把它们写在锁层。
 
 | 字段 | 默认 | 含义 |
 |---|---|---|
@@ -64,11 +64,19 @@ const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(r
 | `sharedReadRoots` | `[]` | 所有成员都可读的绝对路径 |
 | `rootSeeds` | `[]` | `{ path, principal }` 或 `{ path, owner: 'none' }`，并入根目录登记表 |
 | `hostReadPaths`、`hostWritePaths` | `[]` | 没有当前成员时，读或写可以到达的绝对路径前缀 |
-| `peerIdleMs` | `600000` | 空闲的成员 Peer 保持打开的毫秒数；正整数 |
+| `peerIdleMs` | `600000` | 没有 Remote 流 socket 的成员 Peer 在最后一次请求或最后一条 socket 关闭之后保持打开的毫秒数；正整数 |
 
 加载在第一项没通过的核对处失败，此时插件行还没有注册任何东西：上表的字段（绝对路径、请求头名、`admins` 与 `rootSeeds` 写成列表、非空的 `login_uid` 字符串、每个种子恰好是一种形式）；密钥，必须恰好是一个 Ed25519 公钥块，所以私钥被拒，无论单独写还是跟在公钥之后；Connection 的 `requireAdmitter`，必须是 `true`；以及种子并入根目录登记表。加载错误不引用任何 `login_uid`，也不引用密钥。
 
 根目录登记表是 `$DSH_HOME/console-members` 下的 `roots.json`，把每个已登记的根目录对应到一位成员或「无人」。根目录按文件系统读它的方式比较：每个路径最长的已存在前段换成它的真实路径，在 macOS 与 Windows 上再忽略大小写与 Unicode 规范形式。任意两个根目录既不是同一目录、也不互相包含，种子不与 `membersRoot` 重叠，`membersRoot` 与任何根目录都不与存放 `roots.json` 和按成员数据的 `$DSH_HOME/console-members` 重叠，种子点名的目录已登记给别的所有者时加载失败。成员的根目录是 `<membersRoot>/<随机 UUID>`，以 0700 权限创建，并在这位成员的准入继续之前记下；按成员的数据存在 `$DSH_HOME/console-members/<目录 id>/<unit>.json`，所以没有路径带主体键。
+
+### 成员准入
+
+部署代理在它转发的每个 HTTP 请求和 WebSocket upgrade 上，以 `assertionHeader` 为名签一份成员断言。值是 `v1.<载荷>.<签名>`：`<载荷>` 是 UTF-8 JSON 对象 `{"p","aud","exp"}` 的无填充 base64url 形式，其中 `p` 是成员的 `login_uid`，`aud` 是部署 id，`exp` 是断言失效的 Unix 秒；`<签名>` 是对 ASCII 文本 `v1.<载荷>` 的 Ed25519 签名的无填充 base64url 形式。插件行只在以下条件全部成立时准入一个请求：这个头只出现一次；值匹配 `^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$`（Node 用逗号合并的重复头不匹配）；签名能用 `assertionPublicKey` 验过；载荷是恰好含 `p`、`aud`、`exp` 三个键的 JSON 对象，`p` 是非空字符串，`exp` 是整数；`aud` 等于 `deploymentId`；当前 Unix 秒早于 `exp`。不留时钟误差，也不限制 `exp` 的上限。其余请求一律答 401，带着有效 dsh 浏览器 cookie 的请求也一样；准入在插件行内部失败的请求（例如首次见到的成员根目录登记不了）同样答 401。
+
+一位成员在 Peer 活着时只有这一个 Peer，所以这位成员的每个请求、同一请求的每次重复准入，都经同一个 Peer。成员的 Peer 自最后一次请求或最后一条 socket 关闭起 `peerIdleMs` 内没有绑定 Remote 流 socket，插件行就释放它；这位成员的下一个请求开一个新 Peer。卸载插件行时撤下准入器，并释放它开过的全部 Peer，这些 Peer 的 socket 以 1001 关闭；`requireAdmitter: true` 下，Connection 在插件行再次加载之前答 401。
+
+`principalOfCaller` 对 operator、不是本插件行开出的 Peer、已释放的成员 Peer 都答 `undefined`；是否已释放按 `ctx.connection.peers.get(peer.id) === peer` 判定。插件只能用 `peer === ctx.connection.operator` 认出 operator；成员为 `undefined` 从不表示 operator。插件行的日志与错误文本不带主体键、断言或头值：准入失败的日志至多带一个系统错误码，抛错的 `onChange` 监听者既不记它的错误，也不记成员。
 
 -----
 
@@ -78,7 +86,7 @@ const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(r
 <details>
 <summary>实现内部——点击展开</summary>
 
-`src/types.ts` 放类型声明和一处 `declare module '@deepseek-ai/cordis'` 合并，它给 `Context` 加上 `consoleMembers: ConsoleMemberDirectory`；包根再导出这些类型并导出插件。目前还没有准入器、目录服务或守卫调用登记表与默认工作区登记步骤。
+`src/types.ts` 放类型声明和一处 `declare module '@deepseek-ai/cordis'` 合并，它给 `Context` 加上 `consoleMembers: ConsoleMemberDirectory`；包根再导出这些类型并导出插件。`src/install.ts` 在一次同步调用里依次注册目录服务、跟踪成员 Peer 及其 socket 的监听器、卸载时释放本插件行 Peer 的处理，最后是准入器；Cordis 按注册的逆序启动各个 disposer，所以卸载时最先撤下准入器。目录的状态挂在 `src/internal-state.ts` 的一个 symbol 下，因为 `ctx.consoleMembers` 是可追踪代理，它的方法以代理为 `this` 运行。
 
 | 文件 | 内容 |
 |---|---|
@@ -86,6 +94,11 @@ const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(r
 | [`src/index.ts`](src/index.ts) | 包根：插件的 `name`、`inject`、`Config` 与 `apply`，以及类型再导出 |
 | [`src/config.ts`](src/config.ts) | Config 模式、字段核对、密钥核对与 `requireAdmitter` 核对 |
 | [`src/load.ts`](src/load.ts) | 按顺序执行的加载核对 |
+| [`src/install.ts`](src/install.ts) | 加载后的插件行按顺序注册的内容 |
+| [`src/assertion.ts`](src/assertion.ts) | 成员断言的验签 |
+| [`src/peers.ts`](src/peers.ts) | 成员 Peer 表、准入器、socket 跟踪与空闲关闭 |
+| [`src/directory.ts`](src/directory.ts) | `ctx.consoleMembers` 服务 |
+| [`src/internal-state.ts`](src/internal-state.ts) | 目录状态所挂的 symbol |
 | [`src/registry.ts`](src/registry.ts) | `roots.json`、种子合并、首次见到成员时的成员根目录、`memberRoot`、`rootsOf` 与 `memberStore` |
 | [`src/paths.ts`](src/paths.ts) | 根目录路径的比较形式 |
 | [`src/member-store.ts`](src/member-store.ts) | 按成员的 JSON 文件，经 rename 整份替换 |
@@ -117,7 +130,8 @@ const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(r
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- **插件行还不提供目录。** 插件核对配置并打开根目录登记表，但不装成员准入器，也不提供 `ctx.consoleMembers`。注入它的插件永远不会启动，`ctx.get('consoleMembers')` 答 `undefined`。[`src/types.ts`](src/types.ts) 里的方法契约约束的是这个插件行将要提供的目录。
+- **目录有两个方法未实现。** 这一版里 `principalOfSession` 与 `attachCustomerCredentials` 会抛错，所以查询会话所属成员的插件、挂读取器的 token 持有方会失败，而不是当作没有成员继续办事。[`src/types.ts`](src/types.ts) 里的方法契约约束它们的实现。
+- **还没有按成员裁决 Remote 调用、路由或事件。** 插件行没有注册 `remote/invoke` 或 `connection/fetch` 监听器，也没有 `$events` 过滤器。准入器装上之后，Connection 对精确路由与专用通道答 503，Gateway 对每个 Remote 调用答 `gateway/service-unavailable`，`$events` 不投递任何事件。
 - **首次见到成员时写盘失败会留下空目录。** 成员根目录建好之后 `roots.json` 替换失败时，这位成员仍未登记，空的 `<membersRoot>/<UUID>` 留在原处；下一次首次见到时再建一个。
 - **替换 `roots.json` 时进程被杀会留下临时文件。** 写完 `roots.json.<随机十六进制>.tmp`、rename 之前进程被杀，这个 0600 权限的文件留在 `$DSH_HOME/console-members` 里；它与 `roots.json` 一样含路径和主体键，没有谁删除它。
 

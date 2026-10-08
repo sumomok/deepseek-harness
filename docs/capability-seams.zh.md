@@ -684,7 +684,7 @@ flowchart LR
 | `ctx.skillPacks` | `core` | `skill-pack` | - | - | - | 拥有一个技能包根目录：它拿每个技能包去对已注册的组件部件做判定，只把其中激活的那些贡献给 ctx.skills，并在它自己的路由上公布每个技能包的状态与未满足的要求。 |
 | `ctx.skillPackParts` | `seam` | `skill-pack` | `skill-pack-components` | `skill-pack` | - | 声明技能包的要求拿什么来判——每个已注册部件的 id、拥有它的插件包名和版本——外加一条变更通知；没挂上 Provider 时部件表为空，于是每个点名了部件的技能包都被摁在未激活。 |
 | `ctx.skillPackIntake` | `service` | `skill-pack` | - | - | - | 配置了 organizationRoot 的 skill-pack 行提供：安装组织插件交来的技能包，每一条都按包根的规则判断，并在调用方 fiber 活跃期间把激活条目的视图交出去；这些技能由本仓库之外的组织插件自己报告。 |
-| `ctx.consoleMembers` | `service` | `console-members` | - | - | - | 声明一个浏览器请求、一个 Remote 调用方或一个会话属于哪位已登录成员、每位成员已登记的根目录，以及按成员保存的非秘密数据；这个包的插件行核对配置并维护根目录登记表，但还不提供这个键，所以本仓库里没有这个键的 Provider，注入它会一直挂起。 |
+| `ctx.consoleMembers` | `service` | `console-members` | - | - | - | 声明一个浏览器请求、一个 Remote 调用方或一个会话属于哪位已登录成员、每位成员已登记的根目录，以及按成员保存的非秘密数据；这个包的插件行提供这个键，并把每个请求准入为其签名断言所点名的成员；这一版里 principalOfSession 与 attachCustomerCredentials 会抛错。 |
 | `ctx.agents` | `core` | [`agent`](../packages/core/agent) | - | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/acp/acp), [`subagent-in-process-driver`](../packages/subagent/subagent-in-process-driver) | - | 拥有实时 Agent 句柄、创建／恢复工厂 seam，以及进程本地的发起方传播。 |
 | `ctx.agentDefaultModel` | `core` | [`agent-default-model`](../packages/core/agent-default-model) | - | [`api-session-controller`](../packages/api/session-controller), [`headless`](../packages/bundle/headless) | - | Reads the default ModelSelection from volatile Config and saves selections through the profile editor. |
 | `ctx.agentLoop` | `bundle` | [`agent-loop`](../packages/core/agent-loop) | - | [`base`](../packages/bundle/base), [`sdk-minimal`](../packages/bundle/sdk-minimal) | - | 唯一的具体循环插件；扩展包依赖 dsh-agent 的事件和服务，而不依赖此包。 |

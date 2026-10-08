@@ -47,7 +47,7 @@ kind: "package-group"
 | [`component-kit`](component-kit/README.zh.md) | 组件行：它注册进落位包目录的六个组件，每个都由一份主机侧定义和画它的 React 渲染器组成 | — |
 | [`component-surface`](component-surface/README.zh.md) | `show_component` 工具与 content 栏的 `component` 类型：来自固定目录的内容块，在画出来之前先判定 | — |
 | [`console-mcp`](console-mcp/README.zh.md) | 控制台的 MCP 能力，作为一行组合：由部署持有的 Streamable HTTP 服务器清单，按具名凭据接入，清单为空时不做任何事 | — |
-| [`console-members`](console-members/README.zh.md) | 控制台成员目录的类型：一个请求、一个 Remote 调用方或一个会话属于哪位已登录成员，每位成员的根目录，以及按成员的存储；插件行核对配置并维护根目录登记表，还不提供服务 | `ctx.consoleMembers` |
+| [`console-members`](console-members/README.zh.md) | 控制台成员目录的类型：一个请求、一个 Remote 调用方或一个会话属于哪位已登录成员，每位成员的根目录，以及按成员的存储；插件行提供这个目录，并把每个请求准入为其签名断言所点名的成员 | `ctx.consoleMembers` |
 | [`console-profile`](console-profile/README.zh.md) | 客户控制台：叠在 Web profile 上的一个 bundle 层，外加一份叠在 profile 补丁之上的权限锁 | — |
 | [`content-column`](content-column/README.zh.md) | content surface 的浏览器半边：认领外壳的 content 栏，列出该会话的 entry，并按 kind 派发选中的那一条 | — |
 | [`content-frame`](content-frame/README.zh.md) | 托管一份由部署方配置的静态 web 应用，并把它作为 content 栏的 `page` 类型贡献进去 | — |

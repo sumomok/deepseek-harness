@@ -1,5 +1,5 @@
 ---
-description: "The console member directory, ctx.consoleMembers: which signed-in member a browser request, a Remote caller, or a Session belongs to, each member's registered roots, and per-member non-secret storage; the type declarations for console-line plugins that act for one member, and the plugin row that will provide the directory."
+description: "The console member directory, ctx.consoleMembers: which signed-in member a browser request, a Remote caller, or a Session belongs to, each member's registered roots, and per-member non-secret storage; the type declarations for console-line plugins that act for one member, and the plugin row that provides the directory and admits each request as the member its signed assertion names."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Type a console-line plugin against `ctx.consoleMembers`: ask which signed-in member a browser request, a Remote caller, or a Session belongs to, list that member's registered roots, and keep non-secret data per member. The `/types` entry exports the directory's types and declares the context key. The package root is the plugin row that will provide the directory; it checks its configuration and opens the root registry at load, and provides no service yet, so an `inject: ['consoleMembers']` stays pending.
+Type a console-line plugin against `ctx.consoleMembers`: ask which signed-in member a browser request, a Remote caller, or a Session belongs to, list that member's registered roots, and keep non-secret data per member. The `/types` entry exports the directory's types and declares the context key. The package root is the plugin row: at load it checks its configuration and opens the root registry, then provides `ctx.consoleMembers` and installs Connection's Peer admitter, which admits each request as the member its signed assertion names. In this build `principalOfSession` and `attachCustomerCredentials` throw.
 
 ## Table of Contents
 
@@ -52,7 +52,7 @@ The `/types` entry imports no Host entry point, so Host plugins and Client progr
 
 ### Configure the row
 
-The row is `name: '@deepseek-ai/dsh-experimental-console-members'` and injects `connection`. No field is volatile; a deployment writes them in its lock layer.
+The row is `name: '@deepseek-ai/dsh-experimental-console-members'` and injects `connection` and `workspaceRegistry`. No field is volatile; a deployment writes them in its lock layer.
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -64,11 +64,19 @@ The row is `name: '@deepseek-ai/dsh-experimental-console-members'` and injects `
 | `sharedReadRoots` | `[]` | Absolute paths every member may read |
 | `rootSeeds` | `[]` | `{ path, principal }` or `{ path, owner: 'none' }`, merged into the root registry |
 | `hostReadPaths`, `hostWritePaths` | `[]` | Absolute prefixes a read or write may reach while no member is current |
-| `peerIdleMs` | `600000` | Milliseconds an idle member Peer stays open; a positive whole number |
+| `peerIdleMs` | `600000` | Milliseconds a member Peer with no Remote stream socket stays open after its last request or socket close; a positive whole number |
 
 The load fails at the first check that does not pass, before the row registers anything: the fields above (absolute paths, a header name, `admins` and `rootSeeds` given as lists, non-empty `login_uid` strings, each seed in exactly one form); the key, which must be exactly one Ed25519 public key block, so a private key, alone or after the public key, is refused; Connection's `requireAdmitter`, which must be `true`; and the seed merge into the root registry. No load error quotes a `login_uid` or the key.
 
 The root registry, `roots.json` under `$DSH_HOME/console-members`, maps each registered root to one member or to no member. Roots are compared as the file system reads them: the longest existing leading part of each path is replaced by its real path, and on macOS and Windows letter case and Unicode forms are folded. No two roots are one directory or lie one inside the other, no seed overlaps `membersRoot`, neither `membersRoot` nor any root overlaps `$DSH_HOME/console-members`, which holds `roots.json` and the per-member data, and a seed naming a directory registered to another owner fails the load. A member's root is `<membersRoot>/<random UUID>`, created with mode 0700 and recorded before the member's admission continues; per-member data lives at `$DSH_HOME/console-members/<directory id>/<unit>.json`, so no path carries a principal key.
+
+### Member admission
+
+The deployment proxy signs a member assertion onto every HTTP request and WebSocket upgrade it forwards, under the `assertionHeader` name. The value is `v1.<payload>.<signature>`: `<payload>` is the unpadded base64url form of the UTF-8 JSON object `{"p","aud","exp"}`, where `p` is the member's `login_uid`, `aud` the deployment id and `exp` the Unix second the assertion expires, and `<signature>` is the unpadded base64url Ed25519 signature of the ASCII text `v1.<payload>`. The row admits a request only when the header occurs once, the value matches `^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$` (a repeated header that Node joined with a comma does not), the signature verifies against `assertionPublicKey`, the payload is a JSON object with exactly `p`, `aud` and `exp`, `p` is a non-empty string and `exp` an integer, `aud` equals `deploymentId`, and the current Unix second is before `exp`. There is no clock skew allowance and no upper bound on `exp`. Every other request is answered 401, a request that carries a valid dsh browser cookie included, and so is a request whose admission fails inside the row, such as a first sighting whose root cannot be registered.
+
+A member keeps one Peer while it lives, so every request of that member, and every repeated admission of one request, speaks through the same Peer. The row disposes a member's Peer when no Remote stream socket has been bound to it for `peerIdleMs` since its last request or the close of its last socket; the member's next request opens a new Peer. Unloading the row withdraws the admitter and disposes every Peer the row opened, which closes their sockets with code 1001; with `requireAdmitter: true` Connection then answers 401 until the row loads again.
+
+`principalOfCaller` answers `undefined` for the operator, for a Peer the row did not open, and for a member Peer that is released, which `ctx.connection.peers.get(peer.id) === peer` decides. A plugin recognises the operator only by `peer === ctx.connection.operator`; an `undefined` member never means the operator. No log line or error text of the row carries a principal key, an assertion, or a header value: an admission failure is logged with at most a system error code, and a throwing `onChange` listener with neither its error nor the member.
 
 -----
 
@@ -78,7 +86,7 @@ The root registry, `roots.json` under `$DSH_HOME/console-members`, maps each reg
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-`src/types.ts` holds the type declarations and one `declare module '@deepseek-ai/cordis'` merge that adds `consoleMembers: ConsoleMemberDirectory` to `Context`; the package root re-exports those types and exports the plugin. No admitter, directory service or guard calls the registry or the default-workspace steps yet.
+`src/types.ts` holds the type declarations and one `declare module '@deepseek-ai/cordis'` merge that adds `consoleMembers: ConsoleMemberDirectory` to `Context`; the package root re-exports those types and exports the plugin. `src/install.ts` registers, in one synchronous call, the directory service, the listeners that follow member Peers and their sockets, the unload disposal of the row's Peers, and last the admitter; Cordis starts disposers in reverse order, so unloading withdraws the admitter before anything else. The directory keeps its state under one symbol from `src/internal-state.ts`, because `ctx.consoleMembers` is a traceable proxy and its methods run with the proxy as `this`.
 
 | File | Contents |
 |---|---|
@@ -86,6 +94,11 @@ The root registry, `roots.json` under `$DSH_HOME/console-members`, maps each reg
 | [`src/index.ts`](src/index.ts) | The package root: the plugin's `name`, `inject`, `Config` and `apply`, and the type re-exports |
 | [`src/config.ts`](src/config.ts) | The Config schema, the field checks, the key check and the `requireAdmitter` check |
 | [`src/load.ts`](src/load.ts) | The load checks in order |
+| [`src/install.ts`](src/install.ts) | What a loaded row registers, in order |
+| [`src/assertion.ts`](src/assertion.ts) | Member assertion verification |
+| [`src/peers.ts`](src/peers.ts) | The member Peer table, the admitter, socket tracking and the idle close |
+| [`src/directory.ts`](src/directory.ts) | The `ctx.consoleMembers` service |
+| [`src/internal-state.ts`](src/internal-state.ts) | The symbol the directory's state is kept under |
 | [`src/registry.ts`](src/registry.ts) | `roots.json`, the seed merge, member roots on first sighting, `memberRoot`, `rootsOf` and `memberStore` |
 | [`src/paths.ts`](src/paths.ts) | The form root paths are compared in |
 | [`src/member-store.ts`](src/member-store.ts) | Per-member JSON files, replaced through a rename |
@@ -117,7 +130,8 @@ The row adds no model input, so provider cache reuse is unaffected.
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- **The row provides no directory yet.** The plugin checks its configuration and opens the root registry, but it installs no member admitter and provides no `ctx.consoleMembers`. A plugin that injects it never starts, and `ctx.get('consoleMembers')` answers `undefined`. The method contracts in [`src/types.ts`](src/types.ts) bind the directory the row will provide.
+- **Two directory methods are not implemented.** `principalOfSession` and `attachCustomerCredentials` throw in this build, so a plugin that asks for a Session's member, or a token holder that attaches its reader, fails instead of acting for no member. The method contracts in [`src/types.ts`](src/types.ts) bind their implementation.
+- **No Remote call, route or event is judged per member yet.** The row registers no `remote/invoke` or `connection/fetch` listener and no `$events` filter. With its admitter installed, Connection answers 503 on exact routes and channels, the Gateway answers `gateway/service-unavailable` to every Remote call, and `$events` delivers no event.
 - **A failed first-sighting write leaves an empty directory.** When `roots.json` cannot be replaced after a member's root was created, the member stays unregistered and the empty `<membersRoot>/<UUID>` remains; the next first sighting creates another.
 - **A process killed while replacing `roots.json` leaves its temporary sibling.** A kill between writing `roots.json.<random hex>.tmp` and renaming it leaves that file, mode 0600, in `$DSH_HOME/console-members`; it holds the same paths and principal keys as `roots.json`, and nothing removes it.
 

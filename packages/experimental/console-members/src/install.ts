@@ -1,0 +1,48 @@
+/**
+ * What a loaded console member directory row registers, in order.
+ *
+ * Everything is registered in one synchronous call, and the Peer admitter is
+ * installed last, so no request is admitted before every listener that judges
+ * member Peers is in place. Cordis starts a fiber's disposers in reverse
+ * registration order, so unloading the row withdraws the admitter first, then
+ * disposes every member Peer the row opened, closing their sockets with code
+ * 1001, then removes the listeners.
+ * @module @deepseek-ai/dsh-experimental-console-members/src/install
+ */
+
+import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-api-gateway'
+import type {} from '@deepseek-ai/dsh-workspace'
+import { DefaultWorkspaces } from './default-workspace.ts'
+import { ConsoleMembersDirectory } from './directory.ts'
+import type { LoadedMembers } from './load.ts'
+import { MemberPeers } from './peers.ts'
+
+/**
+ * Provide `ctx.consoleMembers`, follow member Peers and their sockets,
+ * dispose the row's Peers on unload, and install the Peer admitter.
+ * @param ctx - the row's context, carrying Connection and the workspace registry.
+ * @param loaded - the checked settings, the assertion key and the root registry.
+ */
+export function installDirectory(ctx: Context, loaded: LoadedMembers): void {
+  const { settings, assertionKey, registry } = loaded
+  const connection = ctx.connection
+  const peers = connection.peers
+  const logger = ctx.logger('console-members')
+  const defaults = new DefaultWorkspaces(principal => registry.memberRoot(principal), ctx.workspaceRegistry, logger)
+  const members = new MemberPeers({
+    peers,
+    assertion: { header: settings.assertionHeader, key: assertionKey, deploymentId: settings.deploymentId },
+    ensureMember: principal => registry.ensureMember(principal),
+    ensureDefaultWorkspace: principal => defaults.ensureDefaultWorkspace(principal),
+    peerIdleMs: settings.peerIdleMs,
+    logger,
+  })
+  new ConsoleMembersDirectory(ctx, { connection, registry, members })
+  // Listeners that judge member Peers are registered here, before the admitter.
+  ctx.on('connection/peer-closed', (peer) => { members.peerClosed(peer) })
+  ctx.on('remote-stream/socket-opened', (peer, socketId) => { members.socketOpened(peer, socketId) })
+  ctx.on('remote-stream/socket-closed', (peer, socketId) => { members.socketClosed(peer, socketId) })
+  ctx.effect(() => () => members.disposeAll(), 'console-members: the row\'s member Peers')
+  peers.admitWith(request => members.admit(request))
+}

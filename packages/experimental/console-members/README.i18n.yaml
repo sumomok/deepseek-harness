@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/console-members/README.md
 /:
-  en: 18ec744834920386
-  zh: d453de851c6f89d7
+  en: c40dd2126320bf45
+  zh: ec56c2c8e71fde98
 /deepseek-ai-dsh-experimental-console-members:
   en: 04079a8ffb0c1304
   zh: a6b8997b33c07a53
 /deepseek-ai-dsh-experimental-console-members/summary:
-  en: 827a605533244fcb
-  zh: da7e2a64f850f541
+  en: f14440bed5ea36a3
+  zh: 55e3ef4886c261c7
 /deepseek-ai-dsh-experimental-console-members/table-of-contents:
   en: d152484eb41ac6b4
   zh: 1db86285abf6c499
@@ -24,11 +24,14 @@
   en: 5b42ce45662e4ed8
   zh: 47ff5f5533514d2e
 /deepseek-ai-dsh-experimental-console-members/use-this-package/configure-the-row:
-  en: aced3f0b886e7591
-  zh: c285463399f4d273
+  en: 03e6afcada56fb02
+  zh: cd3535020f190b2a
+/deepseek-ai-dsh-experimental-console-members/use-this-package/member-admission:
+  en: 5d3c95c0a17a92ca
+  zh: 6dde63f1935a16c9
 /deepseek-ai-dsh-experimental-console-members/understand-the-implementation:
-  en: c46ddbf88ee69030
-  zh: cfa273f4b984ebf8
+  en: 91a615607298f327
+  zh: 2b8325b038be4e7e
 /deepseek-ai-dsh-experimental-console-members/further-exploration:
   en: bf9abf8dfc853250
   zh: fab54639becd7d05
@@ -39,8 +42,8 @@
   en: 40c3b59a7bb396b4
   zh: 0f41dcfbfdfc6603
 /deepseek-ai-dsh-experimental-console-members/known-limitations-and-deferred-work:
-  en: da6013fc77f99606
-  zh: c4fca3bce374113f
+  en: ed62d78c50ad95d7
+  zh: f23dafb857049a1b
 /deepseek-ai-dsh-experimental-console-members/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 3bb0c20c93f16f98

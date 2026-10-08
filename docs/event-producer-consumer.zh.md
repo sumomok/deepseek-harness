@@ -35,7 +35,7 @@
 | `commands/change` | `emit` | [`packages/interaction/commands/src/types.ts:89`](../packages/interaction/commands/src/types.ts) | [`commands`](../packages/interaction/commands) (`events.dispatch`) | `remotes` |
 | `compaction/summary-error` | `waterfall` | [`packages/compaction/compaction/src/index.ts:124`](../packages/compaction/compaction/src/index.ts) | [`compaction-basic`](../packages/compaction/compaction-basic) (`waterfall`) | [`compaction-image-offload`](../packages/compaction/compaction-image-offload) |
 | `connection/fetch` | `waterfall` | [`packages/client/connection/src/index.ts:106`](../packages/client/connection/src/index.ts) | `connection` (`events.dispatch`) | - |
-| `connection/peer-closed` | `emit` | [`packages/client/connection/src/index.ts:123`](../packages/client/connection/src/index.ts) | `connection` (`emit`) | - |
+| `connection/peer-closed` | `emit` | [`packages/client/connection/src/index.ts:123`](../packages/client/connection/src/index.ts) | `connection` (`emit`) | `console-members` |
 | `connection/peer-opened` | `emit` | [`packages/client/connection/src/index.ts:114`](../packages/client/connection/src/index.ts) | `connection` (`emit`) | - |
 | `connection/request` | `waterfall` | [`packages/client/connection/src/index.ts:73`](../packages/client/connection/src/index.ts) | `connection` (`waterfall`) | - |
 | `cordis/dynamic-package` | `emit` | [`packages/extensions/cordis-host-runner/src/types.ts:383`](../packages/extensions/cordis-host-runner/src/types.ts) | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) (`emit`) | `remotes` |
@@ -64,8 +64,8 @@
 | `plugin-manager/changed` | `emit` | [`packages/boot/plugin-manager/src/types.ts:259`](../packages/boot/plugin-manager/src/types.ts) | [`plugin-manager`](../packages/boot/plugin-manager) (`emit`) | `remotes` |
 | `plugin-manager/install-log` | `emit` | [`packages/boot/plugin-manager/src/types.ts:265`](../packages/boot/plugin-manager/src/types.ts) | [`plugin-manager`](../packages/boot/plugin-manager) (`emit`) | `remotes` |
 | `plugin-manager/install-state` | `emit` | [`packages/boot/plugin-manager/src/types.ts:272`](../packages/boot/plugin-manager/src/types.ts) | [`plugin-manager`](../packages/boot/plugin-manager) (`emit`) | `remotes` |
-| `remote-stream/socket-closed` | `emit` | [`packages/api/gateway/src/index.ts:111`](../packages/api/gateway/src/index.ts) | `gateway` (`emit`) | - |
-| `remote-stream/socket-opened` | `emit` | [`packages/api/gateway/src/index.ts:101`](../packages/api/gateway/src/index.ts) | `gateway` (`emit`) | - |
+| `remote-stream/socket-closed` | `emit` | [`packages/api/gateway/src/index.ts:111`](../packages/api/gateway/src/index.ts) | `gateway` (`emit`) | `console-members` |
+| `remote-stream/socket-opened` | `emit` | [`packages/api/gateway/src/index.ts:101`](../packages/api/gateway/src/index.ts) | `gateway` (`emit`) | `console-members` |
 | `remote/invoke` | `waterfall` | [`packages/api/gateway/src/index.ts:152`](../packages/api/gateway/src/index.ts) | `gateway` (`events.dispatch`) | - |
 | `schedule/changed` | `emit` | [`packages/schedule/schedule/src/types.ts:478`](../packages/schedule/schedule/src/types.ts) | [`schedule`](../packages/schedule/schedule) (`emit`) | `remotes` |
 | `session-persistence/relocated` | `parallel` | [`packages/session/session-persistence/src/index.ts:142`](../packages/session/session-persistence/src/index.ts) | [`session-persistence-jsonl`](../packages/session/session-persistence-jsonl) (`parallel`) | [`session-projection-cache`](../packages/session/session-projection-cache), [`workspace`](../packages/workspace/workspace) |

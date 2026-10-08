@@ -145,7 +145,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/client/ui-trajectory': { kind: 'none', reason: 'Browser-side UI plugin layer; registers nothing model-facing.' },
   'packages/experimental/auth-gate': { kind: 'none', reason: 'Carries an access token between the browser, the process, and the MCP servers it forwards to; dsh-mcp-client owns every model-facing effect those servers have.' },
   'packages/experimental/biz-backend': { kind: 'none', reason: 'Performs two HTTP reads of a deployment\'s own data backend for whichever row consumes the service; that consumer owns every model-facing effect.' },
-  'packages/experimental/console-members': { kind: 'none', reason: 'The console member directory row checks its configuration and keeps the root registry; it registers no tool, prompt section, or Session event.' },
+  'packages/experimental/console-members': { kind: 'none', reason: 'The console member directory row admits browser requests as members and provides ctx.consoleMembers; it registers no tool, prompt section, or Session event.' },
   'packages/experimental/page-refresh': { kind: 'none', reason: 'Browser-side build check, page reload, and connection banner; the node half only publishes its settings into the served index, which never reaches a model request.' },
   'packages/experimental/server-base': { kind: 'none', reason: 'Injects the Host-ownership carrier into the served index; the row is read by the browser and never reaches a model request.' },
   'packages/experimental/server-layout': { kind: 'none', reason: 'Browser-side shell frame and viewing state; registers nothing model-facing.' },

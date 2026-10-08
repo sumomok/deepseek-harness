@@ -616,7 +616,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'console-members',
     title: 'Console member directory',
     mode: 'service',
-    note: 'Declares which signed-in member a browser request, a Remote caller, or a Session belongs to, each member\'s registered roots, and per-member non-secret storage; the package\'s plugin row checks its configuration and keeps the root registry but does not provide the key yet, so the key has no Provider in this repository and an inject of it stays pending.',
+    note: 'Declares which signed-in member a browser request, a Remote caller, or a Session belongs to, each member\'s registered roots, and per-member non-secret storage; the package\'s plugin row provides it and admits each request as the member its signed assertion names; in this build principalOfSession and attachCustomerCredentials throw.',
   },
   {
     key: 'agents',

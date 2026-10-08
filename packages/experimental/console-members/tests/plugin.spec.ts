@@ -8,6 +8,7 @@ import type { BrowserAuth } from '@deepseek-ai/dsh-client-connection/src/browser
 import { afterEach, describe, expect, it } from 'vitest'
 import { readSettings } from '../src/config.ts'
 import { Config, apply, inject, name, type RootSeed } from '../src/index.ts'
+import { fakeWorkspaces } from './fixture.ts'
 import { captureLogs, useTempHome } from './support.ts'
 
 const temp = useTempHome()
@@ -56,6 +57,7 @@ async function load(rowConfig: Record<string, unknown>, requireAdmitter = true):
   contexts.push(ctx)
   const lines = captureLogs(ctx)
   new HostConnectionService(ctx, [], {} as BrowserAuth, requireAdmitter)
+  ctx.provide('workspaceRegistry', fakeWorkspaces() as never)
   const fiber = ctx.plugin({ name, inject, Config, apply }, rowConfig as never)
   const error = await fiber.await().then(() => undefined, (reason: unknown) => reason)
   return { error, lines, ctx }
@@ -74,7 +76,7 @@ function expectNoLeak(loaded: Loaded, ...secrets: string[]): void {
 }
 
 describe('console-members plugin row', () => {
-  it('loads with the three required fields, merges the seeds, and provides no service yet', async () => {
+  it('loads with the three required fields, merges the seeds, and provides the directory', async () => {
     const seeds: RootSeed[] = [{ path: join(temp.base, 'legacy'), principal: ALICE }, { path: join(temp.base, 'shared'), owner: 'none' }]
     const loaded = await load(config({ rootSeeds: seeds, admins: [ALICE] }))
 
@@ -83,8 +85,8 @@ describe('console-members plugin row', () => {
       version: 1,
       roots: [{ kind: 'seed', path: join(temp.base, 'legacy'), principal: ALICE }, { kind: 'none', path: join(temp.base, 'shared') }],
     })
-    expect(loaded.ctx.get('consoleMembers')).toBeUndefined()
-    expect(inject).toEqual(['connection'])
+    expect(loaded.ctx.get('consoleMembers')).toBeDefined()
+    expect(inject).toEqual(['connection', 'workspaceRegistry'])
   })
 
   it.each(['assertionPublicKey', 'deploymentId', 'membersRoot'])('refuses to load without %s', async (field) => {
