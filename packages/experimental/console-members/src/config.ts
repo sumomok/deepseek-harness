@@ -203,19 +203,26 @@ function checkSeed(index: number, seed: unknown): CheckedRootSeed {
 /** The PEM label of an SPKI public key. */
 const SPKI_PEM_LABEL = '-----BEGIN PUBLIC KEY-----'
 
+/** The line that ends an SPKI public key block. */
+const SPKI_PEM_END = '-----END PUBLIC KEY-----'
+
 /**
  * Read the assertion verification key. A PKCS #8 private key would also yield
- * an Ed25519 public key, so the SPKI label is required first: the Host keeps
- * the public key only. Whitespace around the block is ignored. The error
- * quotes no part of the configured value.
+ * an Ed25519 public key, and the decoder reads only the first PEM block, so
+ * the value must be exactly one block that starts with the SPKI label and
+ * ends with its end line: the Host keeps the public key only. Whitespace
+ * around the block is ignored. The error quotes no part of the configured
+ * value.
  * @param pem - the configured `assertionPublicKey`.
  * @returns the Ed25519 public key.
- * @throws {Error} when the value is not an Ed25519 public key in SPKI PEM form.
+ * @throws {Error} when the value is not one Ed25519 public key in SPKI PEM form.
  */
 export function readAssertionKey(pem: string): KeyObject {
   const refusal = 'console-members: assertionPublicKey must be an Ed25519 public key in SPKI PEM form (-----BEGIN PUBLIC KEY-----)'
   const text = pem.trim()
-  if (!text.startsWith(SPKI_PEM_LABEL)) throw new Error(refusal)
+  if (!text.startsWith(SPKI_PEM_LABEL) || !text.endsWith(SPKI_PEM_END) || text.split('-----BEGIN ').length !== 2) {
+    throw new Error(refusal)
+  }
   let key: KeyObject
   try {
     key = createPublicKey({ key: text, format: 'pem' })

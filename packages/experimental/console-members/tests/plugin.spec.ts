@@ -137,10 +137,13 @@ describe('the assertion key', () => {
     ['an Ed25519 private key', PRIVATE_PEM],
     ['an undecodable public key block', '-----BEGIN PUBLIC KEY-----\nAAAAnotakey\n-----END PUBLIC KEY-----\n'],
     ['text that is not PEM', 'ed25519:abcdef'],
+    ['a public key block followed by a private key block', `${PUBLIC_PEM}${PRIVATE_PEM}`],
+    ['two public key blocks', `${PUBLIC_PEM}${PUBLIC_PEM}`],
+    ['a public key block followed by other text', `${PUBLIC_PEM}${body(PRIVATE_PEM)}\n`],
   ])('refuses %s without quoting it', async (_name, pem) => {
     const loaded = await load(config({ assertionPublicKey: pem }))
     expect(messageOf(loaded.error)).toBe(KEY_REFUSAL)
-    expectNoLeak(loaded, body(pem), 'AAAAnotakey', 'abcdef')
+    expectNoLeak(loaded, body(pem), body(PRIVATE_PEM), 'AAAAnotakey', 'abcdef')
   })
 
   it('accepts an Ed25519 SPKI key with surrounding whitespace', async () => {
