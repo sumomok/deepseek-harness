@@ -356,6 +356,34 @@ describe('idle close', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('keeps a Peer with a socket open however often its member is admitted before and while the socket is bound', async () => {
+    const row = await idleRow()
+    const assertion = assertionFor(ALICE, nowSeconds() + 7200)
+    const peer = peerOf(row, assertion)
+    expect(peerOf(row, assertion)).toBe(peer)
+    row.ctx.emit('remote-stream/socket-opened', peer, socket('socket-1'))
+    expect(peerOf(row, assertion)).toBe(peer)
+    await vi.advanceTimersByTimeAsync(IDLE * 3)
+    expect(row.ctx.connection.peers.get(peer.id)).toBe(peer)
+    expect(directory(row).principals()).toEqual([ALICE])
+  })
+
+  it('cancels the idle check of a Peer Connection closed, so it never closes the member\'s next Peer', async () => {
+    const row = await idleRow()
+    const assertion = assertionFor(ALICE, nowSeconds() + 7200)
+    const changes: string[] = []
+    directory(row).onChange((change) => { changes.push(change.kind) })
+    const first = peerOf(row, assertion)
+    await first.dispose()
+    await vi.advanceTimersByTimeAsync(IDLE / 2)
+    const second = peerOf(row, assertion)
+    row.ctx.emit('remote-stream/socket-opened', second, socket('socket-1'))
+    await vi.advanceTimersByTimeAsync(IDLE / 2 + 1)
+    expect(peerOf(row, assertion)).toBe(second)
+    expect(row.ctx.connection.peers.list()).toEqual([second])
+    expect(changes).toEqual(['opened', 'closed', 'opened'])
+  })
+
   it('ignores socket events of the operator and of Peers it did not open', async () => {
     const row = await idleRow()
     const peer = peerOf(row, assertionFor(ALICE, nowSeconds() + 3600))
