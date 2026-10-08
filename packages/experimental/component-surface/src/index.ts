@@ -90,6 +90,7 @@ export type {
 export {
   catalogId,
   COMPONENT_KIT_ENTRIES,
+  DATA_PAGE_ID,
   DATA_PAGE_MODEL_PROP_NAMES,
   DATA_PAGE_ROW_OPERATIONS,
   DATA_PAGE_TOOLBAR_BUTTONS,
@@ -121,6 +122,7 @@ export {
 } from './component-call.ts'
 export { PARAM_KEY } from './params.ts'
 export { withheldComponents } from './tool.ts'
+export { unbindableReason } from './validate.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'show-component'
