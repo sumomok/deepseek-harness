@@ -595,13 +595,13 @@ describe('a block only a view places, sent in a call', () => {
   })
 
   it.each([
-    ['offers', OPENING, false],
-    ['does not offer', PLAIN, false],
-    ['offers', OPENING, true],
-    ['does not offer', PLAIN, true],
+    ['offers', false, OPENING],
+    ['does not offer', false, PLAIN],
+    ['offers', true, OPENING],
+    ['does not offer', true, PLAIN],
   ] as const)(
     'is refused beside the data page where the deployment %s it (reading a data source: %s), before the page\'s own refusals',
-    async (_case, options, dataSource) => {
+    async (_case, dataSource, options) => {
       // The page's own refusals would send the model to write a call that is
       // refused again for the form page.
       const { asked, run } = await bench('allowed-once', { ...options, dataSource }, KIT_VIEW_CATALOG)
