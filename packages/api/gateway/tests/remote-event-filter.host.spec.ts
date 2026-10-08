@@ -468,6 +468,24 @@ describe('Remote Event filter', () => {
     await expect(pending.outcome).resolves.toEqual({ kind: 'result', value: 'allowed' })
   })
 
+  it('leaves a waterfall pending from the window off the connected Clients when member admission turns off, until a Client connects', async () => {
+    const { ctx, removeAdmitter, source } = await mount()
+    const a = await openEventClient(ctx, 'a', 'events-a')
+    const pending = pendingWaterfall(ctx, 'session-a')
+    source.push(pending.dispatch)
+    await drain()
+
+    await removeAdmitter()
+    source.push({ event: 'fixture/after', args: [] })
+    await settle(source, a)
+    expect(eventsOf(a)).toEqual(['fixture/after', SENTINEL])
+    const late = await openEventClient(ctx, 'a', 'events-late')
+    await settle(source, a, late)
+    expect(eventsOf(late)).toEqual(['fixture/approval', SENTINEL])
+    expect(waterfallsOf(a)).toBe(0)
+    expect(pending.settled()).toBe(false)
+  })
+
   it('delivers a pending waterfall on installation only to Clients that never received it', async () => {
     const { ctx, source } = await mount()
     const remove = ctx.typertGateway.filterRemoteEvents(() => true)

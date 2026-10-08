@@ -99,7 +99,7 @@ Client waterfall 的 Context 解析保持同步。解析器可以返回借用的
 - `websocketHeartbeatIntervalMs` 同时是 Ping 周期和 Pong 截止时间。对端未在下一周期前回复时，Host 会终止连接；如果部署的事件循环或网络可能停顿超过该间隔，必须调大此配置。
 - 上行除了有界的 Host inbox 之外没有流控：Client 发送快于方法读取，或发给从未取用 uplink 的方法时，其流以 `gateway/uplink-overflow` 失败；上行项不会跨载体代际重放，需要恢复上行的领域在重开的请求里自带确认游标。
 - 安装 Remote Event 过滤器会把每个 pending 的 waterfall 投给它接受、且尚未收到它的每个已连接 Client，其他事件都不回头处理：没发给某个 Client 的通知不会重放，移除过滤器也不撤回已入队的事件。`hasLiveClient()` 计入每个打开的 `$events` Client，不管过滤器如何判定。移除从下一次逐 Client 判定起生效，所以过滤器在判定中移除自己时，同一事件余下的 Client 按没有过滤器时的规则处理。
-- 成员准入开启而没有安装 Remote Event 过滤器时，`$events` 照常打开并发出 ready frame，但没有 Client 收到任何事件：这段时间里发出的通知到不了任何 Client，与没有 Client 连接时相同，也不会重放；pending 的 waterfall 要等装上过滤器、或被接受的 Client 下次连上时才投给它。
+- 成员准入开启而没有安装 Remote Event 过滤器时，`$events` 照常打开并发出 ready frame，但没有 Client 收到任何事件：这段时间里发出的通知到不了任何 Client，与没有 Client 连接时相同，也不会重放；pending 的 waterfall 要等装上过滤器、或被接受的 Client 下次连上时才投给它。关闭成员准入不会补投这段时间扣下的事件：这样的 waterfall 要等装上接受它的过滤器、或 Client 重新连接，才投给已连接的 Client。
 - 过滤器只看得到事件名与其 JSON 载荷；判断事件关乎哪位成员（例如 `agentId` 指向的会话归谁）由安装它的插件负责。
 - `remote/invoke` 只覆盖 Remote 方法调用：Gateway 自有的 `$events` 流与 `$events/result`、Connection 的精确 Fetch 路由及其专用 RPC 通道都不经过它。
 - Gateway 不再核对 Peer：Connection 核对之后、`remote/invoke` 监听器或参数解析 await 期间被释放的成员 Peer，仍作为 `ctx.invocation.peer` 到达方法。在 `next()` 之前 await、又需要成员仍然存活的监听器，在调用 `next()` 之前立即比较 `connection.peers.get(call.peer.id)` 与 `call.peer`。

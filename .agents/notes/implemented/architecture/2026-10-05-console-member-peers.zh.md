@@ -92,7 +92,7 @@ Connection 在每个精确 Fetch 路由与每个经 `rpc.handle` 登记的通道
 
 每个 `$events` Client 记下打开它的 Peer：upgrade 时 Connection 准入的 Peer，或进程内载体不点名 Peer 时的操作者。`typertGateway.filterRemoteEvents(filter)` 安装唯一的 `RemoteEventFilter`，登记规则与 Peer 准入器相同：第二次安装抛错，登记是安装方 fiber 的 effect。过滤器收到一个 `RemoteEventDelivery`（事件名，加上通知的 `args`，或 waterfall 的 `agentId` 与投影后的 `request`）和某个 Client 的 Peer，返回 `true` 表示投递，返回其他任何值都扣下事件。Gateway 每次把事件放进某个 Client 的队列时都由它裁决：广播通知、waterfall 首次投递，以及向新连上的 Client 补发 pending 的 waterfall。抛错的过滤器按 `false` 处理并记日志，所以出错时事件被扣下。安装过滤器时，还会把每个 pending 的 waterfall 投给过滤器接受、且尚未收到它的每个已连接 Client；通知不补发，移除过滤器不回头处理任何事件。
 
-没有过滤器时由成员准入决定。成员准入关闭时，每个 Client 收到每个事件，与上游相同。成员准入开启时，没有 Client 收到任何事件：`$events` 照常打开并发出 ready frame，这段时间里发出的通知到不了任何 Client，与没有 Client 连接时相同，pending 的 waterfall 要等装上过滤器、或被接受的 Client 下次连上时才投给它。所以过滤器插件仍在加载、正在重启或 apply 失败时，每位成员都收不到事件，而不是把别的成员的事件与审批发给每位成员。
+没有过滤器时由成员准入决定。成员准入关闭时，每个 Client 收到每个事件，与上游相同。成员准入开启时，没有 Client 收到任何事件：`$events` 照常打开并发出 ready frame，这段时间里发出的通知到不了任何 Client，与没有 Client 连接时相同，pending 的 waterfall 要等装上过滤器、或被接受的 Client 下次连上时才投给它。关闭成员准入不会补投这段时间扣下的事件：这段时间里 pending 的 waterfall 要等装上接受它的过滤器、或 Client 重新连接，才投给已连接的 Client。所以过滤器插件仍在加载、正在重启或 apply 失败时，每位成员都收不到事件，而不是把别的成员的事件与审批发给每位成员。
 
 过滤器是同步的，Gateway 从不 await 它，因为各 Client 之间的投递顺序，以及排在 Client 的 ready frame 之前的补发，都不能依赖 I/O。控制台的过滤器用同步的归属索引回答「这个会话归哪位成员」，索引里查不到的会话不投给任何人。
 
