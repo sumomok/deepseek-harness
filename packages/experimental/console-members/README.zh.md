@@ -31,12 +31,12 @@ kind: "package-reference"
 
 ### 入口
 
-从包根导入任何一个类型都会加载 `Context` 声明，于是 `ctx.consoleMembers` 和 `ctx.get('consoleMembers')` 都能通过类型检查：
+从 `@deepseek-ai/dsh-experimental-console-members/types` 导入这些类型。从这个入口导入任何东西（包括 `import type {}`）都会加载 `Context` 声明，于是 `ctx.consoleMembers` 和 `ctx.get('consoleMembers')` 都能通过类型检查：
 
 ```ts
 import type { IncomingMessage } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
-import type { PrincipalKey } from '@deepseek-ai/dsh-experimental-console-members'
+import type { PrincipalKey } from '@deepseek-ai/dsh-experimental-console-members/types'
 
 declare const ctx: Context
 declare const req: IncomingMessage
@@ -44,7 +44,9 @@ declare const req: IncomingMessage
 const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(req)
 ```
 
-`principalOfRequest` 是 fork 的 webServer 路由取得请求背后成员的唯一方式：路由不自己读身份头，也不自己调 `connection.admit`。`principalOfSession` 沿子会话的父链追到最上层的会话，`attachCustomerCredentials` 同一时刻只持有一个客户 token 读取器，且没有方法交出它。[子系统页](../../../docs/subsystems/console-members.zh.md) 解释这三条规则；[`src/index.ts`](src/index.ts) 写明每个方法的契约。
+`/types` 入口不导入任何宿主入口，所以宿主插件和客户端程序都从它导入。包根再导出同样的类型，但包根留给提供这个目录的插件，那个插件会导入宿主入口；客户端程序从不导入包根。
+
+`principalOfRequest` 是 fork 的 webServer 路由取得请求背后成员的唯一方式：路由不自己读身份头，也不自己调 `connection.admit`。`principalOfSession` 沿子会话的父链追到最上层的会话，`attachCustomerCredentials` 同一时刻只持有一个客户 token 读取器，且没有方法交出它。[子系统页](../../../docs/subsystems/console-members.zh.md) 解释这三条规则；[`src/types.ts`](src/types.ts) 写明每个方法的契约。
 
 `PrincipalKey`（主体键）是 `@deepseek-ai/dsh-brand` 的 `Branded<'PrincipalKey'>`，值是成员的 `login_uid`。消费方把它当作不透明的值，它不进模型请求、不进日志、不上传。
 
@@ -56,12 +58,13 @@ const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(r
 <details>
 <summary>实现内部——点击展开</summary>
 
-包根只有类型声明和一处 `declare module '@deepseek-ai/cordis'` 合并，它给 `Context` 加上 `consoleMembers: ConsoleMemberDirectory`。编译出的 `lib/index.js` 什么也不导出，任何 `cordis.yml` 行都不能点名这个包。
+`src/types.ts` 放类型声明和一处 `declare module '@deepseek-ai/cordis'` 合并，它给 `Context` 加上 `consoleMembers: ConsoleMemberDirectory`；包根再导出这些类型。编译出的 `lib/index.js` 和 `lib/types/types.js` 什么也不导出，任何 `cordis.yml` 行都不能点名这个包。
 
 | 文件 | 内容 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | `PrincipalKey`、`ConsoleMemberDirectory`、`MemberStore`、`CustomerCredentialReader`，以及 `Context` 合并 |
-| [`tests/types.spec.ts`](tests/types.spec.ts) | 针对 `Context` 键和主体键品牌的类型断言 |
+| [`src/types.ts`](src/types.ts) | `PrincipalKey`、`ConsoleMemberDirectory`、`MemberStore`、`CustomerCredentialReader`，以及 `Context` 合并；即 `/types` 入口 |
+| [`src/index.ts`](src/index.ts) | 包根：只做类型的再导出，来源是 `src/types.ts` |
+| [`tests/types.spec.ts`](tests/types.spec.ts) | 针对 `Context` 键、主体键品牌和包根再导出的类型断言 |
 
 </details>
 
@@ -87,7 +90,7 @@ const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(r
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- **本仓库里没有提供方。** 没有任何包提供 `ctx.consoleMembers`。注入它的插件永远不会启动，`ctx.get('consoleMembers')` 答 `undefined`。[`src/index.ts`](src/index.ts) 里的方法契约约束的是提供这个目录的那个插件；没有测试检验它们，因为本包的 spec 只检查声明。
+- **本仓库里没有提供方。** 没有任何包提供 `ctx.consoleMembers`。注入它的插件永远不会启动，`ctx.get('consoleMembers')` 答 `undefined`。[`src/types.ts`](src/types.ts) 里的方法契约约束的是提供这个目录的那个插件；没有测试检验它们，因为本包的 spec 只检查声明。
 
 <a id="dev-note"></a>
 ### 开发备注

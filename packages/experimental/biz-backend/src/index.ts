@@ -38,7 +38,7 @@
 
 import type { IncomingMessage } from 'node:http'
 import { Service, type Context } from '@deepseek-ai/cordis'
-import type { PrincipalKey } from '@deepseek-ai/dsh-experimental-console-members'
+import type { PrincipalKey } from '@deepseek-ai/dsh-experimental-console-members/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import z from '@deepseek-ai/schemastery'
 
@@ -179,7 +179,7 @@ export interface HeldCredential {
  * Opaque: no part of it is read here, and it reaches no model, log line or
  * upload.
  */
-export type { PrincipalKey } from '@deepseek-ai/dsh-experimental-console-members'
+export type { PrincipalKey } from '@deepseek-ai/dsh-experimental-console-members/types'
 
 /**
  * Whom one read is performed for: the person whose token it spends.
