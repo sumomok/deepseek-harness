@@ -575,6 +575,18 @@ describe('a block only a view places, sent in a call', () => {
   )
 
   it.each([
+    ['a data source no read accepts', [{ nodeId: 'rows', meta: 3 }]],
+    ['a data source naming the form page itself', [{ nodeId: 'form', meta: 'device', metaLabel: '设备' }]],
+  ] as const)('is refused for where it is placed, not for %s', async (_case, dataSource) => {
+    // Refused for its data source first, the call would come back with the
+    // data source corrected and be refused again for the form page.
+    const { asked, run } = await bench('allowed-once', { ...OPENING, dataSource: true }, KIT_VIEW_CATALOG)
+    const result = await run({ id: 'rows', title: '设备', spec: { nodes: [ROWS, LONE_FORM] }, dataSource })
+    expect(refusal(result)).toBe(placedByViews(1))
+    expect(asked).toEqual([])
+  })
+
+  it.each([
     ['an undeclared property', { relatedMeta: 'device', bogus: 1 }],
     ['a request outside its form', { relatedMeta: 'device', request: { mode: 'delete', type: 'device' } }],
   ] as const)('is refused for where it is placed, not for %s, on both paths', async (_case, props) => {
