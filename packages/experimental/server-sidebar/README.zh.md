@@ -164,7 +164,7 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 
 组合了组织插件时，需要阅读组织告知的成员会看到一次告知卡片；组织设为 `member` 确认方式时，需要确认的成员看到的卡片带确认按钮。这里没有任何东西进模型：卡片不读会话，也不写会话事件。
 
-**插件判断，页面只显示与回报。** 组织插件的浏览器半边挂载 Remote 命名空间 `sumomokOrgNotice`，它的三个方法都按调用的那位成员作答。`due()` 答 `none`；或答 `pending` 并带 `retryAfterMs`（超过 2147483647 毫秒，即浏览器定时器能等的最长时间，按这个值处理）；或答 `notice`、`consent`，并带版本号、插件知道时的组织名称、以及告知正文。`markSeen(version)` 答 `recorded` 或 `stale`，`confirm(version)` 答 `accepted` 或 `stale`。只有这个命名空间存在时，卡片才以 `server-sidebar.org-notice` 注册进 `shell.overlay`（`client/org-notice-remote.ts`）；这个命名空间不在本包的 `inject` 列表里，所以没有组织插件的组合里侧栏照常启动，也不出现卡片。每个应答到达时都会校验（`client/org-notice.ts`）：页面不读的字段一律忽略，不认识的 `kind` 按「没有要显示的」处理，页面要读的字段读不出来时整个应答不可用。页面不存任何与告知有关的东西。成员读过或确认过哪一版由插件保存：控制台的设置由全体成员共用，浏览器存储由用同一个浏览器的所有人共用。
+**插件判断，页面只显示与回报。** 组织插件的浏览器半边挂载 Remote 命名空间 `sumomokOrgNotice`，它的三个方法都按调用的那位成员作答。`due()` 答 `none`；或答 `pending` 并带 `retryAfterMs`（小于 1000 毫秒的值，包括 0，按 1000 毫秒处理，这样页面不会每个往返都问一次插件；超过 2147483647 毫秒，即浏览器定时器能等的最长时间，按这个值处理）；或答 `notice`、`consent`，并带版本号、插件知道时的组织名称、以及告知正文。`markSeen(version)` 答 `recorded` 或 `stale`，`confirm(version)` 答 `accepted` 或 `stale`。只有这个命名空间存在时，卡片才以 `server-sidebar.org-notice` 注册进 `shell.overlay`（`client/org-notice-remote.ts`）；这个命名空间不在本包的 `inject` 列表里，所以没有组织插件的组合里侧栏照常启动，也不出现卡片。每个应答到达时都会校验（`client/org-notice.ts`）：页面不读的字段一律忽略，不认识的 `kind` 按「没有要显示的」处理，页面要读的字段读不出来时整个应答不可用。页面不存任何与告知有关的东西。成员读过或确认过哪一版由插件保存：控制台的设置由全体成员共用，浏览器存储由用同一个浏览器的所有人共用。
 
 **页面何时询问。** 卡片注册时、与宿主的连接重新建立时（`connection/reset`）、页面重新变为可见时，以及 `pending` 应答给出的延时到期时。没有任何推送。
 

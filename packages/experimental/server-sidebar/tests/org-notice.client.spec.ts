@@ -5,8 +5,8 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  createOrgNoticeStore, isRecord, OrgNoticeAnswerError, parseConfirmAnswer, parseMarkSeenAnswer, parseOrgNoticeDue,
-  reportOncePerTopic, type OrgNoticeView,
+  createOrgNoticeStore, isRecord, MIN_PENDING_RETRY_MS, OrgNoticeAnswerError, parseConfirmAnswer, parseMarkSeenAnswer,
+  parseOrgNoticeDue, reportOncePerTopic, type OrgNoticeView,
 } from '../src/client/org-notice.ts'
 import { CALLER_UNKNOWN, DISCLOSURE, fakeOrgNoticePort, shownDue, UNAVAILABLE } from './fixtures/org-notice-port.client.ts'
 
@@ -43,7 +43,14 @@ describe('parseOrgNoticeDue', () => {
   it('reads a wait with its delay', () => {
     expect(parseOrgNoticeDue({ kind: 'pending', retryAfterMs: 1500, reason: 'exchange' }, vi.fn()))
       .toEqual({ kind: 'pending', retryAfterMs: 1500 })
-    expect(parseOrgNoticeDue({ kind: 'pending', retryAfterMs: 0 }, vi.fn())).toEqual({ kind: 'pending', retryAfterMs: 0 })
+    expect(parseOrgNoticeDue({ kind: 'pending', retryAfterMs: 1000 }, vi.fn())).toEqual({ kind: 'pending', retryAfterMs: 1000 })
+  })
+
+  it('reads a wait shorter than a second, zero included, as a second', () => {
+    for (const retryAfterMs of [0, 1, 999]) {
+      expect(parseOrgNoticeDue({ kind: 'pending', retryAfterMs }, vi.fn())).toEqual({ kind: 'pending', retryAfterMs: 1000 })
+    }
+    expect(MIN_PENDING_RETRY_MS).toBe(1000)
   })
 
   it('reads a wait longer than a timer can hold as the longest one it can', () => {

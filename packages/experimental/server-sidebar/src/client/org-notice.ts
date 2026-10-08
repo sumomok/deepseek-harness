@@ -79,8 +79,8 @@ export type OrgNoticeDue =
   | {
     kind: 'pending'
     /**
-     * How long to wait before asking again, in milliseconds: zero or more,
-     * and at most {@link MAX_TIMER_DELAY_MS}.
+     * How long to wait before asking again, in milliseconds: at least
+     * {@link MIN_PENDING_RETRY_MS} and at most {@link MAX_TIMER_DELAY_MS}.
      */
     retryAfterMs: number
   }
@@ -227,10 +227,19 @@ function readDisclosure(value: unknown): DisclosureText {
 export const MAX_TIMER_DELAY_MS = 2_147_483_647
 
 /**
+ * The shortest wait before asking again after a `pending` answer. Every ask
+ * makes the plugin read the organization's backend, so a shorter wait, zero
+ * included, would have the page ask on every round trip; this is a fixed
+ * guard against that, not a setting.
+ */
+export const MIN_PENDING_RETRY_MS = 1000
+
+/**
  * Check the organization plugin's answer to {@link OrgNoticePort.due}. Fields
  * the page does not read are ignored, and a `kind` it does not know reads as
  * nothing to show: the plugin's answers only grow by addition. A `pending`
- * wait longer than {@link MAX_TIMER_DELAY_MS} reads as that delay.
+ * wait shorter than {@link MIN_PENDING_RETRY_MS} reads as that wait, and one
+ * longer than {@link MAX_TIMER_DELAY_MS} as that delay.
  * @param value - the answer as it arrived.
  * @param unknownKind - told the `kind` of an answer read as nothing to show for that reason.
  * @returns the answer.
@@ -245,7 +254,7 @@ export function parseOrgNoticeDue(value: unknown, unknownKind: (kind: unknown) =
     if (typeof retryAfterMs !== 'number' || !Number.isFinite(retryAfterMs) || retryAfterMs < 0) {
       throw new OrgNoticeAnswerError('retryAfterMs')
     }
-    return { kind, retryAfterMs: Math.min(retryAfterMs, MAX_TIMER_DELAY_MS) }
+    return { kind, retryAfterMs: Math.min(Math.max(retryAfterMs, MIN_PENDING_RETRY_MS), MAX_TIMER_DELAY_MS) }
   }
   if (kind !== 'notice' && kind !== 'consent') {
     unknownKind(kind)

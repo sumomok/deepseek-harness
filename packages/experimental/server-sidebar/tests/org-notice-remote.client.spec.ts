@@ -47,12 +47,12 @@ describe('remotePort', () => {
 
   it('unwraps and checks each answer, passing the version through', async () => {
     const service = namespace({
-      due: { ok: true, value: { kind: 'pending', retryAfterMs: 500 } },
+      due: { ok: true, value: { kind: 'pending', retryAfterMs: 1500 } },
       markSeen: { ok: true, value: { kind: 'stale' } },
       confirm: { ok: true, value: { kind: 'accepted', version: 3 } },
     })
     const port = portOver(service)
-    await expect(port.due()).resolves.toEqual({ kind: 'pending', retryAfterMs: 500 })
+    await expect(port.due()).resolves.toEqual({ kind: 'pending', retryAfterMs: 1500 })
     await expect(port.markSeen(2)).resolves.toEqual({ kind: 'stale' })
     await expect(port.confirm(3)).resolves.toEqual({ kind: 'accepted' })
     expect(service.markSeen).toHaveBeenCalledWith(2)
