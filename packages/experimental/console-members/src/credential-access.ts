@@ -30,8 +30,10 @@ export interface CustomerCredentialAccess {
   /**
    * Observe the attached reader reporting a member's token set or dropped.
    * The listener stays registered across detach and attach, and receives
-   * the changes of whichever reader is attached. Detaching a reader reports
-   * no `dropped`; {@link CustomerCredentialAccess.onDetached} reports it.
+   * the changes of whichever reader is attached. Once a reader's disposer
+   * has started, no listener receives a change from that reader, including
+   * a change being forwarded at that moment. Detaching a reader reports no
+   * `dropped`; {@link CustomerCredentialAccess.onDetached} reports it.
    * @param listener - called with the member and the kind of change.
    * @returns the disposer that removes the listener.
    */

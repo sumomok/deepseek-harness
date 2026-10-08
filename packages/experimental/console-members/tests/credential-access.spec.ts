@@ -272,6 +272,23 @@ describe('forwarding the reader\'s changes', () => {
     expect(changes).toEqual([])
   })
 
+  it('stops a change being forwarded at the listener that runs the holder\'s disposer', async () => {
+    const row = await mountMembers()
+    const access = customerCredentialAccess(directory(row))
+    const seen: unknown[] = []
+    const holder = fakeReader([[ALICE, ALICE_TOKEN]])
+    let release = (): void => undefined
+    access.onChange((_member, kind) => {
+      seen.push(['first', kind])
+      release()
+    })
+    access.onChange((_member, kind) => { seen.push(['second', kind]) })
+    access.onDetached(() => { seen.push('detached') })
+    release = directory(row).attachCustomerCredentials(holder.reader)
+    holder.report(ALICE, 'set')
+    expect(seen).toEqual([['first', 'set'], 'detached'])
+  })
+
   it('keeps forwarding to the other listeners when one throws, and logs neither its error nor the member', async () => {
     const row = await mountMembers()
     const access = customerCredentialAccess(directory(row))

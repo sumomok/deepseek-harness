@@ -3,7 +3,8 @@
  * holder attaches, and the listeners `./credential-access` registers.
  *
  * The slot holds one reader at a time. Running an attachment's disposer
- * stops forwarding the reader's changes and stops reading it, then calls
+ * stops forwarding the reader's changes, including to the listeners a
+ * change being forwarded has not reached yet, and stops reading it, then calls
  * every detach listener synchronously, then frees the slot; until the slot
  * is free, attaching throws. The disposer acts once, and only for its own
  * attachment, so a repeated or late call neither notifies again nor detaches
@@ -40,7 +41,8 @@ export class CustomerCredentials {
   private holder: Attachment | undefined
   /** The attachment whose reader is read and forwarded: the holder until its disposer starts. */
   private live: Attachment | undefined
-  private readonly changed: Listeners<[PrincipalKey, 'set' | 'dropped']>
+  /** The `onChange` listeners, each called with the attachment the change came from. */
+  private readonly changed: Listeners<[PrincipalKey, 'set' | 'dropped', Attachment]>
   private readonly detached: Listeners<[]>
 
   /**
@@ -64,9 +66,7 @@ export class CustomerCredentials {
     if (this.holder !== undefined) {
       throw new Error('console-members: a customer credential reader is already attached; its disposer must run before another reader attaches')
     }
-    const attachment = new Attachment(reader, (source, principal, kind) => {
-      if (this.live === source) this.changed.emit(principal, kind)
-    })
+    const attachment = new Attachment(reader, (source, principal, kind) => { this.changed.emit(principal, kind, source) })
     this.holder = attachment
     this.live = attachment
     return () => { this.detach(attachment) }
@@ -83,11 +83,16 @@ export class CustomerCredentials {
 
   /**
    * Observe the live reader's `set` and `dropped`, across every reader attached later.
+   * Whether the change's reader is live is checked before each listener, so
+   * once a listener runs the disposer, the listeners after it do not receive
+   * that change.
    * @param listener - called with the member and the kind of change.
    * @returns the disposer that removes the listener.
    */
   onChange(listener: (principal: PrincipalKey, kind: 'set' | 'dropped') => void): () => void {
-    return this.changed.add(listener)
+    return this.changed.add((principal, kind, source) => {
+      if (this.live === source) listener(principal, kind)
+    })
   }
 
   /**
