@@ -266,10 +266,10 @@ export type DeliveryRecord =
     /** The set the archive's manifest states; present once the archive verified against that manifest. */
     readonly set?: PackSetIdentity
     /**
-     * The line the process log carries for the refusal. It names the archive
-     * and what refused it; where the failure is the file system's own, it
-     * carries the file system's message, which can name the pack root or the
-     * delivery directory.
+     * The line the process log carries for the refusal, naming the archive and
+     * what refused it, with the pack root's and the delivery directory's paths
+     * written `<pack root>` and `<delivery directory>`, so a path a file-system
+     * error names inside either, or beside the pack root, is relative to it.
      */
     readonly reason: string
     /** When the read finished, as an ISO 8601 timestamp in UTC. */

@@ -18,7 +18,7 @@
  * @module @deepseek-ai/dsh-experimental-skill-pack/src/deliveries
  */
 
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { PACK_ARCHIVE_EXTENSION, readPackArchive } from './archive.ts'
 import { syncPackRoot, type VerifyStagedPacks } from './install.ts'
@@ -47,9 +47,8 @@ export type DeliveryReport = (level: 'info' | 'error', text: string) => void
  * the archive states.
  * @param root - absolute path of the pack root this deployment offers from.
  * @param delivery - the directory to read, and the limits one archive there is read under.
- * @param report - told what was installed and what was refused, with the line a refusal record carries
- *   as its `reason`; nothing is reported when the directory names no delivery, or names one this root
- *   already holds.
+ * @param report - told what was installed and what was refused, with each line as it is; nothing is
+ *   reported when the directory names no delivery, or names one this root already holds.
  * @param verify - how the delivered views are judged against a composed surface; absent where the caller composes none.
  * @returns what this read did with the archive it found, or `undefined` when the directory names no
  *   delivery; the pack root changed exactly when the result is `installed`.
@@ -63,8 +62,10 @@ export async function installDelivery(
   const names = await listArchives(delivery.directory)
   const [name] = names
   if (name === undefined) return undefined
+  const refused = (set: PackSetIdentity | undefined, line: string): Promise<DeliveryRecord> =>
+    recordRefusal(report, { root, directory: delivery.directory }, names, set, line)
   if (names.length > 1) {
-    return refused(report, names, undefined, `skill-pack: the delivery directory holds ${String(names.length)} archives `
+    return refused(undefined, `skill-pack: the delivery directory holds ${String(names.length)} archives `
       + `(${names.join(', ')}); it names one delivery at a time`)
   }
   const path = join(delivery.directory, name)
@@ -74,7 +75,7 @@ export async function installDelivery(
     // refused without this deployment holding its bytes.
     const { size } = await stat(path)
     if (size > delivery.limits.maxArchiveBytes) {
-      return refused(report, names, undefined, `skill-pack: refused ${name} — is ${String(size)} bytes, `
+      return refused(undefined, `skill-pack: refused ${name} — is ${String(size)} bytes, `
         + `over the ${String(delivery.limits.maxArchiveBytes)} it is read under`)
     }
     const archive = readPackArchive(name, await readFile(path), delivery.limits)
@@ -85,26 +86,73 @@ export async function installDelivery(
       + `packs [${result.packs.join(', ')}], retired [${result.retired.join(', ')}]`)
     return { result: 'installed', archives: [name], set, at: new Date().toISOString() }
   } catch (error) {
-    return refused(report, names, set, `skill-pack: ${name} was not installed: ${String(error)}`)
+    return refused(set, `skill-pack: ${name} was not installed: ${String(error)}`)
   }
 }
 
+/** The two directories a refusal record names by placeholder instead of by path. */
+interface HiddenDirectories {
+  /** Absolute path of the pack root, written `<pack root>`. */
+  readonly root: string
+  /** Absolute path of the delivery directory, written `<delivery directory>`. */
+  readonly directory: string
+}
+
 /**
- * Report one refusal and record it with the same line.
+ * Report one refusal's line as it is, and record it with the pack root and
+ * the delivery directory hidden.
  * @param report - where the line is reported, at error level.
+ * @param hidden - the directories the record names by placeholder.
  * @param archives - every archive the directory held.
  * @param set - the set the archive states, once it verified against its manifest.
- * @param reason - the whole line.
+ * @param line - the whole line.
  * @returns the refusal record.
  */
-function refused(
+async function recordRefusal(
   report: DeliveryReport,
+  hidden: HiddenDirectories,
   archives: readonly string[],
   set: PackSetIdentity | undefined,
-  reason: string,
-): DeliveryRecord {
-  report('error', reason)
+  line: string,
+): Promise<DeliveryRecord> {
+  report('error', line)
+  const reason = await hideDirectories(line, hidden)
   return { result: 'refused', archives, ...set === undefined ? {} : { set }, reason, at: new Date().toISOString() }
+}
+
+/**
+ * One line with every spelling of the pack root and the delivery directory
+ * replaced by its placeholder. Each is spelled as configured and as its real
+ * path, and a longer spelling is replaced before a shorter one, so a path
+ * that begins with another one's spelling is still named by its own.
+ * @param line - the line as the process log carries it.
+ * @param hidden - the directories to replace.
+ * @returns the line with neither directory's path in it.
+ */
+async function hideDirectories(line: string, hidden: HiddenDirectories): Promise<string> {
+  const spellings = [
+    ...await spellingsOf(hidden.root, '<pack root>'),
+    ...await spellingsOf(hidden.directory, '<delivery directory>'),
+  ].sort((left, right) => right.path.length - left.path.length)
+  return spellings.reduce((text, { path, placeholder }) => text.replaceAll(path, placeholder), line)
+}
+
+/**
+ * The paths one directory can be named by in a file-system error.
+ * @param path - the directory's absolute path as configured.
+ * @param placeholder - what the record writes in its place.
+ * @returns the configured path, and its real path where it resolves.
+ */
+async function spellingsOf(path: string, placeholder: string): Promise<{ path: string; placeholder: string }[]> {
+  let real: string
+  try {
+    real = await realpath(path)
+  } catch (_unresolved) {
+    // A pack root not yet installed, or a directory removed since it was
+    // listed, has no real path, so no error names one.
+    return [{ path, placeholder }]
+  }
+  return [{ path, placeholder }, { path: real, placeholder }]
 }
 
 /**

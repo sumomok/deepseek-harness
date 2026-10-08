@@ -10,11 +10,10 @@
  * document carries names, versions, where each pack is installed, an
  * organization entry's channel, refusal reasons, and the last delivery's
  * archive names, set, result and time, and nothing else: no file contents, no
- * paths inside the pack, no configuration. The one exception is the reason of
- * a delivery refusal, which is the line the process log carries: it names the
- * archive entry it refused, and where the file system failed a read or a
- * write it quotes the file system's message, which can name the pack root or
- * the delivery directory.
+ * paths inside the pack, no configuration. A delivery refusal's reason names
+ * the archive entry it refused, and writes the pack root and the delivery
+ * directory as `<pack root>` and `<delivery directory>`, so a path the file
+ * system failed on inside either is relative to it.
  * @module @deepseek-ai/dsh-experimental-skill-pack/src/route
  */
 

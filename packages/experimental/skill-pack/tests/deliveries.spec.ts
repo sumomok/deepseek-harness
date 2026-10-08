@@ -2,12 +2,13 @@
  * The delivery directory: which archive it names, what installing that archive
  * reports and records, and what it leaves the pack root as when it names none,
  * names two, names one this deployment will not read or will not draw, or
- * names one while the pack root cannot be read; and which record the status
- * route keeps as reads follow one another.
+ * names one while the pack root or the archive cannot be read; how a refusal
+ * record names the pack root and the delivery directory; and which record the
+ * status route keeps as reads follow one another.
  */
 
 import { createHash } from 'node:crypto'
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { zipSync } from 'fflate'
@@ -28,23 +29,41 @@ afterEach(async () => {
   for (const world of worlds.splice(0)) await rm(world, { recursive: true, force: true })
 })
 
-/** A pack root, a delivery directory beside it, and the lines one read reported. */
+/** A pack root, a delivery directory beside it, the directory both are in, and the lines one read reported. */
 interface Deployment {
+  readonly world: string
   readonly root: string
   readonly delivery: DeliveryDirectory
   readonly reported: string[]
   read(verify?: VerifyStagedPacks): Promise<DeliveryRecord | undefined>
 }
 
-async function deployment(limits = LIMITS, create = true): Promise<Deployment> {
+/** How one case's deployment is configured. */
+interface DeploymentOptions {
+  readonly limits?: typeof LIMITS
+  /** Whether the delivery directory exists before the first read. */
+  readonly create?: boolean
+  /** The delivery directory's name beside the pack root `packs`. */
+  readonly deliveries?: string
+  /** Configure both directories through a symbolic link to the directory they are in, so neither path is its real path. */
+  readonly linked?: boolean
+}
+
+async function deployment({ limits = LIMITS, create = true, deliveries = 'deliveries', linked = false }: DeploymentOptions = {}): Promise<Deployment> {
   const world = await mkdtemp(join(tmpdir(), 'dsh-skill-pack-deliveries-'))
   worlds.push(world)
-  const root = join(world, 'packs')
-  const directory = join(world, 'deliveries')
+  let base = world
+  if (linked) {
+    base = join(world, 'via')
+    await symlink(world, base, 'junction')
+  }
+  const root = join(base, 'packs')
+  const directory = join(base, deliveries)
   if (create) await mkdir(directory, { recursive: true })
   const reported: string[] = []
   const delivery = { directory, limits }
   return {
+    world,
     root,
     delivery,
     reported,
@@ -90,7 +109,7 @@ function lineOf(reported: readonly string[]): string {
 
 describe('reading the delivery directory', () => {
   it('says nothing about a directory that does not exist, and nothing about an empty one', async () => {
-    const absent = await deployment(LIMITS, false)
+    const absent = await deployment({ create: false })
     expect(await absent.read()).toBeUndefined()
     expect(absent.reported).toEqual([])
 
@@ -153,7 +172,7 @@ describe('reading the delivery directory', () => {
   })
 
   it('refuses an archive larger than the size it reads one under, without reading it', async () => {
-    const small = await deployment({ ...LIMITS, maxArchiveBytes: 64 })
+    const small = await deployment({ limits: { ...LIMITS, maxArchiveBytes: 64 } })
     await drop(small.delivery, 'set.dshpack', [pack('a', 'A.')])
     const record = await readAt(small)
     expect(small.reported).toEqual([
@@ -205,11 +224,74 @@ describe('reading the delivery directory', () => {
     } finally {
       await chmod(one.root, 0o755)
     }
-    expect(one.reported).toEqual([expect.stringContaining('error skill-pack: v2.dshpack was not installed: Error: EACCES')])
+    // The log names the pack root by its path; the record names it by placeholder.
+    expect(lineOf(one.reported)).toBe(`skill-pack: v2.dshpack was not installed: Error: EACCES: permission denied, scandir '${one.root}'`)
     // The archive verified before the root was read, so the refusal names its set.
-    expect(record).toEqual({ result: 'refused', archives: ['v2.dshpack'], set: SET, reason: lineOf(one.reported), at: '<at>' })
+    expect(record).toEqual({
+      result: 'refused',
+      archives: ['v2.dshpack'],
+      set: SET,
+      reason: 'skill-pack: v2.dshpack was not installed: Error: EACCES: permission denied, scandir \'<pack root>\'',
+      at: '<at>',
+    })
+    expect(JSON.stringify(record)).not.toContain(one.world)
     expect(await readdir(one.root)).toEqual(['a'])
     expect(await readFile(join(one.root, 'a', 'SKILL.md'), 'utf8')).toContain('A.')
+  })
+
+  // Mode 000 denies a file read to a non-root owner on POSIX; Windows has no
+  // such permission bits, and root bypasses them.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('names an archive it cannot read by its name in the delivery directory, whose path begins with the pack root\'s', async () => {
+    const one = await deployment({ deliveries: 'packs-deliveries' })
+    await drop(one.delivery, 'v1.dshpack', [pack('a', 'A.')])
+    const archive = join(one.delivery.directory, 'v1.dshpack')
+    await chmod(archive, 0o000)
+    let record: unknown
+    try {
+      record = await readAt(one)
+    } finally {
+      await chmod(archive, 0o644)
+    }
+    expect(lineOf(one.reported)).toBe(`skill-pack: v1.dshpack was not installed: Error: EACCES: permission denied, open '${archive}'`)
+    // Nothing of the archive was read, so it names no set.
+    expect(record).toEqual({
+      result: 'refused',
+      archives: ['v1.dshpack'],
+      reason: `skill-pack: v1.dshpack was not installed: Error: EACCES: permission denied, open '${join('<delivery directory>', 'v1.dshpack')}'`,
+      at: '<at>',
+    })
+    expect(JSON.stringify(record)).not.toContain(one.world)
+    await expect(readdir(one.root)).rejects.toThrow()
+  })
+
+  it('names the pack root and the delivery directory by placeholder where a refusal spells them as their real paths', async () => {
+    const one = await deployment({ linked: true })
+    await drop(one.delivery, 'v1.dshpack', [pack('a', 'A.')])
+    expect((await one.read())?.result).toBe('installed')
+    await rm(join(one.delivery.directory, 'v1.dshpack'))
+    await drop(one.delivery, 'v2.dshpack', [pack('b', 'B.')])
+    one.reported.length = 0
+    const world = await realpath(one.world)
+    const realRoot = join(world, 'packs')
+    const realDirectory = join(world, 'deliveries')
+    expect(realRoot).not.toBe(one.root)
+
+    const record = await readAt(one, () => ({
+      pack: 'b',
+      file: 'SKILL.md',
+      reason: `staged from ${join(realDirectory, 'v2.dshpack')} beside ${realRoot}`,
+    }))
+    expect(lineOf(one.reported)).toBe('skill-pack: v2.dshpack was not installed: PackInstallError: skill-pack: refused '
+      + `b/SKILL.md — staged from ${join(realDirectory, 'v2.dshpack')} beside ${realRoot}`)
+    expect(record).toEqual({
+      result: 'refused',
+      archives: ['v2.dshpack'],
+      set: SET,
+      reason: 'skill-pack: v2.dshpack was not installed: PackInstallError: skill-pack: refused '
+        + `b/SKILL.md — staged from ${join('<delivery directory>', 'v2.dshpack')} beside <pack root>`,
+      at: '<at>',
+    })
+    expect(await readdir(one.root)).toEqual(['a'])
   })
 
   it('reads only the archives, so a note, a hidden file and a directory beside them say nothing', async () => {
