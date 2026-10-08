@@ -23,7 +23,10 @@
  * filled spec and records the entry. A call that opens the deployment's own
  * data page passes this pass and is left out by `recordsEntry` instead: its
  * entry is the `content-component/resolved` the tool appends once the user has
- * agreed, and nothing before that answer.
+ * agreed, and nothing before that answer. A spec placing a component only a
+ * view may place passes this pass as well, and `recordsEntry` draws it out of a
+ * `content-component/shown` alone: a `tool/call`, a `tool/ptc-dispatch-start`
+ * or a `content-component/resolved` carrying one is a call the tool refused.
  *
  * `dataVersion` is 2. The stored record is the same two fields it always was;
  * what changed is which log shapes are read into one, so a checkpoint written
@@ -102,7 +105,7 @@ export function componentExtractor(catalog: ComponentCatalog): ContentSurfaceExt
       if (args === undefined) return undefined
       const result = validateComponentCall(catalog, args)
       if (!result.ok) return undefined
-      if (!recordsEntry(event, result.call.spec)) return undefined
+      if (!recordsEntry(catalog, event, result.call.spec)) return undefined
       return { entryId: result.call.id, data: { title: result.call.title, spec: result.call.spec } }
     },
     resolve: (data) => {

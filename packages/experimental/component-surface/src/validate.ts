@@ -16,6 +16,14 @@
  * arrangement covers the call's blocks exactly once and that a bound property
  * could hold what the block it reads reports.
  *
+ * Two rules about where a block came from are not part of the per-node pass,
+ * because the browser seat runs that pass over a spec whose bindings it has
+ * already replaced with what they resolved to. Whether a call may place a
+ * component at all is {@link refuseViewPlaced}, which the tool runs on its own;
+ * and a property declaring {@link PropsField.bindsFrom} is accepted here as the
+ * value it declares, the binding it must be written as being judged where a
+ * view is.
+ *
  * An accepted node leaves here with its properties already tightened: the
  * schema says which properties exist and what kind of value each is, and
  * {@link module:@deepseek-ai/dsh-experimental-component-surface/src/sanitize}
@@ -52,6 +60,7 @@ import {
   STACK_KEYS,
   TOKEN_CHARSET,
   TOKEN_HINT,
+  viewPlacedNodes,
   type ComponentBinding,
   type ComponentCall,
   type ComponentCallArguments,
@@ -1217,4 +1226,26 @@ export function validateComponentCall(catalog: ComponentCatalog, args: Component
   const spec = validateComponentSpec(catalog, args.spec)
   if (!spec.ok) return spec
   return { ok: true, call: { id: id.value, title: title.value, spec: spec.spec } }
+}
+
+/**
+ * Refuse a call for the first block it places whose component only a view
+ * written down for this deployment may place.
+ *
+ * Kept out of {@link validateComponentCall}, because a view is judged by that
+ * same pass and is the one source allowed to place such a block. The tool runs
+ * it on every accepted call before it asks the user anything or records
+ * anything, and the sentence is the same whether or not the deployment offers
+ * the component: either way a call cannot place it.
+ * @param catalog - the components this deployment offers.
+ * @param spec - the spec, as validation accepted it.
+ * @returns the refusal, or `undefined` when every block is one a call may place.
+ */
+export function refuseViewPlaced(catalog: ComponentCatalog, spec: ComponentSpec): ComponentCallFailure | undefined {
+  const first = viewPlacedNodes(catalog, spec)[0]
+  if (first === undefined) return undefined
+  return refuse(
+    `spec.nodes[${spec.nodes.indexOf(first)}].component`,
+    `names ${first.component}, which is placed only by a view written down for this deployment, never by a call.`,
+  )
 }

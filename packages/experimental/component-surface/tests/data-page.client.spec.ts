@@ -28,6 +28,8 @@ import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { ApprovalOutcome, ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surface'
 import {
+  catalogId,
+  COMPONENT_KIT_ENTRIES,
   DATA_PAGE_ADDED_ID,
   DATA_PAGE_CARD_CLOSE_ID,
   DATA_PAGE_CARD_OPEN_ID,
@@ -41,8 +43,11 @@ import {
   DATA_PAGE_SELECT_ID,
   DATA_PAGE_VIEW_PROP_NAMES,
   formatComponentActionLine,
+  readCatalog,
   SHOW_COMPONENT_TOOL_NAME,
   type ComponentAction,
+  type ComponentCatalog,
+  type ComponentCatalogEntry,
 } from '../src/component-call.ts'
 import {
   dataPageApprovalReason,
@@ -80,6 +85,23 @@ const PAGE = { id: 'page', component: DATA_PAGE_ID, props: { relatedMeta: 'devic
 
 /** The spec every call in this suite places. */
 const SPEC = { nodes: [PAGE] }
+
+/** A component only a written-down view may place. */
+const VIEW_PROBE: ComponentCatalogEntry = {
+  id: catalogId('toy.view-probe'),
+  label: '视图探针',
+  purpose: 'Placed by views alone.',
+  placement: 'view',
+  propsSchema: {},
+  actions: [],
+  outputs: [],
+}
+
+/** The kit's components and one only a view places. */
+const VIEW_CATALOG: ComponentCatalog = readCatalog([...COMPONENT_KIT_ENTRIES, VIEW_PROBE])
+
+/** One block of {@link VIEW_PROBE}. */
+const VIEW_PLACED = { id: 'form', component: VIEW_PROBE.id, props: {} }
 
 /**
  * One legal value per property only a written-down page may set, in the order
@@ -331,7 +353,11 @@ interface Bench {
 let calls = 0
 
 /** Boot the tool over a real registry, a real session, and one scripted approval answer. */
-async function bench(outcome: ApprovalOutcome = 'allowed-once', options: ShowComponentOptions = OPENING): Promise<Bench> {
+async function bench(
+  outcome: ApprovalOutcome = 'allowed-once',
+  options: ShowComponentOptions = OPENING,
+  catalog: ComponentCatalog = KIT_CATALOG,
+): Promise<Bench> {
   const ctx = new Context()
   contexts.push(ctx)
   await ctx.plugin(SystemPrompt)
@@ -350,7 +376,7 @@ async function bench(outcome: ApprovalOutcome = 'allowed-once', options: ShowCom
   // the page is refused by the page rule and not by a missing seam.
   ctx.provide('bizBackend', { holdsCredential: () => true } as never)
   const pending = new PendingLoads()
-  ctx.tools.register(showComponentTool(ctx, KIT_CATALOG, options, pending))
+  ctx.tools.register(showComponentTool(ctx, catalog, options, pending))
   return {
     session,
     asked,
@@ -486,6 +512,51 @@ describe('the tool opening the page', () => {
     expect(text(result)).toBe('Now showing "事实" in the content panel: 记录详情. Call show_component with id "facts" again to '
       + 'replace it; a different id adds a second entry beside it.')
   })
+})
+
+describe('a block only a view places, sent in a call', () => {
+  /** The refusal every case here ends in, for a view-placed block at the given position. */
+  const placedByViews = (index: number): string => `show_component: spec.nodes[${index}].component — names `
+    + `${VIEW_PLACED.component}, which is placed only by a view written down for this deployment, never by a call.`
+
+  it.each([['offers', OPENING], ['does not offer', PLAIN]] as const)(
+    'is refused on its own where the deployment %s the data page, before asking and before recording',
+    async (_case, options) => {
+      const { asked, session, run } = await bench('allowed-once', options, VIEW_CATALOG)
+      const result = await run({ id: 'form', title: '表单', spec: { nodes: [VIEW_PLACED] } })
+      expect(result.isError).toBe(true)
+      expect(refusal(result)).toBe(placedByViews(0))
+      expect(asked).toEqual([])
+      expect(resolvedEvents(session)).toEqual([])
+    },
+  )
+
+  it('is refused beside a data page before the page\'s question is asked', async () => {
+    const { asked, session, run } = await bench('allowed-once', OPENING, VIEW_CATALOG)
+    const result = await run({ id: 'page', title: '设备', spec: { nodes: [PAGE, VIEW_PLACED] } })
+    expect(refusal(result)).toBe(placedByViews(1))
+    expect(asked).toEqual([])
+    expect(resolvedEvents(session)).toEqual([])
+  })
+
+  it.each([['offers', OPENING], ['does not offer', PLAIN]] as const)(
+    'is refused in a call reading a data source where the deployment %s the data page, before asking',
+    async (_case, options) => {
+      // The read's own question is the one a person would answer for this
+      // call, and allowing it must not put a block on screen that no call may
+      // place.
+      const { asked, session, run } = await bench('allowed-once', { ...options, dataSource: true }, VIEW_CATALOG)
+      const result = await run({
+        id: 'rows',
+        title: '设备',
+        spec: { nodes: [{ id: 'rows', component: 'toy.table', props: { tableConfig: { gridItems: [{ relatedMetaAttr: 'zh_label' }] } } }, VIEW_PLACED] },
+        dataSource: [{ nodeId: 'rows', meta: 'device', metaLabel: '设备' }],
+      })
+      expect(refusal(result)).toBe(placedByViews(1))
+      expect(asked).toEqual([])
+      expect(resolvedEvents(session)).toEqual([])
+    },
+  )
 })
 
 describe('the row\'s own configuration', () => {

@@ -27,7 +27,9 @@ import {
   parseComponentCall,
   readComponentCall,
   SHOW_COMPONENT_TOOL_NAME,
+  viewPlacedNodes,
   type ComponentCallArguments,
+  type ComponentCatalog,
   type ComponentSpec,
 } from './component-call.ts'
 // Type-only: this package's own SessionEventMap merges.
@@ -63,8 +65,15 @@ export function readComponentEvent(event: SessionEvent): ComponentCallArguments 
 }
 
 /**
- * Whether one recorded call is the entry it names, or a question still
- * standing in front of it.
+ * Whether one recorded spec is the entry it names, or a record that draws
+ * nothing.
+ *
+ * A spec placing a component only a view written down for this deployment may
+ * place records its entry in a `content-component/shown` and nowhere else: that
+ * record is the user's click on such a view. A `tool/call`, a
+ * `tool/ptc-dispatch-start` and a `content-component/resolved` carrying one are
+ * records of a call the tool refused, and an entry drawn from them would put
+ * the block on screen anyway.
  *
  * A call that opens the deployment's own data page is recorded as a `tool/call`
  * before the user has been asked, and the record the column draws it from is
@@ -72,11 +81,13 @@ export function readComponentEvent(event: SessionEvent): ComponentCallArguments 
  * call's own record therefore records no entry: an entry drawn from it would
  * put the page on screen — and its first request on the wire, with the user's
  * own credential — before the answer, and would keep it there after a refusal.
+ * @param catalog - the components this deployment offers, which say which components only a view places.
  * @param event - the committed session event the spec was read from.
  * @param spec - the spec, as validation accepted it.
- * @returns true when the event records the entry; false when a later record does.
+ * @returns true when the event records the entry; false when a later record does or none may.
  */
-export function recordsEntry(event: SessionEvent, spec: ComponentSpec): boolean {
+export function recordsEntry(catalog: ComponentCatalog, event: SessionEvent, spec: ComponentSpec): boolean {
+  if (viewPlacedNodes(catalog, spec).length > 0) return event.type === 'content-component/shown'
   const isCall = event.type === 'tool/call' || event.type === 'tool/ptc-dispatch-start'
   return !(isCall && dataPageNodes(spec).length > 0)
 }

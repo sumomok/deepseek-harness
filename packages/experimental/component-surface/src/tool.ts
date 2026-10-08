@@ -12,6 +12,10 @@
  * call produces is reconstructable from the log alone and a refusal leaves the
  * column exactly as it was.
  *
+ * A call is refused, on either half and before anything is asked or recorded,
+ * for a block whose component only a view written down for this deployment may
+ * place.
+ *
  * A call that names a `dataSource` is the other half, and it exists only where
  * the deployment composed both a data backend and an approval answerer. It
  * reads nothing of a table the signed-in person may not read rows of, by the
@@ -102,7 +106,7 @@ import {
 } from './data-source.ts'
 // Type-only: this package's own `content-component/resolved` SessionEventMap merge.
 import type {} from './types.ts'
-import { validateComponentCall } from './validate.ts'
+import { refuseViewPlaced, validateComponentCall } from './validate.ts'
 
 /**
  * The `dataSource` parameter as the schema declares it.
@@ -710,6 +714,10 @@ async function runDataSource(
     spec: probeDataSourceSpec(args.spec, resolved.nodes, resolved.targets),
   })
   if (!judged.ok) throw new Error(judged.failure.text)
+  // Before the data page's own refusals, so a block no call may place is
+  // refused for that whether or not this deployment offers it.
+  const placed = refuseViewPlaced(catalog, judged.call.spec)
+  if (placed !== undefined) throw new Error(placed.text)
   // A data page is its own question: a call cannot put two on one card. A
   // deployment that does not offer the page refuses it by name instead, because
   // that is the reason this call cannot open one, and telling the model to move
@@ -904,6 +912,8 @@ export function showComponentTool(
       // A refusal changes nothing: the panel keeps showing whatever it showed,
       // and the model gets the offending path back to correct itself.
       if (!result.ok) throw new Error(result.failure.text)
+      const placed = refuseViewPlaced(catalog, result.call.spec)
+      if (placed !== undefined) throw new Error(placed.text)
       const page = dataPageNodes(result.call.spec)[0]
       if (page === undefined) return Promise.resolve({ entryId: result.call.id, text: acceptedText(catalog, result.call) })
       const refusal = judgeDataPageNodes(catalog, result.call.spec, options.dataPage, false)

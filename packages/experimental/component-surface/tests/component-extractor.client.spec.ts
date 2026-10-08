@@ -23,7 +23,15 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surface'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
-import { COMPONENT_KIND, type ComponentSpec } from '../src/component-call.ts'
+import {
+  catalogId,
+  COMPONENT_KIND,
+  COMPONENT_KIT_ENTRIES,
+  readCatalog,
+  type ComponentCatalog,
+  type ComponentCatalogEntry,
+  type ComponentSpec,
+} from '../src/component-call.ts'
 import { componentExtractor, type ComponentSurfaceData } from '../src/surface.ts'
 // Type-only: this package's own `content-component/shown` SessionEventMap merge.
 import type {} from '../src/types.ts'
@@ -44,17 +52,23 @@ interface Bench {
   dispatch: (subCallId: string, args: unknown, name?: string) => void
   /** Append one view click, the shape the `show-content-view` command logs. */
   shown: (id: string, title: string, spec: unknown) => void
+  /** Append one filled call, the shape the tool logs once the user allowed a read or opened a data page. */
+  resolved: (callId: string, id: string, title: string, spec: unknown) => void
   /** The live entry stream the column reads. */
   entries: () => readonly ContentSurfaceEntry[]
 }
 
-/** Mount the session store, the projection registry, the router, and this kind. */
-async function bench(): Promise<Bench> {
+/**
+ * Mount the session store, the projection registry, the router, and this kind.
+ * @param catalog - the components the extractor judges against; the kit's by default.
+ * @returns the bench.
+ */
+async function bench(catalog: ComponentCatalog = KIT_CATALOG): Promise<Bench> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(ContentSurfaceRegistry).await()
-  ctx.contentSurface.register(componentExtractor(KIT_CATALOG))
+  ctx.contentSurface.register(componentExtractor(catalog))
   const session = (ctx.get('sessions') as unknown as SessionStore).create()
   return {
     session,
@@ -85,6 +99,17 @@ async function bench(): Promise<Bench> {
         title,
         spec: spec as ComponentSpec,
         by: 'user',
+      })
+    },
+    resolved: (callId, id, title, spec) => {
+      // Cast for the reason the view click's spec is: the tool writes it out of
+      // its own validation, and these cases exercise the extractor's reading.
+      session.append('content-component/resolved', {
+        callId: ToolCallId(callId),
+        entryId: id,
+        title,
+        spec: spec as ComponentSpec,
+        fetched: [],
       })
     },
     entries: () => ctx.sessionProjections.snapshot(session).values.contentSurface?.entries ?? [],
@@ -217,6 +242,47 @@ describe('the component kind', () => {
     call('call_2', '{"id":')
     session.append('turn/start', { turn: 1 })
     expect(entries()).toEqual([])
+  })
+})
+
+describe('a block only a view places', () => {
+  /** A component only a written-down view may place. */
+  const VIEW_PROBE: ComponentCatalogEntry = {
+    id: catalogId('toy.view-probe'),
+    label: '视图探针',
+    purpose: 'Placed by views alone.',
+    placement: 'view',
+    propsSchema: {},
+    actions: [],
+    outputs: [],
+  }
+
+  /** The kit's components and the probe. */
+  const CATALOG = readCatalog([...COMPONENT_KIT_ENTRIES, VIEW_PROBE])
+
+  /** One spec placing the probe beside a record block. */
+  const PLACED = { nodes: [RECORD.nodes[0], { id: 'form', component: VIEW_PROBE.id, props: {} }] }
+
+  it('records nothing for a call carrying one, in any of the three shapes a call is logged in', async () => {
+    // Each of these is a call the tool refused, and the spec passes the shared
+    // judgement all the same: what leaves it out is where it was recorded.
+    const { call, dispatch, resolved, entries } = await bench(CATALOG)
+    call('call_1', { id: 'form', title: '表单', spec: PLACED })
+    dispatch('<root>:code:1', { id: 'form', title: '表单', spec: PLACED })
+    resolved('call_2', 'form', '表单', PLACED)
+    expect(entries()).toEqual([])
+  })
+
+  it('records the view the user opened carrying one', async () => {
+    const { shown, entries } = await bench(CATALOG)
+    shown('crud', '图层管理', PLACED)
+    expect(entries()).toEqual([{ kind: COMPONENT_KIND, entryId: 'crud', seq: 0, title: '图层管理', payload: { spec: PLACED } }])
+  })
+
+  it('records a filled call carrying none, which is the tool\'s own record of a read', async () => {
+    const { resolved, entries } = await bench(CATALOG)
+    resolved('call_1', 'facts', '站点详情', RECORD)
+    expect(entries().map(entry => entry.entryId)).toEqual(['facts'])
   })
 })
 
