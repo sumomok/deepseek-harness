@@ -157,7 +157,7 @@ const everyMember = registry.principals()
 <a id="known-limitations-and-deferred-work"></a>
 
 - **`principalOfSession` 未实现。** 这一版里它会抛错，所以查询会话所属成员的插件会失败，而不是当作没有成员继续办事。[`src/types.ts`](src/types.ts) 里的方法契约约束它的实现。
-- **撤销成员没有入口。** 这一版里没有任何办法终止一位成员的访问。客户系统撤销账号之后，这位成员的 HTTP 请求要等最后一份已签断言过期才被拒，因为部署代理给每个请求签的断言有效期是 `ASSERTION_LIFETIME_SECONDS`（`server-base` 里是 120 秒）。已经绑定在这位成员 Peer 上的 Remote 流 WebSocket 不会关闭，在它关闭之前继续以这位成员的身份办事；Peer 在它最后一条 socket 关闭后 `peerIdleMs` 才被释放。
+- **撤销成员没有入口。** 这一版里没有任何办法终止一位成员的访问。客户系统撤销账号之后，这位成员的 HTTP 请求要等最后一份已签断言过期才被拒，因为部署代理给每个请求签的断言有效期是 `ASSERTION_LIFETIME_SECONDS`（`server-base` 里是 120 秒）。已经绑定在这位成员 Peer 上的 Remote 流 WebSocket 不会关闭，在它关闭之前继续以这位成员的身份办事；Peer 在它最后一次准入与最后一条 socket 关闭两者中较晚的那个时刻之后再过 `peerIdleMs` 才被释放；撤销之前签出的断言在过期之前仍能准入请求。
 - **还没有按成员裁决 Remote 调用、路由或事件。** 插件行没有注册 `remote/invoke` 或 `connection/fetch` 监听器，也没有 `$events` 过滤器。准入器装上之后，Connection 对精确路由与专用通道答 503，Gateway 对每个 Remote 调用答 `gateway/service-unavailable`，`$events` 不投递任何事件。
 - **首次见到成员时写盘失败会留下空目录。** 成员根目录建好之后 `roots.json` 替换失败时，这位成员仍未登记，空的 `<membersRoot>/<UUID>` 留在原处；下一次首次见到时再建一个。
 - **替换 `roots.json` 时进程被杀会留下临时文件。** 写完 `roots.json.<随机十六进制>.tmp`、rename 之前进程被杀，这个 0600 权限的文件留在 `$DSH_HOME/console-members` 里；它与 `roots.json` 一样含路径和主体键，没有谁删除它。
