@@ -157,7 +157,7 @@ const everyMember = registry.principals()
 <a id="known-limitations-and-deferred-work"></a>
 
 - **`principalOfSession` 未实现。** 这一版里它会抛错，所以查询会话所属成员的插件会失败，而不是当作没有成员继续办事。[`src/types.ts`](src/types.ts) 里的方法契约约束它的实现。
-- **撤销成员没有入口。** 这一版里没有任何办法终止一位成员的访问。客户系统撤销账号之后，这位成员的 HTTP 请求最长还能被准入 `AUTH_CACHE_SECONDS` 加 `ASSERTION_LIFETIME_SECONDS` 秒，按 `server-base` 的默认值是 150 秒：部署代理把一次放行在内存里记 `AUTH_CACHE_SECONDS` 秒（默认 30），凭这份记忆放行的每个请求都现签一份新断言，而每份断言的有效期是 `ASSERTION_LIFETIME_SECONDS`（120 秒）。已经绑定在这位成员 Peer 上的 Remote 流 WebSocket 不会关闭，在它关闭之前继续以这位成员的身份办事；Peer 在它最后一次准入与最后一条 socket 关闭两者中较晚的那个时刻之后再过 `peerIdleMs` 才被释放；撤销之前签出的断言在过期之前仍能准入请求。
+- **撤销成员没有入口。** 这一版里没有任何办法终止一位成员的访问。客户系统撤销账号之后，这位成员的 HTTP 请求还能被准入，直到部署代理最后一次对这位成员登录校验成功之后再过 `AUTH_CACHE_SECONDS` 加 `ASSERTION_LIFETIME_SECONDS` 秒，按 `server-base` 的默认值是 150 秒：部署代理把一次放行在内存里记 `AUTH_CACHE_SECONDS` 秒（默认 30），凭这份记忆放行的每个请求都现签一份新断言，而每份断言的有效期是 `ASSERTION_LIFETIME_SECONDS`（120 秒）。已经绑定在这位成员 Peer 上的 Remote 流 WebSocket 不会关闭，在它关闭之前继续以这位成员的身份办事；Peer 在它最后一次准入与最后一条 socket 关闭两者中较晚的那个时刻之后再过 `peerIdleMs` 才被释放；撤销之前签出的断言在过期之前仍能准入请求。
 - **`admins`、`sharedReadRoots`、`hostReadPaths` 与 `hostWritePaths` 现在不约束任何东西。** 加载时会核对它们（绝对路径、非空的 `login_uid` 字符串），这一版里别处都不读它们：没有成员因此获得管理员权限，`sharedReadRoots` 不授予任何读取，宿主的读写也不受 `hostReadPaths` 或 `hostWritePaths` 限制。
 - **还没有按成员裁决 Remote 调用、路由或事件。** 插件行没有注册 `remote/invoke` 或 `connection/fetch` 监听器，也没有 `$events` 过滤器。准入器装上之后，Connection 对精确路由与专用通道答 503，Gateway 对每个 Remote 调用答 `gateway/service-unavailable`，`$events` 不投递任何事件。
 - **首次见到成员时写盘失败会留下空目录。** 成员根目录建好之后 `roots.json` 替换失败时，这位成员仍未登记，空的 `<membersRoot>/<UUID>` 留在原处；下一次首次见到时再建一个。
