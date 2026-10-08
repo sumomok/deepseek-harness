@@ -118,9 +118,10 @@ declare module '@deepseek-ai/cordis' {
      * listeners after it and the method at most once per call: a repeated call returns the first call's
      * promise, or throws its synchronous error, so after a later listener refuses, every later `next()` of
      * that listener returns the refusal, and the method runs at most once. A listener sees `call.args` before
-     * any listener after it replaces them. The method runs as the Peer the call was built with, whatever a
-     * listener writes to `call.peer`. While `connection.peers.memberAdmission` is true and no listener is
-     * registered, the call fails with `gateway/service-unavailable` and the method does not run.
+     * any listener after it replaces them. `call.peer` is a non-writable property fixed when the call is
+     * built, so every listener and the method see the same Peer. While `connection.peers.memberAdmission`
+     * is true and no listener is registered, the call fails with `gateway/service-unavailable` and the
+     * method does not run.
      * A listener refuses the call by throwing a `RemoteError`, such as `gateway/forbidden`, without calling
      * `next()`; the caller receives it as it would a method's `RemoteError`. A listener that returns without
      * calling `next()` answers in the method's place. The method runs in the async context that called
@@ -168,7 +169,7 @@ interface PendingInvocation {
   readonly descriptor: InvocationDescriptor
   /** The object `remote/invoke` listeners receive; the end of the waterfall reads its `args`. */
   readonly call: RemoteInvokeCall
-  /** The Peer the call speaks for, fixed when the call is built; the method runs as it whatever `call.peer` holds. */
+  /** The Peer the call speaks for, fixed when the call is built; `call.peer` is the same Peer and not writable. */
   readonly peer: PeerScope
 }
 
@@ -522,6 +523,8 @@ export class TypertGatewayService extends Service implements TypertGateway {
       parameters: descriptor.parameters,
       args: request.args,
     }
+    // A listener reads the Peer to authorize the call, so none may replace it for the listeners after it.
+    Object.defineProperty(call, 'peer', { writable: false, configurable: false })
     return { request, descriptor, call, peer }
   }
 
@@ -534,25 +537,45 @@ export class TypertGatewayService extends Service implements TypertGateway {
    * @param method - the end of the chain, which validates `call.args` and calls the method.
    * @returns the outermost listener's outcome, or the method's when no listener is registered.
    * @throws {@link TypertGatewayError} `gateway/service-unavailable` when member admission is on and no listener is
-   * registered; the method does not run. A listener's synchronous throw is thrown as it is.
+   * registered; the method does not run. A listener's synchronous throw, and an `internal/dispatch` listener's throw,
+   * are thrown as they are.
    */
   private runInvokeChain(call: RemoteInvokeCall, method: InvokeStep): Promise<RemoteInvokeOutcome> {
-    let head: InvokeStep | undefined
-    // An `internal/dispatch` listener may call the first position before the chain exists; it then runs once the
-    // chain does, as the second call of that position.
-    const entry: InvokeStep = () => head === undefined ? Promise.resolve().then(entry) : head()
+    // An `internal/dispatch` listener receives the first position before the chain exists; a call it makes runs once
+    // the chain does, and settles with this call's failure when the chain is never built.
+    const chain = Promise.withResolvers<InvokeStep>()
+    const entry: InvokeStep = () => chain.promise.then(head => head())
+    let head: InvokeStep
+    try {
+      head = this.composeInvokeChain(call, method, entry)
+    } catch (error) {
+      // Thrown inside the `then()` of `entry`, so a call through it rejects with this call's failure.
+      chain.resolve(() => { throw error })
+      throw error
+    }
+    chain.resolve(head)
+    return head()
+  }
+
+  /**
+   * Resolve the `remote/invoke` listeners for one call and compose them around `method`.
+   * @param call - the call the listeners receive.
+   * @param method - the end of the chain.
+   * @param entry - the first position as `internal/dispatch` listeners receive it.
+   * @returns the chain's first position.
+   * @throws {@link TypertGatewayError} `gateway/service-unavailable` when member admission is on and no listener is
+   * registered.
+   */
+  private composeInvokeChain(call: RemoteInvokeCall, method: InvokeStep, entry: InvokeStep): InvokeStep {
     const listeners: InvokeListener[] = this.ctx.events.dispatch('waterfall', ['remote/invoke', call, entry])
     if (listeners.length === 0 && this.isMemberAdmission()) {
-      const refusal = new TypertGatewayError(
+      throw new TypertGatewayError(
         'gateway/service-unavailable',
         call.endpoint,
         'no remote/invoke listener is registered while member admission is on',
       )
-      head = () => Promise.reject(refusal)
-      throw refusal
     }
-    head = listeners.reduceRight<InvokeStep>((below, listener) => atMostOnce(() => listener(call, below)), atMostOnce(method))
-    return head()
+    return listeners.reduceRight<InvokeStep>((below, listener) => atMostOnce(() => listener(call, below)), atMostOnce(method))
   }
 
   /**
@@ -1642,13 +1665,6 @@ function releaseReason(endpoint: string, failure: unknown): unknown {
 }
 
 /**
- * The rejection of a `remote/invoke` `next()` called after the waterfall ended. The caller already has the call's
- * outcome, so nothing would receive or release what the method returned; the rejection belongs to the listener that
- * called `next()`.
- * @param endpoint - canonical endpoint of the call.
- * @returns the failure.
- */
-/**
  * Wrap one position of a `remote/invoke` chain so that it runs at most once.
  * @param step - the listener at that position, called with the next position, or the method.
  * @returns a step whose first call runs `step` and whose every later call returns the first call's promise, or throws
@@ -1674,6 +1690,13 @@ function atMostOnce(step: InvokeStep): InvokeStep {
   return run
 }
 
+/**
+ * The rejection of a `remote/invoke` `next()` called after the waterfall ended. The caller already has the call's
+ * outcome, so nothing would receive or release what the method returned; the rejection belongs to the listener that
+ * called `next()`.
+ * @param endpoint - canonical endpoint of the call.
+ * @returns the failure.
+ */
 function nextAfterWaterfall(endpoint: string): Error {
   return new Error(`remote/invoke: next() for ${endpoint} was called after the waterfall ended`)
 }

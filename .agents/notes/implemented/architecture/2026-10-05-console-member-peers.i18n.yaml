@@ -27,11 +27,11 @@
   en: afbb2f177bcd3136
   zh: 5bdaa203ae43da57
 /agent-note-one-host-serving-several-members/decision/remote-calls-pass-through-remote-invoke:
-  en: 599e46d55adecbbc
-  zh: 5676bafacd2aa88e
+  en: bc3ca3468ec8d337
+  zh: 3d42792167ba2895
 /agent-note-one-host-serving-several-members/decision/fetch-routes-and-channels-pass-through-connection-fetch:
-  en: f710c27491a77b93
-  zh: f2c6e5668c13a9c8
+  en: 3e8e11003e7b791e
+  zh: 48f40322e772370f
 /agent-note-one-host-serving-several-members/decision/forwarded-events-pass-through-one-delivery-filter:
   en: 88fe01089baf1316
   zh: 2018ceb70b5685e4

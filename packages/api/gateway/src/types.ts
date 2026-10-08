@@ -40,7 +40,7 @@ export interface RemoteInvokeCall {
   readonly mode: 'unary' | 'stream'
   /**
    * Peer the call speaks for: the Peer Connection admitted, or the operator for an in-process carrier that names none.
-   * The Gateway fixes it when it builds the call; the method runs as that Peer whatever a listener writes here.
+   * The Gateway fixes it when it builds the call as a non-writable property, so every listener and the method see it.
    */
   readonly peer: PeerScope
   /** Receiver selection: `direct`, or `context` with its Context kind and the wire field carrying its identity. */

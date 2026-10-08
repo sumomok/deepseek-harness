@@ -505,21 +505,61 @@ describe('remote/invoke', () => {
       expect(probe.calls).toEqual([])
     })
 
-    it('runs the method as the Peer the call was built with, whatever a listener writes to call.peer', async () => {
+    it('keeps call.peer fixed, so a listener before an authorizer cannot hand it another Peer', async () => {
       const ctx = await mount()
-      const refused = ctx.connection.peers.open()
-      const caller = ctx.connection.peers.open()
-      ctx.on('remote/invoke', authorizer(refused))
+      const member = ctx.connection.peers.open()
+      ctx.connection.peers.admitWith(() => member)
+      const { operator } = ctx.connection
+      const seen: PeerScope[] = []
       ctx.on('remote/invoke', (call, next) => {
-        Reflect.set(call, 'peer', refused)
-        call.args = { value: 'replaced' }
+        seen.push(call.peer)
+        if (call.peer !== operator) {
+          throw new RemoteError('gateway/forbidden', 'fixture: operator only', { endpoint: call.endpoint })
+        }
         return next()
       })
+      const written: boolean[] = []
+      ctx.on('remote/invoke', (call, next) => {
+        written.push(Reflect.set(call, 'peer', call.peer === operator ? member : operator))
+        call.args = { value: 'replaced' }
+        return next()
+      }, { prepend: true })
 
-      await expect(ctx.typertGateway.invoke({ namespace: 'guard', method: 'passthrough', args: { value: 'judged' }, peer: caller }))
+      await expect(rpc(ctx, 'guard/passthrough', { value: 'write' })).resolves.toMatchObject({
+        ok: false, error: { code: 'gateway/forbidden' },
+      })
+      expect(probe.calls).toEqual([])
+      await expect(ctx.typertGateway.invoke({ namespace: 'guard', method: 'passthrough', args: { value: 'judged' } }))
         .resolves.toBe('replaced')
-      expect(probe.peers).toEqual([caller])
+      expect(written).toEqual([false, false])
+      expect(seen).toEqual([member, operator])
+      expect(probe.peers).toEqual([operator])
       expect(probe.wireArgs).toEqual([{ value: 'replaced' }])
+    })
+
+    it('settles a call of the first position with an internal/dispatch listener\'s throw, and the method never runs', async () => {
+      const ctx = await mount()
+      const veto = new Error('fixture: vetoed by internal/dispatch')
+      const entries: (() => Promise<unknown>)[] = []
+      const early: Promise<unknown>[] = []
+      const stopCapture = ctx.on('internal/dispatch', (_mode, name, args: readonly unknown[]) => {
+        if (name !== 'remote/invoke') return
+        const entry = args.at(-1) as () => Promise<unknown>
+        entries.push(entry)
+        early.push(entry().catch((error: unknown) => error))
+      }, { global: true })
+      const stopVeto = ctx.on('internal/dispatch', (_mode, name) => {
+        if (name === 'remote/invoke') throw veto
+      }, { global: true })
+      ctx.on('remote/invoke', (_call, next) => next())
+
+      await expect(ctx.typertGateway.invoke({ namespace: 'guard', method: 'passthrough', args: { value: 1 } }))
+        .rejects.toBe(veto)
+      stopCapture()
+      stopVeto()
+      expect(await Promise.all(early)).toEqual([veto])
+      await expect(entries[0]?.()).rejects.toBe(veto)
+      expect(probe.calls).toEqual([])
     })
 
     it('hands an internal/dispatch listener the whole chain, so its call meets the refusal and the method never runs', async () => {
@@ -541,15 +581,16 @@ describe('remote/invoke', () => {
       expect(probe.calls).toEqual([])
     })
 
-    it('settles a call the chain receives while its first call still runs with that first call\'s outcome', async () => {
+    it('settles a call a position receives while its first call still runs with that first call\'s outcome', async () => {
       const ctx = await mount()
-      let entry: (() => Promise<unknown>) | undefined
-      ctx.on('internal/dispatch', (_mode, name, args: readonly unknown[]) => {
-        if (name === 'remote/invoke') entry = args.at(-1) as () => Promise<unknown>
-      }, { global: true })
+      let outer: (() => Promise<unknown>) | undefined
+      ctx.on('remote/invoke', (_call, next) => {
+        outer = next
+        return next()
+      })
       let reentered: Promise<unknown> | undefined
       ctx.on('remote/invoke', (_call, next) => {
-        reentered = entry?.()
+        reentered = outer?.()
         return next()
       })
 
