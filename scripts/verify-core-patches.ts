@@ -86,6 +86,8 @@ export const GENERATED_PATHSPECS = [
   'docs/capability-seams.md',
   'docs/event-producer-consumer.md',
   'docs/event-producer-consumer.zh.md',
+  'docs/module-graph.md',
+  'docs/module-graph.zh.md',
   'docs/persistence-catalog.md',
   'docs/persistence-catalog.zh.md',
   'docs/persistence-schema.json',

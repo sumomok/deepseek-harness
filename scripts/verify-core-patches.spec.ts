@@ -492,6 +492,14 @@ describe('runCheck', () => {
     expect(runCheck(fixture.root).status).toBe('ok')
   })
 
+  it('agrees when the generated module graph pair differs from the base', (test) => {
+    const fixture = repository(test)
+    fixture.write('docs/module-graph.md', 'regenerated\n')
+    fixture.write('docs/module-graph.zh.md', 'regenerated\n')
+    fixture.record('registry\n\nPatch: alpha-seam')
+    expect(runCheck(fixture.root).status).toBe('ok')
+  })
+
   it('still rejects the hand-maintained Chinese capability-seams page when no record claims it', (test) => {
     const fixture = repository(test)
     fixture.write('docs/capability-seams.zh.md', 'edited\n')

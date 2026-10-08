@@ -118,6 +118,8 @@ class FakeConnectionService extends Service {
   handler: FakeRpcHandler | undefined
   /** The operator Peer every call this fake dispatches speaks for. */
   readonly operator: PeerScope
+  /** Member admission stays off, so the Gateway runs Remote calls without a `remote/invoke` listener. */
+  readonly peers = { memberAdmission: false }
 
   constructor(ctx: Context) {
     super(ctx, 'connection')

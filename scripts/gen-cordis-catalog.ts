@@ -879,6 +879,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   RemoteSocketId: 'Remote stream socket identity is owned by packages/api/gateway/src/stream-server.ts',
   RemoteInvokeCall: 'Remote call seen by remote/invoke listeners is owned by packages/api/gateway/src/types.ts',
   RemoteInvokeOutcome: 'remote/invoke result union is owned by packages/api/gateway/src/types.ts',
+  RemoteEventFilter: 'Remote Event delivery filter is owned by packages/api/gateway/src/types.ts',
   PeerScope: 'Peer scope contract is owned by packages/typert/protocol/src/types.ts',
   ConnectionIndexRequest: 'frontend authentication request is owned by packages/client/connection/src/rpc.ts',
   ConnectionIndexResponse: 'frontend authentication response is owned by packages/client/connection/src/rpc.ts',
