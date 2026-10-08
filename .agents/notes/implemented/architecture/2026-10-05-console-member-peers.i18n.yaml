@@ -1,0 +1,46 @@
+# Bilingual-pair consistency record for 2026-10-05-console-member-peers.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-05-console-member-peers.md
+/agent-note-one-host-serving-several-members:
+  en: f13f63417e51d434
+  zh: dda72028bc02ef6b
+/agent-note-one-host-serving-several-members/problem:
+  en: 0b620ac9d11adb34
+  zh: a39f04e9accbb764
+/agent-note-one-host-serving-several-members/decision:
+  en: a15c7c13f167e5ac
+  zh: 63bcc2ef60c2f344
+/agent-note-one-host-serving-several-members/decision/one-peer-per-member:
+  en: f23023c48913360b
+  zh: b8039b5f71dab9aa
+/agent-note-one-host-serving-several-members/decision/admission-and-default-deny:
+  en: 8f282a8a205b96a5
+  zh: 6114001b01e6c11a
+/agent-note-one-host-serving-several-members/decision/admit-stays-synchronous:
+  en: ab14e30b4e2d36d4
+  zh: 2436e7e683a63256
+/agent-note-one-host-serving-several-members/decision/lifecycle-events:
+  en: b4984ab35339fd8e
+  zh: 515c060140f96775
+/agent-note-one-host-serving-several-members/decision/the-peer-carries-no-identity:
+  en: afbb2f177bcd3136
+  zh: 5bdaa203ae43da57
+/agent-note-one-host-serving-several-members/decision/remote-calls-pass-through-remote-invoke:
+  en: 68f26e3b64852f01
+  zh: 43484279b185b474
+/agent-note-one-host-serving-several-members/decision/fetch-routes-and-channels-pass-through-connection-fetch:
+  en: 088dd2bd0f2f5732
+  zh: 05f3f41e9d580c1d
+/agent-note-one-host-serving-several-members/decision/without-an-admitter:
+  en: bed20f35a5cac3ca
+  zh: c68f5c8d6d0e6b14
+/agent-note-one-host-serving-several-members/decision/retirement:
+  en: 2182183c4f870186
+  zh: 56503b8003be4d19
+/agent-note-one-host-serving-several-members/alternatives-considered:
+  en: 8acba83d3f586471
+  zh: d6035fcb71ac8638
+/agent-note-one-host-serving-several-members/consequences:
+  en: 484fa7c290d787ad
+  zh: 167223e53f7ba75b

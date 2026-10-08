@@ -35,7 +35,7 @@ content 栏是这条产品线的立身之本，也是本包存在的理由：一
 
 几何是有意不同的。这里没有拖拽把手、没有让步链、没有宽度偏好：轨道宽度是「测得的框架宽度 + 四个布尔」的纯函数（`tracks.ts`），因此任何一次 resize 都复现同一比例，也没有什么需要恢复。比例上唯一的固定点是展开状态 session 栏的 180px 下限（`SESSION_MIN`）：1440px 框架的 3/24 正是 180px，因此更宽的框架完全按比例求解，更窄的框架则把这一栏钉在 180px，content 与 chat 按各自的 16:5 瓜分剩余——若只按份额，500px 的窗口只会给这一栏 63px，每个会话标题都会被拆成一字一行。折叠后的 session 栏渲染 56px 控制条，并把自己的比例份额让给 content 与 chat，后两者继续按各自的 16:5 瓜分剩余空间。右栏占用者报告占用轨道（`openRightbar(true, …)`）时，details 带从总宽里取走固定 360px，否则取 0；占用者在零宽下保持挂载，并贴着这一栏的右边缘自己画面板，因此不占轨道显示的面板会盖在 chat 上。
 
-在 `SIDEBAR_AUTO_COLLAPSE`（1024px，出厂外壳同样折叠的 deepsuite LG 断点）以下，session 栏整个离开栅格——它的轨道解出 0，content 与 chat 瓜分整幅框架——会话列表改为通过外壳画进 overlay 层的离屏抽屉来到达。左上角的汉堡按钮打开它，点击遮罩或按 Escape 关闭它，同一个 `sidebar` 占用者以 `SIDEBAR_DRAWER`（280px，钳到框架宽度）填充它。打开时焦点移入抽屉、关闭时移回汉堡按钮，滑入与遮罩淡入在 `prefers-reduced-motion` 下不再动画。重新变宽越过断点会强制关闭抽屉，因此不会有浮层残留到宽版面上。两种情形下 sidebar 占用者本身不变——它按拿到的宽度自我排布，无论是在栅格列里还是在抽屉里。
+在 `SIDEBAR_AUTO_COLLAPSE`（1024px，出厂外壳同样折叠的 deepsuite LG 断点）以下，session 栏整个离开栅格——它的轨道解出 0，content 与 chat 瓜分整幅框架——会话列表改为通过外壳画进 overlay 层的离屏抽屉来到达。左上角的汉堡按钮打开它，点击遮罩或按 Escape 关闭它，同一个 `sidebar` 占用者以 `SIDEBAR_DRAWER`（280px，钳到框架宽度）填充它。抽屉里的菜单或对话框接下的 Escape（它在外壳的 window 监听器之前调用了 `preventDefault()`）只关掉那个菜单或对话框，再按一次 Escape 才关抽屉。打开时焦点移入抽屉、关闭时移回汉堡按钮，滑入与遮罩淡入在 `prefers-reduced-motion` 下不再动画。重新变宽越过断点会强制关闭抽屉，因此不会有浮层残留到宽版面上。两种情形下 sidebar 占用者本身不变——它按拿到的宽度自我排布，无论是在栅格列里还是在抽屉里。
 
 content 栏在自己无内容可展示时也走同样的折叠：宽度归零，chat 吃下让出的份额，子树仍保持挂载在下面。外壳通过标准的 `useSessions` 列表投喂读取主视图（Conversation 持有的那一行，`retainedBy.mainView`）的 content surface 来判断这一点，而不是引入 [`content-surface`](../content-surface/README.zh.md) 依赖——这份软耦合的代价见 Known Limitations。
 
@@ -83,7 +83,7 @@ ctx.slots.inject('content', () => ctx.slots.register({ name: 'content' }, MySurf
 <a id="known-limitations-and-deferred-work"></a>
 
 - **只有一档响应式折叠，不堆叠也没有让步链** —— 在 `SIDEBAR_AUTO_COLLAPSE`（1024px）及以上，比例在任何宽度下都照用，session 栏的 180px 下限是唯一例外；在其以下，session 栏离开栅格改用离屏抽屉，content 与 chat 按各自的 16:5 瓜分框架。这里不堆叠，出厂外壳的让步链与拖拽把手仍然没有对应物；需要它们的部署应当改用 ui-layout。
-- **抽屉是固定宽度、没有宽版折叠控件、导航点击也不关它** —— 抽屉以 `SIDEBAR_DRAWER`（280px，钳到框架宽度）打开，而不是按份额；断点以上没有折叠控件把 session 宽度要回来（要用就用出厂外壳的）。导航点击复用当前 session（`open-nav.ts` 的 `resolveOrCreateSession({ reuseCurrent: true })`），因此没有 session 切换抵达外壳来据此自动关抽屉，而盯着 content surface 的同 session 变化会加深下面那份软耦合；抽屉靠遮罩、Escape 键或 `ctx.layout.toggleSidebar()` 关闭。
+- **抽屉是固定宽度、没有宽版折叠控件、导航点击也不关它** —— 抽屉以 `SIDEBAR_DRAWER`（280px，钳到框架宽度）打开，而不是按份额；断点以上没有折叠控件把 session 宽度要回来（要用就用出厂外壳的）。导航点击复用当前 session（`open-nav.ts` 的 `resolveOrCreateSession({ reuseCurrent: true })`），因此没有 session 切换抵达外壳来据此自动关抽屉，而盯着 content surface 的同 session 变化会加深下面那份软耦合；抽屉靠遮罩、没有被抽屉里的菜单或对话框接下的 Escape，或 `ctx.layout.toggleSidebar()` 关闭。
 - **没有调宽手段** —— 栏宽既不可由用户调整，也不持久化。比例与控制条宽度是约定冻结的常量，不是配置项。
 - **content 栏只是壳** —— 本包交付座位、空态与几何。里面渲染什么归占用者所有；[`content-frame`](../content-frame/README.zh.md) 是第一位。
 - **root scope 的一栏会漏出跨 session 状态，除非占用者自己按 session 分键** —— 框架在 session 切换时不清任何东西，因此持有 per-session 组件状态的占用者必须自己以 session id 分键。这份代价换来的正是这一栏的全部意义：框架不得摧毁的 DOM。Conversation 与右栏在各自的 root 条目内部绑定自己的 session。

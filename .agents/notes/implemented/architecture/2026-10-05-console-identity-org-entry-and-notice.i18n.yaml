@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-10-05-console-identity-org-entry-and-notice.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-05-console-identity-org-entry-and-notice.md
+/agent-note-console-sidebar-the-identity-row-s-organization-entry-and-the-organization-notice-card:
+  en: cb0abbf868dd9747
+  zh: 8294fb0a7947a9cc
+/agent-note-console-sidebar-the-identity-row-s-organization-entry-and-the-organization-notice-card/problem:
+  en: 01cf07acce78eb8f
+  zh: 6532283b8adfdcaf
+/agent-note-console-sidebar-the-identity-row-s-organization-entry-and-the-organization-notice-card/decision:
+  en: 0ddaf4ffc3631697
+  zh: cc538cd78975b0fa
+/agent-note-console-sidebar-the-identity-row-s-organization-entry-and-the-organization-notice-card/alternatives-considered:
+  en: 10d91d733e7cfbe1
+  zh: b03bee31cafd5326
+/agent-note-console-sidebar-the-identity-row-s-organization-entry-and-the-organization-notice-card/consequences:
+  en: c555223ef4e19587
+  zh: b32b4d9af43a3629

@@ -56,8 +56,10 @@ interface Workspace {
    * prepended at attach, explicit reordering goes through
    * `insertSessionBefore`, and activity never reorders. The durable candidate
    * account is filtered synchronously: missing headers, invalid cwd values,
-   * and canonical cwd mismatches are never returned. A subsequent workspace
-   * mutation prunes those filtered candidates durably.
+   * and canonical cwd mismatches are never returned. Registry startup
+   * durably removes an id whose cwd resolves to an existing directory other
+   * than {@link path} when {@link path} resolved at that start; a subsequent
+   * workspace mutation prunes the other filtered candidates durably.
    */
   readonly sessionIds: readonly SessionId[]
 
@@ -69,13 +71,21 @@ interface Workspace {
   setTitle(title: string): Promise<void>
 
   /**
-   * Prepend a session to this workspace's candidate account. An already
-   * accounted id resolves without writing, aside from the durable
-   * filtered-candidate prune every accepted mutation performs. A new id's
-   * live or persisted
-   * header cwd must resolve to an existing directory equal to {@link path};
-   * unknown ids, missing or invalid cwd values, and mismatches reject without
-   * writing.
+   * Prepend a session to this workspace's candidate account. Runs on the
+   * registry's mutation queue, after every registry operation issued before
+   * it. An already accounted id resolves without writing, aside from the
+   * durable filtered-candidate prune every accepted mutation performs. A new
+   * id's live or persisted header cwd must resolve to an existing directory
+   * equal to {@link path}; a header that a relocation replaces during the
+   * check is checked in its place. Unknown ids, missing or invalid cwd
+   * values, and mismatches reject without writing. A validated new id is
+   * first durably detached from every other workspace that lists it, and
+   * every operation that adds a session runs on that one queue, so no two
+   * workspaces account one session; registry startup repairs a store that an
+   * earlier build left with one session in several workspaces. A detach does
+   * not wait for that queue: a {@link detachSession} issued before this call
+   * settles can land first and leave the session attached, so a caller that
+   * detaches the session afterwards awaits this call first.
    * @param sessionId - The session to record.
    * @returns resolution after durability.
    */
@@ -121,7 +131,9 @@ Ownership truth is the record's ordered `sessionIds`, never derived from session
 
 `WorkspaceRegistry` ([signatures](#ctxworkspaceregistry--workspaceregistry)) owns registration and resolution. `create(path, title?)` requires a fully qualified path, canonicalizes it, rejects a nonexistent path (the original `ENOENT`) or a non-directory, returns the existing entity unchanged when the canonical path is already owned, and otherwise creates a record with `title ?? defaultWorkspaceTitle(path)` prepended to the durable registry order (different canonical paths may share a display title, and a path with no final segment uses its root spelling). `get(id)` and the ordered `list()` are synchronous cache reads; `resolveByPath(path)` applies the same fully qualified realpath canon without creating. `delete(id)` removes only the registration, order entry, and session account — the directory, user files, live sessions, and persisted logs are never touched, so those sessions become Ungrouped ([reference](../../packages/workspace/workspace/README.md)); unknown ids return `false`. Create and delete persist a pending-mutation marker before their two writes (record + order) can diverge; startup resolves exactly the marked mutation — by deleting the marked table row, which completes an interrupted delete and rolls back an interrupted create (the registration is re-creatable, so rollback is the safe direction) — and an unmarked order/table mismatch fails loud as corruption. After that recovery and before the history bootstrap and header index, startup re-resolves every stored workspace path through `fs.realpath`: a new canonical directory that no other workspace stores or newly resolves to replaces the stored path, keeping the id, title, account, and registry order; a path that does not resolve, is not a directory, or collides stays as stored and is logged.
 
-Sessions get their cwd at create time from whoever creates them, not from this registry — the API gateway resolves a new session's cwd from the chosen workspace's `path` (falling back to an explicit or default cwd), creates the session so the cwd lands in its immutable [`SessionHeader`](persistence.md#sessionheader--metadata-beside-the-log), then calls `attachSession`, which re-validates that stored header cwd against the workspace path. On the first successful start, the registry bootstraps history from persisted headers alone (`id`, `cwd`, `createdAt` — never event bodies), grouping sessions with a valid canonical cwd into per-directory workspaces, newest first; the initialized marker is written last so an interrupted bootstrap resumes safely. The bootstrap is one-time: cwd-less legacy sessions stay Ungrouped, and sessions created afterwards join a workspace only through `attachSession`.
+Sessions get their cwd at create time from whoever creates them, not from this registry — the API gateway resolves a new session's cwd from the chosen workspace's `path` (falling back to an explicit or default cwd), creates the session so the cwd lands in its [`SessionHeader`](persistence.md#sessionheader--metadata-beside-the-log), then calls `attachSession`, which re-validates that stored header cwd against the workspace path. On the first successful start, the registry bootstraps history from persisted headers alone (`id`, `cwd`, `createdAt` — never event bodies), grouping sessions with a valid canonical cwd into per-directory workspaces, newest first; the initialized marker is written last so an interrupted bootstrap resumes safely. The bootstrap is one-time: cwd-less legacy sessions stay Ungrouped, and sessions created afterwards join a workspace only through `attachSession`.
+
+A stored header cwd changes only through `SessionPersistence.relocate`. On `session-persistence/relocated` the registry replaces the session's indexed header and drops its indexed path before any await, so the old workspace stops listing the session at once and an `attachSession` issued right after the move validates against the new cwd; a header listed before the event never replaces the new one. Its mutation queue then resolves the new cwd, durably detaches the session from every workspace at another path, and attaches it to the workspace whose path is the new canonical cwd, when one exists; a failure there is logged. A listener that throws or rejects ahead of the registry's does not keep the event from it, but recovery of an interrupted move emits no event, and a registry that is not running misses a move. At its next start the registry therefore durably detaches every session whose canonical cwd is an existing directory other than the path of the workspace listing it, checking only workspaces whose stored path resolved at that start, and `attachSession` runs on the same queue: it validates the header indexed when its check finishes, checking again a header that a move replaced meanwhile, and first detaches a validated session from every other workspace that lists it, so no two workspaces account one session in any order; a `detachSession` does not wait for that queue, so a caller awaits an attach before detaching the same session. When a store that an earlier build wrote lists one session twice in a workspace, startup keeps the first occurrence with a warning; when it lists one session in several workspaces, startup keeps it in the workspace whose path is the session's canonical cwd, or else in the first of them in registry order with a warning, and when that cwd is an existing directory the detach of moved sessions then removes it from that workspace too unless its path was kept as stored. A caller that moves a session attaches it to the target workspace itself, idempotently.
 
 ## Default Workspace initialization
 
@@ -479,7 +491,7 @@ Source: [`packages/api/workspace-files/src/index.ts`](../../packages/api/workspa
 
 ### `ctx.workspaceRegistry` — `WorkspaceRegistry`
 
-Durable workspace registry. Startup waits for `sessionPersistence`, re-resolves every stored workspace path, builds one canonical-cwd header index, and completes the one-time history bootstrap before the service becomes active. The persistence dependency is mandatory so an unavailable peer can never be mistaken for an empty history and commit the initialized marker.
+Durable workspace registry. Startup waits for `sessionPersistence`, re-resolves every stored workspace path, builds one canonical-cwd header index, completes the one-time history bootstrap, and leaves each session listed once in at most one workspace record before the service becomes active. The persistence dependency is mandatory so an unavailable peer can never be mistaken for an empty history and commit the initialized marker.
 
 ```ts cordis-catalog
 /**
@@ -615,7 +627,7 @@ Source: [`packages/workspace/workspace/src/index.ts`](../../packages/workspace/w
 
 #### `workspace/session-activity` — waterfall
 
-Ask the composed providers what still runs for a session before it is archived. A listener prepends its own SessionActivity entries to the result of `next()`; the registry's innermost callback returns an empty list, so a composition without providers archives freely. Any non-empty result refuses the archive without a write.
+Ask the composed providers what still runs for a session before it is archived. A listener prepends its own SessionActivity entries to the result of `next()`; the registry's innermost callback returns an empty list, so a composition without providers archives freely. Any non-empty result refuses the archive without a write. The archive holds the registry's mutation queue while it asks, so a listener that awaits another registry mutation, an attach included, never settles.
 
 ```ts cordis-catalog
 /**
@@ -623,7 +635,9 @@ Ask the composed providers what still runs for a session before it is archived. 
  * archived. A listener prepends its own {@link SessionActivity} entries to
  * the result of `next()`; the registry's innermost callback returns an
  * empty list, so a composition without providers archives freely. Any
- * non-empty result refuses the archive without a write.
+ * non-empty result refuses the archive without a write. The archive holds
+ * the registry's mutation queue while it asks, so a listener that awaits
+ * another registry mutation, an attach included, never settles.
  * @param request - the session about to be archived.
  * @param next - delegate to the remaining providers.
  * @mode waterfall
@@ -637,7 +651,7 @@ Source: [`packages/workspace/workspace/src/index.ts`](../../packages/workspace/w
 
 #### `workspace/session-stop` — parallel
 
-Stop a session's running work because the caller archived it with `stopActivity`; the archive set is durable when this dispatches. Each provider stops its own families — cancelling a turn, its subagent descendants, owned jobs, or active schedules — through the same cancel paths the user's own stop actions use, so the session log ends every open turn regularly and a later unarchive can continue the conversation. Listeners issue their stop requests without waiting for running work to settle; a listener may await its own durability barrier. A rejection is logged by the registry and does not undo the archive.
+Stop a session's running work because the caller archived it with `stopActivity`; the archive set is durable when this dispatches. Each provider stops its own families — cancelling a turn, its subagent descendants, owned jobs, or active schedules — through the same cancel paths the user's own stop actions use, so the session log ends every open turn regularly and a later unarchive can continue the conversation. Listeners issue their stop requests without waiting for running work to settle; a listener may await its own durability barrier, but not another registry mutation, an attach included: the archive holds the registry's mutation queue until the dispatch settles. A rejection is logged by the registry and does not undo the archive.
 
 ```ts cordis-catalog
 /**
@@ -649,8 +663,9 @@ Stop a session's running work because the caller archived it with `stopActivity`
  * open turn regularly and a later unarchive can continue the
  * conversation. Listeners issue their stop requests without waiting for
  * running work to settle; a listener may await its own durability
- * barrier. A rejection is logged by the registry and does not undo the
- * archive.
+ * barrier, but not another registry mutation, an attach included: the
+ * archive holds the registry's mutation queue until the dispatch settles.
+ * A rejection is logged by the registry and does not undo the archive.
  * @param request - the session being archived.
  * @mode parallel
  */

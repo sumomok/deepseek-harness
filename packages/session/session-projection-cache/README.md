@@ -56,6 +56,8 @@ The plugin injects `storageDomain`, `sessionProjections`, and `sessions`. The ge
 
 Three mandatory points always write: session creation persists the seed-derived cut, `turn/end` persists the value that listing reads want, and session disposal persists the final live cut. Between them, the configured count and interval throttles write as events accumulate. Every write atomically replaces the session's complete record through the domain write chain; a failure logs a warning and keeps the cache stale, and the next write self-heals.
 
+A `session-persistence/relocated` event writes once more: when the stored record's lifecycle (`createdAt`, `cwd`, `isSeeded`) matches the header before the move, at the current or a predecessor format generation, the record takes the new cwd and keeps its rows, because a move leaves every event unchanged. Listing reads for the moved session therefore keep their cached values. This write is fail-soft as well.
+
 ### Reading cached values
 
 `cachedSnapshot(meta, keys?)` is the read-only face: it synchronously serves client values from the storage domain's in-memory tables with zero I/O. It accepts a record whose lifecycle identity (`formatVersion`, `createdAt`, `cwd`, `isSeeded`) matches the header and serves its version- and schema-matching keys as one block whose `asOfSeq` is the lowest watermark among the served rows. That watermark is the stored record's own: a header witnesses no inherited cut and cannot vouch that the row sequence is comparable with the log a consumer later opens, so the Session list labels the block `cached` and the client lets every value the connected Session later produces supersede it. Within one format generation the cut is fixed at fork time and distinguishes no lifecycle the other fields do not, and a viewed value never seeds a fold, so seeded (forked) sessions are served exactly like unseeded ones. `cachedPredecessorTitle(meta)` is the narrower listing-only exception across a Session-format edge: a structurally admitted predecessor record whose lifecycle matches may expose only a current-version-compatible `title` row, because title text is invariant across the adjacent edges. All other predecessor rows remain unavailable. `coldSnapshot(meta, inheritedEventCount, events)` is a fold face: it accepts the exact cut with a complete ordered log, skips the checkpointed prefix while folding, and refreshes the record without reading persistence itself.
@@ -82,13 +84,13 @@ The cache is a fold shortcut over the projection registry's checkpoint face, sto
 
 ### Read and write ownership
 
-The cache stores one version-stamped document per session in the `session_projcache` domain. It does not depend on a session-persistence backend, call `locate`, or inspect per-session directories. A malformed or stale record reads as absent, and consumers that require a cold value own any log refold.
+The cache stores one version-stamped document per session in the `session_projcache` domain. It calls no session-persistence backend, never calls `locate`, and inspects no per-session directory; it learns of a moved session only from the `session-persistence/relocated` event. A malformed or stale record reads as absent, and consumers that require a cold value own any log refold.
 
 ### Source map
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Plugin entry: `SessionProjectionCache` service, write-behind listeners, cache reads |
+| [`src/index.ts`](src/index.ts) | Plugin entry: `SessionProjectionCache` service, write-behind and relocation listeners, cache reads |
 | [`src/spec.ts`](src/spec.ts) | The `session_projcache` domain spec and record identity types |
 
 </details>

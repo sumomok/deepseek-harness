@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { verifyCurrentGenerationInWorker } from '../src/migration-verifier.ts'
+import { JsonlVerificationRejectedError, verifyCurrentGenerationInWorker } from '../src/migration-verifier.ts'
 
 const state = vi.hoisted(() => ({ workers: [] as unknown[] }))
 
@@ -61,11 +61,13 @@ describe('migration verifier Worker lifecycle', () => {
     expect(instance.terminate).toHaveBeenCalledOnce()
   })
 
-  it('reconstructs a Worker-reported error', async () => {
+  it('reconstructs a Worker-reported rejection of the generation', async () => {
     const verification = verifyCurrentGenerationInWorker('/stage', 'zstd', 'session', 0)
     worker().emit('message', { ok: false, message: 'invalid stage', stack: 'worker stack' })
 
-    await expect(verification).rejects.toMatchObject({ message: 'invalid stage', stack: 'worker stack' })
+    const error = await verification.catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(JsonlVerificationRejectedError)
+    expect(error).toMatchObject({ name: 'JsonlVerificationRejectedError', message: 'invalid stage', stack: 'worker stack' })
   })
 
   it('accepts an error response without a stack', async () => {
@@ -81,10 +83,13 @@ describe('migration verifier Worker lifecycle', () => {
     ['invalid discriminator', 'message', { ok: 'yes' }, /invalid response/],
     ['worker error', 'error', new Error('worker failed'), /worker failed/],
     ['early exit', 'exit', 7, /code 7/],
-  ])('rejects an %s', async (_name, event, value, expected) => {
+  ])('rejects an %s as a Worker failure', async (_name, event, value, expected) => {
     const verification = verifyCurrentGenerationInWorker('/stage', 'none', 'session', 0)
     worker().emit(event, value)
-    await expect(verification).rejects.toThrow(expected)
+    const error = await verification.catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(Error)
+    expect(error).not.toBeInstanceOf(JsonlVerificationRejectedError)
+    expect((error as Error).message).toMatch(expected)
   })
 
   it('aggregates termination failure after a Worker failure', async () => {

@@ -1,0 +1,21 @@
+# Identical to `server-sidebar.overlay.yml`, plus the organization fixture
+# (`fixtures/plugins/fixture-org`): a `settings.section` registered under the
+# id the identity row's menu opens, and an in-memory `sumomokOrgNotice` Remote
+# the notice card reads. Installed, like that file, as a deployment layer
+# beside `@deepseek-ai/dsh-experimental-console-profile`.
+- insert:
+    - id: content-frame
+      name: '@deepseek-ai/dsh-experimental-content-frame'
+      config:
+        root: !!js process.env.DSH_CONTENT_APP_ROOT
+        pages:
+          - id: home
+            title: Home
+            description: The hosted application's entry page.
+            url: /content-app/
+          - id: reports
+            title: Weekly reports
+            description: Published reports, newest first.
+            url: /content-app/reports/
+    - id: fixture-org
+      name: '@fixture/org'

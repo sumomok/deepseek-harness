@@ -5,6 +5,7 @@
 
 import type { IncomingMessage } from 'node:http'
 import { Readable } from 'node:stream'
+import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import type { ConnectionFetchHandler } from './rpc.ts'
 
 /** Default carrier cap for all HTTP RPC bodies: sized for the default
@@ -31,12 +32,14 @@ interface BridgeServerResponse {
  * @param res - node:http response the bridge writes and owns to completion.
  * @param apiHandler - fetch-shaped API carrier the request is dispatched to.
  * @param maxRequestBodyBytes - maximum bytes buffered for a buffered route.
+ * @param peer - Peer the request was admitted as, handed to `apiHandler.fetch`; omitted, the handler applies its own default.
  */
 export async function bridge(
   req: IncomingMessage,
   res: BridgeServerResponse,
   apiHandler: ConnectionFetchHandler,
   maxRequestBodyBytes = DEFAULT_MAX_REQUEST_BODY_BYTES,
+  peer?: PeerScope,
 ): Promise<void> {
   const abort = new AbortController()
   // Client-disconnect detection MUST hang off the response, not the request:
@@ -91,7 +94,7 @@ export async function bridge(
       duplex: 'half',
     } as RequestInit & { duplex: 'half' })
   }
-  const response = await apiHandler.fetch(request)
+  const response = await apiHandler.fetch(request, peer)
   const requestUnread = bodyMode === 'streaming' && !req.readableEnded
   const responseHeaders = Object.fromEntries(response.headers.entries())
   res.writeHead(response.status, requestUnread ? { ...responseHeaders, connection: 'close' } : responseHeaders)

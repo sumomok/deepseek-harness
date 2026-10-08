@@ -2,22 +2,25 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
+import type { PeerId, PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import {
   RpcId,
   type ClientRequest,
   type RpcId as RpcIdType,
 } from './rpc.ts'
 import { clientRequestSchema } from './rpc-schema.ts'
-import { bridge } from './http-bridge.ts'
+import { bridge, DEFAULT_MAX_REQUEST_BODY_BYTES } from './http-bridge.ts'
 import { isTrustedApiRequest } from './api-request-trust.ts'
 import { API_PATH } from './api-path.ts'
 import type { BrowserAuth } from './browser-auth.ts'
-import { OperatorPeer } from './operator-peer.ts'
+import { ConnectionPeer, OperatorPeer } from './operator-peer.ts'
 import type {
   PeerAdmission,
+  PeerAdmitter,
   ConnectionIndexRequest,
   ConnectionIndexResponse,
+  ConnectionFetchCall,
+  ConnectionFetchMethod,
   ConnectionFetchRoute,
   ConnectionFetchHandler,
   HostConnectionFetch,
@@ -28,6 +31,7 @@ import type {
   ConnectionRequestRejection,
   ConnectionTrustRequest,
   HostConnectionHandle,
+  HostConnectionPeers,
   HostConnectionRpc,
 } from './rpc.ts'
 
@@ -42,8 +46,16 @@ interface ConnectionRpcInterceptor {
 
 interface RegisteredFetchRoute {
   readonly methods: ReadonlySet<string>
+  /** The declared methods in registration order, as `fetch.list()` reports them. */
+  readonly declared: readonly ConnectionFetchMethod[]
   readonly requestBody: ConnectionFetchRoute['requestBody']
   readonly fetch: ConnectionFetchRoute['fetch']
+}
+
+/** One Response a `next()` of `connection/fetch` produced, and that Response once it has resolved. */
+interface DispatchedResponse {
+  readonly pending: Promise<Response>
+  settled: Response | undefined
 }
 
 interface ConnectionServerResponse {
@@ -61,25 +73,36 @@ declare module '@deepseek-ai/cordis' {
 
 /** Host Connection service whose channel registrations belong to the caller fiber. */
 export class HostConnectionService extends Service implements HostConnectionHandle {
-  /** The operator Peer every admitted request speaks for. */
+  /** The operator Peer, which every admitted request speaks for while no admitter is installed and `requireAdmitter` is false. */
   readonly operator: PeerScope
   private readonly interceptors = new Map<string, ConnectionRpcInterceptor>()
   private readonly fetchRoutes = new Map<string, RegisteredFetchRoute>()
+  /** Channels registered with `rpc.handle` whose disposer has not run. */
+  private readonly dedicatedChannels = new Set<string>()
+  /** Connection plugin context; member Peer scopes hang under it whichever fiber opens them, and Connection's events go through it. */
+  private readonly peerOwner: Context
+  private readonly members = new Map<PeerId, ConnectionPeer>()
+  private admitter: PeerAdmitter | undefined
 
   /**
    * Provide the Host half over the active HTTP server.
    * @param ctx - owning Connection plugin context.
    * @param trustedHosts - deployment authorities accepted by the Host/Origin fence.
    * @param browserAuth - process token and persistent browser-session owner.
+   * @param requireAdmitter - while no admitter is installed, refuse with 401 every request that passes
+   * the Host/Origin checks and browser authentication.
    */
   constructor(
     ctx: Context,
     private readonly trustedHosts: readonly string[],
     private readonly browserAuth: BrowserAuth,
+    private readonly requireAdmitter = false,
   ) {
     super(ctx, 'connection')
+    this.peerOwner = ctx
     this.operator = new OperatorPeer(ctx)
     ctx.effect(() => () => this.operator.dispose(), 'client-connection: operator Peer')
+    ctx.effect(() => () => this.disposeMembers(), 'client-connection: member Peers')
   }
 
   /** Generic channel registry scoped to the Context reading this service. */
@@ -89,6 +112,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
       handle: (channel, handler) => this.register(owner, channel, handler),
       intercept: (channel, matches, handler) =>
         this.registerInterceptor(owner, channel, matches, handler),
+      channels: () => [...this.dedicatedChannels].sort(),
     }
   }
 
@@ -97,19 +121,43 @@ export class HostConnectionService extends Service implements HostConnectionHand
     const owner = this.ctx
     return {
       register: route => this.registerFetchRoute(owner, route),
+      list: () => [...this.fetchRoutes]
+        .sort(([left], [right]) => left < right ? -1 : 1)
+        .map(([path, route]) => ({ path, methods: [...route.declared] })),
     }
   }
 
-  /** Apply the configured Host/Origin fence, then browser authentication. */
-  requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection {
-    if (!isTrustedApiRequest(request, this.trustedHosts)) return 403
-    return this.browserAuth.isAuthenticated(request) ? undefined : 401
+  /** Member Peer registry; the admitter registration belongs to the Context reading this service. */
+  get peers(): HostConnectionPeers {
+    const owner = this.ctx
+    return {
+      requireAdmitter: this.requireAdmitter,
+      admitWith: admitter => this.installAdmitter(owner, admitter),
+      open: () => this.openMember(),
+      get: id => this.liveMember(id),
+      list: () => [...this.members.values()].filter(peer => !peer.released),
+    }
   }
 
-  /** A request that passes the fence and authentication speaks for the operator. */
+  /** Keep only the verdict of {@link admit}. */
+  requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection {
+    const admission = this.admit(request)
+    return 'rejection' in admission ? admission.rejection : undefined
+  }
+
+  /** Apply the Host/Origin fence and browser authentication, then the installed admitter or, without one, `requireAdmitter`. */
   admit(request: ConnectionTrustRequest): PeerAdmission {
-    const rejection = this.requestRejection(request)
-    return rejection === undefined ? { peer: this.operator } : { rejection }
+    const rejection = this.fenceRejection(request)
+    if (rejection !== undefined) return { rejection }
+    const admitter = this.admitter
+    if (admitter === undefined) return this.requireAdmitter ? { rejection: 401 } : { peer: this.operator }
+    const verdict = admitter(request)
+    if (verdict === 401 || verdict === 403) return { rejection: verdict }
+    if (verdict !== undefined && this.liveMember(verdict.id) === verdict) return { peer: verdict }
+    this.peerOwner.logger.error(verdict === undefined
+      ? 'client-connection: the Peer admitter named no member; refusing the request with 401'
+      : 'client-connection: the Peer admitter returned a Peer that connection.peers.open() did not open or that is released; refusing the request with 401')
+    return { rejection: 401 }
   }
 
   /** Authenticate an index request through the process-token exchange or cookie. */
@@ -124,6 +172,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
 
   /**
    * Compose one shared-channel Fetch handler from exact routes and its interceptor.
+   * A request an exact route owns passes through `connection/fetch` first.
    * @param channel - shared channel mounted by Connection.
    * @returns Fetch handler that selects one owner or returns 404.
    */
@@ -135,17 +184,120 @@ export class HostConnectionService extends Service implements HostConnectionHand
         const route = this.fetchRoutes.get(url.pathname)
         return route?.methods.has(method) === true ? route.requestBody : 'buffered'
       },
-      fetch: (request) => {
+      fetch: (request, peer = this.operator) => {
         const pathname = new URL(request.url).pathname
         const route = this.fetchRoutes.get(pathname)
-        if (route?.methods.has(request.method) === true) return route.fetch(request)
+        if (route?.methods.has(request.method) === true) {
+          const call: ConnectionFetchCall = { kind: 'exact-route', path: pathname, method: request.method, request, peer }
+          // A listener may await before next(), and the route's plugin may unload meanwhile.
+          return this.guardFetch(call, () => this.fetchRoutes.get(pathname) === route
+            ? route.fetch(request, peer)
+            : Promise.resolve(new Response('not found', { status: 404 })))
+        }
         const endpoint = endpointFromPath(channel, pathname)
         const interceptor = this.interceptors.get(channel)
         if (endpoint === undefined || interceptor === undefined || !interceptor.matches(endpoint)) {
           return Promise.resolve(new Response('not found', { status: 404 }))
         }
-        return interceptor.fetchHandler.fetch(request)
+        return interceptor.fetchHandler.fetch(request, peer)
       },
+    }
+  }
+
+  /**
+   * Run `connection/fetch` around one dispatch to a route or channel. The body of each Response the
+   * route or channel produced for a `next()` called before the waterfall ended is cancelled unless the
+   * caller receives that Response or its body: once the waterfall ends when the waterfall's result has
+   * no body or a locked one, otherwise once the caller has read that body to its end, cancelled it, or
+   * it failed. Responses and bodies are compared by identity, so a Response that another copy of undici
+   * built is handled as one built in this realm. Once the waterfall has ended, a `next()` that reaches
+   * the route or channel dispatches nothing and rejects.
+   * @param call - the request as listeners see it.
+   * @param dispatch - hand the request to the route or channel.
+   * @returns the waterfall's result itself when every such `next()` has resolved to a Response the caller
+   * receives or whose body it receives, or when the result has no body or a locked one; otherwise a
+   * Response with the result's status, status text, and headers over a body that relays the result's
+   * body. Rejects with the waterfall's failure.
+   */
+  private async guardFetch(call: ConnectionFetchCall, dispatch: () => Promise<Response>): Promise<Response> {
+    // A listener may call next() more than once, so each call's Response is recorded.
+    const dispatched: DispatchedResponse[] = []
+    let ended = false
+    const next = (): Promise<Response> => {
+      // The caller already has the waterfall's outcome, so nothing would read or cancel this Response. The rejection
+      // belongs to the listener that called next(); one it discards is that listener's unhandled rejection.
+      if (ended) return Promise.reject(new Error('connection/fetch: next() was called after the waterfall ended'))
+      const entry: DispatchedResponse = { pending: (async () => dispatch())(), settled: undefined }
+      void entry.pending.then((response) => { entry.settled = response }, swallowDiscardedRouteFailure)
+      dispatched.push(entry)
+      return entry.pending
+    }
+    let result: Response
+    try {
+      // A listener that throws synchronously makes `waterfall()` throw rather than reject.
+      result = await this.peerOwner.waterfall('connection/fetch', call, next)
+    } catch (error) {
+      ended = true
+      discardDispatched(dispatched, undefined)
+      throw error
+    }
+    ended = true
+    if (dispatched.every(entry => entry.settled !== undefined && unreturnedBody(entry.settled, result) === undefined)) {
+      return result
+    }
+    // The caller's body may read an unreturned body lazily, as a listener's relay stream does, so cancelling
+    // waits until the caller is done with its body. A result without a body, such as the `undefined` a listener
+    // returns against its declared result, leaves no body to wait for, so every unreturned body is cancelled now.
+    const body = (result as Response | undefined)?.body ?? null
+    if (body === null || body.locked) {
+      discardDispatched(dispatched, result)
+      return result
+    }
+    return observeBody(result, body, () => { discardDispatched(dispatched, result) })
+  }
+
+  private fenceRejection(request: ConnectionTrustRequest): ConnectionRequestRejection {
+    if (!isTrustedApiRequest(request, this.trustedHosts)) return 403
+    return this.browserAuth.isAuthenticated(request) ? undefined : 401
+  }
+
+  private installAdmitter(owner: Context, admitter: PeerAdmitter): () => Promise<void> {
+    return owner.effect(() => {
+      if (this.admitter !== undefined) {
+        throw new Error('connection: a Peer admitter is already installed')
+      }
+      this.admitter = admitter
+      return () => {
+        this.admitter = undefined
+      }
+    }, 'client-connection: Peer admitter')
+  }
+
+  private openMember(): ConnectionPeer {
+    const peer = new ConnectionPeer(this.peerOwner, (closed) => {
+      this.members.delete(closed.id)
+      this.announce('connection/peer-closed', closed)
+    })
+    this.members.set(peer.id, peer)
+    this.announce('connection/peer-opened', peer)
+    return peer
+  }
+
+  private liveMember(id: PeerId): ConnectionPeer | undefined {
+    const peer = this.members.get(id)
+    return peer === undefined || peer.released ? undefined : peer
+  }
+
+  private async disposeMembers(): Promise<void> {
+    await Promise.all([...this.members.values()].map(peer => peer.dispose()))
+  }
+
+  /** Emit one member Peer lifecycle event; a throwing listener is logged, not propagated. */
+  private announce(event: 'connection/peer-opened' | 'connection/peer-closed', peer: PeerScope): void {
+    try {
+      this.peerOwner.emit(event, peer)
+    } catch (error) {
+      this.peerOwner.logger.error(`client-connection: a ${event} listener threw`, error)
     }
   }
 
@@ -156,6 +308,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
     assertFetchRoute(route)
     const registered: RegisteredFetchRoute = {
       methods: new Set(route.methods),
+      declared: [...route.methods],
       requestBody: route.requestBody,
       fetch: route.fetch,
     }
@@ -174,7 +327,14 @@ export class HostConnectionService extends Service implements HostConnectionHand
     handler: ConnectionRpcHandler,
   ): () => Promise<void> {
     assertChannel(channel)
-    const fetchHandler = rpcFetchHandler(channel, handler, this.operator)
+    const decode = rpcFetchHandler(channel, handler, this.operator)
+    const fetchHandler: ConnectionFetchHandler = {
+      requestBodyMode: request => decode.requestBodyMode(request),
+      fetch: (request, peer = this.operator) => this.guardFetch(
+        { kind: 'channel', path: channel, method: request.method, request, peer },
+        () => decode.fetch(request, peer),
+      ),
+    }
     const route: WebRoute = {
       kind: 'prefix',
       path: channel,
@@ -185,13 +345,17 @@ export class HostConnectionService extends Service implements HostConnectionHand
           res.end(admission.rejection === 401 ? 'unauthorized' : 'forbidden')
           return
         }
-        await bridge(req, res, fetchHandler)
+        await bridge(req, res, fetchHandler, DEFAULT_MAX_REQUEST_BODY_BYTES, admission.peer)
       },
     }
-    return owner.effect(
-      () => owner.webServer.register(route),
-      `client-connection: ${channel} rpc channel`,
-    )
+    return owner.effect(() => {
+      const removeRoute = owner.webServer.register(route)
+      this.dedicatedChannels.add(channel)
+      return () => {
+        this.dedicatedChannels.delete(channel)
+        removeRoute()
+      }
+    }, `client-connection: ${channel} rpc channel`)
   }
 
   private registerInterceptor(
@@ -219,14 +383,109 @@ export class HostConnectionService extends Service implements HostConnectionHand
   }
 }
 
+/**
+ * Cancel the body of each Response a `next()` of one `connection/fetch` dispatch produced that the
+ * caller does not receive: at once for one that has resolved, once it resolves for one still pending.
+ * @param dispatched - the Responses the dispatch's `next()` calls produced.
+ * @param result - the waterfall's result the caller receives, which may be a value without a body that a listener
+ * returned against its declared result; `undefined` when the waterfall failed or a listener returned `undefined`.
+ */
+function discardDispatched(dispatched: readonly DispatchedResponse[], result: Response | undefined): void {
+  for (const entry of dispatched) {
+    if (entry.settled !== undefined) void cancelUnreturnedBody(entry.settled, result)
+    else void entry.pending.then(response => cancelUnreturnedBody(response, result), swallowDiscardedRouteFailure)
+  }
+}
+
+/**
+ * Select the body of one route Response that the caller does not receive.
+ * @param response - the value one `next()` resolved to; a route in untyped code can resolve to `undefined`, `null`, or
+ * another value without a body against its declared Response, and such a value has no body to cancel.
+ * @param result - the Response the caller receives, if any.
+ * @returns the body of `response`, or `undefined` when it has none or the caller receives `response` or its body.
+ */
+function unreturnedBody(response: Response | null | undefined, result: Response | undefined): ReadableStream<Uint8Array> | undefined {
+  const body = response?.body ?? null
+  // A Response built over the same body, such as one that adds headers, hands that body to the caller.
+  return body === null || response === result || body === result?.body ? undefined : body
+}
+
+/**
+ * Cancel one route Response's body unless the caller receives it.
+ * @param response - the value one `next()` resolved to, which may be a value without a body; see `unreturnedBody`.
+ * @param result - the Response the caller receives, if any.
+ * @returns once the body is cancelled or left alone; never rejects.
+ */
+async function cancelUnreturnedBody(response: Response | null | undefined, result: Response | undefined): Promise<void> {
+  const body = unreturnedBody(response, result)
+  if (body === undefined) return
+  try {
+    await body.cancel()
+  } catch (_cancelFailure) {
+    // A body a listener has locked belongs to the holder of its reader, and a failed cancel must not replace the
+    // caller's result.
+  }
+}
+
+/**
+ * Hand the caller one Response over a body that reports when the caller is done with it.
+ * @param result - the waterfall's Response.
+ * @param body - the unlocked body of `result`, which the returned body reads only as the caller reads.
+ * @param done - called when the caller has read the body to its end, cancelled it, or reading it failed.
+ * @returns a Response with the status, status text, and headers of `result` over a body that relays `body`.
+ */
+function observeBody(result: Response, body: ReadableStream<Uint8Array>, done: () => void): Response {
+  const reader = body.getReader()
+  const relay = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      let chunk: ReadableStreamReadResult<Uint8Array>
+      try {
+        chunk = await reader.read()
+      } catch (error) {
+        done()
+        throw error
+      }
+      if (chunk.done) {
+        controller.close()
+        done()
+      } else {
+        controller.enqueue(chunk.value)
+      }
+    },
+    cancel(reason) {
+      // An unreturned body that `body` holds locked ignores the cancel `done` makes; `body` receives this cancel instead.
+      done()
+      return reader.cancel(reason)
+    },
+  }, { highWaterMark: 0 })
+  return new Response(relay, { status: result.status, statusText: result.statusText, headers: result.headers })
+}
+
+/**
+ * Absorb the rejection of a route that a `next()` dispatched; the listener that called `next()` holds the same promise.
+ * @param _routeFailure - the route's rejection, which leaves no body to cancel.
+ */
+function swallowDiscardedRouteFailure(_routeFailure: unknown): void {
+  // The caller receives the waterfall's outcome; a route rejection no listener awaited must not become an unhandled
+  // rejection.
+}
+
+/**
+ * Decode one RPC channel's requests for `handler`, passing each call the Peer
+ * its request was admitted as.
+ * @param channel - absolute channel prefix the endpoint is read below.
+ * @param handler - decoded endpoint handler.
+ * @param operator - Peer a call that names none speaks for.
+ * @returns a buffered Fetch handler for the channel.
+ */
 function rpcFetchHandler(
   channel: string,
   handler: ConnectionRpcHandler,
-  peer: PeerScope,
+  operator: PeerScope,
 ): ConnectionFetchHandler {
   return {
     requestBodyMode: () => 'buffered',
-    async fetch(request: Request): Promise<Response> {
+    async fetch(request: Request, peer: PeerScope = operator): Promise<Response> {
       const endpoint = endpointFromPath(channel, new URL(request.url).pathname)
       if (request.method !== 'POST' || endpoint === undefined) {
         return new Response('not found', { status: 404 })

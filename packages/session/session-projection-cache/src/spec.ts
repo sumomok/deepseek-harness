@@ -34,13 +34,14 @@ export const checkpointRow = z.object({
 })
 
 /**
- * The stored-log identity a record is bound to: the immutable header fields
- * that distinguish one session lifecycle from another under the same id. A
+ * The stored-log identity a record is bound to: the header fields that
+ * distinguish one session lifecycle from another under the same id. A
  * session id names a slot, not a lifecycle — a deleted-then-recreated id, or
  * a persistence root swapped under a surviving cache, would otherwise let an
  * old record pass every watermark check and seed state folded from an
  * unrelated log. Reads validate this against the live header (listing) or
- * the stored header (cold read) before accepting any record.
+ * the stored header (cold read) before accepting any record. A relocated
+ * session's record takes the new `cwd` and keeps every other field.
  *
  * The format and lineage fields are optional because records admitted through
  * `compatibleVersions` predate them. The reader (`identityMatches`) refuses an

@@ -24,6 +24,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
+import { IconUsersOutlineMedium, Menu, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: pulls `dsh-client-ui-sidebar`'s `sidebar.*` SlotMap declarations
 // for the four child slots this shell still honors (brand mark/name,
 // settings, footer actions) — reused here rather than redeclared so
@@ -47,6 +48,9 @@ import {
   hasShownHome, isCleanWorkbenchDraft, temporarySessions,
   type ContentSurfaceEntryLike, type TemporarySessionFacts,
 } from './workflow-actions.ts'
+import { ORG_SECTION_ID } from './org-section.ts'
+import type { SettingsOpener } from './settings-opener.ts'
+import { useFootPlacementReport, type FootPlacement } from './foot-placement.ts'
 import css from './ServerSidebarRoot.module.css'
 
 /**
@@ -198,6 +202,11 @@ export interface ServerSidebarInjected {
   ) => Promise<void>
   /** Sign the visitor out. Not awaited by the component: the page is leaving. */
   onSignOut: () => void
+  /**
+   * Where the column and its foot band are, measured at mount and on every
+   * resize, and `undefined` at unmount — see `client/foot-placement.ts`.
+   */
+  onFootPlacement: (placement: FootPlacement | undefined) => void
   hooks: {
     /**
      * Who the deployment's access token says is signed in, absent while
@@ -205,7 +214,81 @@ export interface ServerSidebarInjected {
      * `client/identity.ts`.
      */
     displayName: HostObservable<string | undefined>
+    /**
+     * The settings shell's section opener, absent while the shell is not
+     * mounted — see `client/settings-opener.ts`.
+     */
+    settingsOpener: HostObservable<SettingsOpener | undefined>
+    /**
+     * Whether the organization plugin's settings section is on the Settings
+     * page — see `client/org-section.ts`.
+     */
+    orgSection: HostObservable<boolean>
   }
+}
+
+/**
+ * The signed-in person's circle and name, and the menu they open while it has
+ * an entry. Its one entry, 组织 (Organization), is offered while the
+ * organization plugin's settings section is on the Settings page and the
+ * settings shell's opener is published; with no entry the two spans render
+ * bare, exactly as a composition without that plugin draws them.
+ * @param props.name - the name to show.
+ * @param props.opener - the settings shell's section opener, when published.
+ * @param props.orgSection - whether the organization section is on the Settings page.
+ * @param props.t - this package's dictionary lookup.
+ * @returns the cluster's leading elements.
+ */
+function IdentityName({ name, opener, orgSection, t }: {
+  name: string
+  opener: SettingsOpener | undefined
+  orgSection: boolean
+  t: ServerSidebarRootComponentProps['t']
+}) {
+  const [open, setOpen] = useState(false)
+  const trigger = useRef<HTMLButtonElement>(null)
+  const items: readonly MenuEntry[] = opener !== undefined && orgSection
+    ? [{ id: 'org', label: t('identityMenu.org'), icon: <IconUsersOutlineMedium size={16} /> }]
+    : []
+  const offered = items.length > 0
+  // An entry that leaves while the list is open takes the list with it; the
+  // menu does not reopen by itself when an entry comes back.
+  useEffect(() => {
+    if (!offered) setOpen(false)
+  }, [offered])
+  const circle = <span className={css.avatarCircle} aria-hidden="true" />
+  const label = <span className={css.avatarName}>{name}</span>
+  if (opener === undefined || !offered) return <>{circle}{label}</>
+  return (
+    <Menu
+      open={open}
+      side="top"
+      portal
+      autoFocus
+      className={css.identityMenu}
+      anchor={(
+        <button
+          ref={trigger}
+          type="button"
+          className={css.identityTrigger}
+          data-server-sidebar-action="identity-menu"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => { setOpen(value => !value) }}
+        >
+          {circle}
+          {label}
+        </button>
+      )}
+      items={items}
+      onClose={() => { setOpen(false) }}
+      onSelect={() => {
+        setOpen(false)
+        trigger.current?.focus()
+        opener(ORG_SECTION_ID)
+      }}
+    />
+  )
 }
 
 /** Full component props: layout owner state/actions, the declared holes, the workflow store, and this package's own share. */
@@ -223,10 +306,12 @@ export type ServerSidebarRootComponentProps =
 export function ServerSidebarRoot({
   width, t, renderSlot,
   navItems, home, onOpenNavItem, onOpenWorkbenchOnLoad, onOpenWorkbench, onOpenWorkflow, onSaveMenu,
-  onOpenTemporary, onDismissTemporary, onSignOut,
-  useStore, actions, useSessions, useSessionStatus, useWorkspaces, useDisplayName,
+  onOpenTemporary, onDismissTemporary, onSignOut, onFootPlacement,
+  useStore, actions, useSessions, useSessionStatus, useWorkspaces, useDisplayName, useSettingsOpener, useOrgSection,
 }: ServerSidebarRootComponentProps) {
   const displayName = useDisplayName(name => name)
+  const settingsOpener = useSettingsOpener(opener => opener)
+  const orgSection = useOrgSection(present => present)
   const workflows = useStore(state => state.workflows)
   const groups = useStore(state => state.groups)
   const workbenchSessionId = useStore(state => state.workbenchSessionId)
@@ -360,6 +445,8 @@ export function ServerSidebarRoot({
     }
   }, [pointerInside])
   /* jscpd:ignore-end */
+  const footArea = useRef<HTMLDivElement>(null)
+  useFootPlacementReport(column, footArea, onFootPlacement)
 
   return (
     <div
@@ -425,12 +512,16 @@ export function ServerSidebarRoot({
         />
       </div>
 
-      <div className={css.footArea}>
+      <div ref={footArea} className={css.footArea}>
         <div className={css.footerActions}>{renderSlot('sidebar.footer.action', { wide: true })}</div>
         <div className={css.identityRow} data-server-sidebar-section="identity">
           <div className={css.avatarRow}>
-            <span className={css.avatarCircle} aria-hidden="true" />
-            <span className={css.avatarName}>{displayName ?? t('avatar.namePlaceholder')}</span>
+            <IdentityName
+              name={displayName ?? t('avatar.namePlaceholder')}
+              opener={settingsOpener}
+              orgSection={orgSection}
+              t={t}
+            />
             <button
               type="button"
               className={css.signOut}

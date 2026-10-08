@@ -61,3 +61,5 @@ Status: implemented
 这个按钮没有浏览器级证据。本包的 Playwright 场景没有组合 auth-gate 行——那个包会以令牌为门槛拦住整个页面，于是场景里其余每一条断言都得先自带令牌——所以整套顺序改由针对注入式 `SignOutBrowser` 与真实会话树 cancel 面的单测覆盖来证明，这个缺口写进了 README。
 
 底部如今是本组合里第二处从部署方令牌里读 claim 的界面。若出现第三处，该合并的就是 `client/identity.ts` 里的那几份复制——到那时，建缝的理由是三个读者，而不再是把两个本来就一起发布的包耦合起来。
+
+身份行的菜单（组合了组织插件时打开组织插件的设置分区）与组织告知卡片，记录在[它们自己的 Agent Note](2026-10-05-console-identity-org-entry-and-notice.zh.md) 里；那里「退出登录」同样留在这一行上。

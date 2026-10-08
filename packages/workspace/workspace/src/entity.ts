@@ -29,7 +29,8 @@ export class WorkspaceMoveInvalidError extends Error {
 /**
  * The registry-owned machinery an entity mutates through. Entities never see
  * the registry itself — only the open table, the canonical session-path
- * index backing the `sessionIds` projection, and attach-time header reads.
+ * index backing the `sessionIds` projection, attach-time header reads, and
+ * the registry's mutation queue.
  */
 export interface WorkspaceEntityHost {
   /**
@@ -55,11 +56,38 @@ export interface WorkspaceEntityHost {
   readSessionHeader(id: SessionId): Promise<SessionHeader>
 
   /**
+   * Whether the header index still holds this header object for its
+   * session. A relocation replaces the indexed header without waiting for
+   * the mutation queue.
+   * @param header - A header {@link readSessionHeader} returned.
+   * @returns `true` while no relocation has replaced it.
+   */
+  indexesHeader(header: SessionHeader): boolean
+
+  /**
    * Publish a successfully validated canonical cwd to the projection index.
    * @param id - Validated session id.
-   * @param path - Canonical existing directory from the immutable header cwd.
+   * @param path - Canonical existing directory from the stored header cwd.
    */
   rememberSessionPath(id: SessionId, path: string): void
+
+  /**
+   * Durably detach a session from every other workspace record that lists
+   * it; called only inside a mutation-queue slot.
+   * @param id - Session about to be accounted by `keep`.
+   * @param keep - The workspace that keeps or gains the session.
+   * @returns resolution after every detach is durable.
+   */
+  detachElsewhere(id: SessionId, keep: WorkspaceId): Promise<void>
+
+  /**
+   * Run an operation on the registry's mutation queue, after every registry
+   * operation queued before it settles. Every operation that adds a session
+   * to a record runs there.
+   * @param operation - The work to run in the queue slot.
+   * @returns the operation's result.
+   */
+  enqueue<T>(operation: () => Promise<T>): Promise<T>
 }
 
 /** Chain-slot abort sentinel thrown by the update fn when the record needs no change; only `mutate` observes it. */
@@ -107,47 +135,94 @@ export class WorkspaceEntity implements Workspace {
   }
 
   async attachSession(sessionId: SessionId): Promise<void> {
+    // Unlike the other entity writes, this waits for the registry's mutation
+    // queue, so a detach issued before it settles can land first.
+    await this.host.enqueue(() => this.attachQueued(sessionId))
+  }
+
+  /**
+   * The body of {@link attachSession}, for a caller that already holds a
+   * registry mutation-queue slot. Only queued operations add a session to a
+   * record, so no other record can gain the session between the detach
+   * writes and this record's write.
+   * @param sessionId - The session to record.
+   * @returns resolution after durability.
+   */
+  async attachQueued(sessionId: SessionId): Promise<void> {
     // Validation is skipped when the settled snapshot already accounts the
-    // id: the cwd fact was checked when it first attached, the stored header
-    // cwd is immutable, and the workspace path changes only at registry
-    // startup, before any entity exists, so both are fixed for the process
-    // lifetime. Membership itself is decided on the write chain inside
-    // `mutate`, never on this snapshot.
+    // id: the cwd fact was checked when it first attached, and the workspace
+    // path changes only at registry startup, before any entity exists. A
+    // stored header cwd changes only through `session-persistence/relocated`;
+    // the registry swaps its index entry before any await, and the filter in
+    // `mutate` drops every id whose indexed path differs from this workspace.
+    // Whether the record lists the id is decided again at its write-chain
+    // slot inside `mutate`.
     if (!this.record.sessionIds.includes(sessionId)) {
-      const header = await this.host.readSessionHeader(sessionId)
-      if (header.cwd === undefined) {
-        throw new Error(
-          `cannot attach session '${sessionId}' to workspace '${this.record.path}': `
-          + 'its stored header carries no cwd to validate against',
-        )
-      }
-      let cwd: string
-      try {
-        cwd = await realpathNormalize(header.cwd)
-      } catch (error) {
-        throw new Error(
-          `cannot attach session '${sessionId}' to workspace '${this.record.path}': `
-          + `its cwd '${header.cwd}' does not resolve, so it cannot be validated`,
-          { cause: error },
-        )
-      }
-      if (!(await stat(cwd)).isDirectory()) {
-        throw new Error(
-          `cannot attach session '${sessionId}' to workspace '${this.record.path}': `
-          + `its cwd '${header.cwd}' is not a directory`,
-        )
-      }
-      if (cwd !== this.record.path) {
-        throw new Error(
-          `cannot attach session '${sessionId}' to workspace '${this.record.path}': `
-          + `its cwd resolves to '${cwd}'`,
-        )
-      }
+      const cwd = await this.validatedCwd(sessionId)
       this.host.rememberSessionPath(sessionId, cwd)
+      // Workspace paths are unique, so every other record listing the session
+      // names a stale location. Detaching first keeps each session in at most
+      // one record even when this process dies between the two writes.
+      await this.host.detachElsewhere(sessionId, this.id)
     }
     await this.mutate(record => record.sessionIds.includes(sessionId)
       ? record
       : { ...record, sessionIds: [sessionId, ...record.sessionIds] })
+  }
+
+  /**
+   * Validate the session's indexed header cwd against this workspace. A
+   * verdict counts only for the header the index still holds when it is
+   * reached: when a relocation replaced the header during the file-system
+   * reads, the replacement is validated in its place.
+   */
+  private async validatedCwd(sessionId: SessionId): Promise<string> {
+    for (;;) {
+      const header = await this.host.readSessionHeader(sessionId)
+      let cwd: string | undefined
+      let failure: unknown
+      try {
+        cwd = await this.resolveCwd(sessionId, header)
+      } catch (error: unknown) {
+        failure = error
+      }
+      if (!this.host.indexesHeader(header)) continue
+      if (cwd === undefined) throw failure
+      return cwd
+    }
+  }
+
+  /** Resolve a header cwd to this workspace's path, rejecting every other outcome. */
+  private async resolveCwd(sessionId: SessionId, header: SessionHeader): Promise<string> {
+    if (header.cwd === undefined) {
+      throw new Error(
+        `cannot attach session '${sessionId}' to workspace '${this.record.path}': `
+        + 'its stored header carries no cwd to validate against',
+      )
+    }
+    let cwd: string
+    try {
+      cwd = await realpathNormalize(header.cwd)
+    } catch (error) {
+      throw new Error(
+        `cannot attach session '${sessionId}' to workspace '${this.record.path}': `
+        + `its cwd '${header.cwd}' does not resolve, so it cannot be validated`,
+        { cause: error },
+      )
+    }
+    if (!(await stat(cwd)).isDirectory()) {
+      throw new Error(
+        `cannot attach session '${sessionId}' to workspace '${this.record.path}': `
+        + `its cwd '${header.cwd}' is not a directory`,
+      )
+    }
+    if (cwd !== this.record.path) {
+      throw new Error(
+        `cannot attach session '${sessionId}' to workspace '${this.record.path}': `
+        + `its cwd resolves to '${cwd}'`,
+      )
+    }
+    return cwd
   }
 
   async insertSessionBefore(sessionId: SessionId, beforeSessionId?: SessionId): Promise<void> {

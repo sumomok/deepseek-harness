@@ -57,7 +57,10 @@ function mountColumn(): { column: HTMLElement; quiet: () => boolean } {
       onSaveMenu={() => Promise.resolve()}
       onOpenTemporary={() => Promise.resolve()} onDismissTemporary={() => Promise.resolve()}
       onSignOut={() => {}}
+      onFootPlacement={() => {}}
       useDisplayName={<S,>(sel: (name: string | undefined) => S): S => sel(undefined)}
+      useSettingsOpener={<S,>(sel: (opener: undefined) => S): S => sel(undefined)}
+      useOrgSection={<S,>(sel: (present: boolean) => S): S => sel(false)}
       useStore={(<S,>(sel: (s: {
         workflows: never[]
         groups: never[]

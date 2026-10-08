@@ -165,6 +165,44 @@
   color: var(--dsw-alias-label-secondary);
 }
 
+/* While the identity row offers a menu, the circle and the name sit in its
+   trigger. `Menu`'s anchor wrapper takes the name's place in the cluster: it
+   alone shrinks, so the name inside still truncates first. The trigger
+   lays the two out with the cluster's own 8px gap and adds no box of its own
+   at rest — its padding is cancelled by an equal negative margin — so the
+   row does not move when the menu becomes available after the first render.
+   Only hover and keyboard focus draw it as a button. */
+.identityMenu {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.identityTrigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: -2px -4px;
+  padding: 2px 4px;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.identityTrigger:hover,
+.identityTrigger[aria-expanded='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.identityTrigger:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: -2px;
+}
+
 /* Sign out sits inside the identity cluster rather than as a third child of
    `.identityRow`: the row is a two-part band (who is signed in on the left,
    the settings trigger flush right), and the way to stop being that person

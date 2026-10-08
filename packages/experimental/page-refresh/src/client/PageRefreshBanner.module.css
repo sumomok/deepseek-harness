@@ -2,7 +2,10 @@
    composer at the bottom of the chat column, and narrower than the viewport by
    the narrow frame's hamburger and its margin on either side, so it never
    covers that button. The layer passes pointer events to its children; this
-   box is sized by its content, so only the banner itself takes them. */
+   box is sized by its content, so only the banner itself takes them. It stays
+   one line tall at any width: the sentence is cut with an ellipsis (the
+   element's title carries it whole), so the banner ends above the 56px a
+   narrow frame keeps for content under the drawer button. */
 .banner {
   position: fixed;
   /* Above the narrow frame's drawer scrim (1), drawer (2), and hamburger (3)
@@ -62,6 +65,14 @@
 
 .text {
   min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The reload button keeps its size; the sentence gives way. */
+.banner > button {
+  flex: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

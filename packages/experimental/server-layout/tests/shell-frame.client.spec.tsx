@@ -335,6 +335,25 @@ describe('ShellFrame', () => {
     expect(hamburgerOf(frame)).not.toBeNull()
   })
 
+  it('leaves the drawer open on an Escape a layer inside it already handled', () => {
+    const { frame } = mountFrame()
+    act(() => { deliverResize?.(NARROW) })
+    act(() => { hamburgerOf(frame)?.click() })
+    const drawer = drawerOf(frame)
+    // A menu inside the drawer takes its Escape in the capture phase on the document.
+    const menuEscape = (event: KeyboardEvent): void => { if (event.key === 'Escape') event.preventDefault() }
+    document.addEventListener('keydown', menuEscape, true)
+    try {
+      act(() => { drawer?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
+      expect(drawerOf(frame)).not.toBeNull()
+    } finally {
+      document.removeEventListener('keydown', menuEscape, true)
+    }
+
+    act(() => { drawer?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
+    expect(drawerOf(frame)).toBeNull()
+  })
+
   it('forces the drawer closed when the frame widens back past the breakpoint', () => {
     const { frame } = mountFrame(['sidebar'])
     act(() => { deliverResize?.(NARROW) })

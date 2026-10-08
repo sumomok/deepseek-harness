@@ -64,7 +64,7 @@ The page records the build it is reloading for in this tab's session storage und
 
 ### The banner
 
-One entry in the shell's frame-wide `shell.overlay` slot, drawn at the top centre of the page, clear of the composer. It shows one notice at a time, the build notices ahead of the connection notices:
+One entry in the shell's frame-wide `shell.overlay` slot, drawn at the top centre of the page, clear of the composer. It is one line tall at any width: a sentence wider than the banner is cut with an ellipsis, and hovering it shows the whole sentence. It shows one notice at a time, the build notices ahead of the connection notices:
 
 | Notice | Chinese | English |
 |---|---|---|

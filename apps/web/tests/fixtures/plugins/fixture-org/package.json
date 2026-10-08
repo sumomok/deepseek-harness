@@ -1,0 +1,14 @@
+{
+  "name": "@fixture/org",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./typert": "./typert.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": { "client": { "platform": "web" } }
+}
