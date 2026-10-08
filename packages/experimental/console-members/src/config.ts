@@ -46,11 +46,11 @@ export interface Config {
   assertionPublicKey: string
   /** The deployment id an assertion's `aud` must equal. Required. */
   deploymentId: string
-  /** The `login_uid` of every member who is an administrator. */
+  /** The `login_uid` of every member who is an administrator. This build checks it at load and grants nothing for it. */
   admins: string[]
   /** Absolute path of the directory that holds one root per member, `<membersRoot>/<directory id>`. Required. */
   membersRoot: string
-  /** Absolute paths every member may read. */
+  /** Absolute paths every member may read. This build checks them at load and grants no read for them. */
   sharedReadRoots: string[]
   /**
    * Migration seeds merged into the root registry at load: each registers one
@@ -58,9 +58,9 @@ export interface Config {
    * the registry fails the load.
    */
   rootSeeds: RootSeed[]
-  /** Absolute path prefixes a read may reach while no member is current. */
+  /** Absolute path prefixes a read may reach while no member is current. This build checks them at load and limits no read. */
   hostReadPaths: string[]
-  /** Absolute path prefixes a write may reach while no member is current. */
+  /** Absolute path prefixes a write may reach while no member is current. This build checks them at load and limits no write. */
   hostWritePaths: string[]
   /** Milliseconds a member Peer with no socket and no HTTP request stays open; at most 2147483647, the longest `setTimeout` delay. */
   peerIdleMs: number
