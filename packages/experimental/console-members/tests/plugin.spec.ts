@@ -154,6 +154,11 @@ describe('the assertion key', () => {
     ['a public key block followed by a private key block', `${PUBLIC_PEM}${PRIVATE_PEM}`],
     ['two public key blocks', `${PUBLIC_PEM}${PUBLIC_PEM}`],
     ['a public key block followed by other text', `${PUBLIC_PEM}${body(PRIVATE_PEM)}\n`],
+    ['a public key block followed by a private key body and a public key end line', `${PUBLIC_PEM}${body(PRIVATE_PEM)}\n-----END PUBLIC KEY-----\n`],
+    [
+      'a public key block followed by a lower-case private key label',
+      `${PUBLIC_PEM}-----begin private key-----\n${body(PRIVATE_PEM)}\n-----END PUBLIC KEY-----\n`,
+    ],
   ])('refuses %s without quoting it', async (_name, pem) => {
     const loaded = await load(config({ assertionPublicKey: pem }))
     expect(messageOf(loaded.error)).toBe(KEY_REFUSAL)

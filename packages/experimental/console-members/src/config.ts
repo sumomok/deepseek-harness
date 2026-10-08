@@ -210,10 +210,11 @@ const SPKI_PEM_END = '-----END PUBLIC KEY-----'
 /**
  * Read the assertion verification key. A PKCS #8 private key would also yield
  * an Ed25519 public key, and the decoder reads only the first PEM block, so
- * the value must be exactly one block that starts with the SPKI label and
- * ends with its end line: the Host keeps the public key only. Whitespace
- * around the block is ignored. The error quotes no part of the configured
- * value.
+ * the value must be exactly one block: it starts with the SPKI label, ends
+ * with its end line, and has no other `-----` in between, so neither a second
+ * block nor a second end line follows the key. The Host keeps the public key
+ * only. Whitespace around the block is ignored. The error quotes no part of
+ * the configured value.
  * @param pem - the configured `assertionPublicKey`.
  * @returns the Ed25519 public key.
  * @throws {Error} when the value is not one Ed25519 public key in SPKI PEM form.
@@ -221,7 +222,8 @@ const SPKI_PEM_END = '-----END PUBLIC KEY-----'
 export function readAssertionKey(pem: string): KeyObject {
   const refusal = 'console-members: assertionPublicKey must be an Ed25519 public key in SPKI PEM form (-----BEGIN PUBLIC KEY-----)'
   const text = pem.trim()
-  if (!text.startsWith(SPKI_PEM_LABEL) || !text.endsWith(SPKI_PEM_END) || text.split('-----BEGIN ').length !== 2) {
+  const inner = text.slice(SPKI_PEM_LABEL.length, text.length - SPKI_PEM_END.length)
+  if (!text.startsWith(SPKI_PEM_LABEL) || !text.endsWith(SPKI_PEM_END) || inner.includes('-----')) {
     throw new Error(refusal)
   }
   let key: KeyObject
