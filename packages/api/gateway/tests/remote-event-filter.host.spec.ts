@@ -610,4 +610,36 @@ describe('Remote Event filter', () => {
     cancel.abort()
     await iterator.return?.()
   })
+
+  it('refuses the operator\'s result for an in-process stream opened as a Peer that carries the operator\'s id and scope', async () => {
+    const { ctx, source } = await mount()
+    ctx.typertGateway.filterRemoteEvents(() => true)
+    const { operator } = ctx.connection
+    const forged: PeerScope = { id: operator.id, ctx: operator.ctx, dispose: () => operator.dispose() }
+    const cancel = new AbortController()
+    const stream = await ctx.typertGateway.wireStream.open(
+      '$events',
+      { args: {} },
+      { [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({ value: undefined, done: true }) }) },
+      forged,
+      cancel.signal,
+    )
+    const iterator = stream[Symbol.asyncIterator]()
+    const ready = (await iterator.next()).value as { readonly clientId: RemoteEventClientId }
+    const pending = pendingWaterfall(ctx, 'session-forged')
+    source.push(pending.dispatch)
+    const delivered = (await iterator.next()).value as WaterfallFrame
+    expect(delivered.type).toBe('waterfall')
+
+    const shared = ctx.connection.createSharedFetchHandler('/api')
+    const response = await shared.fetch(new Request('http://host/api/$events/result', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: resultEnvelope(ready.clientId, delivered.eventId, { kind: 'result', value: 'operator' }),
+    }))
+    expect(((await response.json()) as RpcBody).result?.error?.code).toBe('gateway/forbidden')
+    expect(pending.settled()).toBe(false)
+    cancel.abort()
+    await iterator.return?.()
+  })
 })
