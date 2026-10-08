@@ -9,7 +9,7 @@
       "package": "@sumomok/toy-crud-kit",
       "version": "0.4.5"
     },
-    "bodySha256": "baa827d67f71dcd16ff65fce9a444ea8186938578109b15026a10516fd440510",
+    "bodySha256": "690646c5cd2128b3d692c03207ac27cd4f4159a79219bd912ff28380fad59bbc",
     "exampleViewSha256": null
   },
   "body": {
@@ -1254,19 +1254,23 @@
         "fields": [
           {
             "path": "id",
-            "required": true
+            "required": true,
+            "summary": "a non-empty string"
           },
           {
             "path": "title",
-            "required": true
+            "required": true,
+            "summary": "a non-empty string"
           },
           {
             "path": "spec",
-            "required": true
+            "required": true,
+            "summary": "any value, carried as written for the component catalog to judge"
           },
           {
             "path": "params",
-            "required": false
+            "required": false,
+            "summary": "a mapping from a parameter name to its value"
           }
         ],
         "otherKeys": "ignored",
@@ -1279,31 +1283,38 @@
         "fields": [
           {
             "path": "pack.version",
-            "required": true
+            "required": true,
+            "summary": "an exact semantic version, such as 1.0.0"
           },
           {
             "path": "pack.platform",
-            "required": false
+            "required": false,
+            "summary": "a semantic-version range, such as >=0.2.0"
           },
           {
             "path": "pack.viewFormat",
-            "required": false
+            "required": false,
+            "summary": "an integer"
           },
           {
             "path": "pack.anchorFormat",
-            "required": false
+            "required": false,
+            "summary": "an integer"
           },
           {
             "path": "requires.components",
-            "required": false
+            "required": false,
+            "summary": "a mapping from a package name, a non-empty string, to a semantic-version range"
           },
           {
             "path": "requires.parts",
-            "required": false
+            "required": false,
+            "summary": "a list of part ids, each a non-empty string"
           },
           {
             "path": "views",
-            "required": false
+            "required": false,
+            "summary": "a list of view file paths inside the pack, each a non-empty string"
           }
         ],
         "otherKeys": "refused",

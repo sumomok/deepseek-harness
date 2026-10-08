@@ -116,16 +116,47 @@ describe('the manifest fields a pack may state', () => {
     return metadata
   }
 
-  it('lists every key the manifest schema reads, with the two that must be present', () => {
+  it('lists every key the manifest schema reads, with the two that must be present and what each value must be', () => {
     expect(PACK_MANIFEST_FIELDS).toEqual([
-      { path: 'pack.version', required: true },
-      { path: 'pack.platform', required: false },
-      { path: 'pack.viewFormat', required: false },
-      { path: 'pack.anchorFormat', required: false },
-      { path: 'requires.components', required: false },
-      { path: 'requires.parts', required: false },
-      { path: 'views', required: false },
+      { path: 'pack.version', required: true, summary: 'an exact semantic version, such as 1.0.0' },
+      { path: 'pack.platform', required: false, summary: 'a semantic-version range, such as >=0.2.0' },
+      { path: 'pack.viewFormat', required: false, summary: 'an integer' },
+      { path: 'pack.anchorFormat', required: false, summary: 'an integer' },
+      {
+        path: 'requires.components',
+        required: false,
+        summary: 'a mapping from a package name, a non-empty string, to a semantic-version range',
+      },
+      { path: 'requires.parts', required: false, summary: 'a list of part ids, each a non-empty string' },
+      { path: 'views', required: false, summary: 'a list of view file paths inside the pack, each a non-empty string' },
     ])
+  })
+
+  it('refuses a value of another kind than each field\'s summary states, naming the field', () => {
+    /** A manifest stating the required version and the given dotted field set to the value. */
+    const setting = (path: string, value: unknown): Record<string, unknown> => {
+      const [head, leaf] = path.split('.') as [string, string | undefined]
+      const pack = { version: '1.0.0' }
+      if (head === 'pack' && leaf !== undefined) return { pack: { ...pack, [leaf]: value } }
+      return leaf === undefined ? { pack, [head]: value } : { pack, [head]: { [leaf]: value } }
+    }
+    const refusing: Readonly<Record<string, readonly unknown[]>> = {
+      'pack.version': ['1.0', '>=1.0.0', 1],
+      'pack.platform': ['not a range', 1],
+      'pack.viewFormat': [1.5, '1'],
+      'pack.anchorFormat': [1.5, '1'],
+      'requires.components': [['@a/b'], { '': '>=1.0.0' }, { '@a/b': 'not a range' }],
+      'requires.parts': ['toy.data-page', [''], [1]],
+      views: ['views/a.yml', [''], [1]],
+    }
+    expect(Object.keys(refusing)).toEqual(PACK_MANIFEST_FIELDS.map(field => field.path))
+    for (const [path, values] of Object.entries(refusing)) {
+      expect(parsePackManifest(setting(path, VALUES[path])), path).toMatchObject({ ok: true })
+      for (const value of values) {
+        const result = parsePackManifest(setting(path, value))
+        expect(!result.ok && result.field.startsWith(`metadata.${path}`), `${path}: ${JSON.stringify(value)}`).toBe(true)
+      }
+    }
   })
 
   it('accepts a manifest stating every listed field, and one stating only the required ones', () => {

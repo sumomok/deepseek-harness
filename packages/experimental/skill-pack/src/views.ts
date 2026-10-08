@@ -22,10 +22,10 @@ import { parseYamlMapping } from './yaml.ts'
  * written, must be a mapping. Any other key in a view file is ignored.
  */
 export const PACK_VIEW_FIELDS: readonly PackDocumentField[] = [
-  { path: 'id', required: true },
-  { path: 'title', required: true },
-  { path: 'spec', required: true },
-  { path: 'params', required: false },
+  { path: 'id', required: true, summary: 'a non-empty string' },
+  { path: 'title', required: true, summary: 'a non-empty string' },
+  { path: 'spec', required: true, summary: 'any value, carried as written for the component catalog to judge' },
+  { path: 'params', required: false, summary: 'a mapping from a parameter name to its value' },
 ]
 
 /**

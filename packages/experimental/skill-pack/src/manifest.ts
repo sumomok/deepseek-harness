@@ -52,18 +52,21 @@ const versionRange = z.string().refine(value => semver.validRange(value) !== nul
   message: 'must be a semantic-version range',
 })
 
+// Each leaf's `describe` text is the `summary` PACK_MANIFEST_FIELDS states for it.
 const manifestSchema = z.strictObject({
   pack: z.strictObject({
-    version: exactVersion,
-    platform: versionRange.optional(),
-    viewFormat: z.int().optional(),
-    anchorFormat: z.int().optional(),
+    version: exactVersion.describe('an exact semantic version, such as 1.0.0'),
+    platform: versionRange.describe('a semantic-version range, such as >=0.2.0').optional(),
+    viewFormat: z.int().describe('an integer').optional(),
+    anchorFormat: z.int().describe('an integer').optional(),
   }),
   requires: z.strictObject({
-    components: z.record(z.string().min(1), versionRange).optional(),
-    parts: z.array(z.string().min(1)).optional(),
+    components: z.record(z.string().min(1), versionRange)
+      .describe('a mapping from a package name, a non-empty string, to a semantic-version range')
+      .optional(),
+    parts: z.array(z.string().min(1)).describe('a list of part ids, each a non-empty string').optional(),
   }).optional(),
-  views: z.array(z.string().min(1)).optional(),
+  views: z.array(z.string().min(1)).describe('a list of view file paths inside the pack, each a non-empty string').optional(),
 })
 
 /**
@@ -72,15 +75,18 @@ const manifestSchema = z.strictObject({
  * @param prefix - the dotted path of the object, with its trailing dot; empty at the top.
  * @param required - whether the object itself must be present.
  * @returns one field per leaf key, in declaration order; a key inside an optional object is optional.
+ * @throws {Error} when a leaf carries no `describe` text, which would leave its field without a summary.
  */
 function manifestFields(shape: z.core.$ZodShape, prefix: string, required: boolean): PackDocumentField[] {
   return Object.entries(shape).flatMap(([key, field]) => {
     const optional = field instanceof z.ZodOptional
     const inner = field instanceof z.ZodOptional ? field.unwrap() : field
     const path = `${prefix}${key}`
-    return inner instanceof z.ZodObject
-      ? manifestFields(inner.shape, `${path}.`, required && !optional)
-      : [{ path, required: required && !optional }]
+    if (inner instanceof z.ZodObject) return manifestFields(inner.shape, `${path}.`, required && !optional)
+    const summary = z.globalRegistry.get(inner)?.description
+    /* v8 ignore next -- every leaf of manifestSchema is described; one added without a description stops this module loading. */
+    if (summary === undefined) throw new Error(`skill-pack: the manifest field ${path} has no description`)
+    return [{ path, required: required && !optional, summary }]
   })
 }
 

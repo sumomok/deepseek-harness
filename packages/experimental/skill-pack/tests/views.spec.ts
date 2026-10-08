@@ -79,6 +79,22 @@ describe('the keys a view file is read for', () => {
     }
   })
 
+  it('states what each key\'s value must be, as the file is read', () => {
+    expect(PACK_VIEW_FIELDS.map(field => [field.path, field.summary])).toEqual([
+      ['id', 'a non-empty string'],
+      ['title', 'a non-empty string'],
+      ['spec', 'any value, carried as written for the component catalog to judge'],
+      ['params', 'a mapping from a parameter name to its value'],
+    ])
+    const reading = (lines: Readonly<Record<string, string>>): ReturnType<typeof parsePackView> =>
+      parsePackView('v.yml', `${Object.values({ ...LINES, ...lines }).join('\n')}\n`)
+    expect(reading({ id: "id: ''" })).toMatchObject({ ok: false, reason: 'has no id' })
+    expect(reading({ id: 'id: 1' })).toMatchObject({ ok: false, reason: 'has no id' })
+    expect(reading({ title: "title: ''" })).toMatchObject({ ok: false, reason: 'has no title' })
+    expect(reading({ spec: 'spec: 3' })).toMatchObject({ ok: true, view: { spec: 3 } })
+    expect(reading({ params: 'params: [a]' })).toMatchObject({ ok: false, reason: 'has params that are not a mapping' })
+  })
+
   it('ignores a key it does not list', () => {
     expect(parsePackView('v.yml', `${writing(PACK_VIEW_FIELDS.map(field => field.path))}notes: anything\n`))
       .toMatchObject({ ok: true, view: { id: 'a', title: 'A', spec: [], params: { table: 't' } } })
