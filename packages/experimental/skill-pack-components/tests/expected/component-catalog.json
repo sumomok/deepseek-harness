@@ -1,0 +1,1394 @@
+{
+  "header": {
+    "catalogFormat": 1,
+    "componentKit": {
+      "package": "@deepseek-ai/dsh-experimental-component-kit",
+      "version": "0.2.1-alpha.1"
+    },
+    "toyCrudKit": {
+      "package": "@sumomok/toy-crud-kit",
+      "version": "0.4.5"
+    },
+    "bodySha256": "3a13040eec6e37e5779f35e6ee7d6392a553e6df683ddd0cd0216471463da283",
+    "exampleViewSha256": null
+  },
+  "body": {
+    "components": [
+      {
+        "id": "el.confirm-bar",
+        "label": "确认条",
+        "purpose": "A short prompt above a row of buttons, for putting one decision in front of the user.",
+        "placement": "call",
+        "deploymentSwitches": [],
+        "props": {
+          "title": {
+            "summary": "text",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "string",
+              "maxLength": 80
+            }
+          },
+          "message": {
+            "summary": "text",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "string",
+              "maxLength": 400
+            }
+          },
+          "buttons": {
+            "summary": "[{id, label, tone? (primary|default|danger)}] (1–5)",
+            "required": true,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "array",
+              "item": {
+                "kind": "object",
+                "fields": {
+                  "id": {
+                    "summary": "text",
+                    "required": true,
+                    "viewOnly": false,
+                    "unbindable": false,
+                    "schema": {
+                      "kind": "string",
+                      "maxLength": 32,
+                      "charset": {
+                        "pattern": "/^[\\w-]+$/",
+                        "hint": "letters, digits, underscores and hyphens"
+                      }
+                    }
+                  },
+                  "label": {
+                    "summary": "text",
+                    "required": true,
+                    "viewOnly": false,
+                    "unbindable": false,
+                    "schema": {
+                      "kind": "string",
+                      "maxLength": 16
+                    }
+                  },
+                  "tone": {
+                    "summary": "primary|default|danger",
+                    "required": false,
+                    "viewOnly": false,
+                    "unbindable": false,
+                    "schema": {
+                      "kind": "enum",
+                      "values": [
+                        "primary",
+                        "default",
+                        "danger"
+                      ]
+                    }
+                  }
+                }
+              },
+              "minItems": 1,
+              "maxItems": 5,
+              "uniqueBy": "id"
+            }
+          }
+        },
+        "outputs": [],
+        "actions": [
+          {
+            "id": "press",
+            "report": "wake"
+          }
+        ]
+      },
+      {
+        "id": "toy.record",
+        "label": "记录详情",
+        "purpose": "One record laid out as label-and-value pairs, for putting the details of a single thing in front of the user.",
+        "placement": "call",
+        "deploymentSwitches": [],
+        "props": {
+          "dataList": {
+            "summary": "[{label, display}] (1–60)",
+            "required": true,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "array",
+              "item": {
+                "kind": "object",
+                "fields": {
+                  "label": {
+                    "summary": "text",
+                    "required": true,
+                    "viewOnly": false,
+                    "unbindable": false,
+                    "schema": {
+                      "kind": "string",
+                      "maxLength": 64
+                    }
+                  },
+                  "display": {
+                    "summary": "text",
+                    "required": true,
+                    "viewOnly": false,
+                    "unbindable": false,
+                    "schema": {
+                      "kind": "string",
+                      "maxLength": 400
+                    }
+                  }
+                }
+              },
+              "minItems": 1,
+              "maxItems": 60
+            }
+          },
+          "labelWidth": {
+            "summary": "number",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "number",
+              "min": 40,
+              "max": 240
+            }
+          },
+          "columnNum": {
+            "summary": "1|2|3",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "enum",
+              "values": [
+                1,
+                2,
+                3
+              ]
+            }
+          }
+        },
+        "outputs": [],
+        "actions": []
+      },
+      {
+        "id": "toy.table",
+        "label": "数据表",
+        "purpose": "Rows and columns the user can tick, open, sort and act on, for putting a list of things in front of the user.",
+        "placement": "call",
+        "deploymentSwitches": [],
+        "props": {
+          "tableConfig": {
+            "summary": "{gridItems[{relatedMetaAttr, alias?, isShow? (true|false), isSortable? (true|false), relatedComponent? (display_default|display_yesno|display_progress|display_circle|display_tag), relatedComponentObj?{<field>: text|number|boolean, color?: #RGB|#RRGGBB|rgb()|rgba()}}] (1–30)}",
+            "required": true,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "object",
+              "fields": {
+                "gridItems": {
+                  "summary": "[{relatedMetaAttr, alias?, isShow? (true|false), isSortable? (true|false), relatedComponent? (display_default|display_yesno|display_progress|display_circle|display_tag), relatedComponentObj?{<field>: text|number|boolean, color?: #RGB|#RRGGBB|rgb()|rgba()}}] (1–30)",
+                  "required": true,
+                  "viewOnly": false,
+                  "unbindable": false,
+                  "schema": {
+                    "kind": "array",
+                    "item": {
+                      "kind": "object",
+                      "fields": {
+                        "relatedMetaAttr": {
+                          "summary": "text",
+                          "required": true,
+                          "viewOnly": false,
+                          "unbindable": false,
+                          "schema": {
+                            "kind": "string",
+                            "maxLength": 64,
+                            "charset": {
+                              "pattern": "/^[A-Za-z_][\\w-]*$/",
+                              "hint": "a letter or an underscore, then letters, digits, underscores and hyphens"
+                            }
+                          }
+                        },
+                        "alias": {
+                          "summary": "text",
+                          "required": false,
+                          "viewOnly": false,
+                          "unbindable": false,
+                          "schema": {
+                            "kind": "string",
+                            "maxLength": 40
+                          }
+                        },
+                        "isShow": {
+                          "summary": "true|false",
+                          "required": false,
+                          "viewOnly": false,
+                          "unbindable": false,
+                          "schema": {
+                            "kind": "boolean"
+                          }
+                        },
+                        "isSortable": {
+                          "summary": "true|false",
+                          "required": false,
+                          "viewOnly": false,
+                          "unbindable": false,
+                          "schema": {
+                            "kind": "boolean"
+                          }
+                        },
+                        "relatedComponent": {
+                          "summary": "display_default|display_yesno|display_progress|display_circle|display_tag",
+                          "required": false,
+                          "viewOnly": false,
+                          "unbindable": false,
+                          "schema": {
+                            "kind": "enum",
+                            "values": [
+                              "display_default",
+                              "display_yesno",
+                              "display_progress",
+                              "display_circle",
+                              "display_tag"
+                            ]
+                          }
+                        },
+                        "relatedComponentObj": {
+                          "summary": "{<field>: text|number|boolean, color?: #RGB|#RRGGBB|rgb()|rgba()}",
+                          "required": false,
+                          "viewOnly": false,
+                          "unbindable": false,
+                          "schema": {
+                            "kind": "record",
+                            "key": {
+                              "kind": "string",
+                              "maxLength": 64,
+                              "charset": {
+                                "pattern": "/^[A-Za-z_][\\w-]*$/",
+                                "hint": "a letter or an underscore, then letters, digits, underscores and hyphens"
+                              }
+                            },
+                            "maxKeys": 20,
+                            "maxValueLength": 64,
+                            "minValue": -9007199254740991,
+                            "maxValue": 9007199254740991,
+                            "sanitize": {
+                              "color": "color"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "minItems": 1,
+                    "maxItems": 30,
+                    "uniqueBy": "relatedMetaAttr"
+                  }
+                }
+              }
+            }
+          },
+          "displayValueList": {
+            "summary": "[{<field>: text|number|boolean}] (1–500)",
+            "required": true,
+            "viewOnly": false,
+            "unbindable": true,
+            "schema": {
+              "kind": "array",
+              "item": {
+                "kind": "record",
+                "key": {
+                  "kind": "string",
+                  "maxLength": 64,
+                  "charset": {
+                    "pattern": "/^[A-Za-z_][\\w-]*$/",
+                    "hint": "a letter or an underscore, then letters, digits, underscores and hyphens"
+                  }
+                },
+                "maxKeys": 40,
+                "maxValueLength": 200,
+                "minValue": -9007199254740991,
+                "maxValue": 9007199254740991
+              },
+              "minItems": 1,
+              "maxItems": 500
+            }
+          },
+          "rawValueList": {
+            "summary": "[{<field>: text|number|boolean}] (1–500)",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": true,
+            "schema": {
+              "kind": "array",
+              "item": {
+                "kind": "record",
+                "key": {
+                  "kind": "string",
+                  "maxLength": 64,
+                  "charset": {
+                    "pattern": "/^[A-Za-z_][\\w-]*$/",
+                    "hint": "a letter or an underscore, then letters, digits, underscores and hyphens"
+                  }
+                },
+                "maxKeys": 40,
+                "maxValueLength": 200,
+                "minValue": -9007199254740991,
+                "maxValue": 9007199254740991
+              },
+              "minItems": 1,
+              "maxItems": 500
+            }
+          },
+          "selectMode": {
+            "summary": "checkbox|radio",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "enum",
+              "values": [
+                "checkbox",
+                "radio"
+              ]
+            }
+          },
+          "isNameClick": {
+            "summary": "true|false",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "boolean"
+            }
+          },
+          "tableSortable": {
+            "summary": "true|false",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "boolean"
+            }
+          },
+          "customOperations": {
+            "summary": "[{key, label}] (1–5)",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "array",
+              "item": {
+                "kind": "object",
+                "fields": {
+                  "key": {
+                    "summary": "text",
+                    "required": true,
+                    "viewOnly": false,
+                    "unbindable": false,
+                    "schema": {
+                      "kind": "string",
+                      "maxLength": 32,
+                      "charset": {
+                        "pattern": "/^[\\w-]+$/",
+                        "hint": "letters, digits, underscores and hyphens"
+                      }
+                    }
+                  },
+                  "label": {
+                    "summary": "text",
+                    "required": true,
+                    "viewOnly": false,
+                    "unbindable": false,
+                    "schema": {
+                      "kind": "string",
+                      "maxLength": 20
+                    }
+                  }
+                }
+              },
+              "minItems": 1,
+              "maxItems": 5,
+              "uniqueBy": "key"
+            }
+          },
+          "operationColumnWidth": {
+            "summary": "number",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "number",
+              "min": 60,
+              "max": 400
+            }
+          }
+        },
+        "outputs": [
+          {
+            "id": "selectionDetail",
+            "summary": "[{label, display}] (0–30)",
+            "shape": {
+              "kind": "array",
+              "item": {
+                "kind": "object",
+                "fields": {
+                  "label": {
+                    "summary": "text",
+                    "required": true,
+                    "viewOnly": false,
+                    "unbindable": false,
+                    "schema": {
+                      "kind": "string",
+                      "maxLength": 64
+                    }
+                  },
+                  "display": {
+                    "summary": "text",
+                    "required": true,
+                    "viewOnly": false,
+                    "unbindable": false,
+                    "schema": {
+                      "kind": "string",
+                      "maxLength": 200
+                    }
+                  }
+                }
+              },
+              "minItems": 0,
+              "maxItems": 30
+            }
+          }
+        ],
+        "actions": [
+          {
+            "id": "select",
+            "report": "context"
+          },
+          {
+            "id": "row-click",
+            "report": "context"
+          },
+          {
+            "id": "sort",
+            "report": "silent"
+          },
+          {
+            "id": "operation",
+            "report": "wake"
+          }
+        ],
+        "sanitize": {
+          "relatedComponent": "related-component"
+        }
+      },
+      {
+        "id": "el.filter-bar",
+        "label": "筛选条件",
+        "purpose": "A row of conditions the user edits and submits back to you, for agreeing on what to look for before you look.",
+        "placement": "call",
+        "deploymentSwitches": [],
+        "props": {
+          "relatedMeta": {
+            "summary": "text",
+            "required": true,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "string",
+              "maxLength": 64,
+              "charset": {
+                "pattern": "/^[A-Za-z_][\\w-]*$/",
+                "hint": "a letter or an underscore, then letters, digits, underscores and hyphens"
+              }
+            }
+          },
+          "metaConfig": {
+            "summary": "{attributes[{attributeEnName, alias, dataType? (string|date|datetosecond|integer|long|float|double)}] (1–40)}",
+            "required": true,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "object",
+              "fields": {
+                "attributes": {
+                  "summary": "[{attributeEnName, alias, dataType? (string|date|datetosecond|integer|long|float|double)}] (1–40)",
+                  "required": true,
+                  "viewOnly": false,
+                  "unbindable": false,
+                  "schema": {
+                    "kind": "array",
+                    "item": {
+                      "kind": "object",
+                      "fields": {
+                        "attributeEnName": {
+                          "summary": "text",
+                          "required": true,
+                          "viewOnly": false,
+                          "unbindable": false,
+                          "schema": {
+                            "kind": "string",
+                            "maxLength": 64,
+                            "charset": {
+                              "pattern": "/^[A-Za-z_][\\w-]*$/",
+                              "hint": "a letter or an underscore, then letters, digits, underscores and hyphens"
+                            }
+                          }
+                        },
+                        "alias": {
+                          "summary": "text",
+                          "required": true,
+                          "viewOnly": false,
+                          "unbindable": false,
+                          "schema": {
+                            "kind": "string",
+                            "maxLength": 40
+                          }
+                        },
+                        "dataType": {
+                          "summary": "string|date|datetosecond|integer|long|float|double",
+                          "required": false,
+                          "viewOnly": false,
+                          "unbindable": false,
+                          "schema": {
+                            "kind": "enum",
+                            "values": [
+                              "string",
+                              "date",
+                              "datetosecond",
+                              "integer",
+                              "long",
+                              "float",
+                              "double"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "minItems": 1,
+                    "maxItems": 40,
+                    "uniqueBy": "attributeEnName"
+                  }
+                }
+              }
+            }
+          },
+          "attrEqEnums": {
+            "summary": "[{value (EQ|NOT_EQ|IN|NOT_IN|LIKE|NOT_LIKE|IS_NULL|NOT_NULL|PREFIX|NOT_PREFIX|GREATER_THAN|EQ_AND_GREATER_THAN|LESS_THAN|LESS_AND_EQ_THAN|BETWEEN|NOT_BETWEEN), label}] (1–16)",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "array",
+              "item": {
+                "kind": "object",
+                "fields": {
+                  "value": {
+                    "summary": "EQ|NOT_EQ|IN|NOT_IN|LIKE|NOT_LIKE|IS_NULL|NOT_NULL|PREFIX|NOT_PREFIX|GREATER_THAN|EQ_AND_GREATER_THAN|LESS_THAN|LESS_AND_EQ_THAN|BETWEEN|NOT_BETWEEN",
+                    "required": true,
+                    "viewOnly": false,
+                    "unbindable": false,
+                    "schema": {
+                      "kind": "enum",
+                      "values": [
+                        "EQ",
+                        "NOT_EQ",
+                        "IN",
+                        "NOT_IN",
+                        "LIKE",
+                        "NOT_LIKE",
+                        "IS_NULL",
+                        "NOT_NULL",
+                        "PREFIX",
+                        "NOT_PREFIX",
+                        "GREATER_THAN",
+                        "EQ_AND_GREATER_THAN",
+                        "LESS_THAN",
+                        "LESS_AND_EQ_THAN",
+                        "BETWEEN",
+                        "NOT_BETWEEN"
+                      ]
+                    }
+                  },
+                  "label": {
+                    "summary": "text",
+                    "required": true,
+                    "viewOnly": false,
+                    "unbindable": false,
+                    "schema": {
+                      "kind": "string",
+                      "maxLength": 20
+                    }
+                  }
+                }
+              },
+              "minItems": 1,
+              "maxItems": 16,
+              "uniqueBy": "value"
+            }
+          },
+          "confStyle": {
+            "summary": "{gutter? (0–100), showMatchMode? (true|false)}",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "object",
+              "fields": {
+                "gutter": {
+                  "summary": "number",
+                  "required": false,
+                  "viewOnly": false,
+                  "unbindable": false,
+                  "schema": {
+                    "kind": "number",
+                    "min": 0,
+                    "max": 100
+                  }
+                },
+                "showMatchMode": {
+                  "summary": "true|false",
+                  "required": false,
+                  "viewOnly": false,
+                  "unbindable": false,
+                  "schema": {
+                    "kind": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "outputs": [],
+        "actions": [
+          {
+            "id": "submit",
+            "report": "wake"
+          },
+          {
+            "id": "change",
+            "report": "silent"
+          }
+        ]
+      },
+      {
+        "id": "el.metric",
+        "label": "指标球",
+        "purpose": "One measurement drawn as a filling ball, for putting a single number in front of the user.",
+        "placement": "call",
+        "deploymentSwitches": [],
+        "props": {
+          "size": {
+            "summary": "number",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "number",
+              "min": 40,
+              "max": 400
+            }
+          },
+          "process": {
+            "summary": "number",
+            "required": true,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "number",
+              "min": 0,
+              "max": 100
+            }
+          },
+          "text": {
+            "summary": "text",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "string",
+              "maxLength": 20
+            }
+          },
+          "background": {
+            "summary": "text",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "string",
+              "maxLength": 32
+            }
+          },
+          "borderColor": {
+            "summary": "text",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "string",
+              "maxLength": 32
+            }
+          },
+          "pointColor": {
+            "summary": "text",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "string",
+              "maxLength": 32
+            }
+          },
+          "isPointShow": {
+            "summary": "true|false",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "boolean"
+            }
+          }
+        },
+        "outputs": [],
+        "actions": [],
+        "sanitize": {
+          "background": "color",
+          "borderColor": "color",
+          "pointColor": "color"
+        }
+      },
+      {
+        "id": "toy.data-page",
+        "label": "完整数据页",
+        "purpose": "This deployment's own full data page for one table, opened with the user's own credential once they agree: they query, page and sort in it themselves, and you are told its columns, each query's row count, the rows they tick, and the row and column of a cell they click — no row they do not touch.",
+        "placement": "call",
+        "deploymentSwitches": [
+          "dataPage"
+        ],
+        "props": {
+          "relatedMeta": {
+            "summary": "text",
+            "required": true,
+            "viewOnly": false,
+            "unbindable": true,
+            "schema": {
+              "kind": "string",
+              "maxLength": 64,
+              "charset": {
+                "pattern": "/^[A-Za-z_][\\w-]*$/",
+                "hint": "a letter or an underscore, then letters, digits, underscores and hyphens"
+              }
+            }
+          },
+          "metaLabel": {
+            "summary": "text",
+            "required": true,
+            "viewOnly": false,
+            "unbindable": true,
+            "schema": {
+              "kind": "string",
+              "maxLength": 20,
+              "charset": {
+                "pattern": "/^[^\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}「」]+$/u",
+                "hint": "one line of plain text, carrying no line break, no other control character, and no 「」 bracket"
+              }
+            }
+          },
+          "conditions": {
+            "summary": "[{key, op (EQ|NOT_EQ|IN|NOT_IN|LIKE|NOT_LIKE|IS_NULL|NOT_NULL|PREFIX|NOT_PREFIX|GREATER_THAN|EQ_AND_GREATER_THAN|LESS_THAN|LESS_AND_EQ_THAN|BETWEEN|NOT_BETWEEN), value (text|number|true|false|[text|number])}] (1–10)",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": true,
+            "schema": {
+              "kind": "array",
+              "item": {
+                "kind": "object",
+                "fields": {
+                  "key": {
+                    "summary": "text",
+                    "required": true,
+                    "viewOnly": false,
+                    "unbindable": false,
+                    "schema": {
+                      "kind": "string",
+                      "maxLength": 64,
+                      "charset": {
+                        "pattern": "/^[A-Za-z_][\\w-]*$/",
+                        "hint": "a letter or an underscore, then letters, digits, underscores and hyphens"
+                      }
+                    }
+                  },
+                  "op": {
+                    "summary": "EQ|NOT_EQ|IN|NOT_IN|LIKE|NOT_LIKE|IS_NULL|NOT_NULL|PREFIX|NOT_PREFIX|GREATER_THAN|EQ_AND_GREATER_THAN|LESS_THAN|LESS_AND_EQ_THAN|BETWEEN|NOT_BETWEEN",
+                    "required": true,
+                    "viewOnly": false,
+                    "unbindable": false,
+                    "schema": {
+                      "kind": "enum",
+                      "values": [
+                        "EQ",
+                        "NOT_EQ",
+                        "IN",
+                        "NOT_IN",
+                        "LIKE",
+                        "NOT_LIKE",
+                        "IS_NULL",
+                        "NOT_NULL",
+                        "PREFIX",
+                        "NOT_PREFIX",
+                        "GREATER_THAN",
+                        "EQ_AND_GREATER_THAN",
+                        "LESS_THAN",
+                        "LESS_AND_EQ_THAN",
+                        "BETWEEN",
+                        "NOT_BETWEEN"
+                      ]
+                    }
+                  },
+                  "value": {
+                    "summary": "text|number|true|false|[text|number]",
+                    "required": true,
+                    "viewOnly": false,
+                    "unbindable": false,
+                    "schema": {
+                      "kind": "scalar",
+                      "maxLength": 200,
+                      "maxItems": 20
+                    }
+                  }
+                }
+              },
+              "minItems": 1,
+              "maxItems": 10
+            }
+          },
+          "matchMode": {
+            "summary": "AND|OR",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": true,
+            "schema": {
+              "kind": "enum",
+              "values": [
+                "AND",
+                "OR"
+              ]
+            }
+          },
+          "querySort": {
+            "summary": "{asc?, desc?}",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": true,
+            "schema": {
+              "kind": "object",
+              "fields": {
+                "asc": {
+                  "summary": "text",
+                  "required": false,
+                  "viewOnly": false,
+                  "unbindable": false,
+                  "schema": {
+                    "kind": "string",
+                    "maxLength": 64,
+                    "charset": {
+                      "pattern": "/^[A-Za-z_][\\w-]*$/",
+                      "hint": "a letter or an underscore, then letters, digits, underscores and hyphens"
+                    }
+                  }
+                },
+                "desc": {
+                  "summary": "text",
+                  "required": false,
+                  "viewOnly": false,
+                  "unbindable": false,
+                  "schema": {
+                    "kind": "string",
+                    "maxLength": 64,
+                    "charset": {
+                      "pattern": "/^[A-Za-z_][\\w-]*$/",
+                      "hint": "a letter or an underscore, then letters, digits, underscores and hyphens"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "selectMode": {
+            "summary": "checkbox|radio",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": true,
+            "schema": {
+              "kind": "enum",
+              "values": [
+                "checkbox",
+                "radio"
+              ]
+            }
+          },
+          "isInitQuery": {
+            "summary": "true|false",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": true,
+            "schema": {
+              "kind": "boolean"
+            }
+          },
+          "customOperations": {
+            "summary": "[{name, label}] (1–5)",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": true,
+            "schema": {
+              "kind": "array",
+              "item": {
+                "kind": "object",
+                "fields": {
+                  "name": {
+                    "summary": "text",
+                    "required": true,
+                    "viewOnly": false,
+                    "unbindable": false,
+                    "schema": {
+                      "kind": "string",
+                      "maxLength": 64,
+                      "charset": {
+                        "pattern": "/^[A-Za-z_][\\w-]*$/",
+                        "hint": "a letter or an underscore, then letters, digits, underscores and hyphens"
+                      }
+                    }
+                  },
+                  "label": {
+                    "summary": "text",
+                    "required": true,
+                    "viewOnly": false,
+                    "unbindable": false,
+                    "schema": {
+                      "kind": "string",
+                      "maxLength": 64
+                    }
+                  }
+                }
+              },
+              "minItems": 1,
+              "maxItems": 5
+            }
+          },
+          "regions": {
+            "summary": "{query? (true|false), toolbar? (true|false), table? (true|false), operate? (true|false), pagination? (true|false), infoCard? (true|false), addForm? (true|false), modifyForm? (true|false)}",
+            "required": false,
+            "viewOnly": true,
+            "unbindable": true,
+            "schema": {
+              "kind": "object",
+              "fields": {
+                "query": {
+                  "summary": "true|false",
+                  "required": false,
+                  "viewOnly": false,
+                  "unbindable": false,
+                  "schema": {
+                    "kind": "boolean"
+                  }
+                },
+                "toolbar": {
+                  "summary": "true|false",
+                  "required": false,
+                  "viewOnly": false,
+                  "unbindable": false,
+                  "schema": {
+                    "kind": "boolean"
+                  }
+                },
+                "table": {
+                  "summary": "true|false",
+                  "required": false,
+                  "viewOnly": false,
+                  "unbindable": false,
+                  "schema": {
+                    "kind": "boolean"
+                  }
+                },
+                "operate": {
+                  "summary": "true|false",
+                  "required": false,
+                  "viewOnly": false,
+                  "unbindable": false,
+                  "schema": {
+                    "kind": "boolean"
+                  }
+                },
+                "pagination": {
+                  "summary": "true|false",
+                  "required": false,
+                  "viewOnly": false,
+                  "unbindable": false,
+                  "schema": {
+                    "kind": "boolean"
+                  }
+                },
+                "infoCard": {
+                  "summary": "true|false",
+                  "required": false,
+                  "viewOnly": false,
+                  "unbindable": false,
+                  "schema": {
+                    "kind": "boolean"
+                  }
+                },
+                "addForm": {
+                  "summary": "true|false",
+                  "required": false,
+                  "viewOnly": false,
+                  "unbindable": false,
+                  "schema": {
+                    "kind": "boolean"
+                  }
+                },
+                "modifyForm": {
+                  "summary": "true|false",
+                  "required": false,
+                  "viewOnly": false,
+                  "unbindable": false,
+                  "schema": {
+                    "kind": "boolean"
+                  }
+                }
+              }
+            }
+          },
+          "toolbarButtons": {
+            "summary": "[add|exp|gridexp|search|clear] (0–5)",
+            "required": false,
+            "viewOnly": true,
+            "unbindable": true,
+            "schema": {
+              "kind": "array",
+              "item": {
+                "kind": "enum",
+                "values": [
+                  "add",
+                  "exp",
+                  "gridexp",
+                  "search",
+                  "clear"
+                ],
+                "hint": "This page draws no import panel and no batch panel, so \"imp\" and \"batch\" are not on the list: either button would draw and answer nothing when it was pressed."
+              },
+              "minItems": 0,
+              "maxItems": 5
+            }
+          },
+          "rowOperations": {
+            "summary": "[modify] (0–1)",
+            "required": false,
+            "viewOnly": true,
+            "unbindable": true,
+            "schema": {
+              "kind": "array",
+              "item": {
+                "kind": "enum",
+                "values": [
+                  "modify"
+                ],
+                "hint": "This page draws no delete confirmation, so \"delete\" is not on the list: the button would draw and answer nothing when it was pressed."
+              },
+              "minItems": 0,
+              "maxItems": 1
+            }
+          },
+          "queryExpanded": {
+            "summary": "true|false",
+            "required": false,
+            "viewOnly": true,
+            "unbindable": true,
+            "schema": {
+              "kind": "boolean"
+            }
+          },
+          "pageSize": {
+            "summary": "number",
+            "required": false,
+            "viewOnly": true,
+            "unbindable": true,
+            "schema": {
+              "kind": "number",
+              "min": 1,
+              "max": 1000,
+              "integer": true
+            }
+          },
+          "pageSizes": {
+            "summary": "[number] (1–10)",
+            "required": false,
+            "viewOnly": true,
+            "unbindable": true,
+            "schema": {
+              "kind": "array",
+              "item": {
+                "kind": "number",
+                "min": 1,
+                "max": 1000,
+                "integer": true
+              },
+              "minItems": 1,
+              "maxItems": 10
+            }
+          },
+          "infoCardTabs": {
+            "summary": "[wrong-info|operation|related-stat|useage|attributes] (0–5)",
+            "required": false,
+            "viewOnly": true,
+            "unbindable": true,
+            "schema": {
+              "kind": "array",
+              "item": {
+                "kind": "enum",
+                "values": [
+                  "wrong-info",
+                  "operation",
+                  "related-stat",
+                  "useage",
+                  "attributes"
+                ]
+              },
+              "minItems": 0,
+              "maxItems": 5
+            }
+          },
+          "readOnly": {
+            "summary": "true|false",
+            "required": false,
+            "viewOnly": true,
+            "unbindable": true,
+            "schema": {
+              "kind": "boolean"
+            }
+          }
+        },
+        "outputs": [],
+        "actions": [
+          {
+            "id": "load",
+            "report": "context"
+          },
+          {
+            "id": "denied",
+            "report": "context"
+          },
+          {
+            "id": "auth-failed",
+            "report": "context"
+          },
+          {
+            "id": "query",
+            "report": "context"
+          },
+          {
+            "id": "cell-click",
+            "report": "context"
+          },
+          {
+            "id": "select",
+            "report": "context"
+          },
+          {
+            "id": "card-open",
+            "report": "context"
+          },
+          {
+            "id": "card-close",
+            "report": "context"
+          },
+          {
+            "id": "added",
+            "report": "context"
+          },
+          {
+            "id": "modified",
+            "report": "context"
+          },
+          {
+            "id": "operation",
+            "report": "context"
+          },
+          {
+            "id": "exported",
+            "report": "context"
+          }
+        ]
+      }
+    ],
+    "rules": {
+      "view": {
+        "id": {
+          "maxLength": 64,
+          "charset": {
+            "pattern": "/^[\\w-]+$/",
+            "hint": "letters, digits, underscores and hyphens"
+          }
+        },
+        "title": {
+          "maxLength": 24
+        },
+        "maxSpecBytes": 65536,
+        "nodes": {
+          "min": 1,
+          "max": 12,
+          "id": {
+            "maxLength": 32,
+            "charset": {
+              "pattern": "/^[\\w-]+$/",
+              "hint": "letters, digits, underscores and hyphens"
+            }
+          }
+        }
+      },
+      "layout": {
+        "root": "stack",
+        "directions": [
+          "row",
+          "col"
+        ],
+        "gaps": [
+          "sm",
+          "md",
+          "lg"
+        ],
+        "maxDepth": 4,
+        "maxChildren": 12,
+        "flex": {
+          "min": 1,
+          "max": 12
+        },
+        "stackKeys": [
+          "node",
+          "dir",
+          "gap",
+          "wrap",
+          "flex",
+          "children"
+        ],
+        "blockKeys": [
+          "node",
+          "id",
+          "flex"
+        ]
+      },
+      "binding": {
+        "key": "$from",
+        "reference": "node:<node id>.<output name>, optionally with [index]",
+        "maxNodeIdLength": 32,
+        "maxOutputIdLength": 32,
+        "rules": [
+          "A bound property is an object whose only key is $from, written as the whole value of the property; one inside a list item or a nested object is refused.",
+          "The node is another node of the same view, the output is one that node's component declares, and an index takes one item of a list output.",
+          "A property marked unbindable cannot be bound, and a bound property must accept the output's shape: the same kind, and nothing past its limits.",
+          "The value is resolved in the page from what the other block reports; the view file carries only the reference."
+        ]
+      },
+      "param": {
+        "key": "$param",
+        "rules": [
+          "A parameter reference is an object whose only key is $param, written as the whole value of a property; one standing for an item of a list is refused.",
+          "It names one entry of the view file's params, and that entry is text, a number, true or false.",
+          "It is replaced when the view is read, before the view is judged; $from references are left as written."
+        ]
+      },
+      "viewFile": {
+        "fields": [
+          {
+            "path": "id",
+            "required": true
+          },
+          {
+            "path": "title",
+            "required": true
+          },
+          {
+            "path": "spec",
+            "required": true
+          },
+          {
+            "path": "params",
+            "required": false
+          }
+        ],
+        "otherKeys": "ignored",
+        "viewFormats": [
+          1
+        ]
+      },
+      "manifest": {
+        "key": "metadata",
+        "fields": [
+          {
+            "path": "pack.version",
+            "required": true
+          },
+          {
+            "path": "pack.platform",
+            "required": false
+          },
+          {
+            "path": "pack.viewFormat",
+            "required": false
+          },
+          {
+            "path": "pack.anchorFormat",
+            "required": false
+          },
+          {
+            "path": "requires.components",
+            "required": false
+          },
+          {
+            "path": "requires.parts",
+            "required": false
+          },
+          {
+            "path": "views",
+            "required": false
+          }
+        ],
+        "otherKeys": "refused",
+        "viewFormats": [
+          1
+        ],
+        "anchorFormats": [
+          1
+        ]
+      },
+      "packFiles": {
+        "extensions": [
+          ".md",
+          ".yml",
+          ".yaml",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          ".gif",
+          ".webp"
+        ]
+      },
+      "archive": {
+        "extension": ".dshpack",
+        "format": 1,
+        "defaultLimits": {
+          "maxArchiveBytes": 33554432,
+          "maxFileBytes": 4194304,
+          "maxFiles": 512
+        }
+      }
+    }
+  }
+}

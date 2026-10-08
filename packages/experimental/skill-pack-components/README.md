@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Two packages that must not depend on each other meet here. [`component-surface`](../component-surface/README.md) owns `ctx.componentCatalog` — which components a deployment registered and which of them it offers — and knows nothing about skill packs. [`skill-pack`](../skill-pack/README.md) withholds a pack until the component parts its views place exist, declares the service key that answers what exists, and reaches into no component package to answer it. This row is what a deployment composes to connect the two, and it is the only place the edge runs in both directions.
+Two packages that must not depend on each other meet here. [`component-surface`](../component-surface/README.md) owns `ctx.componentCatalog` — which components a deployment registered and which of them it offers — and knows nothing about skill packs. [`skill-pack`](../skill-pack/README.md) withholds a pack until the component parts its views place exist, declares the service key that answers what exists, and reaches into no component package to answer it. This row is what a deployment composes to connect the two, and it is the only place the edge runs in both directions. The package also writes the [component catalog file](#the-component-catalog-file) a pack author composes views from.
 
 ## Table of Contents
 
@@ -18,6 +18,7 @@ Two packages that must not depend on each other meet here. [`component-surface`]
 - [Offered, not registered](#offered-not-registered)
 - [Judging a pack's views](#judging-a-packs-views)
 - [Placing them](#placing-them)
+- [The component catalog file](#the-component-catalog-file)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
@@ -85,6 +86,30 @@ Everything the packs do offer is registered into `ctx.componentViews` as one sou
 
 From there the path is the one a configured view already takes — the sidebar lists it off `GET /component-surface/views`, a click runs `/show-content-view`, and what lands in the column is the same session event a configured view's click writes.
 
+<a id="the-component-catalog-file"></a>
+## The component catalog file
+
+`tests/expected/component-catalog.json` is what someone writing a skill pack away from any deployment composes views from: every component the component kit registers, the rules a view file is judged by, and the rules a pack and its `.dshpack` archive are read under. Regenerate it after any change to a catalog entry, to the component surface's limits or to the pack rules:
+
+```sh
+pnpm --filter @deepseek-ai/dsh-experimental-skill-pack-components run component-catalog
+```
+
+A test generates the file again and fails when the checked-in copy differs by one byte, so a change that moves the catalog cannot pass with a stale file.
+
+| Key | What it holds |
+|---|---|
+| `header.catalogFormat` | `1`, the file format. It changes whenever a key is renamed, removed or given another meaning, and a reader that does not know the number does not read the file. |
+| `header.componentKit`, `header.toyCrudKit` | The npm name and installed version of the component kit, which a pack's `requires.components` range is matched against, and of the kit it vendors to draw the data page. |
+| `header.bodySha256` | SHA-256, in lowercase hexadecimal, of the UTF-8 bytes of `JSON.stringify(body)`: no whitespace, keys in file order. A reader recomputes it from the parsed file; outside JavaScript, the serializer must write exactly what `JSON.stringify` writes, non-ASCII characters unescaped included, or the digest does not match. |
+| `header.exampleViewSha256` | `null`, because the file ships no example view yet. |
+| `body.components` | Per component: `id`, `label` (the Chinese name the user reads), `purpose`, `placement`, `deploymentSwitches`, `props`, `outputs` (`id`, `summary`, `shape`), `actions` (`id`, `report`), and `sanitize` where the component reads a string as a path, a color or a renderer name. |
+| `body.rules` | `view` (the id, the title, the spec size and the nodes), `layout`, `binding` (`$from`), `param` (`$param`), `viewFile`, `manifest`, `packFiles` (the extensions a pack may carry) and `archive` (the `.dshpack` format and the limits it is read under by default). |
+
+Each property states `summary`, the notation the tool description writes for it; `required`; `viewOnly`, true where only a view file may set it; `unbindable`, true where it cannot be written as a `$from` reference; and `schema`, its kind with every bound, list and alphabet, an alphabet written as a regular-expression literal with its flags. `deploymentSwitches` names the `show_component` switches that must be on before a deployment offers the component, read from the component surface's `withheldComponents`; whether a given deployment has turned them on is not in the file. `placement` is `call` for every component: the catalog declares no placement yet, so every component a view places can also be placed by a call.
+
+Every number, list and key is read from the module that enforces it. The `binding.rules` and `param.rules` sentences restate how the component surface reads the two references, and are written in the generator.
+
 ## Model Experience
 
 Indirectly, through [`skill-pack`](../skill-pack/README.md#model-experience): this row registers no prompt, schema, tool or result of its own, and what it changes is which packs answer their requirements — a pack this row can answer for becomes an ordinary skill in the merged catalog, and a pack it cannot stays absent.
@@ -99,6 +124,7 @@ Through the skill registry's consumer only. A component plugin mounted or withdr
 - **A part is a component, and nothing smaller.** A pack requires `toy.data-page` and is told whether that component exists; it cannot require a property of one, an action of one, or a version of the component itself. The component's version is its package's, so two components shipped by one package can never be required at different versions.
 - **The version a range is matched against is the package's, not the component's.** A plugin that renamed or dropped a component in a patch release still satisfies `>=0.4.0`, and the pack activates onto a component that changed under it. What stops that today is `requires.parts`, which names the id and is checked for presence.
 - **A pack that loses an id collision to the deployment's own views learns it from the status route and nowhere else.** The refusal names the id and says it is already offered; it does not name which configured view holds it, because the judgement runs before the index is built and only the index knows the holder. What the operator has is the two documents side by side. A collision between two packs is named on both sides, by the pack root, which can see both.
+- **No example view.** The catalog file's header carries `exampleViewSha256: null`, and no test judges an example view. The example places a data page and an information card bound to the page's `opened` output, and neither the card nor that output is in the catalog yet. Once both are, the example goes under `tests/expected/examples/`, its digest goes into the header, and a test substitutes its `params` and judges it with the component surface's `judgeView`.
 - **Not covered by an assembled snapshot** — the row is exercised by its own real-composition spec; the snapshot lanes replay the shipped composition, which composes no experimental row.
 
 <a id="dev-note"></a>

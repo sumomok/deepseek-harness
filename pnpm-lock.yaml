@@ -9140,6 +9140,9 @@ importers:
       '@deepseek-ai/dsh-commands':
         specifier: workspace:*
         version: link:../../interaction/commands
+      '@deepseek-ai/dsh-experimental-component-kit':
+        specifier: workspace:*
+        version: link:../component-kit
       '@deepseek-ai/dsh-experimental-component-surface':
         specifier: workspace:*
         version: link:../component-surface

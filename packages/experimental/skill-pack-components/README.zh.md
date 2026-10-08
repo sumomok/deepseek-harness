@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-两个互相不能依赖的包在这里碰头。[`component-surface`](../component-surface/README.zh.md) 拥有 `ctx.componentCatalog`——一套部署注册了哪些组件、其中又交出去哪些——而它对技能包一无所知。[`skill-pack`](../skill-pack/README.zh.md) 在一个技能包的视图要摆的组件部件存在之前一直扣着它，声明了回答「有哪些部件」的那个服务键，并且不伸手进任何组件包去回答它。这一行就是一套部署用来把两者接起来的东西，也是这条边唯一双向跑的地方。
+两个互相不能依赖的包在这里碰头。[`component-surface`](../component-surface/README.zh.md) 拥有 `ctx.componentCatalog`——一套部署注册了哪些组件、其中又交出去哪些——而它对技能包一无所知。[`skill-pack`](../skill-pack/README.zh.md) 在一个技能包的视图要摆的组件部件存在之前一直扣着它，声明了回答「有哪些部件」的那个服务键，并且不伸手进任何组件包去回答它。这一行就是一套部署用来把两者接起来的东西，也是这条边唯一双向跑的地方。这个包还写出[组件目录文件](#the-component-catalog-file)，供写技能包的人拼视图时读。
 
 ## 目录
 
@@ -18,6 +18,7 @@ kind: "package-reference"
 - [交出去的，不是注册了的](#offered-not-registered)
 - [判定一个技能包的视图](#judging-a-packs-views)
 - [把它们摆出去](#placing-them)
+- [组件目录文件](#the-component-catalog-file)
 - [模型体验](#model-experience)
 - [已知限制与暂缓事项](#known-limitations-and-deferred-work)
 - [开发备注](#dev-note)
@@ -85,6 +86,30 @@ kind: "package-reference"
 
 从那里往后走的就是配置视图早已走过的那条路——侧栏从 `GET /component-surface/views` 列出它，一次点击执行 `/show-content-view`，落进内容栏的是配置视图被点击时写下的那条同样的会话事件。
 
+<a id="the-component-catalog-file"></a>
+## 组件目录文件
+
+`tests/expected/component-catalog.json` 给不在任何部署旁边写技能包的人用来拼视图：里面有组件包注册的每个组件、判视图文件的规则，以及读技能包和它的 `.dshpack` 发放包时的规则。改了目录条目、组件表面的上限或技能包规则之后，要重新生成它：
+
+```sh
+pnpm --filter @deepseek-ai/dsh-experimental-skill-pack-components run component-catalog
+```
+
+有一条测试会重新生成这个文件，入库的副本差一个字节就失败，所以改动了目录却没有重新生成的提交过不了。
+
+| 键 | 内容 |
+|---|---|
+| `header.catalogFormat` | `1`，文件格式号。任何键改名、删除或换了含义都要换号；读的一方不认识这个号就不读这个文件。 |
+| `header.componentKit`、`header.toyCrudKit` | 组件包的 npm 名和装上的版本（技能包 `requires.components` 的区间就拿它来匹配），以及组件包为画完整数据页 vendor 进来的 kit 的 npm 名和版本。 |
+| `header.bodySha256` | `JSON.stringify(body)` 的 UTF-8 字节的 SHA-256，小写十六进制：不带空白，键按文件里的顺序。读的一方从解析出来的文件重算它；不用 JavaScript 重算时，序列化结果必须与 `JSON.stringify` 写出的逐字相同，包括非 ASCII 字符不转义，否则摘要对不上。 |
+| `header.exampleViewSha256` | `null`，因为这个文件还不带示例视图。 |
+| `body.components` | 每个组件：`id`、`label`（用户看到的中文名）、`purpose`、`placement`、`deploymentSwitches`、`props`、`outputs`（`id`、`summary`、`shape`）、`actions`（`id`、`report`），以及组件把某个字符串读成路径、颜色或渲染器名时的 `sanitize`。 |
+| `body.rules` | `view`（id、标题、spec 大小和节点）、`layout`、`binding`（`$from`）、`param`（`$param`）、`viewFile`、`manifest`、`packFiles`（技能包能带的扩展名）和 `archive`（`.dshpack` 的格式和默认读取上限）。 |
+
+每个属性写出：`summary`，工具描述给它写的记法；`required`；`viewOnly`，为真表示只有视图文件能设它；`unbindable`，为真表示它不能写成 `$from` 引用；`schema`，它的类型和全部上限、名单、字符集，字符集写成带标志位的正则字面量。`deploymentSwitches` 列出部署要打开哪些 `show_component` 开关才会交出这个组件，从组件表面的 `withheldComponents` 读出；某套部署有没有打开它们，文件里不写。每个组件的 `placement` 都是 `call`：目录还没有声明放置方式，所以视图能放的组件，调用也都能放。
+
+每个数字、名单和键都从执行这条规则的模块读出。`binding.rules` 和 `param.rules` 里的句子复述组件表面怎样读这两种引用，是写在生成器里的。
+
 <a id="model-experience"></a>
 ## 模型体验
 
@@ -101,6 +126,7 @@ kind: "package-reference"
 - **部件的粒度就是组件，再小就没有了。** 技能包要求 `toy.data-page`，得到的答复是这个组件在不在；它没法要求组件的某个属性、某个动作，也没法要求组件自身的版本。组件的版本就是它所在包的版本，所以一个包发的两个组件永远不可能被要求在不同版本上。
 - **范围匹配的是包的版本，不是组件的版本。** 一个在补丁版里改名或去掉了某个组件的插件，照样满足 `>=0.4.0`，于是技能包会激活到一个在它脚下变过的组件上。今天挡住这件事的是 `requires.parts`：它点名 id，并检查它在不在。
 - **在与部署自己视图的 id 冲突里输掉的技能包只能从状态路由知道这件事。** 那条拒绝点名这个 id 并说它已经被交出去了；它不点名是哪个配置视图占着它，因为判定跑在索引建起来之前，而只有索引知道占着的人是谁。运维手上有的是这两份文档摆在一起。两个技能包之间的冲突由技能包根目录在两边都点名，因为它两个都看得见。
+- **没有示例视图。** 组件目录文件的头写着 `exampleViewSha256: null`，也没有测试判示例视图。示例要放一个完整数据页和一张绑定数据页 `opened` 输出的信息卡，而信息卡和这个输出现在都还不在目录里。两者进了目录之后，示例放进 `tests/expected/examples/`，它的摘要写进头里，再由一条测试替换它的 `params`、用组件表面的 `judgeView` 判它。
 - **没有被组装快照覆盖** —— 这一行由它自己的真实组合用例覆盖；快照泳道重放的是发行组合，而那里不组合任何 experimental 行。
 
 <a id="dev-note"></a>
