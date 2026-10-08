@@ -203,9 +203,12 @@ describe.skipIf(MODE === 'record')('web e2e: a real browser reads only a glyph a
 
     const input = page.locator(COMPOSER).first()
     await writeComposerDraft(page, input, PROMPT)
+    // The closing line is the third scripted answer, and teardown asserts the
+    // script was consumed whole, so the turn has to end before the test does.
+    const turnEnded = scaffold.whenTurnSettled(60_000)
     await page.keyboard.press('Enter')
 
-    await expect.poll(() => settled(sessionEvents, ROWS_CALL) !== undefined, { timeout: 60_000 }).toBe(true)
+    await turnEnded
     const pageRead = settled(sessionEvents, PAGE_CALL)
     const rowsRead = settled(sessionEvents, ROWS_CALL)
     expect([pageRead?.isError, rowsRead?.isError]).toEqual([false, false])
