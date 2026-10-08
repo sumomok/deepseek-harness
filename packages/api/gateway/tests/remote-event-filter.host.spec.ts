@@ -30,6 +30,8 @@ type Member = 'a' | 'b'
 interface Mounted {
   readonly ctx: Context
   readonly peers: Readonly<Record<Member, PeerScope>>
+  /** Remove the fixture admitter, which turns member admission off. */
+  readonly removeAdmitter: () => Promise<void>
   readonly source: RemoteEventSourceProbe
   /** `warn`-level log lines written while the root is mounted. */
   readonly warnings: string[]
@@ -116,13 +118,13 @@ async function mount(): Promise<Mounted> {
   await ctx.plugin(TypertGatewayService, {})
   await ctx.plugin({ inject: [...connectionInject], apply: applyConnection })
   const peers = { a: ctx.connection.peers.open(), b: ctx.connection.peers.open() }
-  ctx.connection.peers.admitWith((request) => {
+  const removeAdmitter = ctx.connection.peers.admitWith((request) => {
     const member = memberHeader(request)
     return member === 'a' || member === 'b' ? peers[member] : undefined
   })
   const source = new RemoteEventSourceProbe()
   ctx.typertGateway.registerRemoteEvents(source.source, REMOTE_HOST)
-  return { ctx, peers, source, warnings }
+  return { ctx, peers, removeAdmitter, source, warnings }
 }
 
 function memberHeader(request: ConnectionTrustRequest): string | undefined {
@@ -179,6 +181,16 @@ async function settle(source: RemoteEventSourceProbe, ...clients: EventClient[])
       expect(eventsOf(client).filter(event => event === SENTINEL)).toHaveLength(counts[index]! + 1)
     })
   })
+}
+
+/** Let the Gateway consume every event pushed so far; the source and the Gateway's fan-out settle in microtasks. */
+async function drain(): Promise<void> {
+  await new Promise((resolve) => { setImmediate(resolve) })
+}
+
+/** Count the waterfall frames the Client received. */
+function waterfallsOf(client: EventClient): number {
+  return itemsOf(client).filter(value => value.type === 'waterfall').length
 }
 
 async function closeClient(client: EventClient): Promise<void> {
@@ -383,7 +395,7 @@ describe('Remote Event filter', () => {
     expect(warnings).toEqual([])
   })
 
-  it('accepts one filter at a time, and its disposer or its Context\'s unload restores delivery to every Client', async () => {
+  it('accepts one filter at a time, removed by its disposer or its Context\'s unload, after which no Client of an admitting Host receives events', async () => {
     const { ctx, peers, source } = await mount()
     const a = await openEventClient(ctx, 'a', 'events-a')
     const b = await openEventClient(ctx, 'b', 'events-b')
@@ -394,7 +406,7 @@ describe('Remote Event filter', () => {
     await settle(source, a, b)
     await remove()
     source.push({ event: 'fixture/second', args: [] })
-    await settle(source, a, b)
+    await drain()
 
     const owner = ctx.plugin({
       inject: ['typertGateway'],
@@ -405,16 +417,100 @@ describe('Remote Event filter', () => {
     await settle(source, a, b)
     await owner.dispose()
     source.push({ event: 'fixture/fourth', args: [] })
+    await drain()
+    ctx.typertGateway.filterRemoteEvents(() => true)
     await settle(source, a, b)
 
-    expect(eventsOf(a)).toEqual([
-      'fixture/first', SENTINEL, 'fixture/second', SENTINEL, 'fixture/third', SENTINEL, 'fixture/fourth', SENTINEL,
-    ])
-    expect(eventsOf(b)).toEqual([SENTINEL, 'fixture/second', SENTINEL, SENTINEL, 'fixture/fourth', SENTINEL])
+    expect(eventsOf(a)).toEqual(['fixture/first', SENTINEL, 'fixture/third', SENTINEL, SENTINEL])
+    expect(eventsOf(b)).toEqual([SENTINEL, SENTINEL, SENTINEL])
   })
 
-  it('refuses a result from another Peer without a filter, and accepts each Peer\'s answer for its own Client', async () => {
+  it('restores delivery to every Client when the filter is removed while member admission is off', async () => {
+    const { ctx, peers, removeAdmitter, source } = await mount()
+    await removeAdmitter()
+    const a = await openEventClient(ctx, 'a', 'events-a')
+    const b = await openEventClient(ctx, 'b', 'events-b')
+    const remove = ctx.typertGateway.filterRemoteEvents(onlyTo(peers.a))
+    source.push({ event: 'fixture/first', args: [] })
+    await settle(source, a, b)
+    await remove()
+    source.push({ event: 'fixture/second', args: [] })
+    await settle(source, a, b)
+
+    // Both Clients speak for the operator, which the filter for member A does not accept.
+    expect(eventsOf(a)).toEqual([SENTINEL, 'fixture/second', SENTINEL])
+    expect(eventsOf(b)).toEqual([SENTINEL, 'fixture/second', SENTINEL])
+  })
+
+  it('opens $events but delivers nothing while member admission is on and no filter is installed, and delivers the pending waterfall to the admitted Client once one is', async () => {
+    const { ctx, peers, source } = await mount()
+    const a = await openEventClient(ctx, 'a', 'events-a')
+    const b = await openEventClient(ctx, 'b', 'events-b')
+    expect(ctx.typertGateway.hasLiveClient()).toBe(true)
+    const pending = pendingWaterfall(ctx, 'session-a')
+
+    source.push({ event: 'fixture/notice', args: [] })
+    source.push(pending.dispatch)
+    await drain()
+    const late = await openEventClient(ctx, 'a', 'events-a-late')
+    await drain()
+    expect([a, b, late].map(eventsOf)).toEqual([[], [], []])
+    expect(pending.settled()).toBe(false)
+
+    ctx.typertGateway.filterRemoteEvents(onlyTo(peers.a))
+    await settle(source, a, b, late)
+    expect(eventsOf(a)).toEqual(['fixture/approval', SENTINEL])
+    expect(eventsOf(late)).toEqual(['fixture/approval', SENTINEL])
+    expect(eventsOf(b)).toEqual([SENTINEL])
+    const frame = waterfallOf(a)!
+    expect(waterfallOf(late)?.eventId).toBe(frame.eventId)
+    expect((await sendResult(ctx, 'a', a.clientId, frame.eventId, { kind: 'result', value: 'allowed' })).result?.ok).toBe(true)
+    await expect(pending.outcome).resolves.toEqual({ kind: 'result', value: 'allowed' })
+  })
+
+  it('delivers a pending waterfall on installation only to Clients that never received it', async () => {
     const { ctx, source } = await mount()
+    const remove = ctx.typertGateway.filterRemoteEvents(() => true)
+    const a = await openEventClient(ctx, 'a', 'events-a')
+    const b = await openEventClient(ctx, 'b', 'events-b')
+    const pending = pendingWaterfall(ctx, 'session-a')
+    source.push(pending.dispatch)
+    await settle(source, a, b)
+    const frame = waterfallOf(a)!
+    // A delegates; B still holds the waterfall, so it stays pending.
+    expect((await sendResult(ctx, 'a', a.clientId, frame.eventId, { kind: 'next' })).result?.ok).toBe(true)
+    expect(pending.settled()).toBe(false)
+
+    await remove()
+    ctx.typertGateway.filterRemoteEvents(() => true)
+    const c = await openEventClient(ctx, 'a', 'events-c')
+    await settle(source, a, b, c)
+    expect([a, b, c].map(waterfallsOf)).toEqual([1, 1, 1])
+  })
+
+  it('answers ok and changes nothing when a member posts a result for its own Client with another member\'s event', async () => {
+    const { ctx, peers, source } = await mount()
+    ctx.typertGateway.filterRemoteEvents(onlyTo(peers.a))
+    const a = await openEventClient(ctx, 'a', 'events-a')
+    const b = await openEventClient(ctx, 'b', 'events-b')
+    const pending = pendingWaterfall(ctx, 'session-a')
+    source.push(pending.dispatch)
+    await settle(source, a, b)
+    const frame = waterfallOf(a)!
+
+    const stray = await sendResult(ctx, 'b', b.clientId, frame.eventId, { kind: 'result', value: 'allowed' })
+    expect(stray.result?.ok).toBe(true)
+    await settle(source, a, b)
+    expect(pending.settled()).toBe(false)
+    expect(itemsOf(a).filter(value => value.type === 'cancel')).toEqual([])
+
+    expect((await sendResult(ctx, 'a', a.clientId, frame.eventId, { kind: 'result', value: 'denied' })).result?.ok).toBe(true)
+    await expect(pending.outcome).resolves.toEqual({ kind: 'result', value: 'denied' })
+  })
+
+  it('refuses a result from another Peer even when the filter delivers to every Client, and accepts each Peer\'s answer for its own Client', async () => {
+    const { ctx, source } = await mount()
+    ctx.typertGateway.filterRemoteEvents(() => true)
     const a = await openEventClient(ctx, 'a', 'events-a')
     const b = await openEventClient(ctx, 'b', 'events-b')
     const pending = pendingWaterfall(ctx, 'session-a')

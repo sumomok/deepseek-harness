@@ -3461,7 +3461,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'filterRemoteEvents(filter: RemoteEventFilter): () => Promise<void>',
-        description: 'Install the sole Remote Event filter as an effect of the calling Context. For each `$events` Client it decides whether a broadcast notification, the first delivery of a scoped waterfall, or the replay of a pending waterfall to a connecting Client reaches that Client; only `true` delivers, and a filter that throws withholds the event and is logged.',
+        description: 'Install the sole Remote Event filter as an effect of the calling Context. For each `$events` Client it decides whether a broadcast notification, the first delivery of a scoped waterfall, or the replay of a pending waterfall to a connecting Client reaches that Client; only `true` delivers, and a filter that throws withholds the event and is logged. Installing it delivers each pending waterfall to each connected Client it accepts that has not received it.',
         parameters: [{ name: 'filter', description: 'synchronous decision per event and Client.' }],
         returns: 'asynchronous disposer removing the filter; it also leaves with the installing fiber.',
         throws: ['Error when another filter is installed.'],

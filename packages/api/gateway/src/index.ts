@@ -220,7 +220,10 @@ interface PendingRemoteEvent {
   readonly frame: RemoteEventInvocationFrame
   /** What the Remote Event filter receives for this waterfall, on first delivery and on each replay. */
   readonly delivery: RemoteEventDelivery
+  /** Clients holding this waterfall unanswered. */
   readonly deliveries: Set<RemoteEventClient>
+  /** Connected Clients this waterfall was ever delivered to, including those that answered with `next()`. */
+  readonly received: Set<RemoteEventClient>
   releaseContext: () => void
   releaseSignal: () => void
 }
@@ -428,7 +431,8 @@ export class TypertGatewayService extends Service implements TypertGateway {
    * Install the sole Remote Event filter as an effect of the calling Context. For each `$events` Client it decides
    * whether a broadcast notification, the first delivery of a scoped waterfall, or the replay of a pending waterfall
    * to a connecting Client reaches that Client; only `true` delivers, and a filter that throws withholds the event
-   * and is logged.
+   * and is logged. Installing it delivers each pending waterfall to each connected Client it accepts that has not
+   * received it.
    * @param filter - synchronous decision per event and Client.
    * @returns asynchronous disposer removing the filter; it also leaves with the installing fiber.
    * @throws Error when another filter is installed.
@@ -439,6 +443,14 @@ export class TypertGatewayService extends Service implements TypertGateway {
         throw new Error('typert gateway: a Remote event filter is already installed')
       }
       this.remoteEventFilter = filter
+      // A waterfall the previous decisions withheld reaches each connected Client the new filter admits.
+      for (const pending of [...this.pendingRemoteEvents.values()]) {
+        for (const client of this.remoteEventClients.values()) {
+          if (!pending.received.has(client) && this.admitsRemoteEvent(pending.delivery, client)) {
+            this.deliverRemoteEvent(pending, client)
+          }
+        }
+      }
       return () => {
         this.remoteEventFilter = undefined
       }
@@ -870,6 +882,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
           request: projected.request,
         },
         deliveries: new Set(),
+        received: new Set(),
         releaseContext,
         releaseSignal: () => {
           for (const signal of signals) signal.removeEventListener('abort', abort)
@@ -888,10 +901,13 @@ export class TypertGatewayService extends Service implements TypertGateway {
     }
   }
 
-  /** Ask the installed filter whether `client` receives `delivery`; any return other than `true`, or a throw, withholds it. */
+  /**
+   * Ask the installed filter whether `client` receives `delivery`; any return other than `true`, or a throw, withholds
+   * it. Without a filter every Client receives every event while member admission is off, and none while it is on.
+   */
   private admitsRemoteEvent(delivery: RemoteEventDelivery, client: RemoteEventClient): boolean {
     const filter = this.remoteEventFilter
-    if (filter === undefined) return true
+    if (filter === undefined) return !this.isMemberAdmission()
     try {
       // oxlint-disable-next-line typescript/no-unnecessary-boolean-literal-compare -- an untyped installer's truthy non-boolean withholds.
       return filter(delivery, client.peer) === true
@@ -905,6 +921,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
   }
 
   private deliverRemoteEvent(pending: PendingRemoteEvent, client: RemoteEventClient): void {
+    pending.received.add(client)
     pending.deliveries.add(client)
     client.deliveries.set(pending.id, pending)
     client.queue.push(pending.frame)
@@ -938,6 +955,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
 
   private removeRemoteEventClient(client: RemoteEventClient): void {
     this.remoteEventClients.delete(client.id)
+    for (const pending of this.pendingRemoteEvents.values()) pending.received.delete(client)
     for (const pending of [...client.deliveries.values()]) this.removeRemoteEventDelivery(pending, client)
     client.queue.end()
   }

@@ -54,7 +54,7 @@ Connection 在 `open()` 返回之前发出 `connection/peer-opened(peer)`，在�
 
 Gateway 的 `RemoteStreamMuxServer` 接受一个可选的 socket 观察者，Gateway 用它在 socket 绑定到其 Peer 之后发出 `remote-stream/socket-opened(peer, socketId)`，在 socket 关闭且其上的流都已结束之后发出 `remote-stream/socket-closed(peer, socketId)`。释放 Peer 会以 1001 关闭它的 socket；关闭请求是同步发出的，但关闭握手稍后才完成，因此 `connection/peer-closed` 通常先于对应的 `remote-stream/socket-closed`。`RemoteSocketId` 是由进程级计数器生成的 branded 标识：它只向进程内监听器指明一个 socket，从不上线路。升级时 Peer 已经释放的 socket 直接关闭，两个 socket 事件都不发。
 
-这些事件为安装准入器的插件而设：关闭空闲 Peer 需要知道其成员没有打开的 socket，判断待审批的归属成员是否在线需要 socket 在场情况。四个事件中任何一个的监听器抛错只记日志，既不让 `open()` 或 `dispose()` 失败，也不会进入 WebSocket 服务器。
+这些事件为安装准入器的插件而设：关闭空闲 Peer 需要知道其成员没有打开的 socket，判断投递过滤器把待审批发往其 Client 的那位成员是否在线需要 socket 在场情况。四个事件中任何一个的监听器抛错只记日志，既不让 `open()` 或 `dispose()` 失败，也不会进入 WebSocket 服务器。
 
 ### Peer 不带身份
 
@@ -90,13 +90,15 @@ Connection 在每个精确 Fetch 路由与每个经 `rpc.handle` 登记的通道
 
 ### 转发事件经过唯一的投递过滤器
 
-每个 `$events` Client 记下打开它的 Peer：upgrade 时 Connection 准入的 Peer，或进程内载体不点名 Peer 时的操作者。`typertGateway.filterRemoteEvents(filter)` 安装唯一的 `RemoteEventFilter`，登记规则与 Peer 准入器相同：第二次安装抛错，登记是安装方 fiber 的 effect。过滤器收到一个 `RemoteEventDelivery`（事件名，加上通知的 `args`，或 waterfall 的 `agentId` 与投影后的 `request`）和某个 Client 的 Peer，返回 `true` 表示投递，返回其他任何值都扣下事件。Gateway 每次把事件放进某个 Client 的队列时都由它裁决：广播通知、waterfall 首次投递，以及向新连上的 Client 补发 pending 的 waterfall。抛错的过滤器按 `false` 处理并记日志，所以出错时事件被扣下。
+每个 `$events` Client 记下打开它的 Peer：upgrade 时 Connection 准入的 Peer，或进程内载体不点名 Peer 时的操作者。`typertGateway.filterRemoteEvents(filter)` 安装唯一的 `RemoteEventFilter`，登记规则与 Peer 准入器相同：第二次安装抛错，登记是安装方 fiber 的 effect。过滤器收到一个 `RemoteEventDelivery`（事件名，加上通知的 `args`，或 waterfall 的 `agentId` 与投影后的 `request`）和某个 Client 的 Peer，返回 `true` 表示投递，返回其他任何值都扣下事件。Gateway 每次把事件放进某个 Client 的队列时都由它裁决：广播通知、waterfall 首次投递，以及向新连上的 Client 补发 pending 的 waterfall。抛错的过滤器按 `false` 处理并记日志，所以出错时事件被扣下。安装过滤器时，还会把每个 pending 的 waterfall 投给过滤器接受、且尚未收到它的每个已连接 Client；通知不补发，移除过滤器不回头处理任何事件。
+
+没有过滤器时由成员准入决定。成员准入关闭时，每个 Client 收到每个事件，与上游相同。成员准入开启时，没有 Client 收到任何事件：`$events` 照常打开并发出 ready frame，这段时间里发出的通知到不了任何 Client，与没有 Client 连接时相同，pending 的 waterfall 要等装上过滤器、或被接受的 Client 下次连上时才投给它。所以过滤器插件仍在加载、正在重启或 apply 失败时，每位成员都收不到事件，而不是把别的成员的事件与审批发给每位成员。
 
 过滤器是同步的，Gateway 从不 await 它，因为各 Client 之间的投递顺序，以及排在 Client 的 ready frame 之前的补发，都不能依赖 I/O。控制台的过滤器用同步的归属索引回答「这个会话归哪位成员」，索引里查不到的会话不投给任何人。
 
-没有任何 Client 收到的 waterfall 保持 pending，上游在没有 Client 连接时就是这样。归属人重新连上时，补发把它投过去；在那之前它一直等待，只有它的 Agent Context 或取消信号能结束它。离线时怎么处理，例如超时后拒绝或转给管理员，由过滤器及其插件决定，不由 Gateway 决定。
+没有任何 Client 收到的 waterfall 保持 pending，上游在没有 Client 连接时就是这样。过滤器接受的 Client 连上时，或装上一个接受某个已连接 Client 的过滤器时，Gateway 把它投过去；在那之前它一直等待，只有它的 Agent Context 或取消信号能结束它。离线时怎么处理，例如超时后拒绝或转给管理员，由过滤器及其插件决定，不由 Gateway 决定。
 
-`$events/result` 必须来自它点名的 Client 上记录的 Peer；其他调用方收到 `gateway/forbidden`，pending 事件保持原样，仍投给它的各个 Client。这项核对不依赖过滤器，所以装了准入器之后，即使每个 Client 都收到每个事件，一位成员也答复不了另一位成员的 Client。结果只经 `/api` RPC 载体传送，它把准入的 Peer 交给 Gateway；WebSocket mux 不为 `$events/result` 打开流，webworker 隧道打开 `$events` 与发送结果时都不点名 Peer，两边都是操作者。
+`$events/result` 必须来自它点名的 Client 上记录的 Peer；其他调用方收到 `gateway/forbidden`，pending 事件保持原样，仍投给它的各个 Client。这项核对不依赖过滤器，所以装了准入器之后，即使过滤器把每个事件投给每个 Client，一位成员也答复不了另一位成员的 Client。点名调用方自己的 Client、却带着该 Client 从未收到的事件的结果答 ok、什么也不改变，因为只有收到这个 waterfall 且尚未作答的 Client 才能答复它。结果只经 `/api` RPC 载体传送，它把准入的 Peer 交给 Gateway；WebSocket mux 不为 `$events/result` 打开流，webworker 隧道打开 `$events` 与发送结果时都不点名 Peer，两边都是操作者。
 
 ### 没有准入器时
 
@@ -150,7 +152,7 @@ Connection 在每个精确 Fetch 路由与每个经 `rpc.handle` 登记的通道
 
 ## 影响
 
-- **得到的**：装了准入器后，每个 RPC、逻辑流与精确 Fetch 路由都知道是哪个成员 Peer 在调用；用 `requestRejection` 把关的路由拒绝非成员；准入器所在的插件从四个事件得知成员在场情况。组合里唯一的 `remote/invoke` 监听器能按 endpoint 决定谁能调用、参数可以点名哪些身份、结果或流的每一项可以带什么，替换的参数只能经过正常校验到达方法。
+- **得到的**：装了准入器后，每个 RPC、逻辑流与精确 Fetch 路由都知道是哪个成员 Peer 在调用，每个 `$events` Client 记下打开它的 Peer，所以由一个投递过滤器决定每个转发事件与审批投给哪些成员的 Client；用 `requestRejection` 把关的路由拒绝非成员；准入器所在的插件从四个事件得知成员在场情况。组合里唯一的 `remote/invoke` 监听器能按 endpoint 决定谁能调用、参数可以点名哪些身份、结果或流的每一项可以带什么，替换的参数只能经过正常校验到达方法。
 - **核心改动面**：Connection 的 `rpc.ts`、`rpc-host.ts`、`index.ts`、`http-bridge.ts`、`operator-peer.ts`，Gateway 的 `index.ts`、`stream-server.ts`、`types.ts`、`remote-error-codes.ts`，以及 webserver 的 `index.ts` 与上游不同。Gateway 的 `index.ts` 在上游改动频繁，滚动同步要在那里解冲突。本补丁也会进入桌面线，在那里不起作用。
 - **`requireAdmitter: false` 时，移除准入器会重新打开按操作者接纳**，对每个已认证的浏览器都是如此；依赖成员准入的部署设 `requireAdmitter: true`，其准入器插件在 `peers.requireAdmitter` 为 false 时拒绝启动。
 - **`requireAdmitter: true` 而没有准入器插件时，每个通过 Connection 自身检查的请求都被拒绝**，直到装上准入器。
@@ -158,8 +160,8 @@ Connection 在每个精确 Fetch 路由与每个经 `rpc.handle` 登记的通道
 - **`requestRejection` 会运行准入器**：装了准入器后每次调用都会运行，包括对认不出的请求记的那行 error。
 - **一个 `connection/fetch` 监听器裁决每个精确路由与通道**：控制台的路由表可以把 `/api/file` 限制在成员的根目录内、把上传限制在成员自己的会话上，并拒绝表里没有的路由与通道。
 - **直接登记在 webserver 上的路由仍然没有钩子**：`routes()` 让门禁测试能列出它们，每一条仍要有自己的检查。
-- **一个过滤器为每个 Client 裁决每个转发事件**：控制台的事件表可以只把每个会话的事件与审批发给它的归属人，成员也只能答复投给自己 Client 的 waterfall。
+- **一个过滤器为每个 Client 裁决每个转发事件**：控制台的事件表可以只把每个会话的事件与审批发给它的归属人，成员也只能答复投给自己 Client 的 waterfall。成员准入开启而没有安装过滤器时，没有 Client 收到任何事件。
 - **归属人离线时审批等待**：它保持 pending，直到归属人重新连上，或它的 Agent Context 或信号结束它，除非过滤器所在的插件另作选择。
-- **改变过滤器不回头处理已入队的事件**：被过滤器跳过的 Client 要重连之后才收到仍然 pending 的 waterfall。
+- **安装过滤器会投递 pending 的 waterfall，其他事件都不回头处理**：安装时，过滤器接受的每个已连接 Client 收到它尚未收到的每个 pending waterfall；没发给某个 Client 的通知永不补发，移除过滤器也不撤回已入队的事件。
 - **`remote/invoke` 也看到 Host 自己的进程内调用**，它们带的是操作者 Peer；限制成员的监听器要放行操作者的调用，而成员准入开启且没有注册监听器时，这些调用同样以 `gateway/service-unavailable` 失败。
 - **流调用以流作答时，监听器自己 return 它丢弃的每条流**：对 source 的 iterator 调用 `return()` 会释放这次调用的上行，再打开并 return 方法的 iterator（拉取过项时 return 已打开的那个；该 iterator 上有尚未完成的 `next()` 时在它完成之后进行）。只有监听器抛错或返回 value 时，Gateway 才 return 本次调用中 `next()` 已打开或正在打开的那条流；这时调用方立即收到错误，Gateway 中止方法的 `signal`，让这条流上仍在等待方法的 `next()` 以一个错误完成并为它挂上处理，在后台 return 这条流，所以流方法必须在 `signal` 中止时结束。方法自身的失败在这次释放之前结束的 `next()` 归监听器，丢弃它会让 `dsh` profile 启动的宿主退出，所以监听器不得丢弃这条流上的 `next()`。Gateway 收到瀑布结果之后，监听器第一次调用的 `next()` 直接 reject，不执行方法，重复调用的则返回该监听器第一次得到的结果；除非最外层监听器同步抛错，在它返回或抛错之前排入 microtask 的 `next()` 仍会执行方法。结果是流时，它可能包着方法的流，Gateway 一条都不 return，所以监听器捕获在它之后的监听器的错误、再以自己的流作答时，方法的流若没有监听器 return 就一直保持打开。
