@@ -1,7 +1,8 @@
 /**
- * Package-internal access to one console member directory row, for the
- * console line's organization credential source: members' customer tokens
- * through the attached reader, and every member in the root registry.
+ * The `./credential-access` entry: access to one console member directory
+ * row for a Host plugin outside this package, the console line's
+ * organization credential source: members' customer tokens through the
+ * attached reader, and every member in the root registry.
  *
  * Neither function is a method of {@link ConsoleMemberDirectory}; a plugin
  * calls them by importing this subpath and passing its `ctx.consoleMembers`.
@@ -14,7 +15,13 @@
  *
  * Every `onChange`, `onDetached` and `onAdded` returns a plain disposer and
  * belongs to no fiber; register it inside the calling plugin's `ctx.effect`
- * so it ends when that plugin unloads. An access object is bound to the row
+ * so it ends when that plugin unloads. They differ from
+ * {@link ConsoleMemberDirectory.onChange}, whose registration belongs to the
+ * caller's fiber, because that method finds the caller through the traceable
+ * proxy it is called on, while these functions also accept the instance
+ * behind the proxy, which carries the row's context and no caller; a
+ * registration bound to that context would end with the row, not with the
+ * calling plugin. An access object is bound to the row
  * instance it was created from, so create it in the scope that injects
  * `consoleMembers`. When the row unloads, that scope and the token
  * holder's are disposed in an order that depends on how they were loaded,
@@ -33,6 +40,8 @@ export interface CustomerCredentialAccess {
    * @param principal - the member.
    * @returns the bare JWT, or `undefined` when no reader is attached, its disposer has started, or the member has no
    *   token.
+   * @throws {Error} the reader's own error, unchanged, when the reader's `read` throws; its text can carry a token or
+   *   a principal key, so a caller must not log the error or its message.
    */
   read(principal: PrincipalKey): string | undefined
   /**
@@ -41,7 +50,12 @@ export interface CustomerCredentialAccess {
    * the changes of whichever reader is attached. Once a reader's disposer
    * has started, no listener receives a change from that reader, including
    * a change being forwarded at that moment. Detaching a reader reports no
-   * `dropped`; {@link CustomerCredentialAccess.onDetached} reports it.
+   * `dropped`; {@link CustomerCredentialAccess.onDetached} reports it. A
+   * change the reader reports synchronously from inside a listener reaches
+   * every listener before the change being forwarded reaches the listeners
+   * after that one, so a listener can receive one member's changes out of
+   * order; {@link CustomerCredentialAccess.read} answers the current token
+   * and decides.
    * @param listener - called with the member and the kind of change.
    * @returns the disposer that removes the listener; a notification already running still calls it.
    */

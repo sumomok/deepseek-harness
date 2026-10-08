@@ -92,6 +92,8 @@ export class CustomerCredentials {
    * A member's customer token from the live reader.
    * @param principal - the member.
    * @returns the token, or `undefined` when no reader is live or it has none for the member.
+   * @throws {Error} the reader's own error, unchanged, when its `read` throws; its text can carry a token or a
+   *   principal key, so a caller must not log it.
    */
   read(principal: PrincipalKey): string | undefined {
     return this.live?.reader.read(principal)
@@ -101,7 +103,10 @@ export class CustomerCredentials {
    * Observe the live reader's `set` and `dropped`, across every reader attached later.
    * Whether the change's reader is live is checked before each listener, so
    * once a listener runs the disposer, the listeners after it do not receive
-   * that change.
+   * that change. A change the reader reports from inside a listener is
+   * delivered at once, before the outer change reaches the remaining
+   * listeners, so deliveries of one member's changes can arrive out of order;
+   * {@link read} is authoritative.
    * @param listener - called with the member and the kind of change.
    * @returns the disposer that removes the listener.
    */
