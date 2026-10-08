@@ -9,6 +9,8 @@
  * come from the `rootSeeds` Config, merged in at load. No two roots are one
  * directory or lie one inside the other, and no root other than a member root
  * overlaps `membersRoot`, so a new member root never needs a conflict check.
+ * Neither `membersRoot` nor any root overlaps the state directory that holds
+ * `roots.json` and the member stores, so no member's roots reach those files.
  * Each root is recorded as {@link canonicalPath} reads it and compared by its
  * {@link rootKey}.
  *
@@ -155,14 +157,19 @@ export class RootRegistry {
  * seed added a root.
  * @param options - the registry file, `membersRoot`, seeds and platform.
  * @returns the registry.
- * @throws {Error} when the file is not a registry, its roots overlap, or a seed conflicts with a registered root,
- *   another seed, or `membersRoot`. Seed errors name the seed by index.
+ * @throws {Error} when `membersRoot` overlaps the directory that holds the file, the file is not a registry, its
+ *   roots overlap each other or that directory, or a seed conflicts with a registered root, another seed,
+ *   `membersRoot`, or that directory. Seed errors name the seed by index.
  */
 export function openRootRegistry(options: RootRegistryOptions): RootRegistry {
   const { file, platform } = options
+  const state = dirname(file)
+  const stateKey = rootKey(canonicalPath(state), platform)
   const membersKey = rootKey(canonicalPath(options.membersRoot), platform)
+  if (overlaps(membersKey, stateKey)) throw new Error(`console-members: membersRoot overlaps the row's state directory ${state}`)
   const roots: KeyedRoot[] = readRoots(file).map(root => ({ root, key: rootKey(canonicalPath(root.path), platform) }))
   for (const [index, { root, key }] of roots.entries()) {
+    if (overlaps(key, stateKey)) throw new Error(`console-members: root ${index} in ${file} overlaps the row's state directory`)
     const misplaced = root.kind === 'member' ? contains(key, membersKey) : overlaps(key, membersKey)
     if (misplaced) throw new Error(`console-members: root ${index} in ${file} overlaps membersRoot`)
     const clash = roots.findIndex((other, otherIndex) => otherIndex < index && overlaps(other.key, key))
@@ -173,6 +180,7 @@ export function openRootRegistry(options: RootRegistryOptions): RootRegistry {
     const path = canonicalPath(seed.path)
     const root: RegisteredRoot = seed.owner === 'none' ? { kind: 'none', path } : { kind: 'seed', path, principal: seed.principal }
     const key = rootKey(path, platform)
+    if (overlaps(key, stateKey)) throw new Error(`console-members: rootSeeds[${seedIndex}] overlaps the row's state directory ${state}`)
     if (overlaps(key, membersKey)) throw new Error(`console-members: rootSeeds[${seedIndex}] overlaps membersRoot`)
     const match = roots.find(other => overlaps(other.key, key))
     if (match === undefined) {

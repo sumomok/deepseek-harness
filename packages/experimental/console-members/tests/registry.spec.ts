@@ -232,6 +232,34 @@ describe('migration seeds', () => {
   })
 })
 
+describe('the row\'s state directory', () => {
+  const state = (): string => dirname(rootsFile())
+
+  it('refuses a membersRoot that is, contains, or lies inside the directory holding roots.json', () => {
+    for (const members of [state(), temp.home, join(state(), 'members')]) {
+      const error = thrown(() => openRootRegistry({ file: rootsFile(), membersRoot: members, seeds: [], platform: process.platform }))
+      expect(error.message).toBe(`console-members: membersRoot overlaps the row's state directory ${state()}`)
+    }
+    expect(existsSync(state())).toBe(false)
+  })
+
+  it('refuses a seed that is, contains, or lies inside that directory, naming no principal key', () => {
+    for (const path of [state(), temp.home, join(state(), 'stores')]) {
+      const error = thrown(() => open([seedFor(ALICE, path)]))
+      expect(error.message).toBe(`console-members: rootSeeds[0] overlaps the row's state directory ${state()}`)
+      expect(error.message).not.toContain(ALICE)
+    }
+    expect(() => open([unowned(temp.home)])).toThrow('console-members: rootSeeds[0] overlaps the row\'s state directory')
+    expect(existsSync(rootsFile())).toBe(false)
+  })
+
+  it('refuses a recorded root that overlaps that directory', () => {
+    mkdirSync(state(), { recursive: true })
+    writeFileSync(rootsFile(), `{"version":1,"roots":[{"kind":"none","path":"${temp.home}"}]}`)
+    expect(() => open()).toThrow(`console-members: root 0 in ${rootsFile()} overlaps the row's state directory`)
+  })
+})
+
 describe('comparing roots as the file system reads them', () => {
   it('folds letter case and Unicode forms on macOS and Windows', () => {
     for (const platform of ['darwin', 'win32'] as const) {
