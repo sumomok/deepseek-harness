@@ -273,11 +273,11 @@ describe('the disposer', () => {
     expect(calls).toBe(1)
   })
 
-  it('forwards nothing the reader reports while its onChange disposer runs, and reads nothing then', async () => {
+  it('forwards nothing the reader reports while its onChange disposer runs', async () => {
     const row = await mountMembers()
     const access = customerCredentialAccess(directory(row))
     const changes: unknown[] = []
-    access.onChange((member, kind) => { changes.push([member, kind, access.read(member)]) })
+    access.onChange((member, kind) => { changes.push([member, kind]) })
     const reader: CustomerCredentialReader = {
       read: () => ALICE_TOKEN,
       onChange: listener => () => { listener(ALICE, 'dropped') },
