@@ -144,6 +144,8 @@ describe('a failure inside the admitter', () => {
     expect(row.ctx.connection.peers.list()).toEqual([])
     expect(row.lines.filter(line => line.includes('admitting a member failed'))).toHaveLength(1)
     expect(row.lines.some(line => line.includes('(ENOSPC)'))).toBe(true)
+    // Connection logs an error only when an admitter names no member; the row answers 401 itself.
+    expect(row.lines.filter(line => line.startsWith('error'))).toEqual([])
     expectNoSecret(row.lines, ALICE, assertion, '/srv/members-9183', 'writing roots')
 
     spy.mockRestore()

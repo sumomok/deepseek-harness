@@ -85,6 +85,7 @@ describe('a browser request with a valid session cookie', () => {
     expect(await get(row.port, '/api/fixture', browser(row, assertion))).toEqual({ status: 401, body: 'unauthorized' })
     expect(await upgradeStatus(row.port, browser(row, assertion))).toBe(401)
     expect(row.ctx.connection.peers.list()).toEqual([])
+    expect(row.lines.filter(line => line.startsWith('error'))).toEqual([])
     expectNoSecret(row.lines, ALICE, assertion, membersRoot)
   })
 
