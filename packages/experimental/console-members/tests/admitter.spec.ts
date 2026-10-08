@@ -1,5 +1,6 @@
 /** The row's Peer admitter and directory, driven through Connection's admit() without a Web server. */
-import { join } from 'node:path'
+import { mkdirSync, symlinkSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { HostConnectionService, type HostConnectionPeers, type PeerAdmitter } from '@deepseek-ai/dsh-client-connection'
 import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
@@ -132,6 +133,18 @@ describe('admitting a request', () => {
     peerOf(row, assertionFor(ALICE))
     await Promise.resolve()
     expect(row.workspaces.created).toEqual([join(root, 'workspace')])
+  })
+
+  it('records a member root under a membersRoot reached through a symbolic link at its real path, and registers its default workspace', async () => {
+    const real = join(temp.base, 'real')
+    mkdirSync(real, { recursive: true })
+    const link = join(temp.base, 'link')
+    symlinkSync(real, link)
+    const row = await mountMembers({ membersRoot: join(link, 'members') })
+    peerOf(row, assertionFor(ALICE))
+    const root = directory(row).memberRoot(principal(ALICE))
+    expect(dirname(root)).toBe(join(real, 'members'))
+    await vi.waitFor(() => { expect(row.workspaces.created).toEqual([join(root, 'workspace')]) })
   })
 
   it('starts the default workspace registration again on the next admission after it failed, through the same Peer', async () => {

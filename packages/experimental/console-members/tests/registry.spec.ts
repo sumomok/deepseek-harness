@@ -444,6 +444,18 @@ describe('reading roots.json', () => {
     expect(() => open()).toThrow(`console-members: root 0 in ${rootsFile()} overlaps membersRoot`)
   })
 
+  it('refuses a recorded unowned or seed root that contains membersRoot', () => {
+    for (const entry of [
+      `{"kind":"none","path":"${temp.base}"}`,
+      `{"kind":"seed","path":"${temp.base}","principal":"${MARKER}"}`,
+    ]) {
+      store(`{"version":1,"roots":[${entry}]}`)
+      const error = thrown(() => open())
+      expect(error.message).toBe(`console-members: root 0 in ${rootsFile()} overlaps membersRoot`)
+      expect(error.message).not.toContain(MARKER)
+    }
+  })
+
   it('keeps member roots recorded under an earlier membersRoot', () => {
     const directoryId = '00000000-0000-4000-8000-000000000004'
     const earlier = join(temp.base, 'earlier-members', directoryId)
