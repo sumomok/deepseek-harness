@@ -16,10 +16,10 @@
  * belongs to no fiber; register it inside the calling plugin's `ctx.effect`
  * so it ends when that plugin unloads. An access object is bound to the row
  * instance it was created from, so create it in the scope that injects
- * `consoleMembers`. When the row unloads, that scope is disposed before the
- * token holder's disposer runs, so an `onDetached` listener registered in it
- * is not called; the scope's own cleanup counts as every token being
- * dropped.
+ * `consoleMembers`. When the row unloads, that scope and the token
+ * holder's are disposed in an order that depends on how they were loaded,
+ * so an `onDetached` listener registered in that scope may never be called;
+ * the scope's own cleanup also counts as every token being dropped.
  * @module @deepseek-ai/dsh-experimental-console-members/credential-access
  */
 

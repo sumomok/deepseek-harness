@@ -372,6 +372,42 @@ describe('a holder that attaches inside its own effect', () => {
   })
 })
 
+describe('the row unloading under a holder and a consumer', () => {
+  /** Load a holder and a consumer in the given order, unload the row, and report what the consumer saw. */
+  async function unloadWith(order: 'holder first' | 'consumer first'): Promise<string[]> {
+    const row = await mountMembers()
+    const seen: string[] = []
+    const holder = {
+      inject: ['consoleMembers'],
+      apply: (ctx: Context) => {
+        ctx.effect(() => {
+          const release = ctx.consoleMembers.attachCustomerCredentials(fakeReader([[ALICE, ALICE_TOKEN]]).reader)
+          return () => {
+            seen.push('holder released')
+            release()
+          }
+        }, 'holder: reader')
+      },
+    }
+    const consumer = {
+      inject: ['consoleMembers'],
+      apply: (ctx: Context) => {
+        const access = customerCredentialAccess(ctx.consoleMembers)
+        ctx.effect(() => access.onDetached(() => { seen.push('consumer detached') }), 'consumer: detach')
+        ctx.effect(() => () => { seen.push('consumer cleanup') }, 'consumer: cleanup')
+      },
+    }
+    for (const plugin of order === 'holder first' ? [holder, consumer] : [consumer, holder]) await row.ctx.plugin(plugin)
+    await row.fiber?.dispose()
+    return seen
+  }
+
+  it('calls the consumer\'s onDetached only when the holder is disposed first, and the consumer\'s cleanup in both orders', async () => {
+    expect(await unloadWith('holder first')).toEqual(['holder released', 'consumer detached', 'consumer cleanup'])
+    expect(await unloadWith('consumer first')).toEqual(['consumer cleanup', 'holder released'])
+  })
+})
+
 describe('reaching the row through ctx.consoleMembers and the instance', () => {
   it('reads the same reader and registry through another plugin\'s proxy and through the instance behind it', async () => {
     const row = await mountMembers()
