@@ -223,10 +223,13 @@ export class MemberPeers {
    * Connection emits `connection/peer-opened` inside `peers.open()`, so a
    * listener that admits the same member records an entry first; the Peer
    * opened here is then disposed and that entry answered, which keeps one
-   * Peer per member. When recording the Peer throws, for example on a stack
-   * exhausted by listeners that keep re-entering, the Peer is disposed before
-   * the error is rethrown, since neither {@link disposeAll} nor the idle close
-   * reaches a Peer outside the table.
+   * Peer per member. When recording the Peer throws and the catch block can
+   * still run, the Peer leaves the table and is disposed before the error is
+   * rethrown, since neither {@link disposeAll} nor the idle close reaches a
+   * Peer outside the table. `connection/peer-opened` listeners that re-enter
+   * without limit can exhaust the stack where this method cannot dispose the
+   * Peer, such as inside that catch block; that Peer stays open outside the
+   * table, and unloading this row does not dispose it.
    * @param principal - the member.
    * @returns the member's entry.
    * @throws {Error} when registering the member's root fails, in which case no Peer is opened, or when recording the
