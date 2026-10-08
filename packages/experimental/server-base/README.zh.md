@@ -83,7 +83,7 @@ nginx 与它的核验器都不在本地校验 token。nginx 把每个被拦请�
 <a id="deploy-proxy"></a>
 ## 部署代理与核验器
 
-`deploy/proxy.mjs` 是登录闸：前置代理跑不了 `auth_request` 的部署直接用它；跑得了的部署，`deploy/nginx.console.conf` 把它当核验器来问。它没有依赖，在 Node 22.19 及以上以 `node proxy.mjs` 运行，被 import 时什么都不启动。`PROXY_MODE=proxy` 是默认值，即同源反向代理：dsh 控制台自己的路径转给 `127.0.0.1` 上 `DSH_WEB_PORT` 端口的 dsh 进程，其余路径都转给 `REMOTE_HOST`、`REMOTE_PORT` 处的远端应用——控制台嵌入的客户系统；远端应用的路径从不设闸，因为它自己管登录。`PROXY_MODE=verify` 不转发任何请求，只回答 nginx 的每一次鉴权子请求：放行答 200，拒绝答 401，认证服务答不上来时答 503。
+`deploy/proxy.mjs` 是登录闸：前置代理跑不了 `auth_request` 的部署直接用它；跑得了的部署，`deploy/nginx.console.conf` 把它当核验器来问。它没有依赖，在 Node 22.19 及以上以 `node proxy.mjs` 运行，被 import 时什么都不启动。包以 `@deepseek-ai/dsh-experimental-server-base/deploy/proxy` 导出它，类型在 `deploy/proxy.d.mts`。`PROXY_MODE=proxy` 是默认值，即同源反向代理：dsh 控制台自己的路径转给 `127.0.0.1` 上 `DSH_WEB_PORT` 端口的 dsh 进程，其余路径都转给 `REMOTE_HOST`、`REMOTE_PORT` 处的远端应用——控制台嵌入的客户系统；远端应用的路径从不设闸，因为它自己管登录。`PROXY_MODE=verify` 不转发任何请求，只回答 nginx 的每一次鉴权子请求：放行答 200，拒绝答 401，认证服务答不上来时答 503。
 
 一次登录有效，要求认证服务接受了这一整枚 token，并且 token 指明了一位成员。代理模式下凭据取自镜像 cookie，核验模式下取自样例填好的 `Authorization` 头。闸门解出 token 的载荷但不校验签名——客户系统用对称密钥签名，闸门没有这把密钥——载荷里没有 `login_uid`、或者没通过已配置的 claims 核对的 token，不问认证服务就直接拒绝。随后它向 `AUTH_ORIGIN` 的 `AUTH_CHECK_PATH` 发 `GET`，凭据同时放在 `Authorization` 与 `CertificationToken` 两个头上。401 与 403 是拒绝；其他状态码、超时、超过 64 KiB 的答复体都算认证服务不可用。2xx 是放行；`AUTH_CHECK_REPLY=renewal` 时还要求答复的 `token` 字段与提交的那枚 token 有相同的 `login_uid` 和 `jti`，因为续期端点对一枚有效 token 的回答就是这同一枚 token。2xx 说明客户系统接受了这一整枚 token，所以它载荷里的 `login_uid` 就是这位成员。数字形式的 `login_uid` 保留每一位：闸门按源文本读 JSON 数字，这需要 Node 21 起提供的 `JSON.parse` 源文本访问，运行时不支持时闸门拒绝启动。放行连同成员一起在内存里缓存 `AUTH_CACHE_SECONDS` 秒，拒绝缓存 10 秒；同一凭据的并发核验共用一次请求；在途核验超过 64 个时，新的核验直接按不可用作答，而不是排队。
 

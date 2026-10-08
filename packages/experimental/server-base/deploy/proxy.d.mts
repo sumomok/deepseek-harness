@@ -1,6 +1,7 @@
 /**
- * Declarations for `proxy.mjs`, the deployment-layer login gate, so the
- * package's TypeScript tests import it with types. The behavior and every
+ * Declarations for `proxy.mjs`, the deployment-layer login gate, so that
+ * TypeScript code importing `./deploy/proxy` gets types; its importers are
+ * this package's tests and the console-members tests. The behavior and every
  * contract stated here are owned by the JSDoc in `proxy.mjs`. This file is
  * maintained by hand: tests/deploy-proxy.spec.ts, which imports and calls each
  * declared export, is the only check that it matches the module.
