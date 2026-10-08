@@ -130,8 +130,10 @@ export class HostConnectionService extends Service implements HostConnectionHand
   /** Member Peer registry; the admitter registration belongs to the Context reading this service. */
   get peers(): HostConnectionPeers {
     const owner = this.ctx
+    const isMemberAdmission = (): boolean => this.admitter !== undefined || this.requireAdmitter
     return {
       requireAdmitter: this.requireAdmitter,
+      get memberAdmission() { return isMemberAdmission() },
       admitWith: admitter => this.installAdmitter(owner, admitter),
       open: () => this.openMember(),
       get: id => this.liveMember(id),
@@ -172,7 +174,8 @@ export class HostConnectionService extends Service implements HostConnectionHand
 
   /**
    * Compose one shared-channel Fetch handler from exact routes and its interceptor.
-   * A request an exact route owns passes through `connection/fetch` first.
+   * A request an exact route owns passes through `connection/fetch` first. A request whose member Peer has been
+   * released since admission reaches neither an exact route nor the interceptor and is answered 401.
    * @param channel - shared channel mounted by Connection.
    * @returns Fetch handler that selects one owner or returns 404.
    */
@@ -189,16 +192,20 @@ export class HostConnectionService extends Service implements HostConnectionHand
         const route = this.fetchRoutes.get(pathname)
         if (route?.methods.has(request.method) === true) {
           const call: ConnectionFetchCall = { kind: 'exact-route', path: pathname, method: request.method, request, peer }
-          // A listener may await before next(), and the route's plugin may unload meanwhile.
-          return this.guardFetch(call, () => this.fetchRoutes.get(pathname) === route
-            ? route.fetch(request, peer)
-            : Promise.resolve(new Response('not found', { status: 404 })))
+          // A listener may await before next(); the Peer may be released and the route's plugin may unload meanwhile.
+          return this.guardFetch(call, () => {
+            if (!this.isDispatchable(peer)) return Promise.resolve(releasedPeerResponse())
+            return this.fetchRoutes.get(pathname) === route
+              ? route.fetch(request, peer)
+              : Promise.resolve(new Response('not found', { status: 404 }))
+          })
         }
         const endpoint = endpointFromPath(channel, pathname)
         const interceptor = this.interceptors.get(channel)
         if (endpoint === undefined || interceptor === undefined || !interceptor.matches(endpoint)) {
           return Promise.resolve(new Response('not found', { status: 404 }))
         }
+        if (!this.isDispatchable(peer)) return Promise.resolve(releasedPeerResponse())
         return interceptor.fetchHandler.fetch(request, peer)
       },
     }
@@ -288,6 +295,16 @@ export class HostConnectionService extends Service implements HostConnectionHand
     return peer === undefined || peer.released ? undefined : peer
   }
 
+  /**
+   * Decide whether a request admitted as `peer` may still reach its route, channel, or interceptor.
+   * @param peer - the Peer the request was admitted as.
+   * @returns `true` for the operator, which is identified only by identity with {@link operator}, and for a member
+   * Peer whose `dispose()` has not been called.
+   */
+  private isDispatchable(peer: PeerScope): boolean {
+    return peer === this.operator || this.liveMember(peer.id) === peer
+  }
+
   private async disposeMembers(): Promise<void> {
     await Promise.all([...this.members.values()].map(peer => peer.dispose()))
   }
@@ -332,7 +349,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
       requestBodyMode: request => decode.requestBodyMode(request),
       fetch: (request, peer = this.operator) => this.guardFetch(
         { kind: 'channel', path: channel, method: request.method, request, peer },
-        () => decode.fetch(request, peer),
+        () => this.isDispatchable(peer) ? decode.fetch(request, peer) : Promise.resolve(releasedPeerResponse()),
       ),
     }
     const route: WebRoute = {
@@ -459,6 +476,14 @@ function observeBody(result: Response, body: ReadableStream<Uint8Array>, done: (
     },
   }, { highWaterMark: 0 })
   return new Response(relay, { status: result.status, statusText: result.statusText, headers: result.headers })
+}
+
+/**
+ * Answer a request whose member Peer was released after admission.
+ * @returns a 401 Response with the body that admission refusals carry.
+ */
+function releasedPeerResponse(): Response {
+  return new Response('unauthorized', { status: 401 })
 }
 
 /**

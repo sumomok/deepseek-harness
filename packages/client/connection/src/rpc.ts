@@ -150,6 +150,14 @@ export interface HostConnectionPeers {
   readonly requireAdmitter: boolean
 
   /**
+   * Whether member admission is on: `true` while an admitter is installed or
+   * {@link requireAdmitter} is true. Each read reports the current state, so
+   * installing or removing the admitter changes it at once, also on a `peers`
+   * object read before the change.
+   */
+  readonly memberAdmission: boolean
+
+  /**
    * Install the sole Peer admitter. From then on every HTTP request and
    * WebSocket upgrade speaks for the member Peer the admitter returns, or is
    * refused; none is admitted as the operator. Removing the admitter restores

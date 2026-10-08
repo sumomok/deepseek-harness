@@ -38,9 +38,11 @@ Status: implemented
 
 所以一旦装了准入器，就没有 HTTP 请求或 WebSocket 升级代表操作者：仅凭浏览器 cookie 拿不到 Host 权限。`requestRejection(request)` 定义为 `admit(request)` 的判定，因此只用它把关的路由（如 inspector 与 open-in-app 的路由）同样拒绝准入器认不出的 cookie 持有者。释放准入器的注册会恢复没有准入器时的接纳方式。
 
-默认拒绝只在装着准入器时成立，而有两段时间没有准入器：Connection apply 之后、准入器插件 apply 之前，以及准入器插件重启期间，因为它的 disposer 会移除准入器。Connection 的 Config 字段 `requireAdmitter`（默认 `false`）堵住这两段：为 true 时，没有安装准入器期间，通过 Host/Origin 校验与浏览器认证的请求由 `admit` 以 401 拒绝，`requestRejection` 对它也返回 401；index 授权不受影响。这类拒绝不记日志，因为它们是启动期间的预期答复。拒绝码是 401，所以 `ConnectionRequestRejection` 只有 401 与 403 两种状态。设了该字段却没有准入器插件的组合会拒绝每一个这类请求，这是有意的失败即关闭。`peers.requireAdmitter` 暴露解析后的取值；准入器所在的插件在加载时读它，为 false 时拒绝启动，因为后面的配置层会整行替换 Connection 行，前面的层设下的字段可能丢失。
+默认拒绝只在装着准入器时成立，而有两段时间没有准入器：Connection apply 之后、准入器插件 apply 之前，以及准入器插件重启期间，因为它的 disposer 会移除准入器。Connection 的 Config 字段 `requireAdmitter`（默认 `false`）堵住这两段：为 true 时，没有安装准入器期间，通过 Host/Origin 校验与浏览器认证的请求由 `admit` 以 401 拒绝，`requestRejection` 对它也返回 401；index 授权不受影响。这类拒绝不记日志，因为它们是启动期间的预期答复。拒绝码是 401，所以 `ConnectionRequestRejection` 只有 401 与 403 两种状态。设了该字段却没有准入器插件的组合会拒绝每一个这类请求，这是有意的失败即关闭。`peers.requireAdmitter` 暴露解析后的取值；准入器所在的插件在加载时读它，为 false 时拒绝启动，因为后面的配置层会整行替换 Connection 行，前面的层设下的字段可能丢失。`peers.memberAdmission` 在装了准入器或 `requireAdmitter` 为 true 时为 `true`，每次读取都报告当时的状态；本记录把这个状态称为成员准入。
 
 被接纳的 Peer 送达每个载体：`/api` 路由与专用通道把 `admission.peer` 交给 `bridge(req, res, handler, maxBytes, peer)`；`ConnectionFetchHandler.fetch(request, peer?)` 在 shell 自有载体不指明 Peer 时缺省为操作者；`ConnectionFetchRoute.fetch(request, peer)` 收到它；RPC 通道处理器收到每次调用的 Peer；Gateway 的升级路由把 `admission.peer` 交给 mux。每个 Peer 参数都是最后一个参数，因此忽略它的路由或处理器是合法实现，省略可选 Peer 参数的载体代表操作者。
+
+成员 Peer 可能在请求被接纳之后、分发之前被释放：桥接器可能仍在缓存请求体，`connection/request` 或 `connection/fetch` 监听器可能正在 await。所以在精确路由运行、专用通道解码信封、`/api` 拦截器解码请求之前，Connection 紧接着再核对一次 Peer，成员 Peer 的 `dispose()` 已被调用时答 401。操作者从不被释放，也不核对。需要区分操作者与成员的代码拿 Peer 与 `connection.operator` 比较，没有 Connection 的 Host 上与 Gateway 的操作者 Peer 比较；成员查找落空不等于是操作者，因为已释放的成员 Peer 在任何查找里也都查不到。
 
 ### `admit()` 保持同步
 

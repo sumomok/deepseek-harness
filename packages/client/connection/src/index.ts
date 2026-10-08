@@ -85,7 +85,9 @@ declare module '@deepseek-ai/cordis' {
      * that reads it throws, which the HTTP carrier answers with 400, or
      * answers its own error, and a channel answers 400 `body is not JSON`.
      * An exact route unregistered while a listener waits does not run;
-     * `next()` resolves to 404. The waterfall ends when Connection takes
+     * `next()` resolves to 404. When the request's member Peer has been
+     * released since admission, neither the route nor the channel runs and
+     * `next()` resolves to 401. The waterfall ends when Connection takes
      * the outermost listener's result; after that, a `next()` that reaches
      * the route or channel dispatches nothing and rejects. Connection
      * cancels the body of each Response the route or channel produced for
