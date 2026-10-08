@@ -457,21 +457,38 @@ describe('unloading the row', () => {
 })
 
 describe('unloading during a default-workspace step', () => {
-  it('finishes only after the step in flight has settled', async () => {
+  it('disposes the member Peers at once and finishes only after the step in flight has settled', async () => {
     const row = await mountMembers()
     let finishCreate: (() => void) | undefined
     const create = vi.spyOn(row.workspaces, 'create').mockImplementation(path => new Promise((resolve) => {
       finishCreate = () => { resolve({ id: 'workspace-pending', path, title: 'workspace', createdAt: '', updatedAt: '' } as never) }
     }))
-    peerOf(row, assertionFor(ALICE))
+    const peer = peerOf(row, assertionFor(ALICE))
     await vi.waitFor(() => { expect(create).toHaveBeenCalledTimes(1) })
     let unloaded = false
     const unloading = row.fiber!.dispose().then(() => { unloaded = true })
     await new Promise(resolve => setTimeout(resolve, 20))
+    expect(row.ctx.connection.peers.get(peer.id)).toBeUndefined()
     expect(unloaded).toBe(false)
     finishCreate!()
     await unloading
     expect(unloaded).toBe(true)
+  })
+
+  it('logs no error when the step in flight fails during the unload', async () => {
+    const row = await mountMembers()
+    let failCreate: (() => void) | undefined
+    const create = vi.spyOn(row.workspaces, 'create').mockImplementation(() => new Promise((_resolve, reject) => {
+      failCreate = () => { reject(new Error('workspace registry unavailable')) }
+    }))
+    peerOf(row, assertionFor(ALICE))
+    await vi.waitFor(() => { expect(create).toHaveBeenCalledTimes(1) })
+    const unloading = row.fiber!.dispose()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    failCreate!()
+    await unloading
+    expect(row.lines.some(line => line.includes('registering a member\'s default workspace failed'))).toBe(true)
+    expect(row.lines.filter(line => line.startsWith('error'))).toEqual([])
   })
 })
 
