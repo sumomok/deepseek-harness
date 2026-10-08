@@ -177,8 +177,9 @@ export class HostConnectionService extends Service implements HostConnectionHand
 
   /**
    * Compose one shared-channel Fetch handler from exact routes and its interceptor.
-   * A request an exact route owns passes through `connection/fetch` first. A request whose member Peer has been
-   * released since admission reaches neither an exact route nor the interceptor and is answered 401.
+   * A request an exact route owns passes through `connection/fetch` first. A request whose Peer is neither the
+   * operator nor a live member Peer, such as one released since admission, reaches neither an exact route nor the
+   * interceptor and is answered 401.
    * @param channel - shared channel mounted by Connection.
    * @returns Fetch handler that selects one owner or returns 404.
    */

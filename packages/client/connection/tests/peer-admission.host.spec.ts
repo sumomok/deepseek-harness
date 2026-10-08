@@ -488,6 +488,22 @@ describe('Connection member Peer admission', () => {
       expect(mounted.seen).toEqual([])
     })
 
+    it('refuses a Peer that Connection did not create, with no admitter installed', async () => {
+      const mounted = await mount()
+      const member = mounted.ctx.connection.peers.open()
+      // Same id as a live member, but not the object `peers.open()` returned.
+      const foreign: PeerScope = { id: member.id, ctx: member.ctx, dispose: () => member.dispose() }
+      const shared = mounted.ctx.connection.createSharedFetchHandler(API_PATH)
+      const exact = await shared.fetch(new Request(`http://127.0.0.1${PROBE_EXACT}`), foreign)
+      const intercepted = await shared.fetch(new Request(`http://127.0.0.1${API_PATH}/${PROBE_ENDPOINT}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(envelope),
+      }), foreign)
+
+      expect([exact.status, intercepted.status]).toEqual([401, 401])
+      expect(mounted.seen).toEqual([])
+      expect(mounted.ctx.connection.peers.memberAdmission).toBe(false)
+    })
+
     it('lets a live member and the operator through on the same paths', async () => {
       const { mounted, member } = await mountMember()
       const headers = { cookie: mounted.cookie, 'content-type': 'application/json' }

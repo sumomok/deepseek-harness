@@ -42,7 +42,7 @@ Status: implemented
 
 被接纳的 Peer 送达每个载体：`/api` 路由与专用通道把 `admission.peer` 交给 `bridge(req, res, handler, maxBytes, peer)`；`ConnectionFetchHandler.fetch(request, peer?)` 在 shell 自有载体不指明 Peer 时缺省为操作者；`ConnectionFetchRoute.fetch(request, peer)` 收到它；RPC 通道处理器收到每次调用的 Peer；Gateway 的升级路由把 `admission.peer` 交给 mux。每个 Peer 参数都是最后一个参数，因此忽略它的路由或处理器是合法实现，省略可选 Peer 参数的载体代表操作者。
 
-成员 Peer 可能在请求被接纳之后、分发之前被释放：桥接器可能仍在缓存请求体，`connection/request` 或 `connection/fetch` 监听器可能正在 await。所以在精确路由运行、专用通道解码信封、`/api` 拦截器解码请求之前，Connection 紧接着再核对一次 Peer，成员 Peer 的 `dispose()` 已被调用时答 401。操作者从不被释放，也不核对。需要区分操作者与成员的代码拿 Peer 与 `connection.operator` 比较，没有 Connection 的 Host 上与 Gateway 的操作者 Peer 比较；成员查找落空不等于是操作者，因为已释放的成员 Peer 在任何查找里也都查不到。
+成员 Peer 可能在请求被接纳之后、分发之前被释放：桥接器可能仍在缓存请求体，`connection/request` 或 `connection/fetch` 监听器可能正在 await。所以在精确路由运行、专用通道解码信封、`/api` 拦截器解码请求之前，Connection 紧接着再核对一次 Peer，Peer 既不是操作者、也不是 `peers.open()` 开出且 `dispose()` 尚未调用的成员 Peer 时答 401；不论是否装了准入器都核对，所以进程内载体传入的、并非 Connection 创建的 Peer 同样被拒绝。操作者从不被释放，也不核对。需要区分操作者与成员的代码拿 Peer 与 `connection.operator` 比较，没有 Connection 的 Host 上与 Gateway 的操作者 Peer 比较；成员查找落空不等于是操作者，因为已释放的成员 Peer 在任何查找里也都查不到。
 
 ### `admit()` 保持同步
 
