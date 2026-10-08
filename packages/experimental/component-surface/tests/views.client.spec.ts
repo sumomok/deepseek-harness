@@ -15,6 +15,7 @@ import {
   COMPONENT_KIT_ENTRIES,
   COMPONENT_KIT_VIEW_ENTRIES,
   EDITING_RECORD,
+  OPENED_RECORD,
   readCatalog,
   SHOW_COMPONENT_TOOL_NAME,
   type ComponentCatalog,
@@ -250,20 +251,21 @@ describe('a view placing a form page and an info card beside its data page', () 
 
   describe('reading the right value from the wrong place', () => {
     /**
-     * A component a call may place that reports what it edits in the data
-     * page's own form, whole and as a list: no shipped component reports
-     * either, so this is the one way a binding of the right form on the wrong
-     * block reaches a view's judgement.
+     * A component a call may place that reports what it edits, whole and as a
+     * list, and what it opened, in the data page's own forms: no shipped
+     * component reports any of them, so this is the one way a binding of the
+     * right form on the wrong block reaches a view's judgement.
      */
     const EDITOR: ComponentCatalogEntry = {
       id: catalogId('toy.editor-probe'),
       label: '编辑探针',
-      purpose: 'Reports what it edits, in the form the data page does.',
+      purpose: 'Reports what it edits and what it opened, in the forms the data page does.',
       propsSchema: {},
       actions: [],
       outputs: [
         { id: 'editing', shape: EDITING_RECORD },
         { id: 'edits', shape: { kind: 'array', minItems: 0, maxItems: 3, item: EDITING_RECORD } },
+        { id: 'opened', shape: OPENED_RECORD },
       ],
     }
 
@@ -295,6 +297,11 @@ describe('a view placing a form page and an info card beside its data page', () 
       expect(refused([CRUD_PAGE, elsewhere, CRUD_CARD, EDITOR_BLOCK], PROBED)).toEqual(refusal(
         'spec.nodes[1].props.request.$from',
         `reads editing of "editor"; this property reads editing of a toy.data-page block and nothing else: ${FORM_REASON}`,
+      ))
+      const card = rewritten(CRUD_CARD, { record: { $from: 'node:editor.opened' } })
+      expect(refused([CRUD_PAGE, CRUD_FORM, card, EDITOR_BLOCK], PROBED)).toEqual(refusal(
+        'spec.nodes[2].props.record.$from',
+        `reads opened of "editor"; this property reads opened of a toy.data-page block and nothing else: ${CARD_REASON}`,
       ))
     })
 

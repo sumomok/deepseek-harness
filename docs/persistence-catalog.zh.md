@@ -3507,7 +3507,7 @@ SHA-256: `31907de9563751822af6d9be02bafaf26faa098bbd1cb412524134d577cc1648`
 
 SHA-256: `2f89b760fad5f2ea2f67a68e74f3e0e79484fb2f9fb675897206b95757baae62`
 
-来源：[`packages/experimental/component-surface/src/component-call.ts:3238`](../packages/experimental/component-surface/src/component-call.ts)
+来源：[`packages/experimental/component-surface/src/component-call.ts:3243`](../packages/experimental/component-surface/src/component-call.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -3533,7 +3533,7 @@ SHA-256: `e750492b8cadcf742d8f2d8a08e7f5ce91f6d8e1688c29f4506bacbc14db8bcd`
 
 SHA-256: `290c7d030b876045e1690e29c792ac37b50f44a2e104d8db2fe7925dd39346de`
 
-来源：[`packages/experimental/component-surface/src/component-call.ts:3418`](../packages/experimental/component-surface/src/component-call.ts)
+来源：[`packages/experimental/component-surface/src/component-call.ts:3423`](../packages/experimental/component-surface/src/component-call.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -4099,7 +4099,7 @@ SHA-256: `96f4a9c81fc0f940ef71528a8cc66731ae4cf1f40d79680c5fe3c39f96d7723c`
 
 SHA-256: `c837b4f9662e4700649688666f1c5a2dd048c94e471bafbd564f45cb2240f0b6`
 
-来源：[`packages/experimental/component-surface/src/component-call.ts:3304`](../packages/experimental/component-surface/src/component-call.ts)
+来源：[`packages/experimental/component-surface/src/component-call.ts:3309`](../packages/experimental/component-surface/src/component-call.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -4117,7 +4117,7 @@ SHA-256: `c837b4f9662e4700649688666f1c5a2dd048c94e471bafbd564f45cb2240f0b6`
 
 SHA-256: `afde6ce34426ff00b2b328c56b2209b7926b1fd8bcaa79b871dd4559fdcaeeff`
 
-来源：[`packages/experimental/component-surface/src/component-call.ts:3326`](../packages/experimental/component-surface/src/component-call.ts)
+来源：[`packages/experimental/component-surface/src/component-call.ts:3331`](../packages/experimental/component-surface/src/component-call.ts)
 
 以下类型之一：
 
@@ -4142,7 +4142,7 @@ SHA-256: `d81df087c0ec90b54fa79e3701feda09dfb3fd129da15036eb82d2239d75ea15`
 
 SHA-256: `e852a960b78ed1306e10aa6619ef4a49ee24d63409dc99494da2ba1f55afc216`
 
-来源：[`packages/experimental/component-surface/src/component-call.ts:3254`](../packages/experimental/component-surface/src/component-call.ts)
+来源：[`packages/experimental/component-surface/src/component-call.ts:3259`](../packages/experimental/component-surface/src/component-call.ts)
 
 以下类型之一：
 
@@ -4163,7 +4163,7 @@ SHA-256: `e852a960b78ed1306e10aa6619ef4a49ee24d63409dc99494da2ba1f55afc216`
 
 SHA-256: `88c936bccab6528962e8621ec251268f4b4fe9c15ed01df24cbb7c0bb5cb9d6a`
 
-来源：[`packages/experimental/component-surface/src/component-call.ts:3273`](../packages/experimental/component-surface/src/component-call.ts) · [`packages/experimental/component-surface/src/component-call.ts:3329`](../packages/experimental/component-surface/src/component-call.ts)
+来源：[`packages/experimental/component-surface/src/component-call.ts:3278`](../packages/experimental/component-surface/src/component-call.ts) · [`packages/experimental/component-surface/src/component-call.ts:3334`](../packages/experimental/component-surface/src/component-call.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|

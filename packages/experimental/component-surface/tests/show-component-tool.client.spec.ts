@@ -23,7 +23,6 @@ import { KIT_CATALOG, KIT_VIEW_CATALOG } from './kit-catalog.client.ts'
 /** The offer of a deployment that composed no data backend, which is what this suite pins. */
 const PLAIN: ShowComponentOptions = { dataSource: false, defaultPageSize: 200, dataPage: false, dataPageLoadTimeoutMs: 1000 }
 
-
 let calls = 0
 
 /** One booted deployment: the registered definition, and a runner over the real registry. */

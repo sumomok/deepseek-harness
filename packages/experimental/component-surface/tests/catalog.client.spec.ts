@@ -228,6 +228,15 @@ describe('the component catalog registry', () => {
       .toEqual(COMPONENT_KIT_ENTRIES.map(entry => entry.id).filter(id => id !== DATA_PAGE_ID))
   })
 
+  it('withholds the data page and the two blocks a view places beside it where the row leaves the page off', async () => {
+    // The row installs the registry with its own offer, so what a reader
+    // outside this package is told follows the row's `dataPage` setting.
+    const ctx = await row()
+    ctx.componentCatalog.register({ entries: [...COMPONENT_KIT_ENTRIES, ...COMPONENT_KIT_VIEW_ENTRIES], source: KIT_SOURCE })
+    expect(ctx.componentCatalog.offered.map(one => one.entry.id))
+      .toEqual(COMPONENT_KIT_ENTRIES.map(entry => entry.id).filter(id => id !== DATA_PAGE_ID))
+  })
+
   it('answers that a deployment offering the data page offers the two blocks a view places beside it', async () => {
     // A pack requiring either is judged against this list, and a view is what
     // draws them, so the tool's own description leaving them out is no reason

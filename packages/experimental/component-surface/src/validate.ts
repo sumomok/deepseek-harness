@@ -42,7 +42,6 @@ import {
   BINDING_KEY,
   BLOCK_KEYS,
   catalogEntry,
-  catalogOutput,
   describeCatalog,
   describeSchema,
   isBindingValue,
@@ -1032,9 +1031,12 @@ function validateLayout(value: unknown, nodes: readonly ComponentNode[]): Layout
  * placed by this call, that it reports what the reference names, and that what
  * it reports is a value the property accepts.
  *
- * A refusal naming what the block reports lists, for a property of a component
- * a call may place, only the outputs the tool's description lists: an output
- * only a view-placed component reads is one no such property accepts.
+ * For a property of a component a call may place, the outputs the reference is
+ * looked up in, and listed in when it names none of them, are only the ones
+ * the tool's description lists: an output only a view-placed component reads
+ * is one no such property accepts, so a reference to it, or to an item of it,
+ * is refused as one the block does not report, and the refusal states no field
+ * of that output.
  * @param bound - the binding, and the property it is read into.
  * @param placed - the catalog entry of every node of this call, by node id.
  * @returns the refusal, or `undefined` when the binding is accepted.
@@ -1052,14 +1054,14 @@ function resolveBinding(
     return refuse(bound.path, `reads the block ${JSON.stringify(sourceId)}, which this call does not place. `
       + `The blocks it places are: ${[...placed.keys()].map(id => JSON.stringify(id)).join(', ')}.`)
   }
-  const output = catalogOutput(source, outputId)
+  // The receiving node is in `placed` by construction: every binding was
+  // collected off one of this spec's own accepted nodes.
+  const receiver = placed.get(bound.nodeId) as ComponentCatalogEntry
+  const readable = placedOnlyByViews(receiver) ? source.outputs : source.outputs.filter(one => !readByViewsOnly(one))
+  const output = readable.find(one => one.id === outputId)
   if (output === undefined) {
-    // The receiving node is in `placed` by construction: every binding was
-    // collected off one of this spec's own accepted nodes.
-    const receiver = placed.get(bound.nodeId) as ComponentCatalogEntry
-    const listed = placedOnlyByViews(receiver) ? source.outputs : source.outputs.filter(one => !readByViewsOnly(one))
     return refuse(bound.path, `reads ${JSON.stringify(outputId)} from the ${source.label} block ${JSON.stringify(sourceId)}, `
-      + `which reports ${listed.length === 0 ? 'nothing' : listed.map(one => one.id).join(', ')}.`)
+      + `which reports ${readable.length === 0 ? 'nothing' : readable.map(one => one.id).join(', ')}.`)
   }
   let read = output.shape
   if (index !== undefined) {
@@ -1244,9 +1246,9 @@ export function validateComponentCall(catalog: ComponentCatalog, args: Component
  *
  * Kept out of {@link validateComponentCall}, because a view is judged by that
  * same pass and is the one source allowed to place such a block. The tool runs
- * it on every accepted call before it asks the user anything or records
- * anything, and the sentence is the same whether or not the deployment offers
- * the component: either way a call cannot place it.
+ * it on every accepted call before it asks the user anything or appends a
+ * record of its own, and the sentence is the same whether or not the
+ * deployment offers the component: either way a call cannot place it.
  * @param catalog - the components this deployment offers.
  * @param spec - the spec, as validation accepted it.
  * @returns the refusal, or `undefined` when every block is one a call may place.

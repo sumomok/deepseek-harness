@@ -12,9 +12,9 @@
  * call produces is reconstructable from the log alone and a refusal leaves the
  * column exactly as it was.
  *
- * A call is refused, on either half and before anything is asked or recorded,
- * for a block whose component only a view written down for this deployment may
- * place.
+ * A call is refused, on either half and before the user is asked anything or
+ * the tool appends a record of its own, for a block whose component only a
+ * view written down for this deployment may place.
  *
  * A call that names a `dataSource` is the other half, and it exists only where
  * the deployment composed both a data backend and an approval answerer. It

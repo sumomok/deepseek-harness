@@ -44,7 +44,7 @@ interface Bench {
   dispatch: (subCallId: string, args: unknown, name?: string) => void
   /** Append one view click, the shape the `show-content-view` command logs. */
   shown: (id: string, title: string, spec: unknown) => void
-  /** Append one filled call, the shape the tool logs once the user allowed a read or opened a data page. */
+  /** Append one filled call, the record the tool appends once the user allowed a read or opened a data page. */
   resolved: (callId: string, id: string, title: string, spec: unknown) => void
   /** The live entry stream the column reads. */
   entries: () => readonly ContentSurfaceEntry[]
@@ -241,7 +241,7 @@ describe('a block only a view places', () => {
   /** One spec placing a form page beside a record block, and no data page. */
   const PLACED = { nodes: [RECORD.nodes[0], { id: 'form', component: FORM_PAGE_ID, props: { relatedMeta: 'device' } }] }
 
-  it('records nothing for a call carrying one, in any of the three shapes a call is logged in', async () => {
+  it('records nothing for a call carrying one, under any of the three event types a call is logged under', async () => {
     // Each of these is a call the tool refused, and the spec passes the shared
     // judgement all the same: what leaves it out is where it was recorded.
     const { call, dispatch, resolved, entries } = await bench(KIT_VIEW_CATALOG)

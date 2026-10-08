@@ -517,9 +517,14 @@ describe('which way a value can travel', () => {
             }
             // The rest are closed by the other half of the same judgement:
             // nothing this catalog reports is a value they could hold, so the
-            // refusal names the reference and what the property accepts.
+            // refusal names the reference and what the property accepts — or,
+            // for an output only a view-placed block reads, that the block
+            // reports nothing this property could name.
             expect(`${pair}: ${failure.path}`).toBe(`${pair}: spec.nodes[1].props.${prop}.${BINDING_KEY}`)
-            expect(`${pair}: ${failure.text}`).toContain(`and ${prop} accepts `)
+            const expected = readByViewsOnly(output)
+              ? `reads "${output.id}" from the ${source.label} block "s", which reports nothing.`
+              : `and ${prop} accepts `
+            expect(`${pair}: ${failure.text}`).toContain(expected)
           }
         }
       }
@@ -583,6 +588,24 @@ describe('an output only a view-placed block reads', () => {
       .toContain('reads "rows" from the 完整数据页 block "page", which reports nothing.')
     expect(refusal({ nodes: [PAGE, reader(FORM_PAGE_ID, 'request', 'node:page.rows', { relatedMeta: 'device' })] }, KIT_VIEW_CATALOG).text)
       .toContain('reads "rows" from the 完整数据页 block "page", which reports opened, editing.')
+    expect(refusal({ nodes: [PAGE, reader(INFO_CARD_ID, 'record', 'node:page.rows')] }, KIT_VIEW_CATALOG).text)
+      .toContain('reads "rows" from the 完整数据页 block "page", which reports opened, editing.')
+  })
+
+  it.each([
+    ['opened', 'node:page.opened'],
+    ['editing', 'node:page.editing'],
+    ['editing', 'node:page.editing[0]'],
+  ] as const)('answers a block a call places that names %s as reading nothing the page reports (%s)', (output, reference) => {
+    // Found or not, an output only a view-placed block reads is one this
+    // property never accepts, so the refusal is the one a misspelling earns:
+    // it repeats the reference as written and states no field of either
+    // output.
+    const failure = refusal({ nodes: [PAGE, reader(RECORD_DETAIL_ID, 'dataList', reference)] }, KIT_VIEW_CATALOG)
+    expect(failure.path).toBe(`spec.nodes[1].props.dataList.${BINDING_KEY}`)
+    const ending = `reads "${output}" from the 完整数据页 block "page", which reports nothing.`
+    expect(failure.text.slice(-ending.length)).toBe(ending)
+    for (const field of ['{id', '{mode', 'name?']) expect(failure.text).not.toContain(field)
   })
 })
 

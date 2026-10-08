@@ -653,9 +653,10 @@ export interface ComponentCatalogEntry {
    * `'view'` for a component only a view written down for this deployment may
    * place; absent for one a call and a view may both place.
    *
-   * A call naming such a component is refused before anything is asked or
-   * recorded, the column draws one only out of the `content-component/shown`
-   * record a click on a view writes, and the tool's description leaves it out.
+   * A call naming such a component is refused before the user is asked
+   * anything or the tool appends a record of its own, the column draws one
+   * only out of the `content-component/shown` record a click on a view writes,
+   * and the tool's description leaves it out.
    * {@link placedOnlyByViews} is the one reading of this field.
    */
   readonly placement?: 'view'
@@ -1732,8 +1733,12 @@ export const DATA_PAGE_ROW_OPERATIONS: readonly string[] = ['modify']
 const DATA_PAGE_ROW_OPERATION_HINT = 'This page draws no delete confirmation, so "delete" is not on the list: the '
   + 'button would draw and answer nothing when it was pressed.'
 
-/** The sections a written-down page's info card may draw. */
-const DATA_PAGE_INFO_CARD_TABS: readonly string[] = ['wrong-info', 'operation', 'related-stat', 'useage', 'attributes']
+/**
+ * The sections a written-down page's own info card, and an info card block
+ * beside the page, may draw: the vendored page's `DataPageInfoCardTab` values,
+ * in its order.
+ */
+export const DATA_PAGE_INFO_CARD_TABS: readonly string[] = ['wrong-info', 'operation', 'related-stat', 'useage', 'attributes']
 
 /**
  * Which of {@link DATA_PAGE_INFO_CARD_TABS} one card draws, as the data page's

@@ -276,7 +276,7 @@ component-surface: views[0] "site-overview" — spec.nodes[0].component — name
 
 还有两个组件和这个页面配套，只有视图能摆。`toy.form-page`（表单页）是一张表的新增与修改表单，`toy.info-card`（信息卡）是一条记录的卡片；两者都由本包声明，放在 `COMPONENT_KIT_VIEW_ENTRIES` 里，与 [`component-kit`](../component-kit/README.zh.md) 注册的那六项并列，并且都带 `placement: 'view'`。没有哪个组件插件注册它们：插件注册一个条目时会把画它的渲染器一并注册，而 `component-kit` 两块都不画，所以在这里的每个组合上，点名其中一块的视图都会以「点名的组件不在本部署里」被拒。下面是一旦有插件注册了它们，本包要求部署遵守的规则。
 
-凡是一块内容可能到达内容栏的地方，读 `placement: 'view'` 用的都是同一个判断。点名这种组件的调用，会在问用户任何事、记下任何东西之前被工具拒掉——无论调用是自己写行还是读 `dataSource`、无论部署提供不提供这个组件，都是同一句：`names toy.form-page, which is placed only by a view written down for this deployment, never by a call.` 抽取器只从视图被点击时写下的 `content-component/shown` 里画出带这种组件的 spec；带着它的 `tool/call`、`tool/ptc-dispatch-start` 或 `content-component/resolved` 都不记条目。工具描述略去这个组件，视图的判定则放行它。`ctx.componentCatalog.offered` 照样算上它，因为这里能画的东西包括视图画的；`dataPage: false` 会把两块和页面一起扣下。
+凡是一块内容可能到达内容栏的地方，读 `placement: 'view'` 用的都是同一个判断。点名这种组件的调用，工具会在问用户任何事、自己写下任何记录之前拒掉——无论调用是自己写行还是读 `dataSource`、无论部署提供不提供这个组件，都是同一句：`names toy.form-page, which is placed only by a view written down for this deployment, never by a call.` 抽取器只从视图被点击时写下的 `content-component/shown` 里画出带这种组件的 spec；带着它的 `tool/call`、`tool/ptc-dispatch-start` 或 `content-component/resolved` 都不记条目。工具描述略去这个组件，视图的判定则放行它。`ctx.componentCatalog.offered` 照样算上它，因为这里能画的东西包括视图画的；`dataPage: false` 会把两块和页面一起扣下。
 
 页面为它们声明了两个值。`editing` 是 `{mode (add|modify), type, id?, name?}`：页面的新增按钮或某一行的修改按钮正在编辑的东西——这张表的一条新记录，或者那一行。`opened` 是 `{id, name?, type}`：页面上的名称或关联链接打开的那条记录，由关联链接打开时，`type` 是关联的那张表。两者都是页面此刻显示的状态，而不是按了几次，所以再按一次同一个按钮发出的是同一个值。声明里也定下了发布方什么时候以发出 `undefined` 撤回它们：`opened` 在页面关卡、清空、翻页时撤回，查询不撤回；它们点名的那条记录被删除时，两者都撤回。两者都声明为 `readers: 'view'`——收得下它们的每个属性都属于只能由视图摆的组件——[`tests/layout-binding.client.spec.ts`](tests/layout-binding.client.spec.ts) 把这个声明和收得下每个输出的那些属性对上。
 
@@ -306,7 +306,7 @@ component-surface: views[0] "site-overview" — spec.nodes[0].component — name
 | `el.metric` | 指标球 | 一个 0 到 100 的指标画成注水的球；可选的文字、尺寸与三种颜色 | 什么都没有 | 什么都没有 |
 | `toy.data-page` | 完整数据页 | 部署自己那张表的完整页面，在访客同意之后用访客自己的凭据打开；无论调用写什么它都是只读的，怎么摆由把这个页面写下来的人决定 | `denied`、`auth-failed`、`load`、`query`、`select`、`cell-click`、`card-open`、`card-close`、`added`、`modified`、`operation`、`exported`、`deleted`、`batch-modified` | `editing` 与 `opened`，只有视图摆的块读它们 |
 
-动作和输出是两回事。动作是要告诉智能体的消息，也是日志里的一条记录；输出是留在内容栏里的一个值，供同一次调用的另一块去画。所以数据表把一次勾选上报了两遍——一遍给智能体，是用户勾了哪些行；一遍给内容栏，让记录详情能从中画出来，全程不惊动智能体。只有目录里当真有属性收得下的读法才声明成输出：一块上报了、却没人读得到的东西，等于目录先给模型一条绑定、再把它拒掉。只有视图摆的组件的属性收得下的输出，声明为 `readers: 'view'`，描述把它和那些组件一起略去。
+动作和输出是两回事。动作是要告诉智能体的消息，也是日志里的一条记录；输出是留在内容栏里的一个值，供同一次调用的另一块去画。所以数据表把一次勾选上报了两遍——一遍给智能体，是用户勾了哪些行；一遍给内容栏，让记录详情能从中画出来，全程不惊动智能体。只有目录里当真有属性收得下的读法才声明成输出：一块上报了、却没人读得到的东西，等于目录先给模型一条绑定、再把它拒掉。只有视图摆的组件的属性收得下的输出，声明为 `readers: 'view'`，描述把它和那些组件一起略去；一次调用能摆的块绑这种输出时，按「源块不报这个值」拒，拒绝里不写它的任何字段。
 
 记录详情里一行的标签，上限取的是字段名的上限，而不是另设一个更短的数字：`selectionDetail` 正是要读进那张列表的，而没写表头的列贡献的就是它取值的那个字段名。两个上限对不齐，等于目录先提供一条绑定、再把它拒掉。
 

@@ -23,6 +23,7 @@ import {
   DATA_PAGE_EDITING_OUTPUT,
   DATA_PAGE_GATED_IDS,
   DATA_PAGE_ID,
+  DATA_PAGE_INFO_CARD_TABS,
   DATA_PAGE_OPENED_OUTPUT,
   DATA_PAGE_VIEW_PROP_NAMES,
   describeCatalog,
@@ -397,6 +398,19 @@ describe('components only a view places', () => {
         [['request', false, DATA_PAGE_ID, DATA_PAGE_EDITING_OUTPUT]],
         [['record', false, DATA_PAGE_ID, DATA_PAGE_OPENED_OUTPUT]],
       ])
+  })
+
+  it('arranges an info card block\'s sections from the list the data page arranges its own card from', () => {
+    const card = COMPONENT_KIT_VIEW_ENTRIES.find(entry => entry.id === INFO_CARD_ID) as ComponentCatalogEntry
+    const page = COMPONENT_KIT_ENTRIES.find(entry => entry.id === DATA_PAGE_ID) as ComponentCatalogEntry
+    for (const entry of [card, page]) {
+      expect([entry.id, entry.propsSchema.infoCardTabs?.schema]).toEqual([entry.id, {
+        kind: 'array',
+        minItems: 0,
+        maxItems: DATA_PAGE_INFO_CARD_TABS.length,
+        item: { kind: 'enum', values: DATA_PAGE_INFO_CARD_TABS },
+      }])
+    }
   })
 })
 
