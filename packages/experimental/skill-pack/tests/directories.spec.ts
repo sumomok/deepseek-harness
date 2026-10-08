@@ -28,26 +28,32 @@ describe('configured directories compared per platform', () => {
   it.each(['darwin', 'win32'] as const)('refuses two names differing only in letter case or normalization on %s', async (platform) => {
     const base = await newWorld()
     for (const other of ['PACKS', 'Packs']) {
-      expect(() => refuseSharedDirectories([
-        { field: 'organizationRoot', path: join(base, other) },
-        { field: 'root', path: join(base, 'packs') },
-      ], platform)).toThrow(`skill-pack: organizationRoot ${JSON.stringify(join(base, other))} and root ${JSON.stringify(join(base, 'packs'))}`)
+      expect(() => {
+        refuseSharedDirectories([
+          { field: 'organizationRoot', path: join(base, other) },
+          { field: 'root', path: join(base, 'packs') },
+        ], platform)
+      }).toThrow(`skill-pack: organizationRoot ${JSON.stringify(join(base, other))} and root ${JSON.stringify(join(base, 'packs'))}`)
     }
-    expect(() => refuseSharedDirectories([
-      { field: 'organizationRoot', path: join(base, 'vé') },
-      { field: 'root', path: join(base, 'vé', 'packs') },
-    ], platform)).toThrow('must be separate directories, neither inside the other, because replacing one would write into the other')
+    expect(() => {
+      refuseSharedDirectories([
+        { field: 'organizationRoot', path: join(base, 'v\u00e9') },
+        { field: 'root', path: join(base, 've\u0301', 'packs') },
+      ], platform)
+    }).toThrow('must be separate directories, neither inside the other, because replacing one would write into the other')
   })
 
   // Under a directory that does not exist, so the host's own file system,
   // which may ignore case, never reads either name back.
   it('compares names as written on linux, where letter case and normalization tell directories apart', async () => {
     const missing = join(await newWorld(), 'missing')
-    expect(() => refuseSharedDirectories([
-      { field: 'organizationRoot', path: join(missing, 'PACKS') },
-      { field: 'root', path: join(missing, 'packs') },
-      { field: 'deliveries.directory', path: join(missing, 'vé') },
-      { field: 'other', path: join(missing, 'vé') },
-    ], 'linux')).not.toThrow()
+    expect(() => {
+      refuseSharedDirectories([
+        { field: 'organizationRoot', path: join(missing, 'PACKS') },
+        { field: 'root', path: join(missing, 'packs') },
+        { field: 'deliveries.directory', path: join(missing, 'v\u00e9') },
+        { field: 'other', path: join(missing, 've\u0301') },
+      ], 'linux')
+    }).not.toThrow()
   })
 })

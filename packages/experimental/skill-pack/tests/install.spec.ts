@@ -184,8 +184,8 @@ describe('replacing a pack root', () => {
     const base = await workspace()
     const root = join(base, 'packs')
     await syncPackRoot(root, { kind: 'packs', packs: [pack('a', 'A.')] })
-    const nfc = 'vé'
-    const nfd = 'vé'
+    const nfc = 'v\u00e9'
+    const nfd = 've\u0301'
     for (const [first, second] of [['a-guide@RC', 'a-guide@rc'], [`a-guide@${nfc}`, `a-guide@${nfd}`]] as const) {
       await expect(syncPackRoot(root, { kind: 'packs', packs: [pack(first, 'One.'), pack(second, 'Two.')] }))
         .rejects.toMatchObject({ refusal: 'duplicate-entry', entry: second })
