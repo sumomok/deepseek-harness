@@ -47,6 +47,16 @@ export interface WebRoute {
   handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
 }
 
+/**
+ * One registration in effect, as {@link WebServer.routes} lists it: a named
+ * HTTP route or upgrade route with its path, or the claimed fallback seat,
+ * which has no path. Registrations declare no HTTP methods, so entries carry
+ * none.
+ */
+export type WebRouteListing =
+  | { readonly kind: WebRouteKind | 'upgrade'; readonly path: string }
+  | { readonly kind: 'fallback' }
+
 /** One exact-path HTTP upgrade registration. */
 export interface WebUpgradeRoute {
   /** Absolute pathname, no trailing slash. */
@@ -200,6 +210,24 @@ export class WebServer extends Service {
     }
     this.fallback = handler
     return () => { this.fallback = undefined }
+  }
+
+  /**
+   * List the registrations in effect: `exact`, `prefix`, and `upgrade`
+   * routes, each kind sorted by path, then the fallback seat while it is
+   * claimed. A registration whose disposer has run is absent. Read-only:
+   * listing changes no matching.
+   * @returns fresh entries; `kind` and `path` together identify a named route.
+   */
+  routes(): readonly WebRouteListing[] {
+    const named = (kind: WebRouteKind | 'upgrade', paths: Iterable<string>): WebRouteListing[] =>
+      [...paths].sort().map(path => ({ kind, path }))
+    return [
+      ...named('exact', this.exact.keys()),
+      ...named('prefix', this.prefixes.keys()),
+      ...named('upgrade', this.upgrades.keys()),
+      ...this.fallback === undefined ? [] : [{ kind: 'fallback' as const }],
+    ]
   }
 
   /**

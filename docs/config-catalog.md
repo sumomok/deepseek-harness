@@ -184,7 +184,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-api-gateway`
 
 - `inject`: `typert`
-- `source`: [`packages/api/gateway/src/index.ts:146`](../packages/api/gateway/src/index.ts)
+- `source`: [`packages/api/gateway/src/index.ts:220`](../packages/api/gateway/src/index.ts)
 
 ```ts config-catalog
 /** Gateway transport configuration. */
@@ -437,7 +437,7 @@ export type Config = LocalConfig
 ## `@deepseek-ai/dsh-client-connection`
 
 - `inject`: `credentials`
-- `source`: [`packages/client/connection/src/index.ts:92`](../packages/client/connection/src/index.ts)
+- `source`: [`packages/client/connection/src/index.ts:144`](../packages/client/connection/src/index.ts)
 
 ```ts config-catalog
 /** Browser authentication, request limits, and connection recovery configuration. */
@@ -457,6 +457,15 @@ export interface ConnectionConfig {
   cookieMaxAgeDays?: number
   /** Maximum buffered JSON body for every `/api` request. Default: 300 MiB. */
   maxRequestBodyBytes?: number
+  /**
+   * Refuse with 401, while no Peer admitter is installed, every HTTP request
+   * and WebSocket upgrade that passes the Host/Origin checks and browser
+   * authentication, instead of admitting it as the operator. This covers the
+   * time before the admitter's plugin applies and while it restarts. With no
+   * admitter plugin in the composition, every such request is refused.
+   * Index authorization is unaffected. Default: false.
+   */
+  requireAdmitter?: boolean
 }
 
 /** Timing for generation readiness and automatic reconnection. */
@@ -2403,7 +2412,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-host-webserver`
 
-- `source`: [`packages/host/webserver/src/index.ts:59`](../packages/host/webserver/src/index.ts)
+- `source`: [`packages/host/webserver/src/index.ts:69`](../packages/host/webserver/src/index.ts)
 
 ```ts config-catalog
 /** Web server listen and response-compression config. */
@@ -3518,7 +3527,7 @@ export type SessionLogCompressionLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
 
 ## `@deepseek-ai/dsh-session-persistence-jsonl`
 
-- `source`: [`packages/session/session-persistence-jsonl/src/index.ts:90`](../packages/session/session-persistence-jsonl/src/index.ts)
+- `source`: [`packages/session/session-persistence-jsonl/src/index.ts:97`](../packages/session/session-persistence-jsonl/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config for the JSONL backend's root and physical encoding. */
@@ -3529,6 +3538,8 @@ export interface Config {
    * (bash calls, subprocesses). Sessions group under human-readable project
    * directories, then per-session directories. An existing root must be a
    * readable directory; an absent root is created on first materialization.
+   * Plain files directly under the root whose names start with `.relocate.`
+   * record relocations in progress.
    */
   root: string
   /** Physical encoding; defaults to checksummed Zstandard frames. */
@@ -3546,7 +3557,7 @@ export type JsonlCompression = 'zstd' | 'none'
 ## `@deepseek-ai/dsh-session-projection-cache`
 
 - `inject`: `storageDomain` · `sessionProjections` · `sessions`
-- `source`: [`packages/session/session-projection-cache/src/index.ts:75`](../packages/session/session-projection-cache/src/index.ts)
+- `source`: [`packages/session/session-projection-cache/src/index.ts:76`](../packages/session/session-projection-cache/src/index.ts)
 
 ```ts config-catalog
 /**

@@ -35,6 +35,9 @@ import type { SessionWriteLease } from './lease.ts'
 /** Maximum intentional wait before a routed live session batch starts writing. */
 export const LIVE_WRITE_BATCH_MAX_DELAY_MS = 200
 
+/** Reads of a log that a relocation moved between its resolution and its read, before the vanished file's error surfaces. */
+export const VANISHED_LOG_ATTEMPTS = 3
+
 /** The file-storage primitives the handle drives on its owning service. */
 export interface JsonlHandleStorage {
   /** Append encoded lines; `isMaterialized` selects create-vs-extend publication. */
@@ -126,33 +129,25 @@ export class JsonlSessionHandle implements SessionHandle {
       throw new TypeError(`read length must be a non-negative safe integer, got ${String(length)}`)
     }
     options?.signal?.throwIfAborted()
-    let result: SessionHandleReadResult
-    const primed = this.state.primed
-    if (primed !== undefined) {
-      if (this.access === 'write') {
-        result = this.readPrimed(primed, offset, length)
-      } else {
-        const currentPath = await this.storage.resolveCurrentLog(this.id, options?.signal)
-        if (currentPath === undefined) {
-          result = this.readPrimed(primed, offset, length)
-        } else {
-          this.state.primed = undefined
-          result = await this.readCurrent(currentPath, offset, length, options?.signal)
-        }
-      }
-    } else if (this.access === 'write' && !this.state.materialized) {
-      result = { eventState: 'detached', events: [] }
-    } else {
+    if (this.access === 'write') {
+      if (this.state.primed !== undefined) return this.readPrimed(this.state.primed, offset, length)
+      if (!this.state.materialized) return { eventState: 'detached', events: [] }
+    }
+    // A relocation may move the log between its resolution and its read; the vanished file resolves again.
+    for (let attempt = 1; ; attempt += 1) {
       const currentPath = await this.storage.resolveCurrentLog(this.id, options?.signal)
-      if (currentPath !== undefined) {
-        result = await this.readCurrent(currentPath, offset, length, options?.signal)
-      } else if (this.storage.hasPendingSession(this.id)) {
-        result = { eventState: 'detached', events: [] }
-      } else {
+      if (currentPath === undefined) {
+        if (this.state.primed !== undefined) return this.readPrimed(this.state.primed, offset, length)
+        if (this.storage.hasPendingSession(this.id)) return { eventState: 'detached', events: [] }
         throw new SessionPersistenceNotFoundError(this.id)
       }
+      this.state.primed = undefined
+      try {
+        return await this.readCurrent(currentPath, offset, length, options?.signal)
+      } catch (error: unknown) {
+        if ((error as NodeJS.ErrnoException | null)?.code !== 'ENOENT' || attempt === VANISHED_LOG_ATTEMPTS) throw error
+      }
     }
-    return result
   }
 
   /** Read one slice from the prepared historical prefix retained by this handle. */
@@ -419,6 +414,16 @@ export class JsonlBackendTracker {
       revision: SessionPersistenceRevision(`memory:${this.name}:${++this.counter}`),
       inheritedEventCount,
     })
+  }
+
+  /**
+   * Whether an active write handle, a write open in progress, or a pending
+   * create claims the session in this process.
+   * @param id - the session to test.
+   * @returns true while a claim exists.
+   */
+  isClaimed(id: SessionId): boolean {
+    return this.writers.has(id)
   }
 
   /**

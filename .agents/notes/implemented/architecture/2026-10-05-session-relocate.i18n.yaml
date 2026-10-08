@@ -1,0 +1,31 @@
+# Bilingual-pair consistency record for 2026-10-05-session-relocate.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-05-session-relocate.md
+/agent-note-a-stored-session-moves-to-another-cwd-by-rewriting-its-current-header-record:
+  en: 190336ad64d86db6
+  zh: ac3585772654b70a
+/agent-note-a-stored-session-moves-to-another-cwd-by-rewriting-its-current-header-record/problem:
+  en: e70aef82c298096c
+  zh: fe6b42f587718844
+/agent-note-a-stored-session-moves-to-another-cwd-by-rewriting-its-current-header-record/decision:
+  en: 4900e3b0544fe957
+  zh: e91dc3006b474573
+/agent-note-a-stored-session-moves-to-another-cwd-by-rewriting-its-current-header-record/disk-protocol:
+  en: de1d4e315e8f1349
+  zh: 9edd234156c3038b
+/agent-note-a-stored-session-moves-to-another-cwd-by-rewriting-its-current-header-record/recovery:
+  en: ab0587c8e78c70fc
+  zh: 7dcaf30ed946141e
+/agent-note-a-stored-session-moves-to-another-cwd-by-rewriting-its-current-header-record/lock-re-resolution:
+  en: 2b83b78d71e05dad
+  zh: 29450009feafb216
+/agent-note-a-stored-session-moves-to-another-cwd-by-rewriting-its-current-header-record/consumers:
+  en: 7ef0a1afa3763820
+  zh: 71204ec7d64241af
+/agent-note-a-stored-session-moves-to-another-cwd-by-rewriting-its-current-header-record/alternatives-considered:
+  en: 06481f0040edb28f
+  zh: f83b9e8c5ba2f306
+/agent-note-a-stored-session-moves-to-another-cwd-by-rewriting-its-current-header-record/consequences:
+  en: dbc5a87b15196247
+  zh: 97d82e3d8504b4f7

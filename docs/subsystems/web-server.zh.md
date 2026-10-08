@@ -48,7 +48,7 @@ interface Config {
 
 ## 服务
 
-`WebServer`（`ctx.webServer`）在激活时立即监听；监听失败（EADDRINUSE 等）会使初始化被拒绝，启动进程会报告失败的 fiber。`register(route)` 添加一条具名路由并返回其 disposer；重复的 `(kind, path)` 抛出异常，因为路由模式是组合层约定，冲突即配置错误。Gzip 在服务器内部包装符合条件且基于 socket 的响应，因此 route handler 继续直接持有 `ServerResponse`，服务也不新增响应写出 API。已有内容编码、`Cache-Control: no-transform`、范围响应、SSE、ZIP 与打包后的 `.gz` Worker 镜像均保持 identity 响应。`collectIndexInjections()` 经一次 `webserver/index-inject` emit 收集结构化 `IndexInjection` 行，`renderIndex(html)` 把它们渲染进成功的根路径和配置 index 响应，随后再按注册顺序应用原始的 `tapIndex(transform)` 逃生口转换；[dsh-client-modules](../../packages/client/modules) 以启动 manifest（元数据清单）行回应该事件。`port` 读取监听端口，包括 `config.port` 为 0 时操作系统分配的端口。
+`WebServer`（`ctx.webServer`）在激活时立即监听；监听失败（EADDRINUSE 等）会使初始化被拒绝，启动进程会报告失败的 fiber。`register(route)` 添加一条具名路由并返回其 disposer；重复的 `(kind, path)` 抛出异常，因为路由模式是组合层约定，冲突即配置错误。`routes()` 列出当前生效的具名路由、upgrade 路由与已被占用的回退座位，不带 handler 与方法。Gzip 在服务器内部包装符合条件且基于 socket 的响应，因此 route handler 继续直接持有 `ServerResponse`，服务也不新增响应写出 API。已有内容编码、`Cache-Control: no-transform`、范围响应、SSE、ZIP 与打包后的 `.gz` Worker 镜像均保持 identity 响应。`collectIndexInjections()` 经一次 `webserver/index-inject` emit 收集结构化 `IndexInjection` 行，`renderIndex(html)` 把它们渲染进成功的根路径和配置 index 响应，随后再按注册顺序应用原始的 `tapIndex(transform)` 逃生口转换；[dsh-client-modules](../../packages/client/modules) 以启动 manifest（元数据清单）行回应该事件。`port` 读取监听端口，包括 `config.port` 为 0 时操作系统分配的端口。
 
 处理过程中抛出异常的请求（畸形的 % 转义撞上 `decodeURIComponent`、客户端在请求体中途断开）会记录为警告并应答 400（响应头已发出时则销毁 socket），绝不导致进程退出。dispose（资源释放）把 `close()` 与 `closeAllConnections()` 配对使用，因为处理器可能像 SSE（Server-Sent Events）那样保持响应打开，而这类连接永远不会自行结束；没有强制关闭，拆卸就会挂起。该包从不打印输出：URL 行归 shell 所有。逐包运维细节（含开发模式的 bundle 监视流水线）留在 [README](../../packages/host/webserver/README.zh.md) 中。
 
@@ -75,18 +75,26 @@ Host `ctx.connection` members consumed by transport-independent adapters.
 createSharedFetchHandler(channel: '/api'): ConnectionFetchHandler
 
 /**
- * Apply Connection's Host/Origin checks and browser authentication to
- * another Web route.
+ * Apply {@link admit} to another Web route and keep only its verdict:
+ * Connection's Host/Origin checks, browser authentication, and the installed
+ * Peer admitter's refusal all reject.
  * @param request - request headers from the HTTP or upgrade request.
  * @returns rejection status, or undefined when the route may accept the request.
  */
 requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection
 
 /**
- * Admit one request: it passes {@link requestRejection} and speaks for the
- * operator, or it is refused with that status.
+ * Admit one request. A failed Host/Origin check is refused with 403 and a
+ * missing browser session with 401, before any admitter runs. Without an
+ * admitter the request speaks for the operator, or is refused with 401
+ * when {@link HostConnectionPeers.requireAdmitter} is true. With one, it
+ * speaks for the live member Peer the admitter returns; 401 and 403 from
+ * the admitter refuse it, and `undefined` or a Peer that is released or was
+ * not opened by {@link HostConnectionPeers.open} refuses it with 401 and
+ * logs one error. Synchronous; repeated calls for the same headers agree
+ * while the admitter does.
  * @param request - request headers from the HTTP or upgrade request.
- * @returns the operator Peer, or the rejection status.
+ * @returns the admitted Peer, or the rejection status.
  */
 admit(request: ConnectionTrustRequest): PeerAdmission
 
@@ -142,6 +150,15 @@ registerUpgrade(route: WebUpgradeRoute): () => void
 registerFallback(handler: WebRoute['handler']): () => void
 
 /**
+ * List the registrations in effect: `exact`, `prefix`, and `upgrade`
+ * routes, each kind sorted by path, then the fallback seat while it is
+ * claimed. A registration whose disposer has run is absent. Read-only:
+ * listing changes no matching.
+ * @returns fresh entries; `kind` and `path` together identify a named route.
+ */
+routes(): readonly WebRouteListing[]
+
+/**
  * Register a raw-HTML index transform, the escape hatch for markup no
  * {@link IndexInjection} row expresses: {@link renderIndex} applies taps in
  * registration order after rendering the structured rows.
@@ -180,6 +197,82 @@ Source: [`packages/host/webserver/src/index.ts`](../../packages/host/webserver/s
 <a id="connection-events"></a>
 
 ### `connection/*` events
+
+<a id="connectionfetch--waterfall"></a>
+
+#### `connection/fetch` — waterfall
+
+Wrap one request to an exact Fetch route or a dedicated RPC channel, after admission and the bridge's body handling, before the route runs or the channel decodes its envelope; `/api` requests the RPC interceptor dispatches do not pass through it. A listener refuses by returning its own Response without calling `next()`, or delegates with `next()`. All listeners share one `next()`, so a listener calls it at most once: a second call runs the next listener that has not yet run, or the route. A listener must not consume the request body; it reads `call.request.clone()`. After a listener consumes the body, a route that reads it throws, which the HTTP carrier answers with 400, or answers its own error, and a channel answers 400 `body is not JSON`. An exact route unregistered while a listener waits does not run; `next()` resolves to 404. The waterfall ends when Connection takes the outermost listener's result; after that, a `next()` that reaches the route or channel dispatches nothing and rejects. Connection cancels the body of each Response the route or channel produced for an earlier `next()` unless the caller receives that Response or its body: when the waterfall ends if the waterfall's result has no body or a locked one, otherwise once the caller has read its body to the end, cancelled it, or reading it failed. In that last case the caller receives a new Response that relays the listener's. A throwing listener rejects the dispatch as a throwing route does.
+
+```ts cordis-catalog
+/**
+ * Wrap one request to an exact Fetch route or a dedicated RPC channel,
+ * after admission and the bridge's body handling, before the route runs
+ * or the channel decodes its envelope; `/api` requests the RPC
+ * interceptor dispatches do not pass through it. A listener refuses by
+ * returning its own Response without calling `next()`, or delegates with
+ * `next()`. All listeners share one `next()`, so a listener calls it at
+ * most once: a second call runs the next listener that has not yet run,
+ * or the route. A listener must not consume the request body; it reads
+ * `call.request.clone()`. After a listener consumes the body, a route
+ * that reads it throws, which the HTTP carrier answers with 400, or
+ * answers its own error, and a channel answers 400 `body is not JSON`.
+ * An exact route unregistered while a listener waits does not run;
+ * `next()` resolves to 404. The waterfall ends when Connection takes
+ * the outermost listener's result; after that, a `next()` that reaches
+ * the route or channel dispatches nothing and rejects. Connection
+ * cancels the body of each Response the route or channel produced for
+ * an earlier `next()` unless the caller receives that Response or its
+ * body: when the waterfall ends if the waterfall's result has no body
+ * or a locked one, otherwise once the caller has read its body to the
+ * end, cancelled it, or reading it failed. In that last case the
+ * caller receives a new Response that relays the listener's. A
+ * throwing listener rejects the dispatch as a throwing route does.
+ * @param call - kind, registered path, method, Fetch request, and admitted Peer.
+ * @param next - hand the request to the route or channel; resolves to its Response.
+ * @mode waterfall
+ */
+'connection/fetch'(call: ConnectionFetchCall, next: () => Promise<Response>): Promise<Response>
+```
+
+Source: [`packages/client/connection/src/index.ts`](../../packages/client/connection/src/index.ts)
+
+<a id="connectionpeer-closed--emit"></a>
+
+#### `connection/peer-closed` — emit
+
+A member Peer's first `dispose()` call has quiesced its scope; emitted once per Peer, however many `dispose()` calls race. The operator never emits it.
+
+```ts cordis-catalog
+/**
+ * A member Peer's first `dispose()` call has quiesced its scope; emitted
+ * once per Peer, however many `dispose()` calls race. The operator never
+ * emits it.
+ * @param peer - the released member Peer.
+ * @mode emit
+ */
+'connection/peer-closed'(peer: PeerScope): void
+```
+
+Source: [`packages/client/connection/src/index.ts`](../../packages/client/connection/src/index.ts)
+
+<a id="connectionpeer-opened--emit"></a>
+
+#### `connection/peer-opened` — emit
+
+A member Peer was opened through `connection.peers.open()`; emitted before `open()` returns it. The operator never emits it.
+
+```ts cordis-catalog
+/**
+ * A member Peer was opened through `connection.peers.open()`; emitted
+ * before `open()` returns it. The operator never emits it.
+ * @param peer - the new member Peer.
+ * @mode emit
+ */
+'connection/peer-opened'(peer: PeerScope): void
+```
+
+Source: [`packages/client/connection/src/index.ts`](../../packages/client/connection/src/index.ts)
 
 <a id="connectionrequest--waterfall"></a>
 
