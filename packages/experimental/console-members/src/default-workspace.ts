@@ -94,6 +94,16 @@ export class DefaultWorkspaces {
   }
 
   /**
+   * Wait until no registration step started so far is in flight, so that an
+   * unloading row touches neither the file system nor the workspace registry
+   * afterwards.
+   * @returns a promise that settles once every step has settled; it never rejects.
+   */
+  async settled(): Promise<void> {
+    await Promise.allSettled([...this.steps.values()])
+  }
+
+  /**
    * Whether the member's registration step has succeeded in this process.
    * @param principal - the member.
    * @returns `true` once the step has settled with the workspace; `false` while it is in flight, after it failed, or before it started.

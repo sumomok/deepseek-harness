@@ -74,7 +74,7 @@ const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(r
 
 部署代理在它转发的每个 HTTP 请求和 WebSocket upgrade 上，以 `assertionHeader` 为名签一份成员断言。值是 `v1.<载荷>.<签名>`：`<载荷>` 是 UTF-8 JSON 对象 `{"p","aud","exp"}` 的无填充 base64url 形式，其中 `p` 是成员的 `login_uid`，`aud` 是部署 id，`exp` 是断言失效的 Unix 秒；`<签名>` 是对 ASCII 文本 `v1.<载荷>` 的 Ed25519 签名的无填充 base64url 形式。插件行只在以下条件全部成立时准入一个请求：这个头只出现一次；值匹配 `^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$`（Node 用逗号合并的重复头不匹配）；签名能用 `assertionPublicKey` 验过；载荷是恰好含 `p`、`aud`、`exp` 三个键的 JSON 对象，`p` 是非空字符串，`exp` 是整数；`aud` 等于 `deploymentId`；当前 Unix 秒早于 `exp`。不留时钟误差，也不限制 `exp` 的上限。其余请求一律答 401，带着有效 dsh 浏览器 cookie 的请求也一样；准入在插件行内部失败的请求（例如首次见到的成员根目录登记不了）同样答 401。
 
-一位成员在 Peer 活着时只有这一个 Peer，所以这位成员的每个请求、同一请求的每次重复准入，都经同一个 Peer。成员的 Peer 自最后一次请求或最后一条 socket 关闭起 `peerIdleMs` 内没有绑定 Remote 流 socket，插件行就释放它；这位成员的下一个请求开一个新 Peer。卸载插件行时撤下准入器，并释放它开过的全部 Peer，这些 Peer 的 socket 以 1001 关闭；`requireAdmitter: true` 下，Connection 在插件行再次加载之前答 401。
+一位成员在 Peer 活着时只有这一个 Peer，所以这位成员的每个请求、同一请求的每次重复准入，都经同一个 Peer。成员的 Peer 自最后一次请求或最后一条 socket 关闭起 `peerIdleMs` 内没有绑定 Remote 流 socket，插件行就释放它；这位成员的下一个请求开一个新 Peer。卸载插件行时撤下准入器，释放它开过的全部 Peer（这些 Peer 的 socket 以 1001 关闭），并等所有进行中的默认工作区登记落定之后才完成；`requireAdmitter: true` 下，Connection 在插件行再次加载之前答 401。
 
 `principalOfCaller` 对 operator、不是本插件行开出的 Peer、已释放的成员 Peer 都答 `undefined`；是否已释放按 `ctx.connection.peers.get(peer.id) === peer` 判定。插件只能用 `peer === ctx.connection.operator` 认出 operator；成员为 `undefined` 从不表示 operator。插件行的日志与错误文本不带主体键、断言或头值：准入失败的日志至多带一个系统错误码，抛错的 `onChange` 监听者既不记它的错误，也不记成员。
 

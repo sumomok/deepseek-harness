@@ -369,6 +369,25 @@ describe('unloading the row', () => {
   })
 })
 
+describe('unloading during a default-workspace step', () => {
+  it('finishes only after the step in flight has settled', async () => {
+    const row = await mountMembers()
+    let finishCreate: (() => void) | undefined
+    const create = vi.spyOn(row.workspaces, 'create').mockImplementation(path => new Promise((resolve) => {
+      finishCreate = () => { resolve({ id: 'workspace-pending', path, title: 'workspace', createdAt: '', updatedAt: '' } as never) }
+    }))
+    peerOf(row, assertionFor(ALICE))
+    await vi.waitFor(() => { expect(create).toHaveBeenCalledTimes(1) })
+    let unloaded = false
+    const unloading = row.fiber!.dispose().then(() => { unloaded = true })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(unloaded).toBe(false)
+    finishCreate!()
+    await unloading
+    expect(unloaded).toBe(true)
+  })
+})
+
 describe('the install order', () => {
   it('registers the Peer listeners before it installs the admitter', async () => {
     const row = await mountRow(undefined)

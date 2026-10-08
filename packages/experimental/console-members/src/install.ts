@@ -6,7 +6,8 @@
  * member Peers is in place. Cordis starts a fiber's disposers in reverse
  * registration order, so unloading the row withdraws the admitter first, then
  * disposes every member Peer the row opened, closing their sockets with code
- * 1001, then removes the listeners.
+ * 1001, and waits for the default-workspace steps in flight, then removes the
+ * listeners.
  * @module @deepseek-ai/dsh-experimental-console-members/src/install
  */
 
@@ -20,7 +21,8 @@ import { MemberPeers } from './peers.ts'
 
 /**
  * Provide `ctx.consoleMembers`, follow member Peers and their sockets,
- * dispose the row's Peers on unload, and install the Peer admitter.
+ * dispose the row's Peers and wait for its default-workspace steps on unload,
+ * and install the Peer admitter.
  * @param ctx - the row's context, carrying Connection and the workspace registry.
  * @param loaded - the checked settings, the assertion key and the root registry.
  */
@@ -43,6 +45,9 @@ export function installDirectory(ctx: Context, loaded: LoadedMembers): void {
   ctx.on('connection/peer-closed', (peer) => { members.peerClosed(peer) })
   ctx.on('remote-stream/socket-opened', (peer, socketId) => { members.socketOpened(peer, socketId) })
   ctx.on('remote-stream/socket-closed', (peer, socketId) => { members.socketClosed(peer, socketId) })
-  ctx.effect(() => () => members.disposeAll(), 'console-members: the row\'s member Peers')
+  ctx.effect(() => async () => {
+    await members.disposeAll()
+    await defaults.settled()
+  }, 'console-members: the row\'s member Peers and default-workspace steps')
   peers.admitWith(request => members.admit(request))
 }
