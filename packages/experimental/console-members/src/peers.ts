@@ -27,6 +27,7 @@ import type { RemoteSocketId } from '@deepseek-ai/dsh-api-gateway'
 import type { ConnectionTrustRequest, HostConnectionPeers } from '@deepseek-ai/dsh-client-connection'
 import type { PeerId, PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import { verifyAssertion, type AssertionCheck } from './assertion.ts'
+import { Listeners } from './listeners.ts'
 import type { PrincipalKey } from './types.ts'
 
 /** A change {@link MemberPeers.onChange} reports. */
@@ -72,12 +73,14 @@ const ERRNO_CODE = /^E[A-Z0-9]+$/
 export class MemberPeers {
   private readonly byPrincipal = new Map<PrincipalKey, MemberEntry>()
   private readonly byPeer = new Map<PeerId, MemberEntry>()
-  private readonly listeners = new Set<(change: MemberChange) => void>()
+  private readonly changed: Listeners<[MemberChange]>
 
   /**
    * @param options - Connection's Peers, the assertion check, the registration steps, the idle time and the logger.
    */
-  constructor(private readonly options: MemberPeersOptions) {}
+  constructor(private readonly options: MemberPeersOptions) {
+    this.changed = new Listeners(options.logger, 'console-members: a consoleMembers.onChange listener threw')
+  }
 
   /**
    * The Peer admitter. It verifies the request's assertion and answers the
@@ -133,9 +136,7 @@ export class MemberPeers {
    * @returns the disposer that stops the notifications.
    */
   onChange(listener: (change: MemberChange) => void): () => void {
-    const registered = (change: MemberChange): void => { listener(change) }
-    this.listeners.add(registered)
-    return () => { this.listeners.delete(registered) }
+    return this.changed.add(listener)
   }
 
   /**
@@ -253,7 +254,7 @@ export class MemberPeers {
       void peer.dispose()
       throw failure
     }
-    this.announce({ principal, kind: 'opened' })
+    this.changed.emit({ principal, kind: 'opened' })
     return entry
   }
 
@@ -306,21 +307,6 @@ export class MemberPeers {
     this.byPrincipal.delete(entry.principal)
     clearTimeout(entry.idleTimer)
     entry.idleTimer = undefined
-    this.announce({ principal: entry.principal, kind: 'closed' })
-  }
-
-  /**
-   * Call every change listener.
-   * @param change - the change.
-   */
-  private announce(change: MemberChange): void {
-    for (const listener of [...this.listeners]) {
-      try {
-        listener(change)
-      } catch (_listenerFailure) {
-        // The listener's error can quote the member's key, so neither the error nor the member is logged.
-        this.options.logger.warn(`console-members: a consoleMembers.onChange listener threw (${change.kind})`)
-      }
-    }
+    this.changed.emit({ principal: entry.principal, kind: 'closed' })
   }
 }
