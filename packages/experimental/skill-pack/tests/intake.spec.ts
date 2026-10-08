@@ -413,6 +413,48 @@ describe('the organization root configuration', () => {
   })
 })
 
+describe('the platform the row compares its directories for', () => {
+  // The row reads the platform it runs on, so each case stands it on another
+  // one. The two directories lie under a directory that does not exist, so
+  // the host's own file system, which may ignore case, never reads either
+  // name back.
+  const hostPlatform = Object.getOwnPropertyDescriptor(process, 'platform')
+
+  afterEach(() => {
+    if (hostPlatform !== undefined) Object.defineProperty(process, 'platform', hostPlatform)
+  })
+
+  /** Make `process.platform` read as another platform until the case ends. */
+  function standOn(platform: NodeJS.Platform): void {
+    Object.defineProperty(process, 'platform', { ...hostPlatform, value: platform })
+  }
+
+  it.each(['darwin', 'win32'] as const)('refuses at load an organization root naming the pack root in other letter case on %s', async (platform) => {
+    await newWorld()
+    const missing = join(world!, 'missing')
+    const root = join(missing, 'packs')
+    const organizationRoot = join(missing, 'PACKS')
+    standOn(platform)
+    expect(() => new SkillPackRegistry(new Context(), { root, platformVersion: PLATFORM_VERSION, organizationRoot }))
+      .toThrow(`skill-pack: organizationRoot ${JSON.stringify(organizationRoot)} and root ${JSON.stringify(root)} must be separate directories`)
+  })
+
+  it('loads an organization root naming the pack root in other letter case on linux', async () => {
+    await newWorld()
+    const missing = join(world!, 'missing')
+    const ctx = context = new Context()
+    await ctx.plugin(SkillRegistry)
+    standOn('linux')
+    await ctx.plugin(SkillPackRegistry, {
+      root: join(missing, 'packs'),
+      platformVersion: PLATFORM_VERSION,
+      watch: false,
+      organizationRoot: join(missing, 'PACKS'),
+    })
+    expect(ctx.get('skillPackIntake')).toBeDefined()
+  })
+})
+
 describe('an organization set handed over', () => {
   it('installs the stable and the trial version of one skill side by side, each under its own name and version', async () => {
     const paths = await newWorld()
@@ -819,6 +861,33 @@ describe('an entry refused', () => {
     expect(refused[2]?.detail).toContain('refused d-guide@1/views/strasse.yml \u2014 a pack carries each path once')
     expect(await readdir(paths.organizationRoot)).toEqual(['c-guide@1'])
     expect(await viewIds(ctx)).toEqual([])
+  })
+
+  it('folds the ligature fi into f and i, and the dotless i into capital I: versions as duplicate, paths of one entry as pack-invalid', async () => {
+    // File systems keep both pairs apart; the key folds them to one name and
+    // refuses them anyway.
+    const pairs = [['\ufb01', 'fi'], ['\u0131', 'I']] as const
+    const paths = await newWorld()
+    const ctx = await boot(paths)
+    const { intake } = await organization(ctx)
+    const result = await intake.replace([
+      ...pairs.flat().map(version => entry('a-guide', version, 'stable')),
+      entry('b-guide', '1', 'stable', {
+        extra: [{ path: 'notes/ﬁ.md', content: 'one' }, { path: 'notes/fi.md', content: 'two' }],
+      }),
+      entry('c-guide', '1', 'stable', {
+        extra: [{ path: 'notes/ı.md', content: 'one' }, { path: 'notes/I.md', content: 'two' }],
+      }),
+      entry('d-guide', '1', 'stable'),
+    ])
+    const carriedTwice = (path: string): string =>
+      `PackInstallError: skill-pack: refused ${path} \u2014 a pack carries each path once when paths are folded the way skill-pack compares them`
+    expect(result.kind === 'ok' ? result.refused : result).toEqual([
+      ...pairs.flat().map(version => ({ name: 'a-guide', version, code: 'duplicate', detail: DUPLICATED(`a-guide@${version}`) })),
+      { name: 'b-guide', version: '1', code: 'pack-invalid', detail: carriedTwice('b-guide@1/notes/fi.md') },
+      { name: 'c-guide', version: '1', code: 'pack-invalid', detail: carriedTwice('c-guide@1/notes/I.md') },
+    ])
+    expect(await readdir(paths.organizationRoot)).toEqual(['d-guide@1'])
   })
 })
 
