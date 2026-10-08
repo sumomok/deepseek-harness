@@ -469,6 +469,7 @@ describe('the component catalog file', () => {
         manifest: parsePackManifest(metadata),
         views: one.views ? [parsePackView(VIEW_PATH, VIEW_TEXT)] : [],
       }], [], '0.5.2')
+      expect(status?.state).toBe(one.refused === undefined ? 'active' : 'inactive')
       expect(status?.missing.map(missing => missing.kind)).toEqual(one.refused === undefined ? [] : [one.refused])
       const root = join(base, `packs-${String(index)}`)
       const delivery = syncPackRoot(root, { kind: 'packs', packs: [{ name: 'p', files: packFiles(metadata, one.views) }] })
