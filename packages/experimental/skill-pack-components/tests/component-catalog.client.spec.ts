@@ -49,6 +49,19 @@ interface PropFacts extends FieldFacts {
   readonly unbindable: boolean
 }
 
+/** One component, as the file states it. */
+interface ComponentFacts {
+  readonly id: string
+  readonly label: string
+  readonly purpose: string
+  readonly placement: string
+  readonly deploymentSwitches: readonly string[]
+  readonly props: Readonly<Record<string, PropFacts>>
+  readonly outputs: readonly { readonly id: string }[]
+  readonly actions: readonly { readonly id: string; readonly report: string }[]
+  readonly sanitize?: Readonly<Record<string, string>>
+}
+
 /** The parts of the file these cases read. */
 interface CatalogFile {
   readonly header: {
@@ -59,12 +72,7 @@ interface CatalogFile {
     readonly exampleViewSha256: string | null
   }
   readonly body: {
-    readonly components: readonly {
-      readonly id: string
-      readonly placement: string
-      readonly deploymentSwitches: readonly string[]
-      readonly props: Readonly<Record<string, PropFacts>>
-    }[]
+    readonly components: readonly ComponentFacts[]
     readonly rules: {
       readonly view: { readonly nodes: { readonly min: number; readonly max: number }; readonly rules: readonly string[] }
       readonly layout: {
@@ -91,18 +99,22 @@ async function checkedIn(): Promise<{ text: string; file: CatalogFile }> {
 const catalog = readCatalog(COMPONENT_KIT_ENTRIES)
 
 /**
- * Every key a catalog entry may carry, each one the generator states. Typed over
- * the entry, so a key added to `ComponentCatalogEntry` fails the typecheck here;
- * list it once the generator writes it into the file.
+ * Per key a catalog entry may carry, a check that the file's component states
+ * what the entry carries under it. Typed over the entry, so a key added to
+ * `ComponentCatalogEntry` fails the typecheck here until a check for it is
+ * written.
  */
-const ENTRY_KEYS: Readonly<Record<keyof ComponentCatalogEntry, true>> = {
-  id: true,
-  label: true,
-  purpose: true,
-  propsSchema: true,
-  actions: true,
-  outputs: true,
-  sanitize: true,
+const ENTRY_CHECKS: Readonly<Record<keyof ComponentCatalogEntry, (entry: ComponentCatalogEntry, component: ComponentFacts) => void>> = {
+  id: (entry, component) => expect(component.id).toBe(entry.id),
+  label: (entry, component) => expect(component.label).toBe(entry.label),
+  purpose: (entry, component) => expect(component.purpose).toBe(entry.purpose),
+  propsSchema: (entry, component) => expect(Object.keys(component.props)).toEqual(Object.keys(entry.propsSchema)),
+  outputs: (entry, component) => expect(component.outputs.map(output => output.id)).toEqual(entry.outputs.map(output => output.id)),
+  actions: (entry, component) => expect(component.actions).toEqual(entry.actions.map(action => ({ id: action.id, report: action.report }))),
+  sanitize: (entry, component) => {
+    if (entry.sanitize === undefined) expect(component).not.toHaveProperty('sanitize')
+    else expect(component.sanitize).toEqual(entry.sanitize)
+  },
 }
 
 /** A node every catalog built from the kit accepts on its own. */
@@ -187,10 +199,16 @@ describe('the component catalog file', () => {
     expect(file.header.toyCrudKit.package).toBe('@sumomok/toy-crud-kit')
   })
 
-  it('reads every key a catalog entry carries', () => {
-    const unread = COMPONENT_KIT_ENTRIES.flatMap(entry =>
-      Object.keys(entry).filter(key => !Object.hasOwn(ENTRY_KEYS, key)).map(key => `${entry.id}.${key}`))
-    expect(unread).toEqual([])
+  it('states every key of each catalog entry as the entry carries it', async () => {
+    const { file } = await checkedIn()
+    const unchecked = COMPONENT_KIT_ENTRIES.flatMap(entry =>
+      Object.keys(entry).filter(key => !Object.hasOwn(ENTRY_CHECKS, key)).map(key => `${entry.id}.${key}`))
+    expect(unchecked).toEqual([])
+    expect(file.body.components.map(component => component.id)).toEqual(COMPONENT_KIT_ENTRIES.map(entry => entry.id))
+    file.body.components.forEach((component, index) => {
+      const entry = COMPONENT_KIT_ENTRIES[index]
+      if (entry !== undefined) Object.values(ENTRY_CHECKS).forEach(check => check(entry, component))
+    })
   })
 
   it('lists every component the kit registers, in registration order, each placed by a call', async () => {

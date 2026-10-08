@@ -263,8 +263,9 @@ function componentFacts(entry: ComponentCatalogEntry): CatalogObject {
     label: entry.label,
     purpose: entry.purpose,
     // TODO: read the entry's own placement once ComponentCatalogEntry declares
-    // one; the entry-key test fails the typecheck until then. No entry can be
-    // restricted to views yet, so a call places every one.
+    // one; the spec's per-key entry checks fail the typecheck until one is
+    // written for it. No entry can be restricted to views yet, so a call
+    // places every one.
     placement: 'call',
     deploymentSwitches: requiredSwitches(entry.id),
     props: propsFacts(entry),
