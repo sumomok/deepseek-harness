@@ -119,6 +119,7 @@ The row adds no model input, so provider cache reuse is unaffected.
 
 - **The row provides no directory yet.** The plugin checks its configuration and opens the root registry, but it installs no member admitter and provides no `ctx.consoleMembers`. A plugin that injects it never starts, and `ctx.get('consoleMembers')` answers `undefined`. The method contracts in [`src/types.ts`](src/types.ts) bind the directory the row will provide.
 - **A failed first-sighting write leaves an empty directory.** When `roots.json` cannot be replaced after a member's root was created, the member stays unregistered and the empty `<membersRoot>/<UUID>` remains; the next first sighting creates another.
+- **A process killed while replacing `roots.json` leaves its temporary sibling.** A kill between writing `roots.json.<random hex>.tmp` and renaming it leaves that file, mode 0600, in `$DSH_HOME/console-members`; it holds the same paths and principal keys as `roots.json`, and nothing removes it.
 
 <a id="dev-note"></a>
 ### Dev Note

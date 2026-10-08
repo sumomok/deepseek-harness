@@ -119,6 +119,7 @@ const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(r
 
 - **插件行还不提供目录。** 插件核对配置并打开根目录登记表，但不装成员准入器，也不提供 `ctx.consoleMembers`。注入它的插件永远不会启动，`ctx.get('consoleMembers')` 答 `undefined`。[`src/types.ts`](src/types.ts) 里的方法契约约束的是这个插件行将要提供的目录。
 - **首次见到成员时写盘失败会留下空目录。** 成员根目录建好之后 `roots.json` 替换失败时，这位成员仍未登记，空的 `<membersRoot>/<UUID>` 留在原处；下一次首次见到时再建一个。
+- **替换 `roots.json` 时进程被杀会留下临时文件。** 写完 `roots.json.<随机十六进制>.tmp`、rename 之前进程被杀，这个 0600 权限的文件留在 `$DSH_HOME/console-members` 里；它与 `roots.json` 一样含路径和主体键，没有谁删除它。
 
 <a id="dev-note"></a>
 ### 开发备注
