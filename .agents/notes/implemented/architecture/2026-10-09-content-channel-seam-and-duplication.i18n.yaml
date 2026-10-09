@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-10-09-content-channel-seam-and-duplication.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-09-content-channel-seam-and-duplication.md
+/agent-note-the-shared-content-channel-s-seam-and-what-it-costs:
+  en: 19974706b1720025
+  zh: a0f3b5c99bc370e7
+/agent-note-the-shared-content-channel-s-seam-and-what-it-costs/problem:
+  en: aac2c2156952a330
+  zh: a25e2a7b174e534f
+/agent-note-the-shared-content-channel-s-seam-and-what-it-costs/decision:
+  en: ce431b297bb82359
+  zh: ebec080814c5bbaa
+/agent-note-the-shared-content-channel-s-seam-and-what-it-costs/alternatives-considered:
+  en: 5650e31512ed2efa
+  zh: f27eb6de1cf64bfa
+/agent-note-the-shared-content-channel-s-seam-and-what-it-costs/consequences:
+  en: 6bd5cf5eefe5712a
+  zh: 6aff0a2e2e3866b5
+/agent-note-the-shared-content-channel-s-seam-and-what-it-costs/testing:
+  en: be21b7a026a9552f
+  zh: c8896989af0fa933
