@@ -56,6 +56,15 @@ export const FIELD_KEY = 'data-component-field'
 /** The roles a block draws a dialog or an overlay with, as the platform names them. */
 export const OVERLAY = '[role="dialog"], [aria-modal="true"]'
 
+/** The element-ui select one field control is drawn inside, which is what makes the field a select. */
+export const SELECT = '.el-select'
+
+/** One select's drawn options, a child of the select itself since this row contains its list. */
+export const SELECT_OPTION = '.el-select-dropdown__item'
+
+/** The input element-ui draws one select's own text in. */
+export const SELECT_INPUT = 'input.el-input__inner'
+
 /**
  * One element's own attribute value, compared exactly.
  * @param el - the element.
@@ -197,6 +206,71 @@ export function namedControls(scope: Element, name: string, within: Element): El
   const controls = [...scope.querySelectorAll(WRITABLE)]
   if (scope.matches(WRITABLE)) controls.unshift(scope)
   return controls.filter(el => ownName(el, within) === name)
+}
+
+/**
+ * The select one field control belongs to, when that control is a select's own.
+ *
+ * A component-kit block draws element-ui's select with its list inside the
+ * select itself, so a control under `.el-select` is one whose value is chosen
+ * from a list rather than typed, and the list is reachable from the same
+ * element the entry declares. The select counts only while it stands inside the
+ * entry: one wrapping the entry from outside would hold options the confine
+ * does not cover, and a step that chose among them would be writing outside the
+ * entry it named.
+ *
+ * This is the resolution any reading of the same field goes through too: one
+ * definition of which element is a select and which options it draws, so what a
+ * reading of a field describes is what a `set` step on it reaches.
+ * @param control - the field's control.
+ * @param within - the entry's own container, past which nothing is asked.
+ * @returns the select element, or undefined when the control is not a select's.
+ */
+export function selectOf(control: Element, within: Element): Element | undefined {
+  const select = control.closest(SELECT)
+  return select === null || !within.contains(select) ? undefined : select
+}
+
+/**
+ * Every option one select draws, in document order.
+ *
+ * A select's options are in the document from the mount with the list hidden,
+ * so what is drawn is what a step waits for: the open is what takes the hidden
+ * state off the list, and an option a filter or a closed group has taken away
+ * stays undrawn. The same reading is what a reader reports as the options a
+ * select currently offers.
+ * @param select - the select element.
+ * @param within - the entry's own container, past which nothing is asked.
+ * @returns the drawn option elements.
+ */
+export function selectOptions(select: Element, within: Element): Element[] {
+  return [...select.querySelectorAll(SELECT_OPTION)].filter(option => isDrawn(option, within))
+}
+
+/**
+ * What one drawn element shows as its label: an option's text, or a tag's.
+ * @param el - the option or tag.
+ * @returns the label, trimmed.
+ */
+export function optionLabel(el: Element): string {
+  /* v8 ignore next -- an element's textContent is null only for a document node, and an option is an element */
+  return (el.textContent ?? '').trim()
+}
+
+/**
+ * What one select displays as the value it holds.
+ *
+ * element-ui draws a single select's value as the text of the select's own
+ * input and a multiple select's as one tag per chosen option; both are the
+ * component's own rendering of the value, which is what a step confirms its
+ * choice against.
+ * @param select - the select element.
+ * @returns the labels it displays, in the order drawn.
+ */
+export function selectShows(select: Element): string[] {
+  return [...select.querySelectorAll(`.el-select__tags-text, ${SELECT_INPUT}`)]
+    .map(el => (el instanceof HTMLInputElement ? el.value : optionLabel(el)))
+    .filter(shown => shown !== '')
 }
 
 /**

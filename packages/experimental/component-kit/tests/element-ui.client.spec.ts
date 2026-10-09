@@ -2,7 +2,9 @@
 /**
  * The row's one installation of element-ui: that it lands on the Vue runtime
  * this package shares rather than a copy of its own, that it carries the two
- * values written dead here, and that a second call changes nothing.
+ * values written dead here, that the select it registers keeps its dropdown
+ * inside the select — and so inside the block and the component entry — rather
+ * than on the document body, and that a second call changes nothing.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { Vue as SuppliedVue } from '@deepseek-ai/dsh-experimental-vue2-echarts-poc/client'
@@ -34,6 +36,35 @@ describe('installElementUI', () => {
     vm.$mount(document.createElement('div'))
     expect(vm.$el.className).toContain('el-button')
     vm.$destroy()
+  })
+
+  it('draws a select\'s dropdown inside the select, not on the document body', async () => {
+    installElementUI()
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const vm = new Vue({
+      render: create => create('el-select', [
+        create('el-option', { props: { value: 'hot', label: '核心' } }),
+        create('el-option', { props: { value: 'edge', label: '接入' } }),
+      ]),
+    })
+    vm.$mount(host)
+    try {
+      const select = vm.$el as HTMLElement
+      select.querySelector('input.el-input__inner')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      // One turn for the open's own re-render and one for the popper it draws.
+      await new Promise((resolve) => { setTimeout(resolve, 0) })
+      const dropdown = select.querySelector('.el-select-dropdown')
+      // Where the list is drawn is what the acting tool's confine is about: an
+      // option on `document.body` is outside the block that owns the select.
+      expect(dropdown).not.toBeNull()
+      expect(select.contains(dropdown)).toBe(true)
+      expect((dropdown as Element).parentElement === document.body).toBe(false)
+      expect(select.querySelectorAll('.el-select-dropdown__item').length).toBe(2)
+    } finally {
+      vm.$destroy()
+      vm.$el.remove()
+    }
   })
 
   it('does not install a second time', () => {

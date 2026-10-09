@@ -46,6 +46,47 @@ const ELEMENT_SIZE = 'small'
  */
 const ELEMENT_Z_INDEX = 300
 
+/**
+ * The name element-ui registers its select component under, which is also what
+ * every block's compiled markup resolves its `el-select` tag to.
+ */
+const SELECT_ASSET = 'ElSelect'
+
+/**
+ * The select whose dropdown is drawn inside the block that owns it.
+ *
+ * element-ui's select renders its dropdown as a child of the select and then,
+ * with `popperAppendToBody` at its default of `true`, appends that child to
+ * `document.body` when the list is first opened (`createPopper` in the 2.15.14
+ * popper mixin). A dropdown on the body is outside the block and outside the
+ * component entry `act_component` is confined to, so the tool could open a
+ * select and then reach none of its options: the click that chooses one is
+ * refused by the confine before this change. The subclass registers over
+ * element-ui's own name with the default flipped, so every `el-select` the kits
+ * draw — the write dialogs' fields, the query panels, the condition renderers —
+ * keeps its list inside the block without any compiled markup changing. The
+ * tarballs resolve `el-*` tags through this registration rather than importing
+ * the components, which is what makes an override here reach them all.
+ *
+ * The dropdown stays absolutely positioned inside the select's own positioned
+ * box, so popper.js keeps placing it against its trigger; what changes is only
+ * which subtree holds it.
+ * @returns nothing; the effect is on the shared runtime's global component table.
+ */
+function registerContainedSelect(): void {
+  const base = Vue.component(SELECT_ASSET)
+  Vue.component(SELECT_ASSET, Vue.extend({
+    name: SELECT_ASSET,
+    extends: base,
+    props: {
+      popperAppendToBody: {
+        type: Boolean,
+        default: false,
+      },
+    },
+  }))
+}
+
 /** Whether {@link installElementUI} has already run against the shared runtime. */
 let installed = false
 
@@ -60,4 +101,5 @@ export function installElementUI(): void {
   if (installed) return
   installed = true
   Vue.use(ElementUI, { size: ELEMENT_SIZE, zIndex: ELEMENT_Z_INDEX })
+  registerContainedSelect()
 }
