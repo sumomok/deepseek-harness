@@ -479,6 +479,38 @@ describe('a view placing a form page and an info card beside its data page', () 
   })
 })
 
+describe('a view whose alias refers back to a value containing it', () => {
+  /** The sentence each case below is refused in, after the path it names. */
+  const CYCLE = 'is an alias of a mapping or list that contains it, so the value written here would contain itself without end'
+
+  /**
+   * The read-only data page view the YAML reader hands over for each cyclic
+   * form, with the alias already the object that contains it.
+   */
+  function cyclic(form: 'layout' | 'children' | 'props'): ContentView {
+    const props: Record<string, unknown> = { relatedMeta: 'T', metaLabel: 'L', readOnly: true, regions: { infoCard: false } }
+    const children: unknown[] = [{ node: 'component', id: 'page', flex: 1 }]
+    const layout: Record<string, unknown> = { node: 'stack', dir: 'row', gap: 'md', children }
+    if (form === 'layout') layout['self'] = layout
+    if (form === 'children') children.push(children)
+    if (form === 'props') props['self'] = props
+    return view('table-crud', '测试视图', { nodes: [{ id: 'page', component: DATA_PAGE_ID, props }], layout })
+  }
+
+  it.each([
+    ['a layout stack aliasing itself', 'layout', 'spec.layout.self'],
+    ['a child list aliasing itself', 'children', 'spec.layout.children[1]'],
+    ['properties aliasing themselves', 'props', 'spec.nodes[0].props.self'],
+  ] as const)('is refused at the alias, not thrown, for %s', (_case, form, path) => {
+    expect(judgeView(KIT_VIEW_CATALOG, true, cyclic(form))).toEqual({ ok: false, refusal: { path, reason: `${path} — ${CYCLE}` } })
+  })
+
+  it('fails the configured view list at load with the view named, not with a stack overflow', () => {
+    expect(() => indexViews(KIT_VIEW_CATALOG, [cyclic('layout')], undefined, true))
+      .toThrow(`component-surface: views[0] "table-crud" — spec.layout.self — ${CYCLE}`)
+  })
+})
+
 describe('a view writing a key named __proto__', () => {
   /** One data page view, its spec as a reader of the view file hands it over. */
   function written(spec: string): ContentView {

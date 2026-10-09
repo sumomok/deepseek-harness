@@ -106,6 +106,42 @@ describe('a view file\'s parameter references', () => {
   })
 })
 
+describe('an alias in a view file', () => {
+  /** The sentence an alias that refers back to a value containing it is refused in. */
+  const CYCLE = 'is an alias of a mapping or list that contains it, so the value written here would contain itself without end'
+
+  // Each value is built the way the YAML reader builds an anchor that one of
+  // its own entries aliases: the alias is the very object that contains it.
+  it('refuses a mapping that one of its own entries aliases, at that entry', () => {
+    const layout: Record<string, unknown> = { node: 'stack', dir: 'row', children: [{ node: 'component', id: 'page' }] }
+    layout['self'] = layout
+    expect(refusal({ nodes: [], layout }, {})).toEqual({ path: 'spec.layout.self', reason: CYCLE })
+  })
+
+  it('refuses a list that one of its own items aliases, at that item', () => {
+    const children: unknown[] = [{ node: 'component', id: 'page' }]
+    children.push(children)
+    expect(refusal({ nodes: [], layout: { node: 'stack', dir: 'row', children } }, {}))
+      .toEqual({ path: 'spec.layout.children[1]', reason: CYCLE })
+  })
+
+  it('refuses an alias that refers back through more than one level', () => {
+    const props: Record<string, unknown> = { relatedMeta: 'T' }
+    props['regions'] = { infoCard: false, again: [props] }
+    expect(refusal({ nodes: [{ id: 'page', props }] }, {}))
+      .toEqual({ path: 'spec.nodes[0].props.regions.again[0]', reason: CYCLE })
+  })
+
+  it('substitutes a value aliased twice side by side once at each place', () => {
+    // Two aliases of one anchor that neither contains: the document repeats a
+    // value, and each copy is substituted like any other.
+    const shared = { label: '表', display: { $param: 'meta' } }
+    expect(substituted({ nodes: [{ props: { dataList: [shared, shared] } }] }, { meta: 'sys_layer' })).toEqual({
+      nodes: [{ props: { dataList: [{ label: '表', display: 'sys_layer' }, { label: '表', display: 'sys_layer' }] } }],
+    })
+  })
+})
+
 describe('a key named __proto__ in a view file', () => {
   it('stays one more key of the mapping it is written in, with its value substituted like any other', () => {
     // A YAML or JSON reader hands the key over as an ordinary key, and the walk

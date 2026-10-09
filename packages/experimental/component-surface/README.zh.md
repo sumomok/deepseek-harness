@@ -108,6 +108,8 @@ component-surface: views[0] "site-overview" — spec.nodes[0].component — name
 
 是响亮失败而不是悄悄跳过：被悄悄丢掉的视图，就是一条用户点了以后内容栏空空、而任何地方都不说为什么的菜单项；何况这次失败留下的其他一切都只是「没有」。id 重复、以及 `homeView` 点名了不存在的视图，都以同样方式失败。
 
+YAML 别名交出的就是它的锚点所指的那个映射或列表本身，所以写在该映射或列表内部的别名会造出一个包含自己的值。判定在这个别名处拒绝视图，例如 `spec.layout.self — is an alias of a mapping or list that contains it, so the value written here would contain itself without end`。同一个锚点在两处被引用、两处互不包含时，只是视图把一个值写了两遍，每一份都和其他值一样受判。在 `cordis.yml` 及其覆盖层里，Loader 自己遍历配置时会先碰到这种别名，本行在创建之前就失败，在它名下记下的是一条 `RangeError`。
+
 <a id="views-another-package-ships"></a>
 ### 别的包发来的视图
 

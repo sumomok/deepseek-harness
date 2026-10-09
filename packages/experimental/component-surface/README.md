@@ -108,6 +108,8 @@ component-surface: views[0] "site-overview" — spec.nodes[0].component — name
 
 Loud rather than skipped, because a view quietly dropped is a menu row that shows an empty column when a user clicks it, with nothing anywhere saying why, and because every other trace of this failure is an absence. A repeated id and a `homeView` naming no configured view fail the same way.
 
+A YAML alias hands over the very mapping or list its anchor names, so an alias written inside that mapping or list makes a value that contains itself. The judgement refuses the view at that alias, for example `spec.layout.self — is an alias of a mapping or list that contains it, so the value written here would contain itself without end`. An anchor aliased at two places, neither inside the other, is a value the view repeats, and each copy is judged like any other value. In `cordis.yml` and its overlays, the Loader's own config walk meets such an alias before this row is created, and the row fails with a `RangeError` logged under its name instead.
+
 <a id="views-another-package-ships"></a>
 ### Views another package ships
 

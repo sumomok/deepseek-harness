@@ -87,33 +87,82 @@ function resolve(reference: Record<string, unknown>, params: Readonly<Record<str
 
 /**
  * Walk one value, replacing every reference under it.
+ *
+ * A YAML alias hands over the very object its anchor names, so an alias inside
+ * the mapping or list it names makes a value that contains itself. The walk
+ * holds the mappings and lists it is inside of and refuses such an alias where
+ * it is written; an anchor aliased at two places neither of which contains it
+ * is a value the document repeats, and is substituted at each.
  * @param value - the value as the view file wrote it.
  * @param params - the view file's `params` block.
  * @param path - parameter path of this value.
+ * @param open - the mappings and lists this value sits inside of, outermost first.
  * @returns the value with its references replaced, or the first refusal.
  */
-function substitute(value: unknown, params: Readonly<Record<string, unknown>>, path: string): ViewParamResult {
-  if (Array.isArray(value)) {
-    const items: unknown[] = []
-    for (const [position, item] of value.entries()) {
-      const at = `${path}[${position}]`
-      // Refused where it sits, for the reason a `$from` binding is: an item of a
-      // list is one of many values a property carries, and a reference standing
-      // for one of them reads as a list whose length depends on a parameter.
-      if (isReference(item)) {
-        return refuse(at, `is a ${JSON.stringify(PARAM_KEY)} reference, which stands for a whole property's value and not for one item of a list`)
-      }
-      const done = substitute(item, params, at)
-      if (!done.ok) return done
-      items.push(done.spec)
-    }
-    return { ok: true, spec: items }
+function substitute(
+  value: unknown,
+  params: Readonly<Record<string, unknown>>,
+  path: string,
+  open: Set<object>,
+): ViewParamResult {
+  if (typeof value !== 'object' || value === null) return { ok: true, spec: value }
+  if (open.has(value)) {
+    return refuse(path, 'is an alias of a mapping or list that contains it, so the value written here would contain itself without end')
   }
-  if (!isMapping(value)) return { ok: true, spec: value }
-  if (PARAM_KEY in value) return resolve(value, params, path)
+  open.add(value)
+  const done = Array.isArray(value) ? substituteList(value, params, path, open) : substituteMapping(value, params, path, open)
+  open.delete(value)
+  return done
+}
+
+/**
+ * Walk one list, replacing every reference under its items.
+ * @param list - the list as the view file wrote it.
+ * @param params - the view file's `params` block.
+ * @param path - parameter path of the list.
+ * @param open - the mappings and lists the walk is inside of, this list included.
+ * @returns the list with its references replaced, or the first refusal.
+ */
+function substituteList(
+  list: readonly unknown[],
+  params: Readonly<Record<string, unknown>>,
+  path: string,
+  open: Set<object>,
+): ViewParamResult {
+  const items: unknown[] = []
+  for (const [position, item] of list.entries()) {
+    const at = `${path}[${position}]`
+    // Refused where it sits, for the reason a `$from` binding is: an item of a
+    // list is one of many values a property carries, and a reference standing
+    // for one of them reads as a list whose length depends on a parameter.
+    if (isReference(item)) {
+      return refuse(at, `is a ${JSON.stringify(PARAM_KEY)} reference, which stands for a whole property's value and not for one item of a list`)
+    }
+    const done = substitute(item, params, at, open)
+    if (!done.ok) return done
+    items.push(done.spec)
+  }
+  return { ok: true, spec: items }
+}
+
+/**
+ * Walk one mapping, replacing it where it is a reference and every reference under it otherwise.
+ * @param mapping - the mapping as the view file wrote it.
+ * @param params - the view file's `params` block.
+ * @param path - parameter path of the mapping.
+ * @param open - the mappings and lists the walk is inside of, this mapping included.
+ * @returns the mapping with its references replaced, or the first refusal.
+ */
+function substituteMapping(
+  mapping: object,
+  params: Readonly<Record<string, unknown>>,
+  path: string,
+  open: Set<object>,
+): ViewParamResult {
+  if (PARAM_KEY in mapping) return resolve(mapping, params, path)
   const entries: [string, unknown][] = []
-  for (const [key, own] of Object.entries(value)) {
-    const done = substitute(own, params, `${path}.${key}`)
+  for (const [key, own] of Object.entries(mapping)) {
+    const done = substitute(own, params, `${path}.${key}`, open)
     if (!done.ok) return done
     entries.push([key, done.spec])
   }
@@ -127,8 +176,10 @@ function substitute(value: unknown, params: Readonly<Record<string, unknown>>, p
  * @param spec - the spec as the view file wrote it, however malformed.
  * @param params - the view file's `params` block; empty for a view that declares none.
  * @returns the substituted spec, carrying every key the file wrote as a key of
- *   its own, `__proto__` included, or the first reference that could not be resolved.
+ *   its own, `__proto__` included, and holding no value twice; or the first
+ *   reference that could not be resolved, or the first alias of a mapping or
+ *   list that contains it.
  */
 export function applyViewParams(spec: unknown, params: Readonly<Record<string, unknown>>): ViewParamResult {
-  return substitute(spec, params, 'spec')
+  return substitute(spec, params, 'spec', new Set())
 }
