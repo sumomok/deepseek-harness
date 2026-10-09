@@ -53,6 +53,21 @@ describe('a place point-anchor describes', () => {
     expect(outcome.kind === 'reference' && outcome.data).toMatchObject({ unanchored: 'no-column' })
   })
 
+  it('is held to 8192 bytes of data, dropping an anchor whose key line would not fit', () => {
+    const mark = Array.from({ length: 1800 }, (_, index) => `c${String(index)}`).join(' ')
+    const long: PointDescription = {
+      v: DESCRIBE_FORMAT,
+      anchorFormat: ANCHOR_FORMAT,
+      what: { kind: 'frame', role: 'button' },
+      anchor: { kind: 'frame', page: 'orders', role: 'button', mark, in: 'main' },
+      shown: { page: '订单' },
+    }
+    const outcome = pointOutcome({ kind: 'picked', point: long, element: document.body, warnings: [] }, undefined, NAMES)
+    const data = outcome.kind === 'reference' ? outcome.data : {}
+    expect(new TextEncoder().encode(JSON.stringify(data)).byteLength).toBeLessThanOrEqual(8192)
+    expect(data).toMatchObject({ unanchored: 'too-large' })
+  })
+
   it('is refused as too large when no form of it fits the bound', () => {
     const huge = { ...withoutRow(CELL), shown: { page: '页'.repeat(9000) } }
     expect(pointOutcome({ kind: 'picked', point: huge, element: document.body, warnings: [] }, undefined, NAMES)).toEqual({ kind: 'refused', reason: 'too-large' })
