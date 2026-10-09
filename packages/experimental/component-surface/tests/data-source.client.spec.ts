@@ -1030,6 +1030,33 @@ describe('a read that came back with nothing to draw', () => {
     expect(said).toBe('show_component: the rows read from "SpaceLayer" cannot be drawn — '
       + 'spec.nodes[0].props.displayValueList — lists 501 items; between 1 and 500 are accepted. Nothing on the panel changed.')
   })
+
+  it('refuses the whole read where a row carries a cell named __proto__, and draws where no row carries it', async () => {
+    // What a customer's backend really answers when the table has a column by
+    // that name: the fill puts the cell back into the spec as an own key, and
+    // the call's whole-spec check refuses the read rather than drawing it.
+    const ownRow = JSON.parse('{"zh_label":"配送车-离线","__proto__":"内部值"}') as Record<string, unknown>
+    const spec = { nodes: [{ id: 'rows', component: 'toy.table', props: { tableConfig: { gridItems: [{ relatedMetaAttr: '__proto__', alias: '内部' }] } } }] }
+    const { text: said } = await failing({
+      describe: () => ({ attributes: [{ attributeEnName: '__proto__', attributeCnName: '内部' }] }),
+      search: () => ({ rawValue: [ownRow], displayValue: [ownRow], total: 1 }),
+    }, spec)
+    expect(said).toBe('show_component: the rows read from "SpaceLayer" cannot be drawn — '
+      + 'spec.nodes[0].props.displayValueList[0].__proto__ — is a key named __proto__, which no mapping of a view may carry: '
+      + 'copied by assignment, the value under it becomes the mapping\'s prototype instead of a key, so two readers of one file would disagree on what it holds '
+      + 'Nothing on the panel changed.')
+    // The same column read back with no value under it: the fill puts no such
+    // key in, and the read draws.
+    const { run, session } = await bench('allowed-once', {
+      describe: () => ({ attributes: [{ attributeEnName: '__proto__', attributeCnName: '内部' }] }),
+      describeScheme: () => ({ columns: [{ relatedMetaAttr: '__proto__', alias: '内部' }] }),
+      search: () => ({ rawValue: [{}], displayValue: [{}], total: 1 }),
+    })
+    const drawn = await run({ id: 'layers', title: '图层', spec: DEFAULT_COLUMN_SPEC, dataSource: SOURCE })
+    expect(drawn.isError).toBeFalsy()
+    expect(text(drawn)).toContain('Read 1 of 1 matching rows from "SpaceLayer" into block "rows", for the attributes __proto__.')
+    expect(resolvedEvents(session)).toHaveLength(1)
+  })
 })
 
 describe('a read that drew', () => {
