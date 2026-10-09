@@ -187,7 +187,7 @@ describe('content-frame browser half', () => {
     expect(closed.ctx.slots.entries('tool.call.toolview')).toHaveLength(0)
     expect(closed.ctx.slots.entries('content.surface.kind')).toHaveLength(1)
     const face = closed.ctx.slots.entries('content.surface.kind')[0]?.inject?.() as Record<string, unknown>
-    expect(Object.keys(face).sort()).toEqual(['cacheSize', 'navigationPollMs', 'onNavigated'])
+    expect(Object.keys(face).sort()).toEqual(['cacheSize', 'channel', 'navigationPollMs', 'onNavigated'])
     await closed.fiber.dispose()
   })
 

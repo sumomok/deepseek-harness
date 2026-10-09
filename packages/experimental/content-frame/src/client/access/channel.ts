@@ -23,18 +23,31 @@
  * on the list — and neither is a report that never lands, which is posted once
  * more.
  *
- * What this cannot share is the tab's identity across two domains loaded from
- * two bundles: each module instance mints its own {@link ContentChannel.tabId},
- * so a session whose calls alternate between domains costs the host's own
- * preferred-tab window once per switch. See the design report's known gaps.
+ * A second domain in another package joins through the `contentTabChannel`
+ * service this module's own row provides, and imports nothing from here but
+ * types: a client bundle may not carry another plugin's values, and the tab
+ * identity, the bid loop and the report route are exactly what a domain should
+ * not have to own.
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/channel
  */
 
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import {
-  CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, HIDDEN_CLAIM_GRACE_MS, MAX_BID_MS, MAX_CLAIM_BACKOFF,
-  ROUTE_REFUSAL_STATUSES, type ClaimAck, type ReportAck,
+  CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, HIDDEN_CLAIM_GRACE_MS, MAX_BID_MS, MAX_CLAIM_BACKOFF,
+  ROUTE_REFUSAL_STATUSES, type ChannelOutcome, type ClaimAck, type ReportAck,
 } from '../../access/wire.ts'
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /**
+     * The tab-side call channel. It is a service of the browser half alone, and
+     * its name is this half's rather than the host's: the two faces are one
+     * program when this package is typechecked, and one context key cannot be
+     * two different services.
+     */
+    contentTabChannel: ContentChannel
+  }
+}
 
 /** One call a domain's seat can answer now. */
 export interface ChannelCall {
@@ -57,27 +70,52 @@ export interface ChannelDemand<Call extends ChannelCall> {
   readonly openCalls: readonly string[]
 }
 
-/** One domain's answer to one claimed call. */
-export interface ChannelAnswer {
-  /** The route the body settles on, as the node half registers it. */
-  readonly route: string
-  /** The serialized document to post. */
-  readonly body: string
-}
+/**
+ * One domain's answer to one claimed call.
+ *
+ * Two forms, because what a domain knows differs. A read that weighs its own
+ * document answers with the serialized body it decided to post — the bound it
+ * had to meet is its deployment's, and the sentence about a document past it is
+ * the read's own. A domain with nothing to weigh answers with the outcome
+ * alone, and the channel composes the document around it, which is the one
+ * place that knows the call id and the tab posting.
+ */
+export type ChannelAnswer<Outcome> =
+  | {
+    /** Discriminant: the domain serialized its own document. */
+    readonly kind: 'body'
+    /** The route the body settles on; the channel's report route when absent. */
+    readonly route?: string
+    /** The serialized document to post. */
+    readonly body: string
+  }
+  | {
+    /** Discriminant: the channel composes the document. */
+    readonly kind: 'outcome'
+    /** The route the outcome settles on; the channel's report route when absent. */
+    readonly route?: string
+    /** What the call ended as, in the shared channel's own vocabulary. */
+    readonly outcome: Outcome
+  }
 
-/** One domain of the channel: a set of tools, and how their calls are answered. */
-export interface ChannelDomain<Call extends ChannelCall> {
+/**
+ * One domain of the channel: a set of tools, and how their calls are answered.
+ *
+ * The outcome type is the domain's own declaration of what it posts, and the
+ * channel's own union is what every domain in this deployment actually posts.
+ */
+export interface ChannelDomain<Call extends ChannelCall, Outcome = ChannelOutcome> {
   /** How this domain names itself in diagnostics. */
   readonly name: string
   /** Whether this page can answer this domain's calls at all right now. */
   ready(): boolean
   /**
-   * Run one claimed call and compose the body that answers it.
+   * Run one claimed call and compose the answer to it.
    * @param call - the call this seat won.
    * @param claimed - the host's acknowledgement, after the claim round trip.
-   * @returns where the body settles, and the document to post.
+   * @returns either a serialized body or an outcome, and where it settles.
    */
-  answer(call: Call, claimed: ClaimAck): Promise<ChannelAnswer>
+  answer(call: Call, claimed: ClaimAck): Promise<ChannelAnswer<Outcome>>
 }
 
 /** One domain's place in the channel: what its seat offers, and when it leaves. */
@@ -175,6 +213,8 @@ async function reportRead(route: string, body: string): Promise<void> {
  * The tab id is minted here rather than per seat, because it is the tab the
  * host pins a session to: two seats of one domain in one page are the same
  * reader to the host, and a second id would make them bid against each other.
+ * A row that provides one registers it as `ctx.contentTabChannel`, which is how
+ * a domain in another package reaches it without importing this module's values.
  */
 export class ContentChannel {
   /** This page load's identity, as the host's claim and report routes name it. */
@@ -185,7 +225,9 @@ export class ContentChannel {
    * @param domain - the domain: which calls it answers, and how.
    * @returns the seat's offering point, and the parking call that ends it.
    */
-  join<Call extends ChannelCall>(domain: ChannelDomain<Call>): ChannelSeat<Call> {
+  join<Call extends ChannelCall, Outcome = ChannelOutcome>(
+    domain: ChannelDomain<Call, Outcome>,
+  ): ChannelSeat<Call> {
     const started = new Set<string>()
     const tabId = this.tabId
     let held: ChannelDemand<Call> = { calls: [], openCalls: [] }
@@ -254,8 +296,15 @@ export class ContentChannel {
         started.delete(call.callId)
         return
       }
-      const report = await domain.answer(call, claimed)
-      await reportRead(report.route, report.body)
+      const answer = await domain.answer(call, claimed)
+      const route = answer.route ?? CONTENT_REPORT_ROUTE
+      // Composed here for a domain with nothing to weigh: the call id and the
+      // tab posting are this channel's, and a domain that repeated them would
+      // be a second place they could drift.
+      const body = answer.kind === 'body'
+        ? answer.body
+        : JSON.stringify({ callId: call.callId, tabId, outcome: answer.outcome })
+      await reportRead(route, body)
     }
 
     return {

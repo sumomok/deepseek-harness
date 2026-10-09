@@ -778,20 +778,21 @@ function pageDomain(seat: MutableRefObject<ContentReadSeat>): ChannelDomain<Page
       // none never offered a call; the answer keeps the arm total.
       /* v8 ignore next -- an offered call only exists where `ready()` was true */
       if (access === undefined) {
-        return { route: CONTENT_REPORT_ROUTE, body: reportOf(live, call.request.callId, frameError(FRAME_LOST_MESSAGE)).body }
+        const lost = reportOf(live, call.request.callId, frameError(FRAME_LOST_MESSAGE))
+        return { kind: 'body', route: CONTENT_REPORT_ROUTE, body: lost.body }
       }
       if (call.request.tool === CONTENT_ACT_TOOL_NAME) {
         const report = await actOnPage(live, session, call.request, access, claimed.page)
-        return { route: CONTENT_REPORT_ROUTE, body: report.body }
+        return { kind: 'body', route: CONTENT_REPORT_ROUTE, body: report.body }
       }
       // One call, one settling route: a picture read's failures travel the
       // picture route too, so no call id is ever raced by two routes.
       if (call.request.tool === CONTENT_READ_IMAGE_TOOL_NAME) {
         const report = await readImage(live, session, call.request, access)
-        return { route: CONTENT_IMAGE_ROUTE, body: report.body }
+        return { kind: 'body', route: CONTENT_IMAGE_ROUTE, body: report.body }
       }
       const report = await readPage(live, session, call.request, access)
-      return { route: CONTENT_REPORT_ROUTE, body: report.body }
+      return { kind: 'body', route: CONTENT_REPORT_ROUTE, body: report.body }
     },
   }
 }
