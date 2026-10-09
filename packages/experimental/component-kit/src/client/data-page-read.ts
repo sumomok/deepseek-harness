@@ -956,8 +956,10 @@ export function readDeletedIds(payload: DataPageDeleteSavedPayload): readonly st
  * The page raises this only where every record changed, handing over each
  * already trimmed the way a deleted one is, and the names of the attributes
  * the user ticked without the value written into them. The names are read
- * through `columns` as a delete's are; a field name the catalog would refuse is
- * left out, each is named once, and at most {@link MAX_SAVED_FIELDS} are kept.
+ * through `columns` as a delete's are. The page hands over every ticked
+ * attribute, whatever the table reported, so a field is kept only where it is
+ * one of `columns`: an attribute the page does not draw or the scheme masks is
+ * not named. Each is named once, and at most {@link MAX_SAVED_FIELDS} are kept.
  * @param payload - the `batch-modify-save-success` event's payload.
  * @param columns - the columns whose values a report may carry.
  * @returns the report, or `undefined` when the payload carries no list of changed records.
@@ -969,7 +971,9 @@ export function readBatchModified(
   const record = readRecord(payload)
   const modified = record?.['modified']
   if (!Array.isArray(modified)) return undefined
-  const fields = [...new Set(readList(record?.['attrs'], readAttribute))].slice(0, MAX_SAVED_FIELDS)
+  const reported = new Set(columns.map(column => column.attr))
+  const ticked = readList(record?.['attrs'], readAttribute).filter(attr => reported.has(attr))
+  const fields = [...new Set(ticked)].slice(0, MAX_SAVED_FIELDS)
   return { succeeded: modified.length, failed: 0, names: nameRows(modified, columns), fields }
 }
 
