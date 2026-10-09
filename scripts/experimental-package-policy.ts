@@ -12,6 +12,7 @@ export const PRIVATE_EXPERIMENTAL_PACKAGE_DIRECTORIES: readonly string[] = [
   'packages/experimental/console-profile',
   'packages/experimental/content-column',
   'packages/experimental/content-frame',
+  'packages/experimental/content-point',
   'packages/experimental/content-surface',
   'packages/experimental/library-skills',
   'packages/experimental/page-refresh',
