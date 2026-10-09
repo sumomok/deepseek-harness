@@ -195,6 +195,21 @@ async function pointAt(page: Page, target: Locator, shot?: string): Promise<void
   await page.mouse.click(x, y)
 }
 
+/**
+ * Bring two chips of the attachment row into view inside the row, the page itself left where it is.
+ * @param page - the page.
+ * @param first - the 0-based index of the first of the two.
+ */
+async function chipsShown(page: Page, first: number): Promise<void> {
+  await page.getByRole('group', { name: '待发送附件' }).locator('[data-reference-chip]').nth(first).evaluate((chip) => {
+    // The nearest ancestor that overflows sideways is the row's own scroller; no other element is scrolled.
+    let scroller = chip.parentElement
+    while (scroller !== null && scroller.scrollWidth <= scroller.clientWidth) scroller = scroller.parentElement
+    if (scroller !== null) scroller.scrollLeft += chip.getBoundingClientRect().left - scroller.getBoundingClientRect().left
+  })
+  await page.waitForTimeout(150)
+}
+
 describe.skipIf(MODE === 'record')('web e2e: 「指一下」 in the customer console', () => {
   let scaffold: WebScaffold
   let browser: Browser
@@ -223,7 +238,7 @@ describe.skipIf(MODE === 'record')('web e2e: 「指一下」 in the customer con
     await rm(harnessHome, { recursive: true, force: true })
   })
 
-  it('points at a column header, a toolbar button, a whole block and a sidebar entry, and the model is told each one\'s key line and no row value', async () => {
+  it('points at a header, a toolbar button, a cell, a row operation, a whole block and a sidebar entry, and the model is told each one\'s key line and no row value', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-content-point'))
     await sidebar(page).locator('[data-server-sidebar-section="workbench"]').click()
     const input = composer(page)
@@ -273,6 +288,13 @@ describe.skipIf(MODE === 'record')('web e2e: 「指一下」 in the customer con
     await expect.poll(async () => await block.locator('.el-table__body-wrapper tbody tr').count(), { timeout: 60_000 }).toBe(ROWS_SHOWN.length)
     await expect.poll(async () => await page.getByText('OPENED', { exact: true }).count(), { timeout: 60_000 }).toBeGreaterThan(0)
 
+    // A second click on the button while a point runs cancels it, and reports nothing.
+    await startPoint(page)
+    await pointButton(page).click()
+    await expect.poll(() => pointButton(page).getAttribute('aria-pressed'), { timeout: 5_000 }).toBe('false')
+    expect(await page.getByText('这一处指不了', { exact: false }).count()).toBe(0)
+    expect(await chips(page)).toEqual([])
+
     // A column header, hovered first: the picker draws its box and words over the place a click would take.
     await startPoint(page)
     const header = block.locator('.el-table__header-wrapper th .cell', { hasText: '名称' }).first()
@@ -286,22 +308,35 @@ describe.skipIf(MODE === 'record')('web e2e: 「指一下」 in the customer con
     await expect.poll(() => chips(page), { timeout: 15_000 }).toHaveLength(2)
     expect(searchesSeen).toBe(searches)
 
+    // A cell of the second row, and the second row's custom operation: named by column and operation, never by the row.
+    await startPoint(page)
+    const secondRow = block.locator('.el-table__body-wrapper tbody tr').nth(1)
+    await pointAt(page, secondRow.locator('td', { hasText: ROWS_SHOWN[1]?.zh_label ?? '' }).first())
+    await expect.poll(() => chips(page), { timeout: 15_000 }).toHaveLength(3)
+    await startPoint(page)
+    await pointAt(page, block.locator('.el-table__fixed-right .operation-custom').nth(1))
+    await expect.poll(() => chips(page), { timeout: 15_000 }).toHaveLength(4)
+
     // A block point-anchor does not describe: the metric the call placed beside the page for this case.
     await startPoint(page)
     await pointAt(page, seat(page).locator('[data-component-block="el.metric"]'), join(SHOTS, '03-hover-block.png'))
-    await expect.poll(() => chips(page), { timeout: 15_000 }).toHaveLength(3)
+    await expect.poll(() => chips(page), { timeout: 15_000 }).toHaveLength(5)
 
-    // A sidebar view entry.
+    // The question typed first, then one more point: the composer keeps the focus through it, and Enter sends.
+    await input.fill(ASK_PROMPT)
     await startPoint(page)
     await pointAt(page, sidebar(page).locator('[data-server-sidebar-nav-entry="space-layer-rate"]'))
-    await expect.poll(() => chips(page), { timeout: 15_000 }).toHaveLength(4)
-    await row.screenshot({ path: join(SHOTS, '04-four-chips.png') })
-    await page.screenshot({ path: join(SHOTS, '04-four-chips-page.png') })
+    await expect.poll(() => chips(page), { timeout: 15_000 }).toHaveLength(6)
+    // The row shows about two chips at a time: one shot per pair.
+    for (const first of [0, 2, 4]) {
+      await chipsShown(page, first)
+      await row.screenshot({ path: join(SHOTS, `04-chips-${String(first + 1)}-${String(first + 2)}.png`) })
+    }
+    await page.screenshot({ path: join(SHOTS, '04-chips-page.png') })
 
-    // The last pick's guard swallows a click and Enter for a moment after it ends, as it does the button's.
+    // The last pick's guard swallows a key for a moment after it ends, as it does a click.
     await page.waitForTimeout(800)
     const settled = scaffold.whenTurnSettled(60_000)
-    await input.fill(ASK_PROMPT)
     await page.keyboard.press('Enter')
     await settled
     await page.screenshot({ path: join(SHOTS, '05-sent.png') })
@@ -314,10 +349,13 @@ describe.skipIf(MODE === 'record')('web e2e: 「指一下」 in the customer con
     expect(sent?.data.content).toEqual([{ type: 'text', text: ASK_PROMPT }])
     expect(messages.find(event => event.data.source.kind === 'user')?.data.content).toEqual([{ type: 'text', text: OPEN_PROMPT }])
     const references = (sent?.data.source as { references?: { source: string; label: string; data: unknown }[] }).references ?? []
-    expect(references.map(reference => reference.source)).toEqual(['content-point', 'content-point', 'content-point', 'content-point'])
+    expect(references.map(reference => reference.source)).toEqual(Array.from({ length: 6 }, () => 'content-point'))
     // Compared as a string: the merge declaring this source kind lives in an experimental package, which `apps/web` may not depend on.
     const notices = messages.filter(event => (event.data.source.kind as string) === 'content-point')
     expect(notices).toHaveLength(1)
+    // The notice names the message it answers, and the log holds it right after that message.
+    expect((notices[0]?.data.source as { message?: string }).message).toBe(sent?.data.id)
+    expect(events[events.indexOf(sent as SessionEvent) + 1]).toBe(notices[0])
     const text = JSON.stringify(notices[0]?.data.content)
     // The logged message as the session log holds it, drawn on a page of its own for the evidence.
     const logged = JSON.stringify({ promptSource: sent?.data.source, notice: notices[0]?.data }, undefined, 2)
@@ -329,11 +367,20 @@ describe.skipIf(MODE === 'record')('web e2e: 「指一下」 in the customer con
     // Data page, fine-grained: the column header and the toolbar button by their structure.
     expect(text).toContain(`data-page model=${META} region=table part=header column=zh_label`)
     expect(text).toMatch(new RegExp(`data-page model=${META} region=\\w+ part=button button=search`))
+    expect(text).toContain(`data-page model=${META} region=table part=cell column=zh_label`)
+    expect(text).toContain(`data-page model=${META} region=table part=rowOperation operation=custom:locate`)
     // Block-level: the component the view draws and the node id, and nothing the block shows.
     expect(text).toContain('block seat=component component=el.metric node=rate')
     expect(text).not.toContain('72')
     expect(text).toContain('nav nav=view id=space-layer-rate')
-    for (const shown of ROWS_SHOWN) for (const value of Object.values(shown)) expect(text).not.toContain(value)
-    expect(JSON.stringify(references)).not.toContain(ROWS_SHOWN[0]?.zh_label)
+    // No value of either row in the references, the notice, or anything else the session logged (plan §1.6, step 3).
+    const log = JSON.stringify(events)
+    for (const shown of ROWS_SHOWN) {
+      for (const value of Object.values(shown)) {
+        expect(text, value).not.toContain(value)
+        expect(JSON.stringify(references), value).not.toContain(value)
+        expect(log, value).not.toContain(value)
+      }
+    }
   }, 240_000)
 })

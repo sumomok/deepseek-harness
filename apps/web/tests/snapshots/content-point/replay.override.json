@@ -14,7 +14,7 @@
           "type": "tool-call",
           "id": "call_00_point000000000000000000001",
           "name": "show_component",
-          "arguments": "{\"id\": \"layers\", \"title\": \"图层配置\", \"spec\": {\"nodes\": [{\"id\": \"page\", \"component\": \"toy.data-page\", \"props\": {\"relatedMeta\": \"SpaceLayer\", \"metaLabel\": \"图层配置\", \"selectMode\": \"checkbox\"}}, {\"id\": \"rate\", \"component\": \"el.metric\", \"props\": {\"process\": 72, \"text\": \"完成率\"}}]}}"
+          "arguments": "{\"id\": \"layers\", \"title\": \"图层配置\", \"spec\": {\"nodes\": [{\"id\": \"page\", \"component\": \"toy.data-page\", \"props\": {\"relatedMeta\": \"SpaceLayer\", \"metaLabel\": \"图层配置\", \"selectMode\": \"checkbox\", \"customOperations\": [{\"name\": \"locate\", \"label\": \"定位\"}]}}, {\"id\": \"rate\", \"component\": \"el.metric\", \"props\": {\"process\": 72, \"text\": \"完成率\"}}]}}"
         }
       },
       {
@@ -79,14 +79,14 @@
       {
         "type": "text-delta",
         "index": 0,
-        "text": "你指的是：名称这一列、查询按钮、完成率这一块，以及侧栏的「图层完成率」。"
+        "text": "你指的是：名称这一列、查询按钮、名称列里的一格、定位操作、完成率这一块，以及侧栏的「图层完成率」。"
       },
       {
         "type": "block-end",
         "index": 0,
         "block": {
           "type": "text",
-          "text": "你指的是：名称这一列、查询按钮、完成率这一块，以及侧栏的「图层完成率」。"
+          "text": "你指的是：名称这一列、查询按钮、名称列里的一格、定位操作、完成率这一块，以及侧栏的「图层完成率」。"
         }
       },
       {
