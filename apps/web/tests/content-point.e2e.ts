@@ -11,13 +11,16 @@
  * The data page is the deployment's own, opened by a scripted `show_component`
  * call the user approves; its requests are answered in the browser under the
  * configured base path, as the reverse proxy in front of a real console would.
+ * The same call places a completion-rate metric beside it, as the prompt asks:
+ * point-anchor does not describe `el.metric`, so that block is the one this
+ * scenario points at as a whole.
  * An experimental package cannot be a dependency of `apps/web`, so the profile
  * links the loader resolves the rows through are created here.
  */
 
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { rm } from 'node:fs/promises'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import type { Browser, Locator, Page, Route } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
@@ -27,11 +30,22 @@ import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-workspace'
 import { CONSOLE_ROWS, harnessHomeWithRowLinks, launchConsole } from './console-launch.ts'
 import { watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
-import { REPO_ROOT, saveFailureShot, writeComposerDraft, ZH_BROWSER_LOCALE } from './support.ts'
+import { REPO_ROOT, saveFailureShot, ZH_BROWSER_LOCALE } from './support.ts'
 
 const MODE = webSnapshotMode()
 const OVERLAY = fileURLToPath(new URL('./content-point.overlay.yml', import.meta.url))
-/** The hand-written model answers, one entry per model call. */
+/**
+ * The prompt that opens the page, and the one that asks about the points. The
+ * composer takes them with `fill`: typed with the keyboard, a draft that starts
+ * with a CJK character reaches the log without that character.
+ */
+const OPEN_PROMPT = '打开图层配置的数据页，旁边放一个图层完成率指标'
+const ASK_PROMPT = '这几处分别是什么'
+
+/**
+ * The hand-written model answers, one entry per model call: the
+ * `show_component` call placing the page and the metric, then two replies.
+ */
 const REPLAY = fileURLToPath(new URL('./snapshots/content-point/replay.override.json', import.meta.url))
 /** Where the run's screenshots land. */
 const SHOTS = process.env['DSH_CONTENT_POINT_SHOTS'] ?? join(REPO_ROOT, '.artifacts', 'content-point')
@@ -87,6 +101,9 @@ function schemeRow(schemaType: number): Record<string, unknown> {
   }
 }
 
+/** How many row queries the page has made; a pick that reached 查询 would make one more. */
+let searchesSeen = 0
+
 /**
  * Answer one request of the page's own request layer as the deployment's backend does.
  * @param route - the intercepted request.
@@ -111,6 +128,7 @@ async function answerBackend(route: Route): Promise<void> {
     ] } })
   }
   if (path.endsWith(`/nrms-datamanagement/api/resources/${META}/_search`)) {
+    searchesSeen += 1
     const page = { total: ROWS_SHOWN.length, currentPage: 1, pageSize: 20 }
     return await answer({ code: 0, data: { rawValue: ROWS_SHOWN, displayValue: ROWS_SHOWN, ref: [], page } })
   }
@@ -133,6 +151,35 @@ const pointButton = (page: Page): Locator => page.locator('[data-content-point-b
 const chips = (page: Page): Promise<(string | null)[]> =>
   page.getByRole('group', { name: '待发送附件' }).locator('[data-reference-chip]').evaluateAll(nodes => nodes.map(node => node.getAttribute('title')))
 
+/**
+ * Start a point from the button, once the guard the previous pick leaves on the page has ended: for a moment after a pick
+ * the page swallows clicks, the button's among them.
+ * @param page - the page.
+ */
+async function startPoint(page: Page): Promise<void> {
+  await page.waitForTimeout(800)
+  await pointButton(page).click()
+  await expect.poll(() => pointButton(page).getAttribute('aria-pressed'), { timeout: 5_000 }).toBe('true')
+}
+
+/**
+ * Point at the middle of an element with the mouse, as a user does: over whatever the page draws on top there, with no
+ * scrolling on the way. Hovering waits for the picker's box and words, which it draws on an animation frame.
+ * @param page - the page.
+ * @param target - the element.
+ * @param shot - where to save a screenshot of the hover, if anywhere.
+ */
+async function pointAt(page: Page, target: Locator, shot?: string): Promise<void> {
+  const box = await target.boundingBox()
+  if (box === null) throw new Error('the place to point at is not laid out')
+  const x = box.x + box.width / 2
+  const y = box.y + box.height / 2
+  await page.mouse.move(x, y, { steps: 4 })
+  await page.waitForTimeout(300)
+  if (shot !== undefined) await page.screenshot({ path: shot })
+  await page.mouse.click(x, y)
+}
+
 describe.skipIf(MODE === 'record')('web e2e: 「指一下」 in the customer console', () => {
   let scaffold: WebScaffold
   let browser: Browser
@@ -141,6 +188,7 @@ describe.skipIf(MODE === 'record')('web e2e: 「指一下」 in the customer con
   const events: SessionEvent[] = []
 
   beforeAll(async () => {
+    await mkdir(SHOTS, { recursive: true })
     harnessHome = await harnessHomeWithRowLinks(ROWS)
     scaffold = await launchConsole(harnessHome, OVERLAY, 'home', { replayOverride: REPLAY, replayFixture: REPLAY })
     scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { events.push(event) })
@@ -176,8 +224,32 @@ describe.skipIf(MODE === 'record')('web e2e: 「指一下」 in the customer con
     const row = page.locator('[data-composer-card]').first()
     await pointButton(page).waitFor({ timeout: 15_000 })
     await row.screenshot({ path: join(SHOTS, '01-composer-row.png') })
+    // What stands between 「+」 and the button: the children of the row both sit in, and the gap the row draws.
+    const between = await pointButton(page).evaluate((button) => {
+      const add = button.closest('[data-composer-card]')?.querySelector('button[aria-haspopup="listbox"]')
+      let tools: Element | null = button.parentElement
+      while (tools !== null && add !== null && add !== undefined && !tools.contains(add)) tools = tools.parentElement
+      const children = [...tools?.children ?? []].map(child => ({
+        tag: child.localName,
+        cls: child.getAttribute('class') ?? '',
+        width: child.getBoundingClientRect().width,
+        display: getComputedStyle(child).display,
+        holdsAdd: add !== null && add !== undefined && child.contains(add),
+        holdsPoint: child.contains(button),
+        html: child.outerHTML.slice(0, 400),
+      }))
+      const gap = tools === null ? '' : getComputedStyle(tools).columnGap
+      const distance = add === null || add === undefined ? -1 : button.getBoundingClientRect().left - add.getBoundingClientRect().right
+      return { gap, distance, children }
+    })
+    await writeFile(join(SHOTS, '01-composer-row.json'), `${JSON.stringify(between, undefined, 2)}\n`)
+    // Nothing visible stands between 「+」 and the button.
+    const shown = between.children.filter(child => child.width > 0 || child.holdsPoint)
+    expect(shown.findIndex(child => child.holdsPoint)).toBe(shown.findIndex(child => child.holdsAdd) + 1)
+    // One gap of the row from 「+」, as between any two of its tools.
+    expect(`${String(between.distance)}px`).toBe(between.gap)
 
-    await writeComposerDraft(page, input, '打开图层配置的数据页')
+    await input.fill(OPEN_PROMPT)
     await page.keyboard.press('Enter')
     const panel = page.locator('[data-approval-key]')
     await panel.waitFor({ timeout: 60_000 })
@@ -186,52 +258,65 @@ describe.skipIf(MODE === 'record')('web e2e: 「指一下」 in the customer con
     await expect.poll(async () => await block.locator('.el-table__body-wrapper tbody tr').count(), { timeout: 60_000 }).toBe(ROWS_SHOWN.length)
     await expect.poll(async () => await page.getByText('OPENED', { exact: true }).count(), { timeout: 60_000 }).toBeGreaterThan(0)
 
-    // A column header.
-    await pointButton(page).click()
+    // A column header, hovered first: the picker draws its box and words over the place a click would take.
+    await startPoint(page)
     const header = block.locator('.el-table__header-wrapper th .cell', { hasText: '名称' }).first()
-    await header.hover()
-    // The picker draws its box and words on the next animation frame after the pointer moves.
-    await page.waitForTimeout(300)
-    await page.screenshot({ path: join(SHOTS, '02-hover-header.png') })
-    await header.click()
-    await expect.poll(() => chips(page), { timeout: 15_000 }).toHaveLength(1)
+    await pointAt(page, header, join(SHOTS, '02-hover-header.png'))
+    await expect.poll(() => chips(page), { timeout: 15_000 }).toEqual(['列「名称」'])
 
-    // The toolbar's 查询.
-    await pointButton(page).click()
-    await block.locator('button.query-btn').click()
+    // The toolbar's 查询, which the pick swallows: the page runs no query.
+    const searches = searchesSeen
+    await startPoint(page)
+    await pointAt(page, block.locator('button.query-btn'))
     await expect.poll(() => chips(page), { timeout: 15_000 }).toHaveLength(2)
+    expect(searchesSeen).toBe(searches)
 
-    // A block point-anchor does not describe: the metric beside the page.
-    await pointButton(page).click()
-    const metric = seat(page).locator('[data-component-block="el.metric"]')
-    await metric.hover()
-    // The picker draws its box and words on the next animation frame after the pointer moves.
-    await page.waitForTimeout(300)
-    await page.screenshot({ path: join(SHOTS, '03-hover-block.png') })
-    await metric.click()
+    // A block point-anchor does not describe: the metric the call placed beside the page for this case.
+    await startPoint(page)
+    await pointAt(page, seat(page).locator('[data-component-block="el.metric"]'), join(SHOTS, '03-hover-block.png'))
     await expect.poll(() => chips(page), { timeout: 15_000 }).toHaveLength(3)
 
     // A sidebar view entry.
-    await pointButton(page).click()
-    await sidebar(page).locator('[data-server-sidebar-nav-entry="space-layer-rate"]').click()
+    await startPoint(page)
+    await pointAt(page, sidebar(page).locator('[data-server-sidebar-nav-entry="space-layer-rate"]'))
     await expect.poll(() => chips(page), { timeout: 15_000 }).toHaveLength(4)
     await row.screenshot({ path: join(SHOTS, '04-four-chips.png') })
+    await page.screenshot({ path: join(SHOTS, '04-four-chips-page.png') })
 
+    // The last pick's guard swallows a click and Enter for a moment after it ends, as it does the button's.
+    await page.waitForTimeout(800)
     const settled = scaffold.whenTurnSettled(60_000)
-    await writeComposerDraft(page, input, '这几处分别是什么')
+    await input.fill(ASK_PROMPT)
     await page.keyboard.press('Enter')
     await settled
     await page.screenshot({ path: join(SHOTS, '05-sent.png') })
 
-    const messages = events.filter((event): event is SessionEvent<'user/message'> => event.type === 'user/message')
-    const sent = messages.find(event => JSON.stringify(event.data.content).includes('这几处分别是什么'))
+    const userMessages = (): SessionEvent<'user/message'>[] =>
+      events.filter((event): event is SessionEvent<'user/message'> => event.type === 'user/message')
+    await expect.poll(() => userMessages().some(event => (event.data.source.kind as string) === 'content-point'), { timeout: 15_000 }).toBe(true)
+    const messages = userMessages()
+    const sent = messages.find(event => 'references' in event.data.source)
+    expect(sent?.data.content).toEqual([{ type: 'text', text: ASK_PROMPT }])
+    expect(messages.find(event => event.data.source.kind === 'user')?.data.content).toEqual([{ type: 'text', text: OPEN_PROMPT }])
     const references = (sent?.data.source as { references?: { source: string; label: string; data: unknown }[] }).references ?? []
     expect(references.map(reference => reference.source)).toEqual(['content-point', 'content-point', 'content-point', 'content-point'])
-    const notices = messages.filter(event => event.data.source.kind === 'content-point')
+    // Compared as a string: the merge declaring this source kind lives in an experimental package, which `apps/web` may not depend on.
+    const notices = messages.filter(event => (event.data.source.kind as string) === 'content-point')
     expect(notices).toHaveLength(1)
     const text = JSON.stringify(notices[0]?.data.content)
+    // The logged message as the session log holds it, drawn on a page of its own for the evidence.
+    const logged = JSON.stringify({ promptSource: sent?.data.source, notice: notices[0]?.data }, undefined, 2)
+    await writeFile(join(SHOTS, '06-logged.json'), `${logged}\n`)
+    const logPage = await browser.newPage({ viewport: { width: 1200, height: 900 } })
+    await logPage.setContent(`<pre style="font: 13px/1.5 monospace; white-space: pre-wrap; margin: 16px">${logged.replace(/[&<>]/g, c => `&#${String(c.charCodeAt(0))};`)}</pre>`)
+    await logPage.screenshot({ path: join(SHOTS, '06-logged-message.png'), fullPage: true })
+    await logPage.close()
+    // Data page, fine-grained: the column header and the toolbar button by their structure.
     expect(text).toContain(`data-page model=${META} region=table part=header column=zh_label`)
+    expect(text).toMatch(new RegExp(`data-page model=${META} region=\\w+ part=button button=search`))
+    // Block-level: the component the view draws and the node id, and nothing the block shows.
     expect(text).toContain('block seat=component component=el.metric node=rate')
+    expect(text).not.toContain('72')
     expect(text).toContain('nav nav=view id=space-layer-rate')
     for (const shown of ROWS_SHOWN) for (const value of Object.values(shown)) expect(text).not.toContain(value)
     expect(JSON.stringify(references)).not.toContain(ROWS_SHOWN[0]?.zh_label)

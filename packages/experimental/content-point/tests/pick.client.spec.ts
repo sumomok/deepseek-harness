@@ -48,7 +48,7 @@ describe('a place point-anchor describes', () => {
   })
 
   it('keeps why a place has no anchor', () => {
-    const unanchored = { ...withoutRow(CELL), anchor: undefined, unanchored: 'no-column' as const }
+    const unanchored: PointDescription = { v: CELL.v, anchorFormat: CELL.anchorFormat, what: CELL.what, unanchored: 'no-column', shown: CELL.shown }
     const outcome = pointOutcome({ kind: 'picked', point: unanchored, element: document.body, warnings: [] }, undefined, NAMES)
     expect(outcome.kind === 'reference' && outcome.data).toMatchObject({ unanchored: 'no-column' })
   })

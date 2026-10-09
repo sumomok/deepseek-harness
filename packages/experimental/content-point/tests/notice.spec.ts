@@ -149,6 +149,19 @@ describe('the notice a user message\'s points add', () => {
     expect(notice?.text.split('\n\n')).toHaveLength(16)
   })
 
+  it('writes a point without an anchor with the reason it has none', () => {
+    const unanchored = toPromptReference({ v: DESCRIBE_FORMAT, anchorFormat: ANCHOR_FORMAT, what: { kind: 'frame', role: 'button' }, unanchored: 'nameless', shown: { page: '订单' } }, POINT_SOURCE)
+    const text = unanchored === undefined ? '' : pointNotice([{ source: POINT_SOURCE, label: unanchored.label, data: unanchored.data }], MAX_PROMPT_REFERENCES)?.text
+    expect(text).toContain('锚点：没有（')
+  })
+
+  it.each([
+    ['no object', null, '这条引用的内容本版本读不了'],
+    ['a describe format that is no number', { ...pointRef(HEADER).data, v: 'x' }, '格式本版本读不了（本版本读格式 1）'],
+  ])('writes a point carrying %s as unreadable', (_name, data, words) => {
+    expect(pointNotice([{ source: POINT_SOURCE, label: '旧的', data }], MAX_PROMPT_REFERENCES)?.text).toContain(words)
+  })
+
   it.each([
     ['a describe format this build does not read', { ...pointRef(HEADER).data, v: 9 }, '格式 9 本版本读不了（本版本读格式 1）'],
     ['an anchor format this build does not read', { ...pointRef(HEADER).data, anchorFormat: 7 }, '格式 7 本版本读不了'],

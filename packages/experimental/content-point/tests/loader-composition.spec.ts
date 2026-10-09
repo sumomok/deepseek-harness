@@ -3,7 +3,8 @@
  * core plugins. A browser prompt recording two points — a data page's column
  * header and a block — reaches the model followed by the row's message writing
  * both key lines, the session log holds that message right after the prompt,
- * and the next turn's request carries it once.
+ * and the request of the turn's second step, after a tool call, and the next
+ * turn's request each carry it once.
  */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -23,11 +24,11 @@ import type { RequestMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import { ANCHOR_FORMAT, DESCRIBE_FORMAT, toPromptReference } from '@haoran/dsh-point-anchor'
 import * as ContentPoint from '../src/index.ts'
 import { blockData, POINT_SOURCE } from '../src/index.ts'
-import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
 let ctx: Context | undefined
 let root: string | undefined
@@ -48,7 +49,7 @@ function texts(messages: readonly RequestMessage[]): string[] {
   return messages.map(message => message.content.map(block => (block.type === 'text' ? block.text : '')).join(''))
 }
 
-it('appends the points of a browser prompt once, right after it, and the model reads them', async () => {
+it('appends the points of a browser prompt once, right after it, and every later request reads them once', async () => {
   root = await mkdtemp(join(tmpdir(), 'dsh-content-point-composition-'))
   const configPath = join(root, 'cordis.yml')
   const modules = new Map<string, unknown>([
@@ -73,8 +74,12 @@ it('appends the points of a browser prompt once, right after it, and the model r
   await context.loader.await()
   for (const entry of context.loader.entries()) await entry.fiber?.await()
 
-  const adapter = new MockAdapter([textResponse('名称这一列是图层的名字。'), textResponse('好的。')])
+  const adapter = new MockAdapter([toolCallResponse('c1', 'look', {}), textResponse('名称这一列是图层的名字。'), textResponse('好的。')])
   context.llm.registerAdapter(['mock'], adapter)
+  context.tools.register(defineContentToolFixture({
+    name: 'look', description: 'look', parameters: {},
+    async execute() { return [{ type: 'text', text: 'looked' }] },
+  }))
   const agent = await context.agentLoop.create(SessionId('composed'), { provider: 'mock', model: 'mock' })
   const header = toPromptReference({
     v: DESCRIBE_FORMAT,
@@ -101,13 +106,14 @@ it('appends the points of a browser prompt once, right after it, and the model r
   agent.followup(createUserMessage({ content: [{ type: 'text', text: '谢谢' }], source: { kind: 'user' } }))
   await agent.whenIdle()
 
-  const [first, second] = adapter.requests
+  expect(adapter.requests).toHaveLength(3)
+  const [first, ...later] = adapter.requests
   const sent = texts(first?.messages ?? [])
   const at = sent.indexOf('这两处是什么')
   expect(at).toBeGreaterThan(-1)
   expect(sent[at + 1]).toContain('`data-page model=SpaceLayer region=table part=header column=zh_label`')
   expect(sent[at + 1]).toContain('`block seat=component component=el.metric node=rate`')
-  expect(texts(second?.messages ?? []).filter(text => text.includes('锚点：'))).toHaveLength(1)
+  for (const request of later) expect(texts(request.messages).filter(text => text.includes('锚点：'))).toHaveLength(1)
 
   const logged = agent.session.snapshotEvents().filter(event => event.type === 'user/message').map(event => event.data.source)
   expect(logged.map(source => source.kind)).toEqual(['user', 'content-point', 'user'])

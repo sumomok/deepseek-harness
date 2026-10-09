@@ -14,6 +14,7 @@ import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { contentFrameCopy } from '@haoran/dsh-point-anchor/page'
 import { collect } from '@deepseek-ai/dsh-experimental-content-frame/src/client/access/collect.ts'
+import { RefTable } from '@deepseek-ai/dsh-experimental-content-frame/src/client/access/refs.ts'
 
 /** Where the vendored point-anchor's naming corpus is installed. */
 const CORPUS = join(dirname(createRequire(import.meta.url).resolve('@haoran/dsh-point-anchor/package.json')), 'fixtures', 'naming')
@@ -56,9 +57,8 @@ afterEach(() => {
 describe.each(PAGES)('the %s page of the naming corpus', (page) => {
   it('is read item for item alike by point-anchor\'s copied walk and the console\'s content-frame reader', () => {
     document.body.innerHTML = readFileSync(join(CORPUS, `${page}.html`), 'utf8')
-    const refs = { ref: (): string => '' }
-    const copied = contentFrameCopy.collect(document, { refs, ...ENV }, undefined).map(printed)
-    const own = collect(document, { refs, budgetChars: Number.MAX_SAFE_INTEGER, ...ENV }, undefined).map(printed)
+    const copied = contentFrameCopy.collect(document, { refs: { ref: (): string => '' }, ...ENV }, undefined).map(printed)
+    const own = collect(document, { refs: new RefTable(), budgetChars: Number.MAX_SAFE_INTEGER, ...ENV }, undefined).map(printed)
     expect(copied.length).toBeGreaterThan(0)
     expect(own).toEqual(copied)
   })

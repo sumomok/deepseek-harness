@@ -12,11 +12,14 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
-import type { ComposerReferenceAttachment, DraftAttachmentId, ReferenceDraftInput } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ComposerReferenceAttachment, DraftAttachmentId } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { pageMarkerValue } from '@haoran/dsh-point-anchor/page'
 import { apply, inject } from '../src/client/index.ts'
 import type { PointButtonInjected } from '../src/client/index.ts'
 import { clickTrusted, mountConsole, probe } from './console-fixture.client.ts'
+
+/** What an owner hands `createReferenceDraft`. */
+type ReferenceDraftInput = Omit<ComposerReferenceAttachment, 'kind' | 'id'>
 
 /**
  * A client context with the slots, the locale and a conversation that files drafts.
@@ -55,7 +58,8 @@ describe('the browser half', () => {
     try {
       await fiber.await()
       const entry = b.slots.entries('conversation.input.left')[0]
-      const injected = (entry?.inject as () => PointButtonInjected)()
+      if (entry?.inject === undefined) throw new Error('the entry injects nothing')
+      const injected = (entry.inject as (() => PointButtonInjected) & NonNullable<typeof entry.inject>)()
       mountConsole(document)
       const named = async (name: string) => {
         const pending = injected.point(new AbortController().signal)
