@@ -337,6 +337,7 @@ describe('the console bundle manifest', () => {
       '@deepseek-ai/dsh-compaction-tool-result-pruner',
       '@deepseek-ai/dsh-experimental-console-mcp',
       '@deepseek-ai/dsh-experimental-content-column',
+      '@deepseek-ai/dsh-experimental-content-point',
       '@deepseek-ai/dsh-experimental-content-surface',
       '@deepseek-ai/dsh-experimental-library-skills',
       '@deepseek-ai/dsh-experimental-page-refresh',
@@ -395,8 +396,8 @@ describe('the console layer over the shipped Web bundles', () => {
 
   it('inserts the shell, the sidebar, the page\'s build check, the MCP capability, the library-skills provider, and automatic compaction at stable ids', () => {
     for (const id of [
-      'server-layout', 'content-surface', 'content-column', 'server-sidebar', 'page-refresh', 'console-mcp', 'library-skills',
-      'auto-compact',
+      'server-layout', 'content-surface', 'content-column', 'server-sidebar', 'page-refresh', 'content-point', 'console-mcp',
+      'library-skills', 'auto-compact',
     ]) {
       expect(byId.has(id)).toBe(true)
       expect(byId.get(id)?.disabled).not.toBe(true)
@@ -605,6 +606,13 @@ describe('the console layer over the shipped Web bundles', () => {
     expect(byId.get('page-refresh')?.disabled).not.toBe(true)
     // No field is volatile, so nothing a settings write could reach needs the lock.
     expect(idsOf(LOCK_PATCH)).not.toContain('page-refresh')
+  })
+
+  it('mounts the point row by package name in the bundle layer, with no config', () => {
+    expect(byId.get('content-point')).toEqual({ id: 'content-point', name: '@deepseek-ai/dsh-experimental-content-point' })
+    expect(byId.get('content-point')?.disabled).not.toBe(true)
+    // The row has no config, so nothing a settings write could reach needs the lock.
+    expect(idsOf(LOCK_PATCH)).not.toContain('content-point')
   })
 
   it('mounts automatic compaction on the host plane, leaving its config to the lock', () => {

@@ -51,6 +51,7 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 | `console-mcp` | 带 `servers: []` 插入：MCP 能力，在部署点名服务器之前不做任何事 |
 | `library-skills` | 插入：一个以 `@deepseek-ai/dsh-experimental-library-skills` 为根的隔离 `skill-filesystem` provider |
 | `page-refresh` | 插入，并写明它的默认配置：服务端换了构建后，已打开的页面重连时刷新一次，横幅提示连接断开；见 [`dsh-experimental-page-refresh`](../page-refresh/README.zh.md) |
+| `content-point` | 插入，没有配置：输入框「+」右侧的「指一下」按钮指内容栏或侧栏里的一处作为引用；这条消息进入的那一步之前，该行追加一条写进日志的消息，写出每一处的键行和显示文字；见 [`dsh-experimental-content-point`](../content-point/README.zh.md) |
 | `client-hmr` | 禁用：已打开的页面不再把新的插件包换进它正在运行的外壳。`pnpm run dev:web` 重新构建的插件包在宿主重启之前不会到达任何控制台页面，无论是已打开的还是新加载的；重新构建的外壳在下一次加载时就会服务出去，已打开的页面在下一次构建检查时刷新到这个外壳上，配的仍是旧插件包 |
 | `web-runtime` | 配置 `surfaceContext: false`，其余四个字段照抄 Web bundle 的值：模型请求里不再有 `harness:source` 段落（DeepSeek Harness 检出目录的路径）和 `app:web-surface` 段落（页面的本地 URL 与 `pnpm run dev:web`），shell 命令也拿不到 `DSH_WEB_URL`——只有 `bash` 与 `pwsh` 工具读它，而两个控制台预设都不提供这两个工具 |
 | `ui-deliverables` | 禁用：它的提示词段落告诉模型何时调用 `present`，而两个控制台预设都不提供这个工具；这一段从此不进入任何模型请求，一起去掉的还有改动文件卡片（只在开启代码工作工具时绘制）、交付卡片、收尾回答里可点击的文件路径，以及它们打开的审阅标签页 |
