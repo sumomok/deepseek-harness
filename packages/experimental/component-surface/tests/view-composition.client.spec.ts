@@ -330,6 +330,29 @@ describe('a deployment whose views the tool would refuse', () => {
     expect(told[0]).toContain('names no component of this deployment. Available components:')
   })
 
+  it('says so for a view writing a key named __proto__, at that key', async () => {
+    // The YAML reader keeps the key as one more key of the mapping, and the
+    // config schema hands the spec over as written.
+    await loadComposition({
+      views: [
+        '    views:',
+        '      - id: site-overview',
+        '        title: 站点概览',
+        '        spec:',
+        '          nodes:',
+        '            - id: facts',
+        '              component: toy.record',
+        '              props:',
+        '                dataList: [{ label: 编号, display: A-1 }]',
+        '                __proto__: { columnNum: 2 }',
+      ],
+    })
+    const told = errorLog.filter(line => line.includes(CONSEQUENCE))
+    expect(told).toHaveLength(1)
+    expect(told[0]).toContain('component-surface: views[0] "site-overview" — spec.nodes[0].props.__proto__ — is not accepted here. '
+      + 'Accepted properties: dataList, labelWidth, columnNum.')
+  })
+
   it('refuses a homeView naming no configured view the same way', async () => {
     const ctx = await loadComposition({ views: VIEWS_BLOCK, homeView: 'alerts' })
     expect(ctx.tools.schemas().map(schema => schema.name)).not.toContain('show_component')
