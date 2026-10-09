@@ -149,6 +149,13 @@ export function actComponentTool(calls: CallTable, timeouts: CallTimeouts, maxSt
       steps: STEPS_PARAMETER,
     },
     output: {
+      // Deliberately parallel to the page domain's `content_act` output schema
+      // in `content-frame`: both answer "which step ran, which one stopped the
+      // call", with each domain's own step vocabulary and bounds. The two
+      // cannot share a declaration for the reason the folds cannot — a value
+      // import across these packages is refused for the client bundle and
+      // inlines a second copy of the channel in the host one.
+      /* jscpd:ignore-start */
       schema: {
         type: 'object',
         additionalProperties: false,
@@ -194,6 +201,7 @@ export function actComponentTool(calls: CallTable, timeouts: CallTimeouts, maxSt
           },
         },
       },
+      /* jscpd:ignore-end */
       render: (_args, value) => [{ type: 'text', text: value.text }],
       presentationMeta: (_args, value) => ({ entry: value.entry?.title ?? '' }),
     },
