@@ -71,7 +71,7 @@ function protoKey(path: string): ViewRefusal {
   return {
     path,
     reason: `${path} — is a key named __proto__, which no mapping of a view may carry: copied by assignment, the value under it `
-      + 'becomes the mapping\'s prototype instead of a key, so two readers of one file would disagree on what it holds',
+      + 'becomes the mapping\'s prototype instead of a key, so two readers of one file would disagree on what it holds.',
   }
 }
 

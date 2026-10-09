@@ -512,7 +512,7 @@ describe('a pack\'s views', () => {
       view: 'views/sites.yml',
       path,
       reason: `${path} — is a key named __proto__, which no mapping of a view may carry: copied by assignment, the value under it `
-        + 'becomes the mapping\'s prototype instead of a key, so two readers of one file would disagree on what it holds',
+        + 'becomes the mapping\'s prototype instead of a key, so two readers of one file would disagree on what it holds.',
     }])
     expect((await readCatalog(ctx)).body).toEqual({ views: [{ id: 'layers', title: '图层数据' }] })
   })

@@ -1043,7 +1043,7 @@ describe('a read that came back with nothing to draw', () => {
     }, spec)
     expect(said).toBe('show_component: the rows read from "SpaceLayer" cannot be drawn — '
       + 'spec.nodes[0].props.displayValueList[0].__proto__ — is a key named __proto__, which no mapping of a view may carry: '
-      + 'copied by assignment, the value under it becomes the mapping\'s prototype instead of a key, so two readers of one file would disagree on what it holds '
+      + 'copied by assignment, the value under it becomes the mapping\'s prototype instead of a key, so two readers of one file would disagree on what it holds. '
       + 'Nothing on the panel changed.')
     // The same column read back with no value under it: the fill puts no such
     // key in, and the read draws.

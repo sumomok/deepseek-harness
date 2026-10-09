@@ -154,7 +154,7 @@ describe('an alias in a view file', () => {
 describe('a key named __proto__ in a view file', () => {
   /** The sentence a mapping carrying the key is refused in, at the key. */
   const PROTO = 'is a key named __proto__, which no mapping of a view may carry: copied by assignment, the value under it '
-    + 'becomes the mapping\'s prototype instead of a key, so two readers of one file would disagree on what it holds'
+    + 'becomes the mapping\'s prototype instead of a key, so two readers of one file would disagree on what it holds.'
 
   // Each spec is parsed from JSON, which hands the key over as an ordinary key
   // the way the YAML readers do; an object literal would set the prototype.
