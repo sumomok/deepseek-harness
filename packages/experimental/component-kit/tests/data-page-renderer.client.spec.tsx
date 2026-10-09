@@ -653,8 +653,11 @@ describe('toy.data-page', () => {
       isInitQuery: false,
     })
     await vi.waitFor(() => { expect(view.container.querySelector('[data-toy-crud-box]')).not.toBeNull() })
-    await flush()
-    const page = pageOf(view.container)
+    // The page renders its content only once its scheme has resolved; until
+    // then its root renders the empty vnode, a comment rather than an element,
+    // and `pageOf` walks the DOM to the instance. Wait for the drawn page
+    // rather than for the box it lands in.
+    const page = await vi.waitFor(() => pageOf(view.container), { timeout: 5000, interval: 20 })
     expect(page.$props['conditions']).toEqual([{ key: 'city', op: 'EQ', value: '北京' }, { key: 'state', op: 'IN', value: ['在用', 3] }])
     expect(page.$props['matchMode']).toBe('OR')
     expect(page.$props['querySort']).toEqual({ desc: 'city' })
@@ -672,13 +675,17 @@ describe('toy.data-page', () => {
     // `firstQueryDone`). That path reaches `queryData()` with the mount flag
     // off, so the container's `isInitQuery` check in `getQueryParams` never
     // runs — with the toolbar drawn, `isInitQuery: false` changes nothing.
-    // Asserting before the debounce fires is what read as "nothing was
-    // searched"; this case waits for it, so it states what is observable. Both
-    // the reading and the container are the vendored kit's, and this line
+    // Both the reading and the container are the vendored kit's, and this line
     // reads the other way once the kit honors the property.
+    //
+    // This case draws this page alone, so every `_search` the stub has seen
+    // since the case began belongs to it: waiting for its report and then for
+    // the layer to fall quiet states the count over the whole of what it
+    // searched — the one debounced first query.
     await vi.waitFor(() => {
       expect(onAction).toHaveBeenCalledWith('query', expect.anything())
     }, { timeout: 5000, interval: 20 })
+    await drain()
     expect(seen.map(request => request.url).filter(url => url.includes('_search'))).toHaveLength(1)
   })
 
