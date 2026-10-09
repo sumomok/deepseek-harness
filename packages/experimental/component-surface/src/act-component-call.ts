@@ -297,8 +297,12 @@ function isStepResult(value: unknown): value is ActComponentStepResult {
   if (value === null || typeof value !== 'object') return false
   const step = value as { index?: unknown; status?: unknown; message?: unknown }
   if (typeof step.index !== 'number' || !Number.isInteger(step.index) || step.index < 1) return false
-  if (step.status !== 'ok' && step.status !== 'failed' && step.status !== 'skipped') return false
-  return step.message === undefined || isText(step.message, MAX_MESSAGE_CHARS)
+  // The same reading the page domain's reports get: the step that stopped the
+  // call is the one carrier of a message, and a failure without one is the
+  // answer the model can do nothing with.
+  if (step.status === 'failed') return isText(step.message, MAX_MESSAGE_CHARS)
+  if (step.status !== 'ok' && step.status !== 'skipped') return false
+  return step.message === undefined
 }
 
 /**

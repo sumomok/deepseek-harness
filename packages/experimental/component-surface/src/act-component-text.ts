@@ -180,7 +180,7 @@ export function actComponentReportText(
     const step = steps[result.index - 1]
     const named = step === undefined ? `step ${String(result.index)}` : describeStep(step)
     if (result.status === 'ok') lines.push(`- ${named}: done`)
-    else if (result.status === 'failed') lines.push(`- ${named}: ${result.message ?? 'failed'}`)
+    else if (result.status === 'failed') lines.push(`- ${named}: ${result.message}`)
     else lines.push(`- ${named}: not run`)
   }
   return lines.join('\n')
