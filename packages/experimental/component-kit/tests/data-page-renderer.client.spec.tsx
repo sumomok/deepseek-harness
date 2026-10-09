@@ -14,7 +14,7 @@
  * and three rows. Nothing here reaches a network.
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { setBizBasePath } from '@sumomok/toy-crud-kit'
 import { Vue as SuppliedVue } from '@deepseek-ai/dsh-experimental-vue2-echarts-poc/client'
@@ -810,5 +810,112 @@ describe('toy.data-page', () => {
     view.unmount()
     answer(ALL_ABILITIES)
     await flush()
+  })
+})
+
+describe('the controls one data page marks for the act tool', () => {
+  /**
+   * The arrangement every case here draws: every toolbar button, one custom
+   * operation, tickable rows. A fresh record per case: the renderer remembers
+   * what one record's block reported, so a shared one would make the later
+   * case's page a redraw of the first's and report nothing.
+   * @returns the block's properties.
+   */
+  function arranged(): Record<string, unknown> {
+    return Object.freeze({
+      relatedMeta: META,
+      metaLabel: '演示设备',
+      readOnly: false,
+      toolbarButtons: ['add', 'exp', 'gridexp', 'search', 'clear'],
+      rowOperations: ['modify'],
+      customOperations: [{ name: 'ping', label: '测试连通' }],
+      selectMode: 'checkbox',
+    })
+  }
+
+  /**
+   * One marked control, as the act tool addresses it.
+   * @param container - the drawn block.
+   * @param selector - the control.
+   * @returns the action and the key it carries, either `null` where absent.
+   */
+  function markOf(container: HTMLElement, selector: string): { action: string | null; key: string | null } | null {
+    const el = container.querySelector(selector)
+    return el === null ? null : { action: el.getAttribute('data-component-action'), key: el.getAttribute('data-component-key') }
+  }
+
+  it('marks the toolbar, the table and its fields with the actions and keys the catalog declares', async () => {
+    const { view, onAction } = draw(arranged())
+    await loaded(onAction)
+    await vi.waitFor(() => { expect(markOf(view.container, 'button.query-btn')).not.toBeNull() })
+    expect([
+      markOf(view.container, 'button.query-btn'),
+      markOf(view.container, '.crud-action button.el-button--success'),
+      markOf(view.container, '.crud-action button.el-button--default:not(.query-btn)'),
+      markOf(view.container, '.crud-action button.action-button'),
+      markOf(view.container, '.crud-action .el-button-group .el-button:first-child'),
+      markOf(view.container, '[data-component-key="modify"]'),
+      markOf(view.container, '[data-component-key="ping"]'),
+      markOf(view.container, '[data-component-action="select"]'),
+    ]).toEqual([
+      { action: 'query', key: 'search' },
+      // Opening the add form and clearing the query report nothing by
+      // themselves: the page reports what either produced, so these two carry
+      // the toolbar key the arrangement names them by and no action.
+      { action: null, key: 'add' },
+      { action: null, key: 'clear' },
+      { action: 'exported', key: 'exp' },
+      { action: 'exported', key: 'gridexp' },
+      { action: 'operation', key: 'modify' },
+      { action: 'operation', key: 'ping' },
+      { action: 'select', key: null },
+    ])
+    // The query form's fields are named after the columns they write.
+    await vi.waitFor(() => {
+      expect([...view.container.querySelectorAll('.crud-query input.el-input__inner')]
+        .map(input => input.getAttribute('data-component-field'))).toEqual(['zh_label', 'city', null])
+    }, { timeout: 3000, interval: 20 })
+  })
+
+  it('marks a write dialog\'s save button with the action it reports once that dialog is open', async () => {
+    const { view, onAction } = draw(arranged())
+    await loaded(onAction)
+    await vi.waitFor(() => { expect(view.container.querySelector('.crud-action button.el-button--success')).not.toBeNull() })
+    // No dialog is drawn yet, so the write it saves with has no control to mark.
+    expect(markOf(view.container, '[data-component-action="added"]')).toBeNull()
+    fireEvent.click(view.container.querySelector('.crud-action button.el-button--success') as HTMLElement)
+    await vi.waitFor(() => { expect(markOf(view.container, '[data-component-action="added"]')).not.toBeNull() }, { timeout: 5000, interval: 20 })
+    expect(view.container.querySelector('[data-component-action="added"]')?.textContent?.trim()).toBe('确 定')
+    // The page's own startup is the wait's whole cost here: a full file's
+    // cases run these pages back to back, so the default deadline is short.
+  }, 20_000)
+
+  it('marks the modify dialog\'s save button with the write it reports', async () => {
+    const { view, onAction } = draw(arranged())
+    await loaded(onAction)
+    await vi.waitFor(() => { expect(view.container.querySelector('.el-table__body-wrapper tbody tr')).not.toBeNull() })
+    expect(markOf(view.container, '[data-component-action="modified"]')).toBeNull()
+    fireEvent.click(view.container.querySelector('i.operation-modify') as HTMLElement)
+    // The dialog draws its form a turn after it opens, and the footer with it,
+    // so the save button is marked after that turn rather than with the click.
+    await vi.waitFor(() => {
+      expect(view.container.querySelector('.crud-modify-dialog .dialog-footer .center .el-button:last-child')).not.toBeNull()
+    }, { timeout: 5000, interval: 20 })
+    await flush()
+    expect(markOf(view.container, '[data-component-action="modified"]')).toEqual({ action: 'modified', key: null })
+    expect(view.container.querySelector('[data-component-action="modified"]')?.textContent?.trim()).toBe('确 定')
+  }, 20_000)
+
+  it('marks no modify control where the arrangement keeps no such operation', async () => {
+    const { view, onAction } = draw(Object.freeze({
+      relatedMeta: META,
+      metaLabel: '演示设备',
+      readOnly: false,
+      rowOperations: [],
+      selectMode: 'checkbox',
+    }))
+    await loaded(onAction)
+    await vi.waitFor(() => { expect(view.container.querySelector('.el-table__body-wrapper tbody tr')).not.toBeNull() })
+    expect(view.container.querySelector('[data-component-key="modify"]')).toBeNull()
   })
 })

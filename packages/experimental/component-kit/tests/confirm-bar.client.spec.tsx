@@ -62,6 +62,15 @@ describe('el.confirm-bar', () => {
     expect(view.getByRole('group', { name: en['confirmBar.actions'] })).toBeTruthy()
   })
 
+  it("marks every button with the action the bar declares and the button's own key", () => {
+    const view = mount(FULL)
+    // One action, three controls: the action key names the bar's first button
+    // and each button's own id names that one, so a call can press either.
+    expect(view.container.querySelectorAll('[data-component-action="press"]')).toHaveLength(3)
+    expect(view.container.querySelector('[data-component-key="discard"]')?.textContent).toBe('Discard')
+    expect(view.container.querySelector('[data-component-action="discard"]')).toBeNull()
+  })
+
   it('reports a press as the one action it declares, carrying the pressed button\'s id and nothing else', () => {
     const onAction = vi.fn()
     const view = mount(FULL, { onAction })

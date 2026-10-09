@@ -43,6 +43,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { TuQueryCondAdv, type TuQueryCondAdvInstance } from '@sumomok/toy-surface-kit'
 import { ActionStateLine, PRESSABLE } from './action-state.tsx'
+import { FIELD_MARK, keepMarked } from './marks.ts'
 import { readBoolean, readList, readNumber, readRecord, readText } from './props.ts'
 import { VueBridge } from './vue2-bridge.tsx'
 import css from './TuQueryCondAdvRenderer.module.css'
@@ -241,6 +242,31 @@ function readTuQueryCondAdv(props: ComponentRendererProps['props']): TuQueryCond
   }
 }
 
+/** The part of the mounted editor this renderer reads to name the fields it drew. */
+interface NamedConditions {
+  /** The condition rows, in the order the editor draws them; one may name no attribute yet. */
+  readonly queryConditions: readonly { readonly key?: string }[]
+}
+
+/**
+ * Name each condition's value control after the attribute the row is bound to.
+ *
+ * The editor draws the value control itself, so the name comes from the rows
+ * the editor holds rather than from anything this renderer wrote: a row whose
+ * attribute the user has not picked yet names nothing and is left unmarked.
+ * @param root - the block's subtree, holding the editor's rows.
+ * @param conditions - the editor's own rows, in the order it draws them.
+ */
+function markConditions(root: Element, conditions: readonly { readonly key?: string }[]): void {
+  const rows = root.querySelectorAll('.query-row')
+  rows.forEach((row, at) => {
+    const control = row.querySelectorAll('.el-col')[2]?.querySelector('input')
+    const key = conditions[at]?.key
+    if (control === null || control === undefined || key === undefined || key === '') return
+    control.setAttribute(FIELD_MARK, key)
+  })
+}
+
 /**
  * Render one filter bar.
  * @param rendererProps - the block's identity, its properties, the action sink, how far its last gesture got, and this row's translate.
@@ -256,18 +282,29 @@ export function TuQueryCondAdvRenderer({ nodeId, props, onAction, state, t }: Co
   // The attribute list is read into the component's own data when it is
   // created, so a call carrying a different one is a different component.
   const mountKey = useMemo(() => JSON.stringify(vueProps), [vueProps])
+  // The rows the marks are named from, kept current where the editor's own
+  // data changes: the watcher below fires on every edit, and the mount effect
+  // seeds it so a row that arrives with the component is named too.
+  const conditions = useRef<readonly { readonly key?: string }[]>([])
   useEffect(() => {
-    const instance = instanceRef.current as TuQueryCondAdvInstance
+    const instance = instanceRef.current as TuQueryCondAdvInstance & NamedConditions
+    conditions.current = instance.queryConditions
     return instance.$watch('queryConditions', () => {
+      conditions.current = instance.queryConditions
       // What the agent is told an edit was is that something changed, and how
       // many conditions stand after it; the conditions themselves are the
       // submit's to carry.
       context.current.onAction(CHANGE_ACTION_ID, { count: instance.getData().conditions.length })
     }, { deep: true })
   }, [mountKey])
+  // The condition rows are the editor's: a row appears when the user adds one
+  // and a row's attribute changes when they pick one, so the names on their
+  // value controls are written from the DOM and kept there.
+  const block = useRef<HTMLElement>(null)
+  useEffect(() => keepMarked(block.current as HTMLElement, (root) => { markConditions(root, conditions.current) }), [mountKey])
   const pressable = PRESSABLE.includes(state)
   return (
-    <section className={css.bar} data-component-block={COMPONENT_ID} data-component-node={nodeId}>
+    <section ref={block} className={css.bar} data-component-block={COMPONENT_ID} data-component-node={nodeId}>
       <VueBridge key={mountKey} component={TuQueryCondAdv} props={vueProps} instanceRef={instanceRef} />
       <div className={css.actions}>
         <button

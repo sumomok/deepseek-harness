@@ -57,6 +57,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { TableDetail, type TableDetailInstance } from '@sumomok/toy-surface-kit'
 import { ActionStateLine, PRESSABLE } from './action-state.tsx'
+import { keepMarked, markTable } from './marks.ts'
 import { readBoolean, readNumber, readRecord, readList, readText, type ScalarValue } from './props.ts'
 import { useVueComponent } from './vue2-bridge.tsx'
 import css from './TableDetailRenderer.module.css'
@@ -380,6 +381,25 @@ export function TableDetailRenderer({ nodeId, props, onAction, onOutput, state, 
     },
   }), [])
   const host = useVueComponent<HTMLDivElement>({ component: TableDetail, props: vueProps, on, instanceRef })
+  // The controls are el-table's, drawn by Vue inside this host and drawn again
+  // whenever the table re-renders, so they are marked from the DOM and kept
+  // marked. What is marked reads the block's current properties through a ref,
+  // the way every other effect that outlives its commit does.
+  const marking = useRef({ props: vueProps })
+  useEffect(() => { marking.current = { props: vueProps } })
+  useEffect(() => keepMarked(host.current as HTMLDivElement, (root) => {
+    const current = marking.current.props
+    markTable(root, {
+      // A row reports its click only where the call asked for openable rows,
+      // and a marked cell that reports nothing would be a press the block
+      // answers no one about.
+      ...current.isNameClick === true ? { row: ROW_CLICK_ACTION_ID } : {},
+      sort: SORT_ACTION_ID,
+      ...current.customOperations === null
+        ? {}
+        : { operations: { custom: current.customOperations.map(operation => operation.key) } },
+    })
+  }), [])
   return (
     <section
       className={pressable ? undefined : css.busy}

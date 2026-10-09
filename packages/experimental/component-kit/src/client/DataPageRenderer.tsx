@@ -135,6 +135,7 @@ import {
 } from './data-page-read.ts'
 import { dataPageBasePathReady } from './data-page-settings.ts'
 import { readAbilitiesFor } from './data-page-abilities.ts'
+import { keepMarked, markDataPage } from './marks.ts'
 import { NO_ABILITIES, type DataPageAbilityTable } from '../route.ts'
 import { useVueComponent, type VueEventHandlers } from './vue2-bridge.tsx'
 import css from './DataPageRenderer.module.css'
@@ -271,6 +272,13 @@ function DataPageBlock({ props, vueProps, onAction }: DataPageProps) {
   // Declared before the bridge's mount effect, so the box is contained before
   // the page is mounted and makes its first request.
   useEffect(() => { release.current = containCrud(box.current as HTMLDivElement) }, [])
+  // Every control the page draws is marked with the action or key it carries,
+  // and the columns it has reported are what name the fields its forms draw.
+  // The watcher is released before the bridge destroys the page, which is what
+  // this effect's place in the declaration order buys.
+  useEffect(() => keepMarked(box.current as HTMLDivElement, (root) => {
+    markDataPage(root, { custom: (vueProps.customOperations ?? []).map(operation => operation.name) })
+  }), [])
   const on = useMemo<VueEventHandlers>(() => ({
     'access-denied': (payload: DataPageAccessDeniedPayload) => {
       const current = context.current

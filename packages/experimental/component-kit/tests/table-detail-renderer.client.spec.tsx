@@ -406,3 +406,35 @@ describe('toy.table', () => {
     expect(host?.childElementCount).toBe(0)
   })
 })
+
+describe('the controls a table marks for the act tool', () => {
+  it('marks the tick boxes, the openable cells, the sortable headings and each row button', async () => {
+    const { view } = await draw({
+      tableConfig: { gridItems: COLUMNS },
+      displayValueList: ROWS,
+      selectMode: 'checkbox',
+      isNameClick: true,
+      tableSortable: true,
+      customOperations: [{ key: 'inspect', label: '查看' }],
+    })
+    const container = view.container
+    expect(container.querySelectorAll('[data-component-action="select"]')).toHaveLength(2)
+    expect(container.querySelector('[data-component-action="select"]')?.className).toContain('el-checkbox__original')
+    // A cell of every drawn row, from the first column the reader may open.
+    expect(container.querySelectorAll('[data-component-action="row-click"]')).toHaveLength(6)
+    expect(container.querySelector('[data-component-action="row-click"]')?.className).toContain('el-table__cell')
+    expect(container.querySelector('[data-component-action="sort"]')?.className).toContain('is-sortable')
+    const operation = container.querySelector('[data-component-action="operation"][data-component-key="inspect"]')
+    expect(operation?.textContent).toBe('查看')
+  })
+
+  it('marks no cell as an opened row where the call opened none, and no control it does not draw', async () => {
+    const { view } = await draw({ tableConfig: { gridItems: COLUMNS }, displayValueList: ROWS, tableSortable: false })
+    expect(view.container.querySelector('[data-component-action="row-click"]')).toBeNull()
+    // A table nobody arranged has no tick column, no sortable heading and no
+    // per-row button, so none of those marks is written.
+    for (const action of ['select', 'sort', 'operation']) {
+      expect(view.container.querySelector(`[data-component-action="${action}"]`)).toBeNull()
+    }
+  })
+})

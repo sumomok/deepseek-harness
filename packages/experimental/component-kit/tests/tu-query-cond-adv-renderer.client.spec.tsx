@@ -319,3 +319,17 @@ describe('el.filter-bar', () => {
     expect(host?.childElementCount).toBe(0)
   })
 })
+
+describe('the fields a filter bar marks for the act tool', () => {
+  it('names each condition\'s value control with the attribute its row is bound to', async () => {
+    const { view } = await draw({ relatedMeta: 'site', metaConfig: { attributes: ATTRIBUTES } })
+    // A fresh row names no attribute yet, so it carries no field name.
+    expect(view.container.querySelector('[data-component-field]')).toBeNull()
+    const mounted = instance(view.container)
+    mounted.setData({ conditions: [{ key: 'zh_label', op: 'LIKE', value: 'x' }, { key: 'status', op: 'EQ', value: '' }] })
+    await flush()
+    const fields = [...view.container.querySelectorAll('.query-row')]
+      .map(row => row.querySelectorAll('.el-col')[2]?.querySelector('input')?.getAttribute('data-component-field'))
+    expect(fields).toEqual(['zh_label', 'status'])
+  })
+})
