@@ -120,6 +120,7 @@ Append-only: the message is inserted after the user message it answers, inside t
 - **A whole block is highlighted as the seat while hovering.** point-anchor draws a refused place over the element its refusal names, the whole component seat, with this package's words 「指这一整块」; the reference filed names the block clicked.
 - **A row's values never reach the model.** A cell, a row and a row operation are named by column and operation; the model is not told which record the user pointed at.
 - **Keyboard activation in a shielded cross-origin frame.** With focus left on a control inside a frame of another origin, Enter and Space during a pick reach that control; see point-anchor's README. point-anchor 0.2.0 moves the focus out.
+- **The delivery-set check is not yet held to skill-pack's reader.** `tests/equivalence.spec.ts` holds the anchor formats, the archive bytes and the name and path refusals to skill-pack; the vendored point-anchor 0.1.0 has no `checkDeliverySet`, so the test that the two judge a delivery set alike waits for point-anchor 0.2.0.
 - **Not covered by an assembled snapshot.** The `snapshots/console` lane drives ACP, whose prompt carries no references; the evidence is this package's unit suites, the console-profile composition test, and the `content-point` web scenario.
 
 <a id="dev-note"></a>
@@ -129,5 +130,7 @@ Append-only: the message is inserted after the user message it answers, inside t
 <summary>Working context for maintainers — click to expand</summary>
 
 - The vendored point-anchor is a 0.1.0 build of the plugin repository's `feat/point-anchor` at `0eca54e` (tarball sha256 `ab5ae311d315234eeea1aaf567690d048f09cc848887671ce493aea70d06be42`), until 0.2.0 replaces it.
+- The button's glyph is ui-primitives' `IconGoalOutlineMedium`, a target, the closest of the shared icons to pointing at something; no icon of the set draws a pointer or a crosshair.
+- `src/client/PointButton.module.css` takes one gap of the tool row back while both chip seats of the row's mode box (`conversation.input.permission`, `conversation.input.plan`) are empty, matching them by their `data-slot` attributes and copying the row's 12px and narrow-card 8px from ui-conversation's `InputBar.module.css`. ui-conversation leaves the empty box in the row, and the row's gap on each side of it would otherwise put the button two gaps from 「+」. The `content-point` web scenario holds the distance to the row's gap; the rule goes once ui-conversation drops the empty box from the row's gaps.
 
 </details>

@@ -929,7 +929,7 @@
 - **本轮核对（`dsh-v0.2.1-alpha.1`）**：取回 `dsh-v0.2.1-alpha.1` 版 `gen-client-catalog.{ts,spec.ts}` 后 `verify-client-catalog` 仍报 `tool.call.toolview` 121 行超出写死的 120 行；本线版本退出 0。
 - **路径**：`scripts/gen-client-catalog.spec.ts` `scripts/gen-client-catalog.ts`
 
-## console-vendored-plugin-notice — 第三方声明指向 `console-profile` 提交的仓外插件归档
+## console-vendored-plugin-notice — 第三方声明指向本线包提交的仓外插件归档
 
 - **改了什么**：`scripts/gen-third-party-notices.ts` 的 `OVERRIDES` 有两项：`@haoran/dsh-auto-compact`，`repo` 指向 `packages/experimental/console-profile/vendor/haoran-dsh-auto-compact-0.5.1.tgz`；`@haoran/dsh-point-anchor`，`repo` 指向 `packages/experimental/content-point/vendor/haoran-dsh-point-anchor-0.1.0.tgz`。
 - **为什么**：`console-profile` 以 `file:` 引入 `@haoran/dsh-auto-compact`，`content-point` 以 `file:` 引入 `@haoran/dsh-point-anchor`。两个插件的 manifest 的 `repository` 指向各自的插件仓库，而本仓分发的是提交进来的这两份归档，不是某个 registry 版本，也不是插件仓库里的某个提交，所以声明里写的出处是这两份归档；develop 线对它 vendored 的 `@haoran` tarball 用同样的写法。

@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-10-09-console-points-become-a-logged-notice.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-09-console-points-become-a-logged-notice.md
+/agent-note-a-console-point-reaches-the-model-as-one-logged-notice-per-message-under-a-source-kind-of-its-own:
+  en: c9334a97430eb190
+  zh: a61929353aea41f5
+/agent-note-a-console-point-reaches-the-model-as-one-logged-notice-per-message-under-a-source-kind-of-its-own/problem:
+  en: ac157932817091f1
+  zh: 89d2e1ff6124effb
+/agent-note-a-console-point-reaches-the-model-as-one-logged-notice-per-message-under-a-source-kind-of-its-own/decision:
+  en: 006857a9c805dde7
+  zh: 3220fd58f1e9b447
+/agent-note-a-console-point-reaches-the-model-as-one-logged-notice-per-message-under-a-source-kind-of-its-own/alternatives-considered:
+  en: 2d5d965615b97441
+  zh: 7d2bc30d1f4cb526
+/agent-note-a-console-point-reaches-the-model-as-one-logged-notice-per-message-under-a-source-kind-of-its-own/consequences:
+  en: 5d56b7825e0cb515
+  zh: e55447480786552b

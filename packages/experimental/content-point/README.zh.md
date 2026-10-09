@@ -120,6 +120,7 @@ point-anchor 的描述带 `v`（描述格式）和 `anchorFormat`；本版本读
 - **悬停时整块按整个座位高亮。** point-anchor 把被拒的地方画在拒绝所指的元素上，即整个组件座位，文字用本包的「指这一整块」；记下的引用指的是点到的那一块。
 - **一行的值从不进入模型。** 格子、整行和行内操作按列和操作命名；模型不知道用户指的是哪一条记录。
 - **被遮罩的跨源框架里的键盘激活。** 焦点留在别的源的框架里的控件上时，拾取期间按 Enter 和空格会传到那个控件；见 point-anchor 的 README。point-anchor 0.2.0 会把焦点移出。
+- **交付集检查还没有与 skill-pack 的读取器对照。** `tests/equivalence.spec.ts` 让锚点格式、发放包字节以及名字和路径的拒绝与 skill-pack 一致；vendor 进来的 point-anchor 0.1.0 没有 `checkDeliverySet`，两边对同一份交付集判定一致的测试，等 point-anchor 0.2.0。
 - **没有组装快照覆盖。** `snapshots/console` 走 ACP，ACP 的提示不带引用；证据是本包的单元测试、console-profile 的组合测试和 `content-point` Web 场景。
 
 <a id="dev-note"></a>
@@ -129,5 +130,7 @@ point-anchor 的描述带 `v`（描述格式）和 `anchorFormat`；本版本读
 <summary>写给维护者的工作上下文——点击展开</summary>
 
 - vendor 进来的 point-anchor 是插件仓 `feat/point-anchor` 在 `0eca54e` 打出的 0.1.0（tarball sha256 `ab5ae311d315234eeea1aaf567690d048f09cc848887671ce493aea70d06be42`），0.2.0 出来后替换。
+- 按钮的图形是 ui-primitives 的 `IconGoalOutlineMedium`，一个靶心，是共用图标里最接近「指着某处」的；这套图标里没有画指针或准星的。
+- `src/client/PointButton.module.css` 在工具行的模式框里两个标签槽（`conversation.input.permission`、`conversation.input.plan`）都空着时，让按钮收回工具行的一个间距：按 `data-slot` 属性认出这两个槽，间距照抄 ui-conversation `InputBar.module.css` 里工具行的 12px 和窄卡片的 8px。ui-conversation 会把空的模式框留在行里，行在它两边各留一个间距，不收回的话按钮离「+」就是两个间距。`content-point` Web 场景让这段距离等于行的间距；等 ui-conversation 不再给空的模式框留间距，这条规则就删掉。
 
 </details>

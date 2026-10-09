@@ -394,7 +394,7 @@ describe('the console layer over the shipped Web bundles', () => {
     expect(warnings).toEqual([])
   })
 
-  it('inserts the shell, the sidebar, the page\'s build check, the MCP capability, the library-skills provider, and automatic compaction at stable ids', () => {
+  it('inserts the shell, the sidebar, the page\'s build check, the point row, the MCP capability, the library-skills provider, and automatic compaction at stable ids', () => {
     for (const id of [
       'server-layout', 'content-surface', 'content-column', 'server-sidebar', 'page-refresh', 'content-point', 'console-mcp',
       'library-skills', 'auto-compact',
