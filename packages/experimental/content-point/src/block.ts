@@ -1,11 +1,13 @@
 /**
  * A reference to one block of the content column as a whole: the seat holding
- * it and, for a block of the component view, the component it draws and its
- * node id. It is what a point records where `@haoran/dsh-point-anchor` describes
- * nothing finer — a form page, an info card, a chart, a block whose component
- * this build does not describe, a seat holding no block — and it carries only
- * the page's structure: the attribute values the seat and the component row
- * write, the switcher entry's title, and the component's display name.
+ * it; for an original-system page, the content-frame page id; for a block of
+ * the component view, the component it draws and its node id. It is what a
+ * point records where `@haoran/dsh-point-anchor` describes nothing finer — a
+ * form page, an info card, a chart, a block whose component this build does
+ * not describe, a seat holding no block, a place of an original-system page
+ * the reader names nothing for or may not read — and it carries only the
+ * page's structure: the attribute values the seat, the frame and the component
+ * row write, the switcher entry's title, and a display name from the locale.
  *
  * `data` is durable, recorded verbatim on the accepted user message, so the
  * read refuses anything this build would not have written.
@@ -40,6 +42,8 @@ export interface BlockData {
   readonly kind: typeof BLOCK_KIND
   /** The `data-content-surface-seat` value of the seat holding the block. */
   readonly seat: string
+  /** The content-frame page id, from the frame's `data-content-frame-id`; for an original-system page only. */
+  readonly page?: string
   /** The `data-component-block` value, the component id the block draws; absent for a seat without one. */
   readonly component?: string
   /** The `data-component-node` value, the block's node id in its view; absent where the block carries none. */
@@ -50,6 +54,7 @@ export interface BlockData {
 /** What {@link blockData} builds a reference from. */
 export interface BlockPlace {
   readonly seat: string
+  readonly pageId?: string | undefined
   readonly component?: string | undefined
   readonly node?: string | undefined
   readonly page?: string | undefined
@@ -92,6 +97,7 @@ export function blockData(place: BlockPlace): BlockData | undefined {
     v: BLOCK_FORMAT,
     kind: BLOCK_KIND,
     seat: place.seat,
+    ...place.pageId !== undefined && isId(place.pageId) ? { page: place.pageId } : {},
     ...place.component !== undefined && isId(place.component) ? { component: place.component } : {},
     ...place.node !== undefined && isId(place.node) ? { node: place.node } : {},
     shown: { ...page !== undefined ? { page } : {}, ...target !== undefined ? { target } : {} },
@@ -107,7 +113,7 @@ export type BlockProblem =
 export type BlockParsed = { readonly ok: true; readonly value: BlockData } | { readonly ok: false; readonly problem: BlockProblem }
 
 /** Every key a block reference may hold. */
-const KEYS: ReadonlySet<string> = new Set(['v', 'kind', 'seat', 'component', 'node', 'shown'])
+const KEYS: ReadonlySet<string> = new Set(['v', 'kind', 'seat', 'page', 'component', 'node', 'shown'])
 
 /** Every key `shown` may hold. */
 const SHOWN_KEYS: ReadonlySet<string> = new Set(['page', 'target'])
@@ -127,7 +133,8 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
  * @returns the answer.
  */
 function isShownValue(value: unknown): value is string {
-  return typeof value === 'string' && value !== '' && sanitizeLabel(value, BLOCK_SHOWN_CODE_POINTS) === value
+  return typeof value === 'string' && value !== '' && Array.from(value).length <= BLOCK_SHOWN_CODE_POINTS
+    && sanitizeLabel(value, BLOCK_SHOWN_CODE_POINTS) === value
 }
 
 /**
@@ -146,8 +153,9 @@ export function parseBlockData(data: unknown): BlockParsed {
   if (data['v'] !== BLOCK_FORMAT) return invalid('v')
   for (const key of Object.keys(data)) if (!KEYS.has(key)) return invalid(key)
   if (data['kind'] !== BLOCK_KIND) return invalid('kind')
-  const { seat, component, node, shown } = data
+  const { seat, page, component, node, shown } = data
   if (typeof seat !== 'string' || !isId(seat)) return invalid('seat')
+  if (page !== undefined && (typeof page !== 'string' || !isId(page))) return invalid('page')
   if (component !== undefined && (typeof component !== 'string' || !isId(component))) return invalid('component')
   if (node !== undefined && (typeof node !== 'string' || !isId(node))) return invalid('node')
   if (!isRecord(shown)) return invalid('shown')
@@ -160,6 +168,7 @@ export function parseBlockData(data: unknown): BlockParsed {
       v: BLOCK_FORMAT,
       kind: BLOCK_KIND,
       seat,
+      ...page !== undefined ? { page } : {},
       ...component !== undefined ? { component } : {},
       ...node !== undefined ? { node } : {},
       shown: {
@@ -171,13 +180,13 @@ export function parseBlockData(data: unknown): BlockParsed {
 }
 
 /**
- * The key line of a block reference: `block`, then `seat`, `component` and
- * `node` as present, each value written as point-anchor writes a key line's.
+ * The key line of a block reference: `block`, then `seat`, `page`, `component`
+ * and `node` as present, each value written as point-anchor writes a key line's.
  * @param data - the reference.
  * @returns the key line.
  */
 export function blockKey(data: BlockData): string {
-  const fields = [['seat', data.seat], ['component', data.component], ['node', data.node]] as const
+  const fields = [['seat', data.seat], ['page', data.page], ['component', data.component], ['node', data.node]] as const
   return ['block', ...fields.flatMap(([key, value]) => (value === undefined ? [] : [`${key}=${keyValue(value)}`]))].join(' ')
 }
 

@@ -1,8 +1,23 @@
 /**
  * A console document as the content column and the sidebar draw it, the parts
  * a point reads: the switcher with its selected entry, the component seat with
- * the blocks of a view, the page seat, and the sidebar's navigation entries.
+ * the blocks of a view, the page seat with a content-frame page, and the
+ * sidebar's navigation entries.
  */
+
+import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
+
+/**
+ * One page of point-anchor's naming corpus, as the vendored package installs it.
+ * @param name - the page's file name without `.html`.
+ * @returns its HTML.
+ */
+export function corpusPage(name: string): string {
+  const root = dirname(createRequire(import.meta.url).resolve('@haoran/dsh-point-anchor/package.json'))
+  return readFileSync(join(root, 'fixtures', 'naming', `${name}.html`), 'utf8')
+}
 
 /** What {@link mountConsole} draws in the component seat: the blocks of one view, as the component rows draw them. */
 export const VIEW_BLOCKS = `
@@ -33,7 +48,27 @@ export function mountConsole(doc: Document): void {
         <div data-content-surface-seat="office"><p data-probe="office">文档</p></div>
       </div>
     </div>
-    <div class="chat"><button type="button" data-probe="send">发送</button></div>`
+    <div class="chat"><button type="button" data-probe="send">发送</button><button type="button" data-content-point-button data-probe="point">指一下</button></div>`
+}
+
+/**
+ * Show an original-system page: the switcher's `page orders` entry selected,
+ * the page seat active, and its content-frame iframe holding a body.
+ * @param doc - the console document, as {@link mountConsole} drew it.
+ * @param body - the page's body.
+ * @returns the frame's document.
+ */
+export function showFramePage(doc: Document, body: string): Document {
+  doc.querySelector('[data-content-surface-selected]')?.removeAttribute('data-content-surface-selected')
+  doc.querySelector('[data-content-surface-active]')?.removeAttribute('data-content-surface-active')
+  const switcher = doc.querySelector('[data-content-surface-switcher] > div') as Element
+  switcher.insertAdjacentHTML('beforeend', '<button type="button" data-content-surface-entry="page orders" data-content-surface-selected><span>订单</span></button>')
+  const seat = doc.querySelector('[data-content-surface-seat="page"]') as Element
+  seat.setAttribute('data-content-surface-active', '')
+  seat.innerHTML = '<iframe data-content-frame data-content-frame-id="page orders" data-content-active data-probe="frame"></iframe>'
+  const inner = (seat.querySelector('iframe') as HTMLIFrameElement).contentDocument as Document
+  inner.body.innerHTML = body
+  return inner
 }
 
 /**
@@ -67,9 +102,9 @@ function implOf(wrapper: object): Record<string, unknown> {
  * sets the event's flag and runs jsdom's own dispatch.
  * @param target - the element.
  */
-export function clickTrusted(target: Element): void {
+export function clickTrusted(target: Element, at: Pick<MouseEventInit, 'clientX' | 'clientY'> = {}): void {
   const view = target.ownerDocument.defaultView as Window & typeof globalThis
-  const event = new view.MouseEvent('click', { bubbles: true, cancelable: true, composed: true })
+  const event = new view.MouseEvent('click', { bubbles: true, cancelable: true, composed: true, ...at })
   const eventImpl = implOf(event)
   const dispatch = implOf(target)['_dispatch']
   if (typeof dispatch !== 'function') throw new Error('console fixture: this jsdom dispatches no other way')

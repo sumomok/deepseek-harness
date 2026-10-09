@@ -27,7 +27,8 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import { ANCHOR_FORMAT, DESCRIBE_FORMAT, toPromptReference } from '@haoran/dsh-point-anchor'
 import * as ContentPoint from '../src/index.ts'
-import { blockData, POINT_SOURCE } from '../src/index.ts'
+import { blockData } from '../src/block.ts'
+import { POINT_SOURCE } from '../src/text.ts'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
 let ctx: Context | undefined

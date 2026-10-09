@@ -2,9 +2,10 @@
  * What the model is told of a user message's points: after each user message
  * carrying references of the `content-point` source, one logged message whose
  * text writes each reference's key line and display text, and never a DataPage
- * row. It is appended once per message however often a step is proposed, for
- * at most the protocol's 16 references, and a reference this build cannot read
- * is written as unreadable rather than dropped.
+ * row and no record text of an original-system page. It is appended once per
+ * message however often a step is proposed, for at most the protocol's 16 of
+ * this plugin's references, and a reference this build cannot read is written
+ * as unreadable rather than dropped.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -21,8 +22,9 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import { ANCHOR_FORMAT, DESCRIBE_FORMAT, toPromptReference } from '@haoran/dsh-point-anchor'
 import type { PointDescription } from '@haoran/dsh-point-anchor'
 import * as contentPoint from '../src/index.ts'
-import { blockData, POINT_MESSAGE_KIND, POINT_SOURCE, withPointNotices } from '../src/index.ts'
-import { pointNotice } from '../src/text.ts'
+import { blockData } from '../src/block.ts'
+import { POINT_MESSAGE_KIND, withPointNotices } from '../src/notice.ts'
+import { pointNotice, POINT_SOURCE } from '../src/text.ts'
 
 /** A DataPage cell as point-anchor describes it for a reference, its row included. */
 const CELL: PointDescription = {
@@ -147,6 +149,69 @@ describe('the notice a user message\'s points add', () => {
     const notice = pointNotice(many, MAX_PROMPT_REFERENCES)
     expect(notice?.labels).toHaveLength(16)
     expect(notice?.text.split('\n\n')).toHaveLength(16)
+  })
+
+  it('writes no row line for a point that carries only the count of columns left out', () => {
+    const { row: _row, ...withoutRow } = pointRef(CELL).data
+    const text = pointNotice([{ source: POINT_SOURCE, label: 'x', data: { ...withoutRow, rowOmitted: 3 } }], MAX_PROMPT_REFERENCES)?.text
+    expect(text).toContain('column=layerName')
+    expect(text).not.toContain('这一行')
+    expect(text).not.toContain('还有 3 列')
+  })
+
+  it('names a control in an original-system table cell by its column and role, whatever name and target the logged data holds', () => {
+    const control = {
+      v: DESCRIBE_FORMAT, anchorFormat: ANCHOR_FORMAT, what: { kind: 'frame', role: 'button' },
+      anchor: { kind: 'frame', page: 'orders', column: '名称', role: 'button', name: '张三的道路工程', in: 'main' },
+      shown: { page: '订单', target: '张三的道路工程' },
+    }
+    const notice = pointNotice([{ source: POINT_SOURCE, label: '张三的道路工程', data: control }], MAX_PROMPT_REFERENCES)
+    expect(notice?.text).toBe('用户在内容栏里指着「「名称」列里的按钮」。\n锚点：`frame page=orders column="名称" role=button in=main`\n显示：页面「订单」 · 「名称」列里的按钮')
+    expect(notice?.labels).toEqual(['「名称」列里的按钮'])
+  })
+
+  it('names a control of a role describe format 1 does not name as a control, with no page when none was shown', () => {
+    const control = {
+      v: DESCRIBE_FORMAT, anchorFormat: ANCHOR_FORMAT, what: { kind: 'frame', role: 'widget' },
+      anchor: { kind: 'frame', page: 'orders', column: '名称', role: 'widget' }, shown: { target: '张三' },
+    }
+    expect(pointNotice([{ source: POINT_SOURCE, label: 'x', data: control }], MAX_PROMPT_REFERENCES)?.text)
+      .toBe('用户在内容栏里指着「「名称」列里的控件」。\n锚点：`frame page=orders column="名称" role=widget`\n显示：「名称」列里的控件')
+  })
+
+  it('names an original-system place no column can be told for as a place in a table, with no target', () => {
+    const loose = {
+      v: DESCRIBE_FORMAT, anchorFormat: ANCHOR_FORMAT, what: { kind: 'frame', role: 'link' }, unanchored: 'no-column',
+      shown: { nav: '订单管理', page: '订单', target: '13800000000' },
+    }
+    const notice = pointNotice([{ source: POINT_SOURCE, label: '13800000000', data: loose }], MAX_PROMPT_REFERENCES)
+    expect(notice?.text).toBe('用户在内容栏里指着「表格里的链接」。\n锚点：没有（这一格对不上列名）\n显示：侧栏「订单管理」 · 页面「订单」 · 表格里的链接')
+  })
+
+  it('writes the content-frame page id in the key line of a whole original-system page', () => {
+    const page = blockData({ seat: 'page', pageId: 'orders', page: '订单', target: '原系统页面' })
+    expect(pointNotice([{ source: POINT_SOURCE, label: '原系统页面', data: page }], MAX_PROMPT_REFERENCES)?.text)
+      .toBe('用户在内容栏里指着「原系统页面」这一整块。\n锚点：`block seat=page page=orders`\n显示：订单 · 原系统页面')
+  })
+
+  it('writes the first 16 of this plugin\'s points of a message, another owner\'s ahead of them not counted', () => {
+    const others = [{ source: 'other-owner', label: '别的', data: { x: 1 } }]
+    const ours = Array.from({ length: MAX_PROMPT_REFERENCES + 1 }, () => pointRef(HEADER))
+    const out = withPointNotices([prompt('很多', [...others, ...ours])])
+    expect(textOf(out[1] as UserMessage).split('\n\n')).toHaveLength(MAX_PROMPT_REFERENCES)
+  })
+
+  it('appends for a message the step holds no notice of, beside one it already holds a notice of', () => {
+    const answered = prompt('一', [pointRef(HEADER)])
+    const fresh = prompt('二', [pointRef(NAV)])
+    const out = withPointNotices([...withPointNotices([answered]), fresh])
+    expect(out.map(item => item.source.kind)).toEqual(['user', POINT_MESSAGE_KIND, 'user', POINT_MESSAGE_KIND])
+    expect(out[3]?.source).toMatchObject({ message: fresh.id })
+  })
+
+  it('appends once for a message the step holds twice', () => {
+    const message = prompt('一', [pointRef(HEADER)])
+    expect(withPointNotices([message, message]).filter(item => item.source.kind === POINT_MESSAGE_KIND)).toHaveLength(1)
   })
 
   it('writes a point without an anchor with the reason it has none', () => {

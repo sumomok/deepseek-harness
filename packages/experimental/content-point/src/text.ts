@@ -1,16 +1,19 @@
 /**
  * The model text for the points one user message carries: one paragraph per
  * reference this plugin recorded, in the order the message holds them, written
- * from the logged `data` alone. A DataPage row is never written, whatever the
- * logged `data` holds, so a cell's, a row's or a row operation's values reach
- * the model through neither the reference nor this text.
+ * from the logged `data` alone, after `./place.ts` has taken from it whatever a
+ * reference may not carry — whatever the logged `data` holds, no DataPage row
+ * and no record text of an original-system page reach the model through this
+ * text.
  * @module @deepseek-ai/dsh-experimental-content-point/text
  */
 
-import { chipLabel, parsePointData, renderPointText, renderUnreadablePoint } from '@haoran/dsh-point-anchor'
+import { chipLabel, parsePointData, renderPointText, renderUnreadablePoint, ZH_LABEL_WORDS } from '@haoran/dsh-point-anchor'
 import type { PointData } from '@haoran/dsh-point-anchor'
 import { BLOCK_FORMAT, blockKey, blockLabel, parseBlockData } from './block.ts'
 import type { BlockData } from './block.ts'
+import { forReference, placeLabel } from './place.ts'
+import type { PlaceWords } from './place.ts'
 
 /** The `PromptReference.source` this plugin files every point under. */
 export const POINT_SOURCE = 'content-point'
@@ -38,20 +41,33 @@ export interface PointNotice {
   readonly labels: readonly string[]
 }
 
+/** The words of describe format 1 for the labels `./place.ts` writes itself, as the model text writes them. */
+const MODEL_PLACE_WORDS: PlaceWords = {
+  role: role => ZH_LABEL_WORDS.roles[role] ?? ZH_LABEL_WORDS.role,
+  cellControl: (column, role) => `「${column}」列里的${role}`,
+  tableItem: role => `表格里的${role}`,
+}
+
 /**
- * A description without its DataPage row, which no model text carries.
- * @param point - the description as read.
- * @returns the description without `row` and `rowOmitted`.
+ * The paragraph of a place whose label `./place.ts` writes: point-anchor's
+ * three lines, with that label where point-anchor's would name the place by
+ * text it no longer carries.
+ * @param point - the description, as `forReference` returned it.
+ * @param label - the label.
+ * @returns the paragraph.
  */
-function withoutRow(point: PointData): PointData {
-  return {
-    v: point.v,
-    anchorFormat: point.anchorFormat,
-    what: point.what,
-    ...point.anchor !== undefined ? { anchor: point.anchor } : {},
-    ...point.unanchored !== undefined ? { unanchored: point.unanchored } : {},
-    shown: point.shown,
-  }
+function placeText(point: PointData, label: string): string {
+  const shown = [
+    ...point.shown.nav !== undefined ? [`侧栏「${point.shown.nav}」`] : [],
+    ...point.shown.page !== undefined ? [`页面「${point.shown.page}」`] : [],
+    label,
+  ]
+  return [
+    `用户在内容栏里指着「${label}」。`,
+    // point-anchor's own anchor line, verbatim: the key line, or why the place has none.
+    ...renderPointText(point).split('\n').slice(1, 2),
+    `显示：${shown.join(' · ')}`,
+  ].join('\n')
 }
 
 /**
@@ -84,7 +100,13 @@ function written(data: unknown, label: string): Written {
     return { text, label }
   }
   const point = parsePointData(data)
-  if (point.ok) return { text: renderPointText(withoutRow(point.value)), label: chipLabel(point.value) }
+  if (point.ok) {
+    const carried = forReference(point.value)
+    const own = placeLabel(carried, MODEL_PLACE_WORDS)
+    return own === undefined
+      ? { text: renderPointText(carried), label: chipLabel(carried) }
+      : { text: placeText(carried, own), label: own }
+  }
   if (point.reads !== undefined) {
     return { text: renderUnreadablePoint({ ...point.stated !== undefined ? { stated: point.stated } : {}, reads: point.reads }), label }
   }

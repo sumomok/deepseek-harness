@@ -25,6 +25,20 @@ describe('a block reference', () => {
     expect(data === undefined ? '' : blockLabel(data)).toBe('component')
   })
 
+  it('carries an original-system page\'s content-frame page id, written after the seat', () => {
+    const page = blockData({ seat: 'page', pageId: 'orders', page: '订单', target: '原系统页面' })
+    expect(page).toEqual({ v: BLOCK_FORMAT, kind: 'block', seat: 'page', page: 'orders', shown: { page: '订单', target: '原系统页面' } })
+    expect(page === undefined ? '' : blockKey(page)).toBe('block seat=page page=orders')
+    expect(parseBlockData(JSON.parse(JSON.stringify(page)))).toEqual({ ok: true, value: page })
+    expect(blockData({ seat: 'page', pageId: 'two words' })).toEqual({ v: BLOCK_FORMAT, kind: 'block', seat: 'page', shown: {} })
+  })
+
+  it('reads display text of at most 64 code points', () => {
+    const at = (target: string) => parseBlockData({ v: 1, kind: 'block', seat: 'c', shown: { target } })
+    expect(at('长'.repeat(64)).ok).toBe(true)
+    expect(at('长'.repeat(65))).toEqual({ ok: false, problem: { kind: 'invalid', field: 'shown.target' } })
+  })
+
   it('reads back what it wrote', () => {
     const data = blockData({ seat: 'component', component: 'el.metric', node: 'rate', page: '图层配置', target: '指标' })
     expect(parseBlockData(JSON.parse(JSON.stringify(data)))).toEqual({ ok: true, value: data })
@@ -48,6 +62,8 @@ describe('a block reference', () => {
     ['a component that is no string', { v: 1, kind: 'block', seat: 'c', component: 1, shown: {} }, 'component'],
     ['a node that is no token', { v: 1, kind: 'block', seat: 'c', node: 'a\tb', shown: {} }, 'node'],
     ['a node that is no string', { v: 1, kind: 'block', seat: 'c', node: null, shown: {} }, 'node'],
+    ['a page id that is no token', { v: 1, kind: 'block', seat: 'page', page: 'a b', shown: {} }, 'page'],
+    ['a page id that is no string', { v: 1, kind: 'block', seat: 'page', page: 7, shown: {} }, 'page'],
     ['no shown', { v: 1, kind: 'block', seat: 'c' }, 'shown'],
     ['an unknown shown key', { v: 1, kind: 'block', seat: 'c', shown: { nav: 'x' } }, 'shown.nav'],
     ['a page this build would have cleaned', { v: 1, kind: 'block', seat: 'c', shown: { page: ' x' } }, 'shown.page'],
