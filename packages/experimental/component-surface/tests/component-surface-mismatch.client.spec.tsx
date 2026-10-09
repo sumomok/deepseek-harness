@@ -49,6 +49,8 @@ function seat(components: ComponentRendererTable) {
     useSessions,
     pending: new Map(),
     components,
+    offerCalls: () => {},
+    parkCalls: () => {},
     t,
   } as unknown as ComponentSurfaceProps} />)
 }

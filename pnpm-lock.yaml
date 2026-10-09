@@ -8148,6 +8148,9 @@ importers:
       '@deepseek-ai/dsh-experimental-content-column':
         specifier: workspace:*
         version: link:../content-column
+      '@deepseek-ai/dsh-experimental-content-frame':
+        specifier: workspace:*
+        version: link:../content-frame
       '@deepseek-ai/dsh-experimental-content-surface':
         specifier: workspace:*
         version: link:../content-surface

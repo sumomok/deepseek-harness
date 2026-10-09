@@ -52,6 +52,7 @@ import type {} from '@deepseek-ai/dsh-experimental-content-column/client'
 // Type-only: pulls ui-conversation's `conversation.chat.commandview` SlotMap declaration.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { postAction, type PendingPresses } from './action.ts'
+import { joinActComponentChannel, type ActComponentWiring } from './act-channel.ts'
 import { ActionCommandRow } from './ActionCommandRow.tsx'
 import { ComponentSurface, type ComponentSurfaceInjected } from './ComponentSurface.tsx'
 import { en, NS, zh } from './locales.ts'
@@ -77,6 +78,9 @@ export type {
   ComponentRendererProps,
 } from './renderer.ts'
 export type { ComponentSurfaceInjected, ComponentSurfaceProps } from './ComponentSurface.tsx'
+export type { ActComponentSeatCall, ActComponentWiring } from './act-channel.ts'
+export type { ActComponentRun } from './act-executor.ts'
+export type { DrawnEntry } from './entry-container.ts'
 export type { ViewCommandRowProps } from './ViewCommandRow.tsx'
 
 /**
@@ -101,8 +105,24 @@ export function apply(ctx: ClientContext): void {
   // presses whose records have not come back, and every seat this registration
   // ever mounts reads and writes the same ones.
   const pending: PendingPresses = new Map()
+  // What the seat offers through until the channel row is composed, and what it
+  // offers through afterwards; a page with no channel answerers nothing.
+  let channelWiring: ActComponentWiring = {
+    offer: () => {},
+    park: () => {},
+  }
   ctx.plugin(ComponentRendererRegistry)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'show-component: dictionaries')
+  // The seat answers `act_component` calls through the content channel another
+  // row provides. Without that row there is no way for a call to reach this
+  // tab, and the seat is mounted without one rather than failing to load: what
+  // a deployment loses is the tool, which the host half offers only where the
+  // same service is composed.
+  ctx.inject(['contentTabChannel'], (channelCtx) => {
+    const actChannel = joinActComponentChannel(channelCtx.contentTabChannel)
+    channelWiring = actChannel
+    return () => { actChannel.park() }
+  })
   ctx.inject(['componentRenderers'], (seatCtx) => {
     seatCtx.slots.inject('content.surface.kind', () => seatCtx.slots.register({
       name: 'content.surface.kind',
@@ -114,6 +134,11 @@ export function apply(ctx: ClientContext): void {
       inject: (): ComponentSurfaceInjected => ({
         onAction: (sessionId, action) => postAction(seatCtx, sessionId, action),
         pending,
+        // A page with no channel row is handed a wiring that does nothing:
+        // there is no tab-side answerer for the host to reach, which the host
+        // half reads the same way and offers no tool for.
+        offerCalls: (sessionId, calls) => { channelWiring.offer(sessionId, calls) },
+        parkCalls: () => { channelWiring.park() },
         // The live registry rather than a snapshot of it: a component row loaded
         // after this seat mounted is drawable at the next render, and one
         // disposed stops being drawn rather than leaving the seat holding a
