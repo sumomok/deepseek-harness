@@ -1,0 +1,85 @@
+# The composition of `component-surface-data-page.overlay.yml`, plus what a
+# written-down view editing one table needs: the view itself in
+# `component-surface`'s `views` list — the table's data page, opened writable
+# with its own forms and card switched off, beside the form page its add and
+# modify buttons open and the info card its names open — and the gate's
+# `bizUpstream`, which composes `ctx.bizBackend` and with it component-kit's
+# ability route. Without that route the page and the form fail closed and draw
+# no write entrance at all.
+#
+# `bizUpstream` comes from the environment because the fake data backend the
+# scenario starts for the ability read binds an OS-assigned port. What the page,
+# the form and the card request still goes browser → the shell's own origin
+# under `bizBasePath`, and the scenario answers those requests in the browser,
+# the way a reverse proxy in front of a real console would.
+- id: ui-layout
+  name: '@deepseek-ai/dsh-client-ui-layout'
+  disabled: true
+
+- insert:
+    - id: server-layout
+      name: '@deepseek-ai/dsh-experimental-server-layout'
+    - id: content-surface
+      name: '@deepseek-ai/dsh-experimental-content-surface'
+    - id: content-column
+      name: '@deepseek-ai/dsh-experimental-content-column'
+    - id: vue2-echarts-poc
+      name: '@deepseek-ai/dsh-experimental-vue2-echarts-poc'
+    - id: component-kit
+      name: '@deepseek-ai/dsh-experimental-component-kit'
+      config:
+        bizBasePath: /ini-server/
+    - id: auth-gate
+      name: '@deepseek-ai/dsh-experimental-auth-gate'
+      config:
+        loginUrl: /component-surface-crud-view-login/#/
+        cookieName: accessToken
+        refreshMarginSeconds: 300
+        mcpUpstreams: {}
+        bizUpstream: !!js process.env.DSH_E2E_BIZ_UPSTREAM
+    - id: show-component
+      name: '@deepseek-ai/dsh-experimental-component-surface'
+      config:
+        dataPage: true
+        dataPageLoadTimeoutMs: 20000
+        views:
+          # The view a deployment writes to edit one table, as component-surface's
+          # own specs judge it (`tests/crud-view.client.ts`). Judged at load by
+          # the same pass that judges a `show_component` call, so a broken spec
+          # stops this scenario's own boot.
+          - id: layer-edit
+            title: 图层维护
+            spec:
+              nodes:
+                - id: page
+                  component: toy.data-page
+                  props:
+                    relatedMeta: SpaceLayer
+                    metaLabel: 空间图层
+                    readOnly: false
+                    deleteGisResource: 3
+                    regions: { addForm: false, modifyForm: false, infoCard: false }
+                    infoCardLinks: true
+                - id: form
+                  component: toy.form-page
+                  props:
+                    relatedMeta: SpaceLayer
+                    request: { $from: 'node:page.editing' }
+                - id: card
+                  component: toy.info-card
+                  props:
+                    record: { $from: 'node:page.opened' }
+              # The page above, the form and the card side by side below it: the
+              # card fixes its own width at 360 pixels, and the page's table and
+              # row buttons need the column's whole width.
+              layout:
+                node: stack
+                dir: col
+                children:
+                  - { node: component, id: page, flex: 3 }
+                  - node: stack
+                    dir: row
+                    flex: 2
+                    children:
+                      - { node: component, id: form, flex: 1 }
+                      - { node: component, id: card }

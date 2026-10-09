@@ -1,0 +1,38 @@
+[
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "text"
+      },
+      {
+        "type": "text-delta",
+        "index": 0,
+        "text": "Added {{fromRequest:saved a new record of \"SpaceLayer\" in [^:]+: \"([^\"]+)\"}}. Also: {{fromRequest:The card in [^.]+? (block \"card\" no longer shows a record)}}. Deleted {{fromRequest:The user deleted (\\d+ records?) of \"SpaceLayer\"}}."
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "text",
+          "text": "Added {{fromRequest:saved a new record of \"SpaceLayer\" in [^:]+: \"([^\"]+)\"}}. Also: {{fromRequest:The card in [^.]+? (block \"card\" no longer shows a record)}}. Deleted {{fromRequest:The user deleted (\\d+ records?) of \"SpaceLayer\"}}."
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 1,
+          "outputTokens": 1
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "stop"
+        }
+      }
+    ]
+  }
+]
