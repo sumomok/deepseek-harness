@@ -18,6 +18,7 @@ import type { ToolDefinition, ToolExecutionInput, ToolExecutionResult } from '@d
 import { COMPONENT_KIT_ENTRIES, DATA_PAGE_ID, describeCatalog, SHOW_COMPONENT_TOOL_NAME } from '../src/component-call.ts'
 import { PendingLoads } from '../src/data-page.ts'
 import { describeShowComponent, showComponentTool, type ShowComponentOptions } from '../src/tool.ts'
+import { judgeView } from '../src/views.ts'
 import { KIT_CATALOG, KIT_VIEW_CATALOG } from './kit-catalog.client.ts'
 
 /** The offer of a deployment that composed no data backend, which is what this suite pins. */
@@ -265,6 +266,18 @@ describe('one show_component call', () => {
     // The property schema cannot express a function at all, so the refusal is a
     // schema refusal rather than a sanitizer's — there is nothing to sanitize.
     expect(text(result)).toContain('show_component: spec.nodes[0].props.onClick — is not accepted here.')
+  })
+
+  it('denies a property written under a key named __proto__, in the words a view writing it is refused in', async () => {
+    // As the model's JSON carries it, the key is one more key of the
+    // properties; a pack's view file is read into the same object.
+    const spec: unknown = JSON.parse('{"nodes":[{"id":"page","component":"toy.data-page","props":'
+      + '{"relatedMeta":"SpaceLayer","metaLabel":"空间图层","__proto__":{"readOnly":false}}}]}')
+    const { run } = await bench()
+    const result = await run({ id: 'layers', title: '图层数据', spec })
+    expect(result.isError).toBe(true)
+    const judged = judgeView(KIT_CATALOG, true, { id: 'layers', title: '图层数据', spec })
+    expect(judged.ok ? undefined : `Error: show_component: ${judged.refusal.reason}`).toBe(text(result))
   })
 
   it('rejects a call with no spec before the tool body runs', async () => {

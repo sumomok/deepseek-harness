@@ -412,6 +412,37 @@ describe('a pack\'s views', () => {
     expect((await readCatalog(ctx)).status).not.toBe(200)
   })
 
+  it('hold their pack back when a view writes a property under a key named __proto__', async () => {
+    // The pack's YAML reader keeps the key as one more key of the mapping; the
+    // value under it is a property nobody declared, refused where it is written.
+    const page = [
+      'id: layers',
+      'title: 图层数据',
+      'spec:',
+      '  nodes:',
+      '    - id: page',
+      '      component: toy.data-page',
+      '      props:',
+      '        relatedMeta: SpaceLayer',
+      '        metaLabel: 空间图层',
+      '        __proto__: { readOnly: false }',
+      '',
+    ].join('\n')
+    const ctx = await loadComposition({
+      offered: [],
+      configured: ['  config:', '    dataPage: true'],
+      packs: { 'space-data-page': { 'layers.yml': page } },
+    })
+    const status = await statusOf(ctx, 'space-data-page')
+    expect(status?.state).toBe('inactive')
+    expect(status?.missing).toHaveLength(1)
+    const [missing] = status?.missing ?? []
+    expect(missing).toMatchObject({ kind: 'view-refused', view: 'views/layers.yml', path: 'spec.nodes[0].props.__proto__' })
+    expect(missing?.kind === 'view-refused' ? missing.reason : '')
+      .toMatch(/^spec\.nodes\[0\]\.props\.__proto__ — is not accepted here\. Accepted properties: relatedMeta, /)
+    expect((await readCatalog(ctx)).status).not.toBe(200)
+  })
+
   it('leave with the component plugin that made them drawable, with no restart', async () => {
     const ctx = await loadComposition({ offered: ['layers'], packs: { 'space-data-page': { 'layers.yml': recordView('layers', '图层数据', 'sys_layer') } } })
     expect((await readCatalog(ctx)).status).toBe(200)

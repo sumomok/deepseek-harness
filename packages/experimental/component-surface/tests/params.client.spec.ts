@@ -105,3 +105,17 @@ describe('a view file\'s parameter references', () => {
       .toBe('spec.nodes[1].props.b')
   })
 })
+
+describe('a key named __proto__ in a view file', () => {
+  it('stays one more key of the mapping it is written in, with its value substituted like any other', () => {
+    // A YAML or JSON reader hands the key over as an ordinary key, and the walk
+    // keeps it one: rebuilt by assignment, the value under it would become the
+    // mapping's prototype, and every property in it a value read without being
+    // written.
+    const spec: unknown = JSON.parse('{"nodes":[{"props":{"relatedMeta":"T","__proto__":{"readOnly":{"$param":"open"}}}}]}')
+    const result = substituted(spec, { open: false })
+    expect(JSON.stringify(result)).toBe('{"nodes":[{"props":{"relatedMeta":"T","__proto__":{"readOnly":false}}}]}')
+    const props = (result as { readonly nodes: readonly { readonly props: object }[] }).nodes[0]?.props
+    expect(props === undefined ? undefined : Object.getPrototypeOf(props)).toBe(Object.prototype)
+  })
+})

@@ -111,20 +111,23 @@ function substitute(value: unknown, params: Readonly<Record<string, unknown>>, p
   }
   if (!isMapping(value)) return { ok: true, spec: value }
   if (PARAM_KEY in value) return resolve(value, params, path)
-  const mapping: Record<string, unknown> = {}
+  const entries: [string, unknown][] = []
   for (const [key, own] of Object.entries(value)) {
     const done = substitute(own, params, `${path}.${key}`)
     if (!done.ok) return done
-    mapping[key] = done.spec
+    entries.push([key, done.spec])
   }
-  return { ok: true, spec: mapping }
+  // Built from entries rather than by assignment, because assigning to a key
+  // named `__proto__` sets the mapping's prototype instead of adding the key.
+  return { ok: true, spec: Object.fromEntries(entries) }
 }
 
 /**
  * Replace every parameter reference in one view's spec.
  * @param spec - the spec as the view file wrote it, however malformed.
  * @param params - the view file's `params` block; empty for a view that declares none.
- * @returns the substituted spec, or the first reference that could not be resolved.
+ * @returns the substituted spec, carrying every key the file wrote as a key of
+ *   its own, `__proto__` included, or the first reference that could not be resolved.
  */
 export function applyViewParams(spec: unknown, params: Readonly<Record<string, unknown>>): ViewParamResult {
   return substitute(spec, params, 'spec')

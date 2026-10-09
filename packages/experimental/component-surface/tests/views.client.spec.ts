@@ -11,10 +11,13 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+  catalogEntry,
   catalogId,
   COMPONENT_KIT_ENTRIES,
   COMPONENT_KIT_VIEW_ENTRIES,
+  DATA_PAGE_ID,
   EDITING_RECORD,
+  INFO_CARD_ID,
   OPENED_RECORD,
   readCatalog,
   SHOW_COMPONENT_TOOL_NAME,
@@ -58,6 +61,18 @@ const SINGLE = { nodes: [{ id: 'facts', component: 'toy.record', props: { dataLi
 /** One configured view, written the way `cordis.yml` writes it. */
 function view(id: string, title: string, spec: unknown): ContentView {
   return { id, title, spec }
+}
+
+/**
+ * The refusal of a key the component does not declare, in the sentence a call
+ * placing that component is refused in.
+ * @param path - where the key sits.
+ * @param component - the catalog id of the component the key is written among the properties of.
+ * @returns the refusal.
+ */
+function undeclared(path: string, component: string): ViewRefusal {
+  const declared = Object.keys(catalogEntry(KIT_VIEW_CATALOG, component)?.propsSchema ?? {})
+  return { path, reason: `${path} — is not accepted here. Accepted properties: ${declared.join(', ')}.` }
 }
 
 describe('the configured view list', () => {
@@ -450,5 +465,75 @@ describe('a view placing a form page and an info card beside its data page', () 
 
   it('accepts an info card beside a page that writes its own card false and nothing else', () => {
     expect(accepted(rewritten(CRUD_PAGE, { regions: { infoCard: false } }), CRUD_CARD)).toBe(true)
+  })
+
+  it.each([
+    ['in place of its own', {}],
+    ['beside its own', { infoCardTabs: ['wrong-info'] }],
+  ])('refuses an info card whose tab list is written under a key named __proto__ %s', (_case, own) => {
+    // Built the way a YAML or JSON reader builds the mapping, with the key as
+    // one more key of it; an object literal would set the prototype instead.
+    const entries: [string, unknown][] = [...Object.entries({ ...CRUD_CARD.props, ...own }), ['__proto__', { infoCardTabs: ['operation'] }]]
+    const props = Object.fromEntries(entries)
+    expect(refused([CRUD_PAGE, CRUD_FORM, { ...CRUD_CARD, props }])).toEqual(undeclared('spec.nodes[2].props.__proto__', INFO_CARD_ID))
+  })
+})
+
+describe('a view writing a key named __proto__', () => {
+  /** One data page view, its spec as a reader of the view file hands it over. */
+  function written(spec: string): ContentView {
+    return view('layers', '图层数据', JSON.parse(spec))
+  }
+
+  it('refuses a data page property written under it, at that key, in the words a call is refused in', () => {
+    // Taken as the properties' prototype instead, the value under the key would
+    // be a property no judgement named and the page still drew.
+    const spec = '{"nodes":[{"id":"page","component":"toy.data-page","props":'
+      + '{"relatedMeta":"SpaceLayer","metaLabel":"空间图层","__proto__":{"readOnly":false}}}]}'
+    expect(judgeView(KIT_VIEW_CATALOG, true, written(spec)))
+      .toEqual({ ok: false, refusal: undeclared('spec.nodes[0].props.__proto__', DATA_PAGE_ID) })
+  })
+
+  it.each([
+    [
+      'a node',
+      '{"nodes":[{"id":"page","component":"toy.data-page","__proto__":{"props":{"relatedMeta":"SpaceLayer","metaLabel":"空间图层"}}}]}',
+      'spec.nodes[0].__proto__',
+      'is not part of a node. A node carries id, component, props.',
+    ],
+    [
+      'a spec',
+      '{"nodes":[{"id":"page","component":"toy.data-page","props":{"relatedMeta":"SpaceLayer","metaLabel":"空间图层"}}],'
+      + '"__proto__":{"layout":{"node":"stack","dir":"col","children":[{"node":"component","id":"page"}]}}}',
+      'spec.__proto__',
+      'is not part of a spec. A spec carries nodes, layout.',
+    ],
+    [
+      'an object-valued property',
+      '{"nodes":[{"id":"page","component":"toy.data-page","props":'
+      + '{"relatedMeta":"SpaceLayer","metaLabel":"空间图层","querySort":{"__proto__":{"asc":"name"}}}}]}',
+      'spec.nodes[0].props.querySort.__proto__',
+      'is not accepted here. Accepted properties: asc, desc.',
+    ],
+  ])('refuses one written in %s, at that key', (_case, spec, path, message) => {
+    expect(judgeView(KIT_VIEW_CATALOG, true, written(spec))).toEqual({ ok: false, refusal: { path, reason: `${path} — ${message}` } })
+  })
+
+  it('measures what is written under it against the size ceiling', () => {
+    // Four hundred rows of two hundred characters, which only fit under the
+    // ceiling while nothing counts them.
+    const rows = Array.from({ length: 400 }, (_, index) => ({ name: `${String(index).padStart(4, '0')}${'x'.repeat(190)}` }))
+    const table = {
+      id: 'sites',
+      component: 'toy.table',
+      props: Object.fromEntries<unknown>([
+        ['tableConfig', { gridItems: [{ relatedMetaAttr: 'name' }] }],
+        ['displayValueList', [{ name: '一号站点' }]],
+        ['__proto__', { rawValueList: rows }],
+      ]),
+    }
+    const judged = judgeView(KIT_VIEW_CATALOG, true, view('sites', '站点', { nodes: [table] }))
+    expect(judged.ok ? undefined : judged.refusal.path).toBe('spec')
+    expect(judged.ok ? '' : judged.refusal.reason).toMatch(/^spec — is \d+ bytes of JSON; at most 65536 are accepted\./)
   })
 })
