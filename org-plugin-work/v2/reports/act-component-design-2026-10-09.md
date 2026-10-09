@@ -33,16 +33,18 @@
 packages/experimental/content-frame/src/access/channel.ts   （新）
   ChannelMember      一个域的登记口：名字 + 「这份报告体是不是我的」解析器
   ContentChannel     服务：PendingCalls 表 + 两条 route + member 登记 + open()/sessionOf()
-  pendingProjection  从 requests-projection.ts 参数化抽出的通用「待办」投影构造器
+  foldPending / checkedPending  从 requests-projection.ts 抽出的「待办」折叠与自检（实现时抽成这两个纯函数而不是整台投影工厂：每个域的 arm 词汇与 wire schema 都是自己的，工厂只省下十几行）
 ```
 
 - `ContentChannel` 拥有 `PendingCalls`（原表原样搬进服务，语义不变：单次 settle、settled 记忆、按 session 钉 tab、hold 首投窗口）。
 - 两条 route 由服务注册一次：`/content-claim` 与域无关；`/content-report` 先只读 `{callId, tabId}` 这对两域共有的字段，再用「这个 callId 是哪个 member 开的」派发到该 member 的 `parseReport`。这样每个域的报告体校验（页面的字符/步数上界、组件的自己的上界）留在各自域里，不会互相误判。
 - route 的注册时机：**第一个 member 登记时**。没有 member 就没有路由（保持今天「没有 `pageAccess` 时这些路径 404」的既有事实），有组件域登记时路由才出现。
 - 成员限权（`members.ts` 的 `admitCaller`/`placeByMember`）、同站 JSON 围栏（`http.ts`）、body 上界都跟着 route 一起搬进服务，页面域的这几条不变量一字不改。
-- `pendingProjection({ key, stateSchema, viewSchema, readCall, logger })` 是「待办」共享的那一半：页面域继续用 `contentAccess`（`contentAccessProjection` 变成它的一层薄包装，schema 与行为不变），组件域用同一个构造器注册自己的键。**投影键仍按域分摊**，因为键里的参数词汇（工具名 + 参数 arm）是域自己的词汇；把两域塞进一个键就得让页面那套换成泛型 arm 并在标签页里重新窄化，那是把页面域的行为拿去冒险，本阶段不做。
+- `foldPending` 与 `checkedPending` 是「待办」共享的那一半：页面域的 `contentAccess` 单元改成调它们（schema、`stateVersion`、日志句子都不变），组件域注册自己的 `componentAccess` 键。**投影键仍按域分摊**，因为键里的参数词汇（工具名 + 参数 arm）是域自己的词汇；把两域塞进一个键就得让页面那套换成泛型 arm 并在标签页里重新窄化，那是把页面域的行为拿去冒险，本阶段不做。构建门的实测追加了一条理由：客户端 bundle 禁止跨插件 value import，所以组件域连这两个纯函数也拿不到（它各自写了一份，见阶段报告 §6.2）。
 
-**浏览器半边：新模块 `ContentChannel`（`content-frame/client`）。**
+**浏览器半边：新服务 `ctx.contentTabChannel`（由 `content-frame/client` 提供）。**
+
+（名字是本半边自己的：宿主半边已占 `contentChannel`，而两个面同属一个 typecheck 程序，一个 context 键不能是两个服务。）
 
 ```
 packages/experimental/content-frame/src/client/access/channel.ts （新）
@@ -51,9 +53,10 @@ packages/experimental/content-frame/src/client/access/channel.ts （新）
   ChannelDemand   一个域座位每一帧报上的「我现在能答哪些 call、哪些 call 还开着」
 ```
 
-- 座位（`ContentFrame` 与组件座位）每一帧把 `ChannelDemand` 报给它 `join` 的那个 channel；channel 按 openCalls 剪枝、按 started 去重、对未开始的 call 起后台 `answer()`（隐藏宽限 → claim → `domain.answer()` → 按 body 报到域自己指定的 route，未落地再报一次）。这套逻辑与今天 `executor.ts` 的 `answer()`/`claimRead()`/`reportRead()` 逐条对应，只是把「谁来答」变成了域的回调。
-- 页面域把 `prepare()`/`readPage()`/`readImage()`/`actOnPage()` 原样留在 `executor.ts`，外面包一层 `pageDomain(...)`；`useContentRead(seat, channel = 页面自己的 channel)` 的签名与语义不变，于是页面那两份执行器回归测试一行都不用改——这是把它做成**每域一个实例的共享类**而不是一个 Cordis 单例服务的原因。组件域在 `component-surface/client` 里 `new ContentChannel()` 并实现自己的 domain。
-- **代价（写进缺口）**：两个域的 client bundle 各自内联这份模块，于是各有一个 `TAB_ID`；一个 session 的调用在页面域与组件域之间交替时，宿主会多付一次 `PREFERRED_TAB_WINDOW_MS`（250ms）的 tab 钉选窗口。第一阶段接受这个代价，换取页面半边零改动。
+- 座位（`ContentFrame` 与组件座位）每一帧把 `ChannelDemand` 报给它 `join` 的那个 channel；channel 按 openCalls 剪枝、按 started 去重、对未开始的 call 起后台 `answer()`（隐藏宽限 → claim → `domain.answer()` → 报到域指定的 route，未落地再报一次）。这套逻辑与今天 `executor.ts` 的 `answer()`/`claimRead()`/`reportRead()` 逐条对应，只是把「谁来答」变成了域的回调。
+- 域的 answer 是带判别的联合：`{kind:'body', route?, body}`（自己称过重量的读）或 `{kind:'outcome', route?, outcome}`（channel 组文档）。页面域用前者，因此它的称重逻辑与行为一字不动；组件域用后者，连 route 常量都不必知道。
+- 页面域把 `prepare()`/`readPage()`/`readImage()`/`actOnPage()` 原样留在 `executor.ts`，外面包一层 `pageDomain(...)`；`useContentRead(seat, channel = 页面自己的 channel)` 的签名与语义不变，于是页面那两份执行器回归测试一行都不用改。
+- 另一个域**只 import type** 这份接缝的形状，运行时用 `ctx.inject(['contentTabChannel'])` 拿实例：客户端 bundle 的 purity 门禁止跨插件 value import（type-only 会被擦除）。
 
 **谁注册、谁消费。**
 
@@ -110,7 +113,7 @@ packages/experimental/content-frame/src/client/access/channel.ts （新）
 - 没有浏览器座位认领：`未认领`（沿用通道既有句式，附上现在栏里是什么）。
 - 认领了但容器不在前 / 条目 id 不是现在画的这条：`这个条目现在不在内容栏里。`
 - 步骤里 `node`/`key`/`name` 解析不到：`步骤 N：…`（指名参数，不列容器外的东西）。
-- 解析到的元素在条目容器之外：一律拒绝，理由只说它不属于这个条目（`… is not part of the entry on display.`）。
+- 解析不到的（块/键/字段名）与容器外的一律同样拒绝，理由只说它不属于这个条目：实现里“容器外”由搜索边界保证（每一步的查找都以条目容器为界），所以两种情形是同一句话，不会有第二条路径去碰容器外的东西。
 
 ## 3. 客户端执行器怎么在容器内执行
 
