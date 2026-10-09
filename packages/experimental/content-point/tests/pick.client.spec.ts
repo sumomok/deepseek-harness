@@ -132,6 +132,15 @@ describe('a pick', () => {
     })
   })
 
+  it('names the block of the trusted click, not of a page script\'s click after it', async () => {
+    mountConsole(document)
+    const pending = point(document, { names: NAMES })
+    clickTrusted(probe(document, 'chart'))
+    probe(document, 'card-title').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    const outcome = await pending
+    expect(outcome.kind === 'reference' && outcome.data).toMatchObject({ component: 'custom.chart', node: 'chart' })
+  })
+
   it('on a sidebar entry files its description', async () => {
     mountConsole(document)
     const pending = point(document, { names: NAMES, words: {} })
