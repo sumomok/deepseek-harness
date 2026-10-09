@@ -39,8 +39,8 @@ import {
   type ActComponentStepResult,
 } from '../act-component-call.ts'
 import {
-  actComponentReportText, anotherEntryInFront, coveredReason, disabledReason, ENTRY_REDRAWN_REASON,
-  missingTargetReason, NO_ENTRY_IN_FRONT, notWritableReason,
+  actComponentReportText, ambiguousFieldReason, anotherEntryInFront, coveredReason, disabledReason,
+  ENTRY_REDRAWN_REASON, missingTargetReason, NO_ENTRY_IN_FRONT, notWritableReason,
 } from '../act-component-text.ts'
 import type { DrawnEntry } from './entry-container.ts'
 
@@ -165,23 +165,97 @@ function ownName(el: Element, within: Element): string {
 }
 
 /**
+ * Whether one element is drawn where a person could use it.
+ *
+ * A block that holds something back says so the way the platform does — the
+ * `hidden` attribute, or a computed `display`/`visibility` that takes it away —
+ * and a dialog keeps its fields in the document that way while it is closed.
+ * What a document draws is drawn: there is nothing else to ask, and a document
+ * with no layout (jsdom) resolves a value the block wrote inline exactly as a
+ * browser resolves it.
+ * @param el - the element.
+ * @param within - the entry's own container, past which nothing is asked.
+ * @returns whether it is drawn.
+ */
+function isDrawn(el: Element, within: Element): boolean {
+  for (let node: Element | null = el; node !== within; node = node.parentElement) {
+    /* v8 ignore next -- every candidate is inside the entry, so the walk reaches the container first */
+    if (node === null) break
+    if (node.hasAttribute('hidden')) return false
+    const shown = getComputedStyle(node)
+    if (shown.display === 'none' || shown.visibility === 'hidden') return false
+  }
+  return true
+}
+
+/** The roles a block draws a dialog or an overlay with, as the platform names them. */
+const OVERLAY = '[role="dialog"], [aria-modal="true"]'
+
+/**
+ * The open dialog one field is drawn inside, when it is drawn inside one.
+ * @param el - the field.
+ * @param within - the entry's own container, past which nothing is asked.
+ * @returns the dialog's element, or undefined when the field is not in an open one.
+ */
+function openDialog(el: Element, within: Element): Element | undefined {
+  for (let node: Element | null = el.parentElement; node !== within; node = node.parentElement) {
+    /* v8 ignore next -- every field is inside the entry, so the walk reaches the container first */
+    if (node === null) break
+    if (node.matches(OVERLAY) && isDrawn(node, within)) return node
+  }
+  return undefined
+}
+
+/**
+ * The attribute a field is named with: the column or property a `set` step may
+ * write. Read where a block declares its fields outright; a block that declares
+ * none has its controls named by what they carry, for the reason
+ * {@link ownName} states.
+ */
+const FIELD_KEY = 'data-component-field'
+
+/**
+ * Every control under one scope whose own accessible name is the one a step named.
+ * @param scope - the subtree the step is confined to.
+ * @param name - the column or property the step named.
+ * @param within - the entry's own container, which bounds what may name a field.
+ * @returns the controls, in document order.
+ */
+function namedControls(scope: Element, name: string, within: Element): Element[] {
+  const controls = [...scope.querySelectorAll(WRITABLE)]
+  if (scope.matches(WRITABLE)) controls.unshift(scope)
+  return controls.filter(el => ownName(el, within) === name)
+}
+
+/**
  * The field one `set` step writes into.
  *
  * A block that names its fields declares them outright, and that declaration
  * wins; where it does not, the control whose own accessible name is the column
  * or property the step named is the one a person would type into, so it is the
  * one this writes.
+ *
+ * A block may draw one name more than once — a page keeps the write dialog it
+ * closed in the document, under the same field names its query panel asks with
+ * — and the field is then picked among the copies the way the person using the
+ * page would: a copy inside an open dialog is the one asking for the value now
+ * and wins over every other, and where no dialog is open the drawn copies are
+ * the candidates. One drawn candidate is the field; several name one column or
+ * property twice with nothing to say which is meant, and a step that guesses
+ * would write where nobody asked.
  * @param scope - the subtree the step is confined to.
  * @param name - the column or property the step named.
  * @param within - the entry's own container, which bounds what may name a field.
  * @returns the control, or undefined when the subtree names none.
+ * @throws {Error} when more than one drawn candidate remains for the name.
  */
 function setTarget(scope: Element, name: string, within: Element): Element | undefined {
-  const declared = withAttribute(scope, 'data-component-field').find(el => marked(el, 'data-component-field', name))
-  if (declared !== undefined) return declared
-  const controls = [...scope.querySelectorAll(WRITABLE)]
-  if (scope.matches(WRITABLE)) controls.unshift(scope)
-  return controls.find(el => ownName(el, within) === name)
+  const declared = withAttribute(scope, FIELD_KEY).filter(el => marked(el, FIELD_KEY, name))
+  const candidates = declared.length > 0 ? declared : namedControls(scope, name, within)
+  const inDialog = candidates.filter(el => openDialog(el, within) !== undefined)
+  const chosen = inDialog.length > 0 ? inDialog : candidates.filter(el => isDrawn(el, within))
+  if (chosen.length > 1) throw new Error(ambiguousFieldReason(name))
+  return chosen[0] ?? candidates[0]
 }
 
 /**

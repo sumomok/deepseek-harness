@@ -332,6 +332,77 @@ describe('the field a step writes', () => {
   })
 })
 
+describe('a field the entry draws more than once', () => {
+  it('writes the copy inside the open dialog, which is the one a person would type into', async () => {
+    // A page keeps its write dialog in the document with the same field names
+    // the query panel carries; the dialog is what is asking for the value, so
+    // the copy inside it is the field the call means, whatever order the entry
+    // drew the two in.
+    const drawn = drawEntry(`
+      <input data-component-field="zh_label" id="query">
+      <div class="el-dialog__wrapper"><div role="dialog" aria-modal="true" class="el-dialog">
+        <input data-component-field="zh_label" id="dialog">
+      </div></div>
+    `)
+    expect((await run(args([{ action: 'set', name: 'zh_label', value: 'X' }]), drawn)).status).toBe('done')
+    expect((document.querySelector('#dialog') as HTMLInputElement).value).toBe('X')
+    expect((document.querySelector('#query') as HTMLInputElement).value).toBe('')
+  })
+
+  it('writes the drawn copy when the dialog holding the other one is closed', async () => {
+    const drawn = drawEntry(`
+      <input data-component-field="zh_label" id="query">
+      <div class="el-dialog__wrapper" style="display: none"><div role="dialog" class="el-dialog">
+        <input data-component-field="zh_label" id="closed">
+      </div></div>
+    `)
+    expect((await run(args([{ action: 'set', name: 'zh_label', value: 'X' }]), drawn)).status).toBe('done')
+    expect((document.querySelector('#query') as HTMLInputElement).value).toBe('X')
+    expect((document.querySelector('#closed') as HTMLInputElement).value).toBe('')
+  })
+
+  it('leaves the copies the document holds back out of the count, however the block hid them', async () => {
+    const drawn = drawEntry(`
+      <input data-component-field="zh_label" id="query">
+      <div hidden><input data-component-field="zh_label" id="hidden-attr"></div>
+      <div style="visibility: hidden"><input data-component-field="zh_label" id="invisible"></div>
+    `)
+    expect((await run(args([{ action: 'set', name: 'zh_label', value: 'X' }]), drawn)).status).toBe('done')
+    expect((document.querySelector('#query') as HTMLInputElement).value).toBe('X')
+    expect((document.querySelector('#hidden-attr') as HTMLInputElement).value).toBe('')
+    expect((document.querySelector('#invisible') as HTMLInputElement).value).toBe('')
+  })
+
+  it('writes the only field there is even where the document hides it', async () => {
+    // Nothing else names the column, so the hidden copy is the field: a page
+    // that keeps a form in the document while it is closed still takes the
+    // value, and a step that refused here would refuse a write a person can
+    // make by opening the form.
+    const drawn = drawEntry('<div style="display: none"><input data-component-field="zh_label" id="closed"></div>')
+    expect((await run(args([{ action: 'set', name: 'zh_label', value: 'X' }]), drawn)).status).toBe('done')
+    expect((document.querySelector('#closed') as HTMLInputElement).value).toBe('X')
+  })
+
+  it('refuses a name two drawn controls carry rather than picking one of them', async () => {
+    const drawn = drawEntry(`
+      <input data-component-field="zh_label" id="first">
+      <input data-component-field="zh_label" id="second">
+    `)
+    expect(await run(args([{ action: 'set', name: 'zh_label', value: 'X' }]), drawn)).toEqual({
+      status: 'failed',
+      steps: [{
+        index: 1,
+        status: 'failed',
+        message: 'field "zh_label" is drawn more than once in the entry, so this call cannot tell which one to write.',
+      }],
+      text: 'Acted on the component entry "Demo" (demo).'
+        + '\n- set "zh_label": field "zh_label" is drawn more than once in the entry, so this call cannot tell which one to write.',
+    })
+    expect((document.querySelector('#first') as HTMLInputElement).value).toBe('')
+    expect((document.querySelector('#second') as HTMLInputElement).value).toBe('')
+  })
+})
+
 describe('a control that is not an HTMLElement', () => {
   it('is pressed with a click event, so a drawn SVG control still runs its handler', async () => {
     const drawn = drawEntry('<svg><circle data-component-action="pick"></circle></svg>')

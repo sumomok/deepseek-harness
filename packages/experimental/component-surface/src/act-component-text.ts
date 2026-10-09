@@ -181,6 +181,22 @@ export function notWritableReason(name: string): string {
 }
 
 /**
+ * The sentence a console posts for a name the entry draws more than once.
+ *
+ * One column or property may be drawn as several fields at once — a page's
+ * query panel and its open write dialog both carry the column's name — and
+ * which of them a call means is not something the call says. Refusing names the
+ * ambiguity rather than writing where the step may not have meant, and the
+ * answer tells the model what to change: one field at a time, with the dialog a
+ * press opened.
+ * @param name - the column or property the step named.
+ * @returns the model-facing sentence.
+ */
+export function ambiguousFieldReason(name: string): string {
+  return `field "${name}" is drawn more than once in the entry, so this call cannot tell which one to write.`
+}
+
+/**
  * What the model is told the call did.
  *
  * Composed here rather than in either half's report body so a step's own
