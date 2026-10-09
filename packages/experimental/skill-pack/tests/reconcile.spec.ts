@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { describeMissing, reconcilePacks, type PackObservation } from '../src/reconcile.ts'
+import { describeMissing, judgePackAlone, reconcilePacks, type PackObservation, type ViewJudge } from '../src/reconcile.ts'
 import type { PackMissing, ProvidedPart } from '../src/types.ts'
 
 const PLATFORM = '0.5.2'
@@ -301,6 +301,52 @@ describe('the views a pack declares, judged by the surface that would draw them'
       PLATFORM,
     )
     expect(status?.state).toBe('active')
+  })
+
+  describe('by a judgement that throws on one of them', () => {
+    /** A judge that throws on the view with this id and accepts every other view. */
+    function throwingOn(id: string): ViewJudge {
+      return (one) => {
+        if (one.id === id) throw new RangeError('Maximum call stack size exceeded')
+        return undefined
+      }
+    }
+
+    /** The refusal a view whose judgement threw that error is reported with. */
+    const THREW: PackMissing = {
+      kind: 'view-refused',
+      view: 'views/a.yml',
+      path: 'spec',
+      reason: 'could not be judged (RangeError: Maximum call stack size exceeded); a view the component surface has not accepted is not drawn',
+    }
+
+    it('withholds that pack, naming the view, and offers the other packs as usual', () => {
+      const judged: string[] = []
+      const judge = throwingOn('layers')
+      const statuses = reconcilePacks(
+        [
+          pack('space-data-page', { views: ['views/a.yml', 'views/b.yml'] }, [view('views/a.yml', 'layers'), view('views/b.yml', 'sites')]),
+          pack('asset-page', { views: ['views/c.yml'] }, [view('views/c.yml', 'assets')]),
+        ],
+        [],
+        PLATFORM,
+        (one) => {
+          judged.push(one.id)
+          return judge(one)
+        },
+      )
+      expect(statuses.map(status => [status.skill, status.state, status.missing])).toEqual([
+        ['asset-page', 'active', []],
+        ['space-data-page', 'inactive', [THREW]],
+      ])
+      // The view after the one that threw is still judged.
+      expect(judged).toEqual(['assets', 'layers', 'sites'])
+    })
+
+    it('withholds a pack judged on its own the same way, which is how a delivery is judged before it is installed', () => {
+      expect(judgePackAlone(pack('space-data-page', { views: ['views/a.yml'] }, [view('views/a.yml', 'layers')]), [], PLATFORM, throwingOn('layers')))
+        .toEqual({ skill: 'space-data-page', version: '1.0.0', origin: 'pack-root', state: 'inactive', missing: [THREW] })
+    })
   })
 })
 

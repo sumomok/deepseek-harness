@@ -82,8 +82,32 @@ export function undrawableViews(status: PackStatus): RefusedView[] {
   return status.missing.filter((missing): missing is RefusedView => missing.kind === 'view-refused')
 }
 
-/** How one view file is judged against the surface that would draw it, where a surface is composed. */
+/**
+ * How one view file is judged against the surface that would draw it, where a
+ * surface is composed. A judge that throws on a view refuses that view, at
+ * `spec`, with the thrown value in the reason.
+ */
 export type ViewJudge = (view: PackView) => PackViewRefusal | undefined
+
+/**
+ * Judge one view, reading a judgement that throws as a refusal of that view.
+ *
+ * The view is a pack author's file and the judge is the composed surface's, so
+ * a value the judge does not expect can make it throw. Read as a refusal, that
+ * withholds the one pack and leaves every other view and pack judged as usual;
+ * let through, it would end the whole reading of the pack root, or the judgement
+ * of a delivery, with nothing said about which file did it.
+ * @param judgeView - the composed surface's judgement.
+ * @param view - one view file that parsed.
+ * @returns the refusal, or `undefined` when the surface draws the view.
+ */
+function judgeOneView(judgeView: ViewJudge, view: PackView): PackViewRefusal | undefined {
+  try {
+    return judgeView(view)
+  } catch (error) {
+    return { path: 'spec', reason: `could not be judged (${String(error)}); a view the component surface has not accepted is not drawn` }
+  }
+}
 
 /** One pack as it was judged before the view ids of the whole root were compared. */
 interface JudgedPack {
@@ -267,7 +291,7 @@ function judgePack(
       // at a time: a pack whose two views are both wrong is corrected once.
       for (const view of pack.views) {
         if (!view.ok) continue
-        const refusal = judgeView(view.view)
+        const refusal = judgeOneView(judgeView, view.view)
         if (refusal !== undefined) {
           missing.push({ kind: 'view-refused', view: view.path, path: refusal.path, reason: refusal.reason })
         }

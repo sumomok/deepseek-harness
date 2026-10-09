@@ -172,7 +172,7 @@ interface PartsSource {
 
 每条状态都带 `origin`：`pack-root`，或者是已提供的组织集里的条目时为 `organization`；组织条目还带 `entryVersion`——组织清单条目的版本，它和技能名一起作这个条目的键——以及 `channel`，`stable` 或 `trial`。`version` 一律是技能包自己的 `metadata.pack.version`，这里不拿它和 `entryVersion` 比对。不公布试装标识：哪位成员在哪次试装里，归组织插件知道。
 
-一条没满足的要求会点名那个被拒的值：`manifest-invalid` 带字段，`platform-version` 和 `plugin-version` 带两个版本，`plugin-absent` 和 `part-absent` 带名字，`anchor-format` 和 `view-format` 带这个技能包写的版本和这套构建读的版本，`view-unreadable` 带文件，`view-refused` 带文件、文件里的那个值，以及组件表面自己对那个值说的那句话，`view-id-conflict` 带这个 id、另一个占着它的技能包，以及那个技能包装在哪里。这个联合是封闭的，消费者按 tag 分支并以 `assertNever` 收尾。
+一条没满足的要求会点名那个被拒的值：`manifest-invalid` 带字段，`platform-version` 和 `plugin-version` 带两个版本，`plugin-absent` 和 `part-absent` 带名字，`anchor-format` 和 `view-format` 带这个技能包写的版本和这套构建读的版本，`view-unreadable` 带文件，`view-refused` 带文件、文件里的那个值，以及组件表面自己对那个值说的那句话，`view-id-conflict` 带这个 id、另一个占着它的技能包，以及那个技能包装在哪里。判定时抛出异常的视图记为 `spec` 处的 `view-refused`，那句话里带着抛出的值，所以一个文件只让它自己的技能包被扣下，其他视图和技能包照常判定。这个联合是封闭的，消费者按 tag 分支并以 `assertNever` 收尾。
 
 这个根目录本来会交出去的两个技能包，如果声明了同一个视图 id，**两个都**被扣下，各自点出这个 id 和对方。一条菜单项不能有两个归属者，而把这个 id 留给排在前面那个，就等于让一套部署交出什么取决于它的技能包碰巧是按什么顺序读进来的。因为别的原因未激活的技能包不占任何 id，所以一个谁也没被交出去的技能包扣不住一个本来会被交出去的；部署自己配置占下的 id 更早就被组件表面拒掉了，因为部署自己的视图拥有自己的 id。
 
