@@ -129,6 +129,42 @@ function recordView(id: string, title: string, display: string): string {
   ].join('\n')
 }
 
+/** Where each cyclic form of {@link cyclicView} writes the alias that refers back to a value containing it. */
+const CYCLE_PATHS = {
+  layout: 'spec.layout.self',
+  children: 'spec.layout.children[1]',
+  props: 'spec.nodes[0].props.self',
+} as const
+
+/** The sentence a view is refused in at the alias {@link CYCLE_PATHS} names. */
+const CYCLE = 'is an alias of a mapping or list that contains it, so the value written here would contain itself without end'
+
+/**
+ * A record view whose layout, child list or properties carry an alias of themselves.
+ * @param id - the view id.
+ * @param form - which mapping or list aliases itself.
+ * @returns the view file's text.
+ */
+function cyclicView(id: string, form: keyof typeof CYCLE_PATHS): string {
+  return [
+    `id: ${id}`,
+    `title: ${id}`,
+    'spec:',
+    '  nodes:',
+    '    - id: facts',
+    '      component: toy.record',
+    `      props:${form === 'props' ? ' &p' : ''}`,
+    '        dataList: [{ label: 表, display: x }]',
+    ...form === 'props' ? ['        self: *p'] : [],
+    `  layout:${form === 'layout' ? ' &l' : ''}`,
+    '    node: stack',
+    '    dir: col',
+    `    children:${form === 'children' ? ' &c' : ''} [ { node: component, id: facts }${form === 'children' ? ', *c' : ''} ]`,
+    ...form === 'layout' ? ['    self: *l'] : [],
+    '',
+  ].join('\n')
+}
+
 /** What one booted deployment holds. */
 interface Deployment {
   /** The packs in the root, each with its view files. */
@@ -441,6 +477,44 @@ describe('a pack\'s views', () => {
     expect(missing?.kind === 'view-refused' ? missing.reason : '')
       .toMatch(/^spec\.nodes\[0\]\.props\.__proto__ — is not accepted here\. Accepted properties: relatedMeta, /)
     expect((await readCatalog(ctx)).status).not.toBe(200)
+  })
+
+  it('hold back only the packs whose view aliases a value containing it, and offer the others from the same root', async () => {
+    const ctx = await loadComposition({
+      offered: ['layers'],
+      packs: {
+        'loop-layout': { 'loop.yml': cyclicView('loop-layout', 'layout') },
+        'loop-children': { 'loop.yml': cyclicView('loop-children', 'children') },
+        'loop-props': { 'loop.yml': cyclicView('loop-props', 'props') },
+        'space-data-page': { 'layers.yml': recordView('layers', '图层数据', 'sys_layer') },
+      },
+    })
+    for (const form of ['layout', 'children', 'props'] as const) {
+      const path = CYCLE_PATHS[form]
+      expect(await statusOf(ctx, `loop-${form}`)).toEqual({
+        skill: `loop-${form}`,
+        version: '1.0.0',
+        origin: 'pack-root',
+        state: 'inactive',
+        missing: [{ kind: 'view-refused', view: 'views/loop.yml', path, reason: `${path} — ${CYCLE}` }],
+      })
+    }
+    expect((await statusOf(ctx, 'space-data-page'))?.state).toBe('active')
+    expect((await readCatalog(ctx)).body).toEqual({ views: [{ id: 'layers', title: '图层数据' }] })
+  })
+
+  it('refuse a delivery whose view aliases a value containing it, and install the delivery after it', { timeout: 60_000 }, async () => {
+    const ctx = await loadComposition({ offered: [], deliveries: true, packs: {} })
+
+    await deliver('v1.dshpack', [deliveredPack('other-pack', { 'loop.yml': cyclicView('loop', 'layout') })])
+    expect(await logSettlesOn('other-pack/views/loop.yml'))
+      .toEqual(expect.arrayContaining([expect.stringContaining('error')]))
+    expect(logLines.find(line => line.includes('other-pack/views/loop.yml'))).toContain(`spec.layout.self — ${CYCLE}`)
+    expect(await readdir(join(world!, 'packs'))).toEqual([])
+
+    await deliver('v2.dshpack', [deliveredPack('other-pack', { 'sites.yml': recordView('sites', '站点', 'sys_site') })])
+    await settle(ctx, ['sites'])
+    expect((await readCatalog(ctx)).body).toEqual({ views: [{ id: 'sites', title: '站点' }] })
   })
 
   it('leave with the component plugin that made them drawable, with no restart', async () => {
