@@ -8640,6 +8640,12 @@ importers:
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:*
         version: link:../../client/ui-slots
+      '@deepseek-ai/dsh-experimental-content-frame':
+        specifier: workspace:*
+        version: link:../content-frame
+      '@deepseek-ai/dsh-experimental-skill-pack':
+        specifier: workspace:*
+        version: link:../skill-pack
       '@deepseek-ai/dsh-llm':
         specifier: workspace:*
         version: link:../../llm/llm
