@@ -175,11 +175,12 @@ interface TableEventContext {
 function readRow(value: unknown): TableRow | undefined {
   const record = readRecord(value)
   if (record === undefined) return undefined
-  const row: Record<string, ScalarValue> = {}
+  const row: [string, ScalarValue][] = []
   for (const [key, cell] of Object.entries(record)) {
-    if (typeof cell === 'string' || typeof cell === 'number' || typeof cell === 'boolean') row[key] = cell
+    if (typeof cell === 'string' || typeof cell === 'number' || typeof cell === 'boolean') row.push([key, cell])
   }
-  return row
+  // From entries, so a cell keyed `__proto__` stays one; assigning it would drop it.
+  return Object.fromEntries(row)
 }
 
 /**

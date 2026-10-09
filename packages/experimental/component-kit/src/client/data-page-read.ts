@@ -337,12 +337,13 @@ function readSort(value: unknown): DataPageVueProps['querySort'] {
 function readRegions(value: unknown): Readonly<Record<string, boolean>> | undefined {
   const record = readRecord(value)
   if (record === undefined) return undefined
-  const regions: Record<string, boolean> = {}
+  const regions: [string, boolean][] = []
   for (const [name, drawn] of Object.entries(record)) {
     const decided = readBoolean(drawn)
-    if (decided !== undefined) regions[name] = decided
+    if (decided !== undefined) regions.push([name, decided])
   }
-  return regions
+  // From entries, so a region named `__proto__` stays one; assigning it would drop it.
+  return Object.fromEntries(regions)
 }
 
 /**
@@ -512,13 +513,14 @@ export function readQuery(payload: CrudQuerySuccessPayload): QueryReport | undef
  * @returns the cells a report may carry.
  */
 function readRow(row: ToyRow, columns: readonly ReportedColumn[], limit: number): Readonly<Record<string, ScalarValue>> {
-  const cells: Record<string, ScalarValue> = {}
+  const cells: [string, ScalarValue][] = []
   for (const drawn of columns.slice(0, limit)) {
     const value = readCell(row[drawn.attr])
     if (value === undefined) continue
-    cells[drawn.attr] = value
+    cells.push([drawn.attr, value])
   }
-  return cells
+  // From entries, so a cell keyed `__proto__` stays one; assigning it would drop it.
+  return Object.fromEntries(cells)
 }
 
 /**

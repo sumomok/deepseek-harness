@@ -355,6 +355,17 @@ describe('toy.table', () => {
     expect(cells(view.container, 0)).toEqual(['一号站点', '在用'])
   })
 
+  it('draws a cell keyed __proto__ under the column that reads it', async () => {
+    // A row as the payload's JSON carries it, where the key is an ordinary
+    // one. Copied by assignment, the cell would be dropped and its column
+    // drawn empty.
+    const { view } = await draw({
+      tableConfig: { gridItems: [COLUMNS[0], { relatedMetaAttr: '__proto__', alias: '内部' }] },
+      displayValueList: [JSON.parse('{"zh_label":"一号站点","__proto__":"P-1"}')],
+    })
+    expect(cells(view.container, 0)).toEqual(['一号站点', 'P-1'])
+  })
+
   it('drops a column that names no row property, a row that is not a record, and a button with no id or no text', async () => {
     const { view } = await draw({
       tableConfig: { gridItems: [{ ...COLUMNS[0], isSortable: false }, { alias: '无名' }, 'not-a-column'] },
