@@ -344,14 +344,19 @@ async function runStep(entry: DrawnEntry, step: ActComponentStep): Promise<void>
 /**
  * Whether a block has disabled one control.
  *
- * A block says so the two ways the platform does — the `disabled` attribute a
- * form control carries, and `aria-disabled` for anything else. A press of such
- * a control would be reported as one that ran while the block's own handler,
- * which a real browser never calls through a disabled control, never ran.
+ * A block says so the ways the platform does — the `disabled` attribute a form
+ * control carries, an ancestor `<fieldset disabled>` the platform disables
+ * everything under while the controls themselves carry no attribute, and
+ * `aria-disabled` for anything else. The first two are one question to the
+ * platform (`:disabled`), which is also what a person's browser asks before it
+ * refuses the click. A press of such a control would be reported as one that
+ * ran while the block's own handler, which a real browser never calls through
+ * a disabled control, never ran.
  * @param el - the control.
  * @returns whether it is disabled.
  */
 function isDisabled(el: Element): boolean {
+  if (el.matches(':disabled')) return true
   if (el.getAttribute('aria-disabled') === 'true') return true
   const disabled: unknown = (el as { readonly disabled?: unknown }).disabled
   return disabled === true

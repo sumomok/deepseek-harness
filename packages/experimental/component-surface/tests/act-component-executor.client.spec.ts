@@ -559,6 +559,21 @@ describe('a press the control itself refuses', () => {
     expect(discarded).not.toHaveBeenCalled()
   })
 
+  it('refuses a control an ancestor fieldset disabled, which carries no attribute of its own', async () => {
+    // The platform disables everything inside a disabled fieldset while leaving
+    // the controls' own `disabled` attributes unset, so a press that reads only
+    // the attribute would report a step the browser never let run.
+    const drawn = drawEntry('<fieldset disabled><button data-component-action="save">Save</button></fieldset>')
+    const saved = vi.fn()
+    document.querySelector('[data-component-action="save"]')?.addEventListener('click', saved)
+    expect(await run(args([{ action: 'click', key: 'save' }]), drawn)).toEqual({
+      status: 'failed',
+      steps: [{ index: 1, status: 'failed', message: 'control "save" is disabled.' }],
+      text: 'Acted on the component entry "Demo" (demo).\n- click on "save": control "save" is disabled.',
+    })
+    expect(saved).not.toHaveBeenCalled()
+  })
+
   it('refuses a covered control and presses one the document\'s hit test reaches', async () => {
     const drawn = drawEntry('<button data-component-action="go"><span id="label">Go</span></button><span id="over">cover</span>')
     const button = document.querySelector('[data-component-action="go"]') as HTMLElement
