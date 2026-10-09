@@ -18,7 +18,7 @@
  * assembled at runtime from the component plugins it composes
  * ({@link module:@deepseek-ai/dsh-experimental-component-surface/src/catalog}),
  * so every reader is handed a {@link ComponentCatalog} rather than reading one
- * off this module. What this module still owns is the six components
+ * off this module. What this module still owns is the eight components
  * `component-kit` registers ({@link COMPONENT_KIT_ENTRIES}) and every rule the
  * two halves judge a call by.
  *
@@ -1720,18 +1720,18 @@ const DATA_PAGE_REGION: PropsField = { required: false, schema: { kind: 'boolean
  * accepted here and refused there would be a button nobody drew and nothing
  * reported.
  */
-export const DATA_PAGE_TOOLBAR_BUTTONS: readonly string[] = ['add', 'exp', 'gridexp', 'search', 'clear']
+export const DATA_PAGE_TOOLBAR_BUTTONS: readonly string[] = ['add', 'exp', 'gridexp', 'batch', 'search', 'clear']
 
-/** Why a page keeps no import or batch button, stated where a view asking for one is refused. */
-const DATA_PAGE_TOOLBAR_HINT = 'This page draws no import panel and no batch panel, so "imp" and "batch" are not on '
-  + 'the list: either button would draw and answer nothing when it was pressed.'
+/** Why a page keeps no import button, stated where a view asking for one is refused. */
+const DATA_PAGE_TOOLBAR_HINT = 'This page draws no import panel, so "imp" is not on the list: the button would draw '
+  + 'and answer nothing when it was pressed.'
 
-/** The row operations a written-down page may keep. */
-export const DATA_PAGE_ROW_OPERATIONS: readonly string[] = ['modify']
-
-/** Why a row keeps no delete button, stated where a view asking for one is refused. */
-const DATA_PAGE_ROW_OPERATION_HINT = 'This page draws no delete confirmation, so "delete" is not on the list: the '
-  + 'button would draw and answer nothing when it was pressed.'
+/**
+ * The row operations a written-down page may keep: the vendored page's own
+ * `DATA_PAGE_ROW_OPERATIONS`, value for value and in its order, which
+ * `component-kit` asserts.
+ */
+export const DATA_PAGE_ROW_OPERATIONS: readonly string[] = ['modify', 'delete']
 
 /**
  * The sections a written-down page's own info card, and an info card block
@@ -1751,6 +1751,23 @@ const INFO_CARD_TABS: ArrayFieldSchema = {
   maxItems: DATA_PAGE_INFO_CARD_TABS.length,
   item: { kind: 'enum', values: DATA_PAGE_INFO_CARD_TABS },
 }
+
+/**
+ * What a delete the page sends asks the backend to do with the spatial resource
+ * data bound to each record: the vendored page's own
+ * `DATA_PAGE_DELETE_GIS_RESOURCE_VALUES`, value for value, which
+ * `component-kit` asserts.
+ */
+export const DATA_PAGE_DELETE_GIS_RESOURCE_VALUES: readonly number[] = [1, 2, 3]
+
+/**
+ * What each of {@link DATA_PAGE_DELETE_GIS_RESOURCE_VALUES} does, and which one
+ * the page sends where the view writes none, stated where a view writing
+ * another value is refused.
+ */
+const DATA_PAGE_DELETE_GIS_RESOURCE_HINT = 'The page sends 3 where the view writes none. 1 deletes the spatial resource '
+  + 'data bound to the record together with it; 2 deletes that resource data and clears the binding; 3 deletes no '
+  + 'record that still has spatial resources bound to it and reports it instead.'
 
 /** Most entries one `pageSizes` list offers. */
 const MAX_DATA_PAGE_PAGE_SIZES = 10
@@ -1792,10 +1809,11 @@ export const DATA_PAGE_MODEL_PROP_NAMES: readonly string[] = [
  * so a page a call placed opens with the vendored page's own defaults, which
  * include being read-only.
  *
- * Seven of them are the vendored page's own layout list, which `component-kit`
- * pins this table against; `readOnly` is that page's own host-decided property
- * and is here because whether a page can be written in is settled in the same
- * file its layout is.
+ * Eight of them are the vendored page's own layout list, which `component-kit`
+ * pins this table against. `readOnly` and `deleteGisResource` are that page's
+ * own host-decided properties — whether the page can be written in, and what
+ * its deletes do to the spatial resources bound to a record — and are here
+ * because both are settled in the same file its layout is.
  */
 export const DATA_PAGE_VIEW_PROP_NAMES: readonly string[] = [
   'regions',
@@ -1805,7 +1823,9 @@ export const DATA_PAGE_VIEW_PROP_NAMES: readonly string[] = [
   'pageSize',
   'pageSizes',
   'infoCardTabs',
+  'infoCardLinks',
   'readOnly',
+  'deleteGisResource',
 ]
 
 /**
@@ -1908,7 +1928,7 @@ const DATA_PAGE_PROPS: PropsSchema = {
       kind: 'array',
       minItems: 0,
       maxItems: DATA_PAGE_ROW_OPERATIONS.length,
-      item: { kind: 'enum', values: DATA_PAGE_ROW_OPERATIONS, hint: DATA_PAGE_ROW_OPERATION_HINT },
+      item: { kind: 'enum', values: DATA_PAGE_ROW_OPERATIONS },
     },
     ...DATA_PAGE_ARRANGED,
   },
@@ -1929,7 +1949,13 @@ const DATA_PAGE_PROPS: PropsSchema = {
     ...DATA_PAGE_ARRANGED,
   },
   infoCardTabs: { required: false, schema: INFO_CARD_TABS, ...DATA_PAGE_ARRANGED },
+  infoCardLinks: { required: false, schema: { kind: 'boolean' }, ...DATA_PAGE_ARRANGED },
   readOnly: { required: false, schema: { kind: 'boolean' }, ...DATA_PAGE_ARRANGED },
+  deleteGisResource: {
+    required: false,
+    schema: { kind: 'enum', values: DATA_PAGE_DELETE_GIS_RESOURCE_VALUES, hint: DATA_PAGE_DELETE_GIS_RESOURCE_HINT },
+    ...DATA_PAGE_ARRANGED,
+  },
 }
 
 /** Action id the data page reports its loaded columns under. */
@@ -1953,7 +1979,10 @@ export const DATA_PAGE_SELECT_ID = 'select'
 /** Action id the data page reports an opened side card under. */
 export const DATA_PAGE_CARD_OPEN_ID = 'card-open'
 
-/** Action id the data page reports a closed side card under. */
+/**
+ * Action id the data page reports that its side card no longer shows a record
+ * under: the user closed it, cleared the page or turned a page.
+ */
 export const DATA_PAGE_CARD_CLOSE_ID = 'card-close'
 
 /** Action id the data page reports a saved new record under. */
@@ -2162,12 +2191,12 @@ function describeDataPageSave(context: ComponentActionContext, written: 'added' 
  * judgements refused the table to this user's account, or that this deployment
  * refused the sign-in the page presented, how many rows each
  * query matched,
- * which rows the user ticked, which cell they clicked, which side card they
- * opened, what they saved, which records they deleted, which records they
- * changed at once and in which fields, which row operation they pressed, and
- * which export they submitted. None wakes the agent, because none of them is a
- * question the user is waiting on an answer to; working in a page is the user
- * working.
+ * which rows the user ticked, which cell they clicked, which record's side card
+ * they opened and when the card stopped showing one, what they saved, which
+ * records they deleted, which records they changed at once and in which
+ * fields, which row operation they pressed, and which export they submitted.
+ * None wakes the agent, because none of them is a question the user is waiting
+ * on an answer to; working in a page is the user working.
  *
  * No result set is ever in a payload. A query reports three counts, a selection
  * reports how many rows are ticked and what the first few of them are called, a
@@ -2357,12 +2386,14 @@ const DATA_PAGE_ACTIONS: readonly ComponentActionDefinition[] = [
     id: DATA_PAGE_CARD_OPEN_ID,
     report: 'context',
     payloadSchema: {
-      name: { required: true, schema: { kind: 'string', maxLength: MAX_DATA_PAGE_CELL_LENGTH } },
+      name: { required: true, schema: RECORD_NAME },
+      type: { required: true, schema: FIELD_NAME },
     },
     describe: (context) => {
       const name = quote(context.payload['name'] as string)
       return {
-        text: `The user opened the side card of ${name.agent} in ${place(context)}.`,
+        text: `The user opened the side card of ${name.agent} (table "${context.payload['type'] as string}") in `
+          + `${place(context)}.`,
         summary: `用户在「${entryName(context)}」里打开了「${name.user}」的卡片`,
       }
     },
@@ -2372,8 +2403,8 @@ const DATA_PAGE_ACTIONS: readonly ComponentActionDefinition[] = [
     report: 'context',
     payloadSchema: {},
     describe: context => ({
-      text: `The user closed the side card in ${place(context)}.`,
-      summary: `用户在「${entryName(context)}」里关掉了卡片`,
+      text: `The side card in ${place(context)} no longer shows a record.`,
+      summary: `「${entryName(context)}」里的卡片已关上`,
     }),
   },
   {
@@ -2712,7 +2743,9 @@ const INFO_CARD_ACTIONS: readonly ComponentActionDefinition[] = [
 ]
 
 /**
- * The six components `@deepseek-ai/dsh-experimental-component-kit` registers.
+ * The eight components `@deepseek-ai/dsh-experimental-component-kit` registers:
+ * five a call places, the data page a call or a view places, and the form page
+ * and the info card only a view places beside a data page.
  *
  * A library value, not a catalog: nothing reads it to decide what a call may
  * place. The component row imports it and hands it to
@@ -2778,17 +2811,6 @@ export const COMPONENT_KIT_ENTRIES = [
     actions: DATA_PAGE_ACTIONS,
     outputs: DATA_PAGE_OUTPUTS,
   },
-] as const satisfies readonly ComponentCatalogEntry[]
-
-/**
- * The two components only a view places, beside a data page: the form page its
- * add and modify buttons open, and the card its names and relation links open.
- *
- * A library value like {@link COMPONENT_KIT_ENTRIES}, and kept apart from it:
- * the component row registers an entry together with the renderer that draws
- * it, and it draws neither of these two.
- */
-export const COMPONENT_KIT_VIEW_ENTRIES = [
   {
     id: FORM_PAGE_ID,
     label: '表单页',

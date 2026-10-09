@@ -16,7 +16,6 @@ import { ComponentCatalogRegistry, trackCatalog, type ComponentSource } from '..
 import {
   CONFIRM_BAR_ID,
   COMPONENT_KIT_ENTRIES,
-  COMPONENT_KIT_VIEW_ENTRIES,
   DATA_PAGE_GATED_IDS,
   DATA_PAGE_ID,
   describeCatalog,
@@ -24,6 +23,7 @@ import {
   INFO_CARD_ID,
   LAYOUT_SPEC_DEPTH,
   METRIC_ID,
+  placedOnlyByViews,
   readCatalog,
   SHOW_COMPONENT_TOOL_NAME,
   type ComponentCatalog,
@@ -42,12 +42,15 @@ afterEach(async () => {
 /** A second contributing package, for the cases about two of them. */
 const OTHER_SOURCE: ComponentSource = { package: '@acme/dsh-components', version: '2.1.0' }
 
-/** The two of the six these cases contribute when they contribute fewer than all. */
+/** The two of the eight these cases contribute when they contribute fewer than all. */
 const TWO: readonly ComponentCatalogEntry[] = COMPONENT_KIT_ENTRIES
   .filter(entry => entry.id === CONFIRM_BAR_ID || entry.id === METRIC_ID)
 
-/** One entry of the six, for the cases about a second package claiming a claimed id. */
+/** One entry of the eight, for the cases about a second package claiming a claimed id. */
 const ONE: readonly ComponentCatalogEntry[] = COMPONENT_KIT_ENTRIES.filter(entry => entry.id === CONFIRM_BAR_ID)
+
+/** The two of the eight only a view places, beside a data page. */
+const VIEW_PLACED: readonly ComponentCatalogEntry[] = COMPONENT_KIT_ENTRIES.filter(placedOnlyByViews)
 
 /** A registry on its own context. */
 async function registry(): Promise<Context> {
@@ -222,19 +225,19 @@ describe('the component catalog registry', () => {
     const ctx = new Context()
     contexts.push(ctx)
     await ctx.plugin(ComponentCatalogRegistry, { withheld: [...DATA_PAGE_GATED_IDS] }).await()
-    ctx.componentCatalog.register({ entries: [...COMPONENT_KIT_ENTRIES, ...COMPONENT_KIT_VIEW_ENTRIES], source: KIT_SOURCE })
+    ctx.componentCatalog.register({ entries: COMPONENT_KIT_ENTRIES, source: KIT_SOURCE })
     expect(ctx.componentCatalog.components.map(one => one.entry.id)).toEqual(expect.arrayContaining([...DATA_PAGE_GATED_IDS]))
     expect(ctx.componentCatalog.offered.map(one => one.entry.id))
-      .toEqual(COMPONENT_KIT_ENTRIES.map(entry => entry.id).filter(id => id !== DATA_PAGE_ID))
+      .toEqual(COMPONENT_KIT_ENTRIES.map(entry => entry.id).filter(id => !DATA_PAGE_GATED_IDS.includes(id)))
   })
 
   it('withholds the data page and the two blocks a view places beside it where the row leaves the page off', async () => {
     // The row installs the registry with its own offer, so what a reader
     // outside this package is told follows the row's `dataPage` setting.
     const ctx = await row()
-    ctx.componentCatalog.register({ entries: [...COMPONENT_KIT_ENTRIES, ...COMPONENT_KIT_VIEW_ENTRIES], source: KIT_SOURCE })
+    ctx.componentCatalog.register({ entries: COMPONENT_KIT_ENTRIES, source: KIT_SOURCE })
     expect(ctx.componentCatalog.offered.map(one => one.entry.id))
-      .toEqual(COMPONENT_KIT_ENTRIES.map(entry => entry.id).filter(id => id !== DATA_PAGE_ID))
+      .toEqual(COMPONENT_KIT_ENTRIES.map(entry => entry.id).filter(id => !DATA_PAGE_GATED_IDS.includes(id)))
   })
 
   it('answers that a deployment offering the data page offers the two blocks a view places beside it', async () => {
@@ -242,7 +245,7 @@ describe('the component catalog registry', () => {
     // draws them, so the tool's own description leaving them out is no reason
     // to answer that they are absent.
     const ctx = await registry()
-    ctx.componentCatalog.register({ entries: [...COMPONENT_KIT_ENTRIES, ...COMPONENT_KIT_VIEW_ENTRIES], source: KIT_SOURCE })
+    ctx.componentCatalog.register({ entries: COMPONENT_KIT_ENTRIES, source: KIT_SOURCE })
     expect(ctx.componentCatalog.offered.map(one => one.entry.id)).toEqual(expect.arrayContaining([...DATA_PAGE_GATED_IDS]))
   })
 
@@ -308,7 +311,7 @@ describe('the tool the registry decides', () => {
     await ctx.plugin(ToolRuntime)
     ctx.provide('approval', { request: () => Promise.resolve('allowed-once') } as never)
     await ctx.plugin(ShowComponent, { dataPage: true })
-    ctx.componentCatalog.register({ entries: COMPONENT_KIT_VIEW_ENTRIES, source: OTHER_SOURCE })
+    ctx.componentCatalog.register({ entries: VIEW_PLACED, source: OTHER_SOURCE })
     expect(ctx.componentCatalog.offered.map(one => one.entry.id)).toEqual([FORM_PAGE_ID, INFO_CARD_ID])
     // A call naming either is refused, so a tool offering nothing else would
     // be a tool every call to is refused.
@@ -316,7 +319,7 @@ describe('the tool the registry decides', () => {
 
     ctx.componentCatalog.register({ entries: TWO, source: KIT_SOURCE })
     expect(offered(ctx)?.description).toContain(describeCatalog(TWO))
-    for (const entry of COMPONENT_KIT_VIEW_ENTRIES) expect(offered(ctx)?.description).not.toContain(entry.id)
+    for (const entry of VIEW_PLACED) expect(offered(ctx)?.description).not.toContain(entry.id)
   })
 })
 

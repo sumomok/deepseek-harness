@@ -35,7 +35,7 @@ export function rendererTable(
 }
 
 /**
- * The table a page composing the component row draws through: its six
+ * The table a page composing the component row draws through: its eight
  * components, and its own dictionary behind their translate.
  * @returns the table to hand the seat.
  */

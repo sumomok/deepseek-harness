@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/data-page-view-rules/guide.md
 /:
-  en: 277d342239b6eb7f
-  zh: 0dc25d2a52b2ee3a
-/a-data-page-view-cannot-keep-a-button-whose-form-it-switches-off:
-  en: 360f72a80a2eccfe
-  zh: 0bd50754949bc2e7
-/a-data-page-view-cannot-keep-a-button-whose-form-it-switches-off/change:
-  en: 122a1fdb97364f81
-  zh: 557bf4004c6c3875
-/a-data-page-view-cannot-keep-a-button-whose-form-it-switches-off/migration:
-  en: de78377c5c698a68
-  zh: 7917d7d82490b350
+  en: c491d57ef8253bf1
+  zh: 2e0220711a156d36
+/data-page-views-a-switched-off-form-needs-a-form-page-and-default-buttons-include-batch-and-delete:
+  en: 1ab598178ae5e441
+  zh: 2cf79826f492f114
+/data-page-views-a-switched-off-form-needs-a-form-page-and-default-buttons-include-batch-and-delete/change:
+  en: 1df86ec26ce34a5d
+  zh: 01b845ed6fa47412
+/data-page-views-a-switched-off-form-needs-a-form-page-and-default-buttons-include-batch-and-delete/migration:
+  en: 4e59be03261eed43
+  zh: aa8ce332483f1f25

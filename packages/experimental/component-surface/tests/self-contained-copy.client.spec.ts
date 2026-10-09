@@ -59,7 +59,6 @@ import { Context } from '@deepseek-ai/cordis'
 import {
   catalogEntry,
   COMPONENT_KIT_ENTRIES,
-  COMPONENT_KIT_VIEW_ENTRIES,
   CONFIRM_BAR_ID,
   DATA_PAGE_ID,
   describeCatalog,
@@ -81,7 +80,7 @@ import * as dataSourceText from '../src/data-source.ts'
 import type { DataSourceAttribute, DataSourceBlock, DataSourceTarget } from '../src/data-source.ts'
 import { showComponentTool, type ShowComponentOptions } from '../src/tool.ts'
 import { acceptsActionPayload, validateComponentSpec } from '../src/validate.ts'
-import { KIT_VIEW_CATALOG } from './kit-catalog.client.ts'
+import { KIT_CATALOG } from './kit-catalog.client.ts'
 
 /**
  * The tool-name families other packages register, each as the pattern every
@@ -281,7 +280,7 @@ const ACTION_CASES: Readonly<Record<string, readonly ActionCase[]>> = {
     { props: PAGE, payload: { count: 7, names: ['测试-1', '测试-2', '测试-3', '测试-4', '测试-5'] } },
     { props: PAGE, payload: { count: 0, names: [] } },
   ],
-  [`${DATA_PAGE_ID}.card-open`]: [{ props: PAGE, payload: { name: '测试-1' } }],
+  [`${DATA_PAGE_ID}.card-open`]: [{ props: PAGE, payload: { name: '测试-1', type: 'SpaceLayer' } }],
   [`${DATA_PAGE_ID}.card-close`]: [{ props: PAGE, payload: {} }],
   [`${DATA_PAGE_ID}.added`]: [{ props: PAGE, payload: { record: SAVED } }, { props: PAGE, payload: { record: {} } }],
   [`${DATA_PAGE_ID}.modified`]: [{ props: PAGE, payload: { record: SAVED } }, { props: PAGE, payload: { record: {} } }],
@@ -310,12 +309,12 @@ const ACTION_CASES: Readonly<Record<string, readonly ActionCase[]>> = {
  * @returns the accounts, or `undefined` where the payload names nothing the block draws.
  */
 function noticeOf(componentId: string, actionId: string, one: ActionCase): ComponentActionNotice | undefined {
-  const component = catalogEntry(KIT_VIEW_CATALOG, componentId)
+  const component = catalogEntry(KIT_CATALOG, componentId)
   const action = component?.actions.find(declared => declared.id === actionId)
   if (component === undefined || action === undefined) throw new Error(`${componentId} declares no ${actionId}`)
   // A form page or an info card is placed only beside the page it reads.
   const beside = placedOnlyByViews(component) ? [PAGE_NODE] : []
-  const result = validateComponentSpec(KIT_VIEW_CATALOG, {
+  const result = validateComponentSpec(KIT_CATALOG, {
     nodes: [...beside, { id: 'block', component: componentId, props: one.props }],
   })
   if (!result.ok) throw new Error(result.failure.text)
@@ -331,7 +330,7 @@ function noticeOf(componentId: string, actionId: string, one: ActionCase): Compo
  * @returns the node.
  */
 function pageNode(props: Readonly<Record<string, unknown>>): ComponentNode {
-  const result = validateComponentSpec(KIT_VIEW_CATALOG, { nodes: [{ id: 'rows', component: DATA_PAGE_ID, props }] })
+  const result = validateComponentSpec(KIT_CATALOG, { nodes: [{ id: 'rows', component: DATA_PAGE_ID, props }] })
   if (!result.ok) throw new Error(result.failure.text)
   return result.spec.nodes[0] as ComponentNode
 }
@@ -378,7 +377,7 @@ const NOT_TEXT: readonly string[] = [
  */
 const ARGUMENTS: Readonly<Record<string, readonly (readonly unknown[])[]>> = {
   dataPageApprovalReason: [[pageNode(PAGE_NODE.props)], [CONDITIONED]],
-  componentNotOffered: [[KIT_VIEW_CATALOG, { nodes: [CONDITIONED] }, CONDITIONED]],
+  componentNotOffered: [[KIT_CATALOG, { nodes: [CONDITIONED] }, CONDITIONED]],
   dataPageBesideDataSource: [[{ nodes: [CONDITIONED] }]],
   dataPageLoadedText: [[CONDITIONED, REPORT], [CONDITIONED, { ...REPORT, columns: [], total: 0 }]],
   dataPageUnreportedText: [[CONDITIONED, 10000]],
@@ -427,7 +426,7 @@ function sentencesOf(module: Record<string, unknown>, name: string): string[] {
 
 describe('every sentence this package writes', () => {
   it('names no other tool in any description the tool carries, under every offer', () => {
-    const tools = OFFERS.map(options => showComponentTool(new Context(), KIT_VIEW_CATALOG, options, new dataPageText.PendingLoads()))
+    const tools = OFFERS.map(options => showComponentTool(new Context(), KIT_CATALOG, options, new dataPageText.PendingLoads()))
     const descriptions = tools.flatMap(tool => [
       tool.description,
       ...descriptionsIn(tool.parameters),
@@ -439,11 +438,12 @@ describe('every sentence this package writes', () => {
   })
 
   it('names no other tool in the catalog: its labels, purposes, lines and declared reasons', () => {
-    const entries = KIT_VIEW_CATALOG.entries
+    const entries = KIT_CATALOG.entries
     // The two components only a view places are in the walk although no
     // description lists them: their purposes and reasons are what a view's
     // writer reads.
-    expect(entries.map(entry => entry.id)).toEqual([...COMPONENT_KIT_ENTRIES, ...COMPONENT_KIT_VIEW_ENTRIES].map(entry => entry.id))
+    expect(entries.map(entry => entry.id)).toEqual(COMPONENT_KIT_ENTRIES.map(entry => entry.id))
+    expect(entries.filter(placedOnlyByViews).map(entry => entry.id)).toEqual([FORM_PAGE_ID, INFO_CARD_ID])
     const sentences = [
       describeCatalog(entries),
       ...entries.flatMap(entry => [
@@ -459,7 +459,7 @@ describe('every sentence this package writes', () => {
   })
 
   it('names no other tool in any notice an action becomes, for the agent or for the user', () => {
-    const declared = KIT_VIEW_CATALOG.entries.flatMap(entry => entry.actions.map(action => `${entry.id}.${action.id}`))
+    const declared = KIT_CATALOG.entries.flatMap(entry => entry.actions.map(action => `${entry.id}.${action.id}`))
     // An action with no case recorded here would be a notice nothing reads.
     expect(Object.keys(ACTION_CASES).sort()).toEqual([...declared].sort())
     const sentences = Object.entries(ACTION_CASES).flatMap(([key, cases]) => cases.flatMap((one) => {

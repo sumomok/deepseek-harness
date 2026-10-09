@@ -1,11 +1,11 @@
 /**
- * Component row, node half: the six components this package contributes to
+ * Component row, node half: the eight components this package contributes to
  * whatever places blocks in the content panel.
  *
  * The row registers its components into `ctx.componentCatalog` — what a call
  * may send each of them, what comes back from each of them, and what another
  * block may read from them — and its browser half registers the renderers that
- * draw the same six. A deployment that composes the placement row without this
+ * draw the same eight. A deployment that composes the placement row without this
  * one has an empty catalog and is offered no tool at all, which is the whole
  * point of the seam: which components exist is a deployment's composition
  * rather than a table in the package that places them.
@@ -89,7 +89,7 @@ export const Config: z<Config> = z.object({
  * The catalog is waited for rather than required, for the reason the webserver
  * is: a composition that loads this row without a placement row has no catalog
  * to contribute to and still serves its settings, and one that loads them in
- * either order ends up with the same six components.
+ * either order ends up with the same eight components.
  *
  * Loud at load: a base path that is not a path would send every request the
  * data page makes — each carrying the visitor's own credential — somewhere

@@ -9,7 +9,11 @@
  * The renderers are the real ones. There is no engine behind them and nothing
  * to fake: a block is a pure function of the properties the payload carries and
  * the state it is handed, so a stub would only re-state this file's own
- * fixtures. What is faked is the session feed, which is the framework's.
+ * fixtures. What is faked is the session feed, which is the framework's. The
+ * one exception is a value one block publishes and another reads: the real
+ * publisher is the deployment's data page, which draws nothing without that
+ * deployment's backend, so those cases draw the two catalog entries through
+ * stand-in renderers that publish on a click and show what they were handed.
  */
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
@@ -17,11 +21,23 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { en as kitEn } from '@deepseek-ai/dsh-experimental-component-kit/src/client/locales.ts'
 import { installElementUI } from '@deepseek-ai/dsh-experimental-component-kit/src/client/element-ui.ts'
 import { en } from '../src/client/locales.ts'
-import { kitRendererTable } from './renderer-table.client.ts'
+import { kitRendererTable, rendererTable } from './renderer-table.client.ts'
 import { ComponentSurface, type ComponentSurfaceProps } from '../src/client/ComponentSurface.tsx'
 import type { ComponentActionRecord } from '../src/action-state.ts'
 import { pendingPressKey, type ActionDispatch, type PendingPresses } from '../src/client/action.ts'
-import { CONFIRM_BAR_ID, CONFIRM_BAR_PRESS_ID, RECORD_DETAIL_ID, TABLE_ID } from '../src/component-call.ts'
+import type { ComponentRendererTable } from '../src/client/registry.ts'
+import type { ComponentRendererProps } from '../src/client/renderer.ts'
+import {
+  COMPONENT_KIT_ENTRIES,
+  CONFIRM_BAR_ID,
+  CONFIRM_BAR_PRESS_ID,
+  DATA_PAGE_EDITING_OUTPUT,
+  DATA_PAGE_ID,
+  FORM_PAGE_ID,
+  RECORD_DETAIL_ID,
+  TABLE_ID,
+  type ComponentCatalogEntry,
+} from '../src/component-call.ts'
 
 // One of the two components this seat draws is a Vue 2 component on element-ui,
 // which the component row installs when its own client plugin starts.
@@ -30,7 +46,7 @@ beforeAll(installElementUI)
 const t: ComponentSurfaceProps['t'] = makeTranslate(en)
 
 /** The components this page draws, as the component row registers them. */
-const components = kitRendererTable()
+const KIT_COMPONENTS = kitRendererTable()
 
 /** One confirmation-bar block, as a validated spec carries it. */
 function confirmBar(id: string, title: string, buttons: readonly Record<string, unknown>[]): Record<string, unknown> {
@@ -74,6 +90,8 @@ interface Seat {
   dispatch?: ActionDispatch
   /** The page's in-flight presses, shared with the caller where a case unmounts the seat and mounts it again. */
   pending?: PendingPresses
+  /** The components the page draws; the component row's own unless a case draws stand-ins. */
+  components?: ComponentRendererTable
 }
 
 /** What one mounted seat hands back to the case driving it. */
@@ -90,17 +108,20 @@ type Mounted = ReturnType<typeof render> & {
 function mount(seat: Seat): Mounted {
   const pending = seat.pending ?? new Map<string, number>()
   const onAction = vi.fn(() => Promise.resolve(seat.dispatch ?? 'dispatched'))
-  const element = (next: Seat) => (
-    <ComponentSurface {...{
-      sessionId: 'sessionId' in next ? next.sessionId : 'a',
-      entry: next.entry,
-      useSessions: sessionsHook(next.recorded ?? {}),
-      onAction,
-      components,
-      pending,
-      t,
-    } as unknown as ComponentSurfaceProps} />
-  )
+  const element = (next: Seat) => {
+    const components = next.components ?? KIT_COMPONENTS
+    return (
+      <ComponentSurface {...{
+        sessionId: 'sessionId' in next ? next.sessionId : 'a',
+        entry: next.entry,
+        useSessions: sessionsHook(next.recorded ?? {}),
+        onAction,
+        components,
+        pending,
+        t,
+      } as unknown as ComponentSurfaceProps} />
+    )
+  }
   const view = render(element(seat))
   return { ...view, onAction, pending, show: (next: Seat) => { view.rerender(element(next)) } }
 }
@@ -432,5 +453,80 @@ describe('component content seat', () => {
   it('explains an entry whose payload is not a document at all', () => {
     const view = mount({ entry: { kind: 'component', entryId: 'budget', seq: 4, title: 'Budget approval', payload: 'nothing' } })
     expect(view.container.querySelector('[data-component-surface-error]')?.textContent).toBe(en['block.unreadable'])
+  })
+})
+
+describe('an output withdrawn through the seat', () => {
+  /** What a row's modify button hands the form, as the data page publishes it. */
+  const EDITING = { mode: 'modify', type: 'SpaceLayer', id: '41', name: '测试-1' }
+
+  /** One catalog entry of the component row, by id. */
+  function kitEntry(id: string): ComponentCatalogEntry {
+    const entry = COMPONENT_KIT_ENTRIES.find(one => one.id === id)
+    if (entry === undefined) throw new Error(`the component row registers no ${id}`)
+    return entry
+  }
+
+  /** A data page stand-in: three buttons publishing what it edits, the same value again, and nothing. */
+  function Publisher({ onOutput }: ComponentRendererProps) {
+    return (
+      <div>
+        <button type="button" onClick={() => { onOutput(DATA_PAGE_EDITING_OUTPUT, EDITING) }}>publish</button>
+        <button type="button" onClick={() => { onOutput(DATA_PAGE_EDITING_OUTPUT, { ...EDITING }) }}>again</button>
+        <button type="button" onClick={() => { onOutput(DATA_PAGE_EDITING_OUTPUT, undefined) }}>withdraw</button>
+      </div>
+    )
+  }
+
+  /** Every properties object the form page stand-in was drawn with, in order. */
+  const handed: Readonly<Record<string, unknown>>[] = []
+
+  /** A form page stand-in: it writes down the properties it is drawn with and shows them. */
+  function Reader({ props }: ComponentRendererProps) {
+    handed.push(props)
+    return <output data-reader>{JSON.stringify(props)}</output>
+  }
+
+  /** The page drawing the two stand-ins under the component row's own declarations. */
+  const STANDINS = rendererTable([
+    { entry: kitEntry(DATA_PAGE_ID), render: Publisher },
+    { entry: kitEntry(FORM_PAGE_ID), render: Reader },
+  ], makeTranslate(kitEn))
+
+  /** A view's data page and the form page reading what it is editing. */
+  const PAIR = componentEntry([
+    { id: 'page', component: DATA_PAGE_ID, props: { relatedMeta: 'SpaceLayer', metaLabel: '空间图层' } },
+    { id: 'form', component: FORM_PAGE_ID, props: { relatedMeta: 'SpaceLayer', request: { $from: 'node:page.editing' } } },
+  ], { entryId: 'crud', title: '图层管理' })
+
+  /** What the form page stand-in shows now. */
+  function shown(view: ReturnType<typeof render>): unknown {
+    return JSON.parse(view.container.querySelector('[data-reader]')?.textContent ?? 'null')
+  }
+
+  it('draws the form without the value before it, with it once published, and without it once withdrawn', () => {
+    handed.length = 0
+    const view = mount({ entry: PAIR, components: STANDINS })
+    // Optional, so the block draws its own empty state rather than the seat's
+    // waiting line.
+    expect(view.container.querySelector('[data-component-surface-awaiting]')).toBeNull()
+    expect(shown(view)).toEqual({ relatedMeta: 'SpaceLayer' })
+    fireEvent.click(view.getByText('publish'))
+    expect(shown(view)).toEqual({ relatedMeta: 'SpaceLayer', request: EDITING })
+    fireEvent.click(view.getByText('withdraw'))
+    expect(shown(view)).toEqual({ relatedMeta: 'SpaceLayer' })
+    expect(view.container.querySelector('[data-component-surface-awaiting]')).toBeNull()
+    // Each change was a new properties object, so a form keyed on it resets.
+    expect(new Set(handed).size).toBe(3)
+  })
+
+  it('hands the form nothing new when the page publishes the value standing again', () => {
+    handed.length = 0
+    const view = mount({ entry: PAIR, components: STANDINS })
+    fireEvent.click(view.getByText('publish'))
+    const fed = handed.at(-1)
+    fireEvent.click(view.getByText('again'))
+    expect(handed.at(-1)).toBe(fed)
+    expect(shown(view)).toEqual({ relatedMeta: 'SpaceLayer', request: EDITING })
   })
 })

@@ -3,9 +3,9 @@
  * base path is judged at load, served on its route with no caching, refused on
  * every other method, and absent — with the row still loading — where no
  * webserver is composed; the ability route answers the rights judgement of the
- * composed data backend, and is not claimed without one; and the row's six
- * components reach the catalog under this package's own name and version and
- * leave with the fiber.
+ * composed data backend, and is not claimed without one; and every component
+ * of the row reaches the catalog under this package's own name and version and
+ * leaves with the fiber.
  *
  * The `.client.` suffix names the typecheck aggregate this package belongs to,
  * not the face under test.
@@ -164,7 +164,7 @@ describe('the component-kit node half', () => {
     expect(ctx.get('componentCatalog')).toBeUndefined()
   })
 
-  it('registers its six components under its own package name and version', async () => {
+  it('registers every one of its components under its own package name and version', async () => {
     const ctx = new Context()
     contexts.push(ctx)
     await ctx.plugin(ComponentCatalogRegistry).await()

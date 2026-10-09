@@ -1,20 +1,21 @@
 /**
- * Component row, browser half. It registers its dictionaries and its six
+ * Component row, browser half. It registers its dictionaries and its eight
  * components' renderers; it declares no slot and knows no layout, so a
  * placement package decides where a block is drawn.
  *
  * The registration is the row's whole surface. Each component goes in with the
  * same definition this row's host half registers and the React component that
  * draws it, so what a block may carry and what draws it arrive together and a
- * page loaded without this row simply cannot draw these six. The placement
+ * page loaded without this row simply cannot draw these eight. The placement
  * package hands each renderer the block's already-validated properties as
  * {@link ComponentRendererProps} and this row's own translate.
  *
  * This row's host half serves one setting, and this half reads it once at
- * start: the base path the data page requests its table under. Every other
- * component here draws its properties and reports what the user pressed, and
- * performs no navigation, no request, and no write of its own; the data page
- * requests its own table from the browser, which `README.md` records.
+ * start: the base path the data page, and the form page and info card a view
+ * places beside it, request their table under. Every other component here
+ * draws its properties and reports what the user pressed, and performs no
+ * navigation, no request, and no write of its own; those three request their
+ * own table from the browser, which `README.md` records.
  *
  * Two kinds of component live here. One is written in this repository as
  * ordinary React and depends on nothing else. The other is a Vue 2 component
@@ -35,6 +36,8 @@ import { COMPONENT_KIT_ENTRIES } from '@deepseek-ai/dsh-experimental-component-s
 import type { BrowserComponent } from '@deepseek-ai/dsh-experimental-component-surface/client'
 import { ConfirmBar } from './ConfirmBar.tsx'
 import { DataPageRenderer } from './DataPageRenderer.tsx'
+import { FormPageRenderer } from './FormPageRenderer.tsx'
+import { InfoCardRenderer } from './InfoCardRenderer.tsx'
 import { settleDataPageBasePath } from './data-page-settings.ts'
 import { installElementUI } from './element-ui.ts'
 import { en, NS, zh } from './locales.ts'
@@ -79,6 +82,8 @@ const COMPONENT_RENDERERS = {
   'el.filter-bar': TuQueryCondAdvRenderer,
   'el.metric': TcProcessBallRenderer,
   'toy.data-page': DataPageRenderer,
+  'toy.form-page': FormPageRenderer,
+  'toy.info-card': InfoCardRenderer,
   'toy.record': TcFormDetailRenderer,
   'toy.table': TableDetailRenderer,
 } satisfies Readonly<Record<string, ComponentRenderer>>
@@ -103,7 +108,7 @@ export function componentKitRenderers(
 export const inject = ['locale']
 
 /**
- * Client plugin body: register this package's dictionaries and its six
+ * Client plugin body: register this package's dictionaries and its eight
  * components, install element-ui onto the Vue 2 runtime this row shares, and
  * start the one read of this row's settings that the data page waits on before
  * it is drawn.

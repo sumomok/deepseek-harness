@@ -1,0 +1,44 @@
+/* The form page and the info card a view places beside a data page. Each is
+   drawn inside its own contained box, for the reason the data page is: the
+   request layer's progress bar and overlay and the component's own toasts land
+   in the box. A box with nothing in it yet draws at no height, so the block is
+   its empty-state line alone; once the component has something to draw, the
+   box takes the cell's height and falls back to a fixed one, because both
+   components are `height: 100%` over a scrolling body. */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  block-size: 100%;
+  min-block-size: 0;
+}
+
+.box {
+  position: relative;
+  flex: 1;
+  min-block-size: 24rem;
+  inline-size: 100%;
+  /* The info card draws at its own fixed width, which a narrow column cannot
+     hold; scrolled rather than clipped. */
+  overflow: auto;
+  /* The components are the deployment's own light surface, written against
+     element-ui's text color rather than the console's theme. */
+  color: #303133;
+}
+
+.idleBox {
+  position: relative;
+  inline-size: 100%;
+}
+
+.host {
+  block-size: 100%;
+  inline-size: 100%;
+}
+
+.notice {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  color: var(--dsh-text-muted, #6b7280);
+  font-size: 0.875rem;
+}

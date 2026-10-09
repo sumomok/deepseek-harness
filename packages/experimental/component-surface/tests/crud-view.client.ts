@@ -30,7 +30,11 @@ export interface WrittenSpec {
   }
 }
 
-/** The data page on `SpaceLayer`, writable, drawing neither of its own forms nor its own card. */
+/**
+ * The data page on `SpaceLayer`, writable, drawing neither of its own forms nor
+ * its own card, its names links that open a record outside it, and its deletes
+ * leaving a record with spatial resources bound to it in place.
+ */
 export const CRUD_PAGE: WrittenNode = {
   id: 'page',
   component: DATA_PAGE_ID,
@@ -38,7 +42,9 @@ export const CRUD_PAGE: WrittenNode = {
     relatedMeta: 'SpaceLayer',
     metaLabel: '空间图层',
     readOnly: false,
+    deleteGisResource: 3,
     regions: { addForm: false, modifyForm: false, infoCard: false },
+    infoCardLinks: true,
   },
 }
 

@@ -52,39 +52,50 @@
  * the placement package supersedes a block's unclaimed note with that same
  * block's next one.
  *
- * Twelve of the fourteen `context` gestures the placement package's catalog
- * declares come back, each bounded the way that catalog bounds it —
- * `data-page-read.ts` holds the readings and the ceilings: on `access-denied`, which of the two
+ * All fourteen `context` gestures the placement package's catalog declares come
+ * back, each bounded the way that catalog bounds it — `data-page-read.ts` holds
+ * the readings and the ceilings: on `access-denied`, which of the two
  * judgements refused this table, and nothing else; on `auth-failed`, the answer
- * this deployment refused the visitor's credential with; on `load`, the table, the first drawn
- * columns and the rights this deployment answered with for this user; on
- * `query-success`, three counts and never a row; on `table-selection-change`,
- * how many rows are ticked and what the first few are called; on
- * `table-cell-click` and `table-operation-custom`, the one row's drawn cells;
- * on `info-card-open` and `info-card-close`, that the side card opened on a
- * named row and that it closed; on `add-save-success` and
- * `modify-save-success`, that a record was saved and the fields that name it;
- * on `export-task-created`, which of the two toolbar exports the page submitted
- * to this deployment's backend and in which file type — the task number the
- * backend answered with goes no further than the page. `deleted` and
- * `batch-modified` are the two this renderer does not report. A
- * load or a query identical to the one this block last reported for the same
- * placing call is not reported again, which is what keeps a tab switch — the
- * column drops and redraws a block, and the page loads and queries afresh —
- * from telling the agent the same thing twice.
+ * this deployment refused the visitor's credential with; on `load`, the table,
+ * the first drawn columns and the rights this deployment answered with for this
+ * user; on `query-success`, three counts and never a row; on
+ * `table-selection-change`, how many rows are ticked and what the first few are
+ * called; on `table-cell-click` and `table-operation-custom`, the one row's
+ * drawn cells; on `info-card-open` and `info-card-close`, the record the side
+ * card shows and its table, and that it shows none any more; on
+ * `add-save-success` and `modify-save-success`, that a record was saved and the
+ * fields that name it; on `delete-save-success` and `batch-modify-save-success`,
+ * how many records went or changed, what the first few are called, and for a
+ * batch edit which fields — never a value; on `export-task-created`, which of
+ * the two toolbar exports the page submitted to this deployment's backend and
+ * in which file type — the task number the backend answered with goes no
+ * further than the page. A load or a query identical to the one this block last
+ * reported for the same placing call is not reported again, which is what keeps
+ * a tab switch — the column drops and redraws a block, and the page loads and
+ * queries afresh — from telling the agent the same thing twice.
  *
- * Before the page is drawn two things happen in order, and the order is the
- * whole point. The base path its requests go under is applied by
- * `data-page-settings.ts` once the row's browser half has read it from the node
- * half, and this renderer mounts nothing until that read has settled — so no
- * request leaves under the kit's built-in default. Then `containCrud` marks
- * the box the page is mounted in, so the request layer's progress bar and
- * overlay, and the toasts the page raises, land inside that box rather than on
- * the document body; it runs from an effect declared before the bridge's
- * mount effect, which is what puts it before the page's first request. The
- * release is a second effect declared after the bridge's, because React runs
- * cleanups in declaration order and the page raises its last toasts while Vue
- * destroys it — the box has to outlive the page it contained.
+ * No row report carries a masked value. A column the table's scheme flags
+ * `showAsPass` — in its columns, its add form or its modify form — is still
+ * named in the load, because its header is on screen, and every row, saved
+ * record and named record is read through the columns that remain. The same
+ * columns are handed to the page as the ones it may report a saved record's
+ * values from, which is the list the form page beside it trims its own saves to.
+ *
+ * Two values are published for the blocks a view places beside the page, and
+ * neither is a gesture: `editing`, what the last press of the add button or a
+ * row's modify button opened, which a form page reads; and `opened`, the record
+ * a name or a relation link last opened, which an info card reads. `opened` is
+ * withdrawn when the page closes its card, is cleared or turns a page, and each
+ * is withdrawn when a delete removes the record it names. A value either output
+ * could not carry is not published, and the one standing is withdrawn instead.
+ * Whose report an opened card is depends on where the card is drawn: where this
+ * page draws its own side card it reports the card's `card-open` and
+ * `card-close`; where the view switched that card off, it only publishes and
+ * withdraws `opened`, and the info card block beside it reports — so one card
+ * is never reported twice.
+ *
+ * Before the page is drawn it waits on the base path its requests go under and
+ * is mounted inside a contained box, both of which `crud-box.ts` records.
  *
  * The box carries a height of its own for the same reason it carries the
  * containment: the page is `height: 100%` over a query panel, a table and a
@@ -104,15 +115,18 @@
  * client plugin does that when it starts, and a test drawing this block on its
  * own calls `installElementUI()` first.
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import {
-  containCrud,
   DataPage,
+  noteReportedColumns,
   type CrudQuerySuccessPayload,
   type CrudTableCellClickPayload,
   type DataPageAccessDeniedPayload,
   type DataPageAuthFailedPayload,
+  type DataPageBatchModifySavedPayload,
+  type DataPageDeleteSavedPayload,
   type DataPageExportTaskPayload,
+  type DataPageFormOpenPayload,
   type DataPageInfoCardOpenPayload,
   type DataPageLoadPayload,
   type ToyRow,
@@ -121,26 +135,34 @@ import {
   loadReport,
   readAccessDenied,
   readAuthFailed,
-  readGrantedRights,
+  readBatchModified,
   readCardOpen,
   readCellClick,
   readDataPage,
+  readDeleted,
+  readDeletedIds,
+  readEditing,
   readExportTask,
+  readGrantedRights,
   readLoadedColumns,
+  readOpened,
   readOperation,
   readQuery,
   readSaved,
   readSelection,
+  readValueColumns,
   type DataPageVueProps,
+  type EditingRecord,
+  type OpenedRecord,
   type ReportedColumn,
 } from './data-page-read.ts'
-import { dataPageBasePathReady } from './data-page-settings.ts'
-import { readAbilitiesFor } from './data-page-abilities.ts'
-import { NO_ABILITIES, type DataPageAbilityTable } from '../route.ts'
-import { useVueComponent, type VueEventHandlers } from './vue2-bridge.tsx'
+import { useBasePathState, useContainedComponent } from './crud-box.ts'
+import { useAbilities } from './use-abilities.ts'
+import type { DataPageAbilityTable } from '../route.ts'
+import type { VueEventHandlers } from './vue2-bridge.tsx'
 import css from './DataPageRenderer.module.css'
 import type { ComponentKitKey } from './locales.ts'
-import type { ComponentActionHandler, ComponentRendererProps } from './renderer.ts'
+import type { ComponentActionHandler, ComponentOutputHandler, ComponentRendererProps } from './renderer.ts'
 
 /** The catalog id a block names to get this component. */
 const COMPONENT_ID = 'toy.data-page'
@@ -166,7 +188,7 @@ const SELECT_ACTION_ID = 'select'
 /** Action id an opened side card is reported under. */
 const CARD_OPEN_ACTION_ID = 'card-open'
 
-/** Action id a closed side card is reported under. */
+/** Action id a side card that no longer shows a record is reported under. */
 const CARD_CLOSE_ACTION_ID = 'card-close'
 
 /** Action id a saved new record is reported under. */
@@ -181,17 +203,39 @@ const OPERATION_ACTION_ID = 'operation'
 /** Action id a submitted export task is reported under. */
 const EXPORTED_ACTION_ID = 'exported'
 
+/** Action id deleted records are reported under. */
+const DELETED_ACTION_ID = 'deleted'
+
+/** Action id records changed at once are reported under. */
+const BATCH_MODIFIED_ACTION_ID = 'batch-modified'
+
+/** Output id the record a name or a relation link opened is published under. */
+const OPENED_OUTPUT_ID = 'opened'
+
+/** Output id what the add or a modify button opened for editing is published under. */
+const EDITING_OUTPUT_ID = 'editing'
+
+/** The values this block last published, by output. */
+interface PublishedValues {
+  /** What the last press of the add or a modify button opened, while it stands. */
+  editing?: EditingRecord | undefined
+  /** The record a name or a relation link last opened, while it stands. */
+  opened?: OpenedRecord | undefined
+}
+
 /**
- * What one placing call's block has already told the agent, so a redraw of the
- * same call does not tell it again.
+ * What one placing call's block has already told the agent, and published for
+ * the blocks beside it, so a redraw of the same call does not tell it again.
  *
  * Keyed by the block's property record, which the placement package hands over
  * unchanged for the life of one call and replaces for the next — so a later
  * call under the same ids starts with nothing reported, and a block the column
- * dropped and drew again finds what it said before.
+ * dropped and drew again finds what it said before. The published values live
+ * here for the same reason: the placement package keeps them for the call, not
+ * for one mount, so a delete after a redraw still finds the value it withdraws.
  */
 interface ReportMemory {
-  /** The columns the page last reported, which every reported row is read through. */
+  /** The columns whose values a row report may carry: the page's last reported columns, less the masked ones. */
   columns: readonly ReportedColumn[]
   /** The last load report, serialized. */
   load?: string
@@ -201,6 +245,8 @@ interface ReportMemory {
   denied?: string
   /** The last refused-sign-in report, serialized. */
   authFailed?: string
+  /** What this block has published and not withdrawn. */
+  readonly published: PublishedValues
 }
 
 /** Every placing call's memory, released with its property record. */
@@ -214,7 +260,7 @@ const MEMORIES = new WeakMap<Readonly<Record<string, unknown>>, ReportMemory>()
 function memoryOf(props: Readonly<Record<string, unknown>>): ReportMemory {
   const held = MEMORIES.get(props)
   if (held !== undefined) return held
-  const opened: ReportMemory = { columns: [] }
+  const opened: ReportMemory = { columns: [], published: {} }
   MEMORIES.set(props, opened)
   return opened
 }
@@ -223,9 +269,13 @@ function memoryOf(props: Readonly<Record<string, unknown>>): ReportMemory {
 interface DataPageEventContext {
   /** Where a gesture goes. */
   readonly onAction: ComponentActionHandler
+  /** Where a value the blocks beside this one read goes. */
+  readonly onOutput: ComponentOutputHandler
   /** The table the block was opened on, which every load names. */
   readonly meta: string
-  /** What this placing call's block has already reported. */
+  /** Whether the page draws its own side card, which decides whose report an opened card is. */
+  readonly cardInPage: boolean
+  /** What this placing call's block has already reported and published. */
   readonly memory: ReportMemory
 }
 
@@ -248,6 +298,44 @@ function reportOnce(
   context.onAction(actionId, payload)
 }
 
+/**
+ * Publish what the add or a modify button opened, or withdraw it with `undefined`.
+ * @param context - the block's event context.
+ * @param value - the value, or `undefined` to withdraw the one standing.
+ */
+function publishEditing(context: DataPageEventContext, value: EditingRecord | undefined): void {
+  context.memory.published.editing = value
+  context.onOutput(EDITING_OUTPUT_ID, value)
+}
+
+/**
+ * Publish the record a name or a relation link opened, or withdraw it with `undefined`.
+ * @param context - the block's event context.
+ * @param value - the value, or `undefined` to withdraw the one standing.
+ */
+function publishOpened(context: DataPageEventContext, value: OpenedRecord | undefined): void {
+  context.memory.published.opened = value
+  context.onOutput(OPENED_OUTPUT_ID, value)
+}
+
+/**
+ * Withdraw each published value that names a record one delete removed.
+ *
+ * A value names a deleted record when its id is among the deleted ones and its
+ * table is this page's: both outputs can name a related table's record — a
+ * relation link opens one, and the side card's own modify entrance edits one —
+ * and a record of another table under the same id is not the one deleted.
+ * @param context - the block's event context.
+ * @param ids - the ids the delete removed.
+ */
+function withdrawDeleted(context: DataPageEventContext, ids: readonly string[]): void {
+  const { editing, opened } = context.memory.published
+  const names = (value: EditingRecord | OpenedRecord | undefined): boolean =>
+    value?.id !== undefined && value.type === context.meta && ids.includes(value.id)
+  if (names(editing)) publishEditing(context, undefined)
+  if (names(opened)) publishOpened(context, undefined)
+}
+
 /** What `DataPage` is mounted with: the block's properties, then the host's verdict on this visitor. */
 type DataPageMountProps = DataPageVueProps & {
   /** What this visitor may do on this table; only ever removes an entrance. */
@@ -255,23 +343,25 @@ type DataPageMountProps = DataPageVueProps & {
 }
 
 /** What one drawn page needs beyond the block's own identity. */
-interface DataPageProps extends Pick<ComponentRendererProps, 'props' | 'onAction'> {
+interface DataPageProps extends Pick<ComponentRendererProps, 'props' | 'onAction' | 'onOutput'> {
   /** The block's properties and the host's verdict, as `DataPage` takes them. */
   readonly vueProps: DataPageMountProps
 }
 
 /** The page itself, drawn once the base path its requests go under is in force. */
-function DataPageBlock({ props, vueProps, onAction }: DataPageProps) {
+function DataPageBlock({ props, vueProps, onAction, onOutput }: DataPageProps) {
   const memory = memoryOf(props)
-  const context = useRef<DataPageEventContext>({ onAction, meta: vueProps.relatedMeta, memory })
-  useEffect(() => {
-    context.current = { onAction, meta: vueProps.relatedMeta, memory }
+  const eventContext = (): DataPageEventContext => ({
+    onAction,
+    onOutput,
+    meta: vueProps.relatedMeta,
+    cardInPage: vueProps.regions?.['infoCard'] !== false,
+    memory,
   })
-  const box = useRef<HTMLDivElement>(null)
-  const release = useRef<() => void>()
-  // Declared before the bridge's mount effect, so the box is contained before
-  // the page is mounted and makes its first request.
-  useEffect(() => { release.current = containCrud(box.current as HTMLDivElement) }, [])
+  const context = useRef<DataPageEventContext>(eventContext())
+  useEffect(() => {
+    context.current = eventContext()
+  })
   const on = useMemo<VueEventHandlers>(() => ({
     'access-denied': (payload: DataPageAccessDeniedPayload) => {
       const current = context.current
@@ -286,7 +376,10 @@ function DataPageBlock({ props, vueProps, onAction }: DataPageProps) {
     load: (payload: DataPageLoadPayload) => {
       const current = context.current
       const columns = readLoadedColumns(payload)
-      current.memory.columns = columns
+      current.memory.columns = readValueColumns(payload, columns)
+      // The page registered its own columns before raising this, so this
+      // narrower list is the one it trims what it saves to.
+      noteReportedColumns(current.meta, current.memory.columns.map(column => column.attr))
       reportOnce(current, 'load', LOAD_ACTION_ID, loadReport(current.meta, columns, readGrantedRights(payload)))
     },
     'query-success': (payload: CrudQuerySuccessPayload) => {
@@ -303,12 +396,19 @@ function DataPageBlock({ props, vueProps, onAction }: DataPageProps) {
       const report = readSelection(rows, current.memory.columns)
       if (report !== undefined) current.onAction(SELECT_ACTION_ID, report)
     },
+    'form-open': (payload: DataPageFormOpenPayload) => { publishEditing(context.current, readEditing(payload)) },
     'info-card-open': (payload: DataPageInfoCardOpenPayload) => {
       const current = context.current
+      publishOpened(current, readOpened(payload))
+      if (!current.cardInPage) return
       const report = readCardOpen(payload)
       if (report !== undefined) current.onAction(CARD_OPEN_ACTION_ID, report)
     },
-    'info-card-close': () => { context.current.onAction(CARD_CLOSE_ACTION_ID, {}) },
+    'info-card-close': () => {
+      const current = context.current
+      publishOpened(current, undefined)
+      if (current.cardInPage) current.onAction(CARD_CLOSE_ACTION_ID, {})
+    },
     'add-save-success': (answer: unknown) => {
       const current = context.current
       current.onAction(ADDED_ACTION_ID, readSaved(answer, current.memory.columns))
@@ -316,6 +416,17 @@ function DataPageBlock({ props, vueProps, onAction }: DataPageProps) {
     'modify-save-success': (answer: unknown) => {
       const current = context.current
       current.onAction(MODIFIED_ACTION_ID, readSaved(answer, current.memory.columns))
+    },
+    'delete-save-success': (payload: DataPageDeleteSavedPayload) => {
+      const current = context.current
+      const report = readDeleted(payload, current.memory.columns)
+      if (report !== undefined) current.onAction(DELETED_ACTION_ID, report)
+      withdrawDeleted(current, readDeletedIds(payload))
+    },
+    'batch-modify-save-success': (payload: DataPageBatchModifySavedPayload) => {
+      const current = context.current
+      const report = readBatchModified(payload, current.memory.columns)
+      if (report !== undefined) current.onAction(BATCH_MODIFIED_ACTION_ID, report)
     },
     'table-operation-custom': (scope: { readonly row?: ToyRow }, item: unknown) => {
       const current = context.current
@@ -328,24 +439,13 @@ function DataPageBlock({ props, vueProps, onAction }: DataPageProps) {
       if (report !== undefined) current.onAction(EXPORTED_ACTION_ID, report)
     },
   }), [])
-  const host = useVueComponent<HTMLDivElement>({ component: DataPage, props: vueProps, on })
-  // Declared after the bridge's mount effect, so this cleanup runs after the
-  // bridge's: React releases effects in the order they were declared, and the
-  // page raises its last toasts while Vue is tearing it down. Released in the
-  // effect that contained the box, the box would stop being a box first and
-  // those toasts would land on the document body with nothing to adopt them.
-  // The release is set by the effect declared before this one, which is why it
-  // is there by the time this cleanup runs.
-  useEffect(() => () => { (release.current as () => void)() }, [])
+  const { box, host } = useContainedComponent({ component: DataPage, props: vueProps, on })
   return (
     <div ref={box} className={css.box}>
       <div ref={host} className={css.host} />
     </div>
   )
 }
-
-/** Whether the base path the page's requests go under has been applied. */
-type BasePathState = 'waiting' | 'ready' | 'failed'
 
 /** Why a block is drawing a line instead of its page. */
 type DataPageStall = 'preparing' | 'address' | 'table'
@@ -358,44 +458,17 @@ const STALL_LINE: Readonly<Record<DataPageStall, ComponentKitKey>> = {
 }
 
 /**
- * What the visitor may do on one table, as the node half judged it.
- * @param meta - the table, or `undefined` for a block naming none.
- * @returns the verdict for that table, or {@link NO_ABILITIES} until it arrives.
- */
-function useAbilities(meta: string | undefined): DataPageAbilityTable {
-  const [held, setHeld] = useState<{ readonly meta?: string; readonly table: DataPageAbilityTable }>({ table: NO_ABILITIES })
-  useEffect(() => {
-    if (meta === undefined) return undefined
-    const abort = new AbortController()
-    void readAbilitiesFor(meta, abort.signal).then((table) => {
-      if (!abort.signal.aborted) setHeld({ meta, table })
-    })
-    return () => { abort.abort() }
-  }, [meta])
-  // A verdict about another table is no verdict about this one.
-  return held.meta === meta ? held.table : NO_ABILITIES
-}
-
-/**
  * Render one data page block.
- * @param rendererProps - the block's identity, its properties, the action sink, and this row's translate. The page
- * publishes nothing and answers no question, so the output sink and the action state go unread.
+ * @param rendererProps - the block's identity, its properties, the action and output sinks, and this row's translate.
+ * The page answers no question, so the action state goes unread.
  * @returns the page inside its contained box, or the line saying why it is not drawn yet.
  */
-export function DataPageRenderer({ nodeId, props, onAction, t }: ComponentRendererProps) {
-  const [basePath, setBasePath] = useState<BasePathState>('waiting')
+export function DataPageRenderer({ nodeId, props, onAction, onOutput, t }: ComponentRendererProps) {
+  const basePath = useBasePathState()
   // Keyed on the block's property record: the placement package hands over the
   // same object until the call behind the block changes, so an unrelated React
   // commit reaches Vue as nothing at all.
   const vueProps = useMemo(() => readDataPage(props), [props])
-  useEffect(() => {
-    let mounted = true
-    dataPageBasePathReady().then(
-      () => { if (mounted) setBasePath('ready') },
-      () => { if (mounted) setBasePath('failed') },
-    )
-    return () => { mounted = false }
-  }, [])
   const abilities = useAbilities(vueProps?.relatedMeta)
   // Spread last, so the host's verdict is what the page receives whatever the
   // block's record carried.
@@ -412,7 +485,7 @@ export function DataPageRenderer({ nodeId, props, onAction, t }: ComponentRender
     <section className={css.section} data-component-block={COMPONENT_ID} data-component-node={nodeId}>
       {drawable === undefined
         ? <p className={css.notice} data-page-stalled={stalled}>{t(STALL_LINE[stalled])}</p>
-        : <DataPageBlock props={props} vueProps={drawable} onAction={onAction} />}
+        : <DataPageBlock props={props} vueProps={drawable} onAction={onAction} onOutput={onOutput} />}
     </section>
   )
 }

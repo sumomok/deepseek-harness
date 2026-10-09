@@ -1,21 +1,25 @@
 /**
- * What `toy.data-page` reads out of its block and out of the page's own events
- * — the narrowing of a block's properties into the prop record `DataPage`
- * takes, and the reduction of each event's payload to the bounded report the
- * placement package's catalog admits.
+ * What `toy.data-page`, and the form page and info card a view places beside
+ * it, read out of their blocks and out of the vendored components' own events
+ * — the narrowing of a block's properties into the prop record each component
+ * takes, the reduction of each event's payload to the bounded report the
+ * placement package's catalog admits, and the two values the data page
+ * publishes for the blocks beside it.
  *
- * Pure functions, kept apart from the renderer so each reading is pinned on
+ * Pure functions, kept apart from the renderers so each reading is pinned on
  * its own: the properties were already checked by the catalog that admitted
- * the block, but a payload came out of the page, which read it off a backend,
- * and every value of it is judged here before it is reported. Every ceiling
- * and charset a judgement holds to is `data-page-limits.ts`'s, which the
- * placement package pins against its own catalog, value for value.
+ * the block, but a payload came out of a component, which read it off a
+ * backend, and every value of it is judged here before it is reported or
+ * published. Every ceiling and charset a judgement holds to is
+ * `data-page-limits.ts`'s, which the placement package pins against its own
+ * catalog, value for value; the one ceiling no report carries — a published
+ * record id's — is read from the placement package itself.
  *
- * Nothing here decides what the page may do. Which regions it holds, which
- * buttons it keeps and whether it can be written in arrive as properties the
- * catalog already accepted, and are handed to the page as written; whether a
- * press succeeds is the deployment's own answer to the request the page makes
- * with the user's credential.
+ * Nothing here decides what a component may do. Which regions the page holds,
+ * which buttons it keeps and whether it can be written in arrive as properties
+ * the catalog already accepted, and are handed to the page as written; whether
+ * a press succeeds is the deployment's own answer to the request the component
+ * makes with the user's credential.
  * @module @deepseek-ai/dsh-experimental-component-kit/src/client/data-page-read
  */
 
@@ -24,11 +28,16 @@ import type {
   CrudTableCellClickPayload,
   DataPageAccessDeniedPayload,
   DataPageAuthFailedPayload,
+  DataPageBatchModifySavedPayload,
+  DataPageDeleteSavedPayload,
   DataPageExportTaskPayload,
-  DataPageInfoCardOpenPayload,
+  DataPageFormOpenPayload,
   DataPageLoadPayload,
+  FormPageSavedPayload,
+  InfoCardRecord,
   ToyRow,
 } from '@sumomok/toy-crud-kit'
+import { MAX_RECORD_ID_LENGTH } from '@deepseek-ai/dsh-experimental-component-surface/client'
 import {
   ATTRIBUTE_NAME,
   DENIED_REASONS,
@@ -106,10 +115,76 @@ export type DataPageVueProps = {
   readonly pageSizes?: readonly number[]
   /** Which sections the side card draws. */
   readonly infoCardTabs?: readonly string[]
+  /** Whether a name or a relation link opens a record when the page draws no side card of its own. */
+  readonly infoCardLinks?: boolean
   /** Whether the page refuses every write; the page's own default is `true`. */
   readonly readOnly?: boolean
+  /** What a delete does with the spatial resources bound to the record, as the backend's delete request names it. */
+  readonly deleteGisResource?: number
   /** The page fills its box; the box carries the height. */
   readonly myStyle: string
+}
+
+/**
+ * What `FormPage` receives, as the form page block builds it.
+ *
+ * `request` is the data page's `editing`, which the placement package resolved
+ * from the binding the view wrote; it is absent until the data page publishes
+ * one and again once the data page withdraws it, and the form then draws
+ * nothing and requests nothing.
+ */
+export type FormPageVueProps = {
+  /** The table the form saves into, by its name in the backend. */
+  readonly relatedMeta: string
+  /** What the data page's add or modify button asked the form to edit. */
+  readonly request?: Readonly<Record<string, unknown>>
+  /** The form fills its box; the box carries the height. */
+  readonly myStyle: string
+}
+
+/**
+ * What `InfoCard` receives, as the info card block builds it.
+ *
+ * `record` is the data page's `opened`, resolved the same way a form page's
+ * `request` is; the card draws nothing and requests nothing while it is absent.
+ */
+export type InfoCardVueProps = {
+  /** The record a name or a relation link on the data page opened. */
+  readonly record?: Readonly<Record<string, unknown>>
+  /** Which sections the card draws, where the view chose them. */
+  readonly infoCardTabs?: readonly string[]
+  /** The card fills its box. */
+  readonly myStyle: string
+}
+
+/**
+ * What the data page is editing, as its `editing` output carries it: a new
+ * record of the page's table, or one row of it by id and, where the page shows
+ * one, by name.
+ */
+export type EditingRecord = {
+  /** Whether the button pressed was the add button or a row's modify button. */
+  readonly mode: 'add' | 'modify'
+  /** The table the record belongs to. */
+  readonly type: string
+  /** The row's id, as text; present for a modify and absent for an add. */
+  readonly id?: string
+  /** The row's name, cut to what a report carries; absent where the page showed none. */
+  readonly name?: string
+}
+
+/**
+ * The record a name or a relation link on the data page opened, as its
+ * `opened` output carries it. `type` is the record's own table, which for a
+ * relation link is the related one rather than the page's.
+ */
+export type OpenedRecord = {
+  /** The record's id, as text. */
+  readonly id: string
+  /** The record's name, cut to what a report carries; absent where the page showed none. */
+  readonly name?: string
+  /** The table the record belongs to. */
+  readonly type: string
 }
 
 /** One drawn column of the page's query scheme, as a report names it. */
@@ -160,10 +235,45 @@ export type SelectReport = {
   readonly names: readonly string[]
 }
 
-/** What one opened side card reports: the row it was opened on, by name. */
+/** What one opened card reports: the record it shows, by name, and that record's table. */
 export type CardOpenReport = {
-  /** What the page calls the row the card belongs to. */
+  /** What the page calls the record the card shows, or its id where the page names it nothing. */
   readonly name: string
+  /** The table the record belongs to, which for a relation link is the related one. */
+  readonly type: string
+}
+
+/**
+ * What one delete reports: how many records went, how many did not, and what
+ * the first few that went were called.
+ *
+ * Never a field of a deleted record beyond its name, and never the ids the
+ * page deleted by: a record that is gone is nothing the agent can act on, and
+ * an id is the backend's key rather than anything the user reads.
+ */
+export type DeleteReport = {
+  /** Records deleted. */
+  readonly succeeded: number
+  /** Records the backend refused to delete. */
+  readonly failed: number
+  /** The first {@link MAX_NAMED_ROWS} deleted records, each named by its first readable reported cell. */
+  readonly names: readonly string[]
+}
+
+/**
+ * What one batch edit reports: how many records changed, what the first few
+ * are called, and which fields the user changed — never the value written into
+ * them.
+ */
+export type BatchModifyReport = {
+  /** Records changed. */
+  readonly succeeded: number
+  /** Records that could not be changed; the page reports a batch edit only when every record changed. */
+  readonly failed: number
+  /** The first {@link MAX_NAMED_ROWS} changed records, each named by its first readable reported cell. */
+  readonly names: readonly string[]
+  /** The fields the user changed, at most {@link MAX_SAVED_FIELDS} of them. */
+  readonly fields: readonly string[]
 }
 
 /** What one saved record reports: the drawn cells that name it, and no more of the form. */
@@ -377,8 +487,10 @@ export function readDataPage(props: ComponentRendererProps['props']): DataPageVu
   const queryExpanded = readBoolean(props['queryExpanded'])
   const pageSize = readNumber(props['pageSize'])
   const pageSizes = props['pageSizes'] === undefined ? undefined : readList(props['pageSizes'], readNumber)
-  const infoCardTabs = props['infoCardTabs'] === undefined ? undefined : readList(props['infoCardTabs'], readText)
+  const infoCardTabs = readInfoCardTabs(props['infoCardTabs'])
+  const infoCardLinks = readBoolean(props['infoCardLinks'])
   const readOnly = readBoolean(props['readOnly'])
+  const deleteGisResource = readNumber(props['deleteGisResource'])
   return {
     relatedMeta,
     conditions: readList(props['conditions'], readCondition),
@@ -394,8 +506,54 @@ export function readDataPage(props: ComponentRendererProps['props']): DataPageVu
     ...(pageSize === undefined ? {} : { pageSize }),
     ...(pageSizes === undefined ? {} : { pageSizes }),
     ...(infoCardTabs === undefined ? {} : { infoCardTabs }),
+    ...(infoCardLinks === undefined ? {} : { infoCardLinks }),
     ...(readOnly === undefined ? {} : { readOnly }),
-    myStyle: 'width:100%;height:100%',
+    ...(deleteGisResource === undefined ? {} : { deleteGisResource }),
+    myStyle: FILL_BOX,
+  }
+}
+
+/** The inline style every component here is mounted with: it fills its box, and the box carries the size. */
+const FILL_BOX = 'width:100%;height:100%'
+
+/**
+ * Read which sections a card draws.
+ * @param value - the `infoCardTabs` property value.
+ * @returns the sections, or `undefined` when the block chose none, so the component's own default stands.
+ */
+function readInfoCardTabs(value: unknown): readonly string[] | undefined {
+  return value === undefined ? undefined : readList(value, readText)
+}
+
+/**
+ * Narrow a form page block's properties to what `FormPage` declares.
+ *
+ * Refused as a whole where the block names no table, for the reason the data
+ * page's reading is: `relatedMeta` is required, so such a block is a record no
+ * view wrote. The request is passed on as the placement package resolved it —
+ * the component judges it again itself, and refuses one naming another table.
+ * @param props - the block's already-validated properties.
+ * @returns the form's prop record, or `undefined` when the block names no table.
+ */
+export function readFormPage(props: ComponentRendererProps['props']): FormPageVueProps | undefined {
+  const relatedMeta = readText(props['relatedMeta'])
+  if (relatedMeta === undefined) return undefined
+  const request = readRecord(props['request'])
+  return { relatedMeta, ...(request === undefined ? {} : { request }), myStyle: FILL_BOX }
+}
+
+/**
+ * Narrow an info card block's properties to what `InfoCard` declares.
+ * @param props - the block's already-validated properties.
+ * @returns the card's prop record; `record` is absent until the data page beside it opens one.
+ */
+export function readInfoCard(props: ComponentRendererProps['props']): InfoCardVueProps {
+  const record = readRecord(props['record'])
+  const infoCardTabs = readInfoCardTabs(props['infoCardTabs'])
+  return {
+    ...(record === undefined ? {} : { record }),
+    ...(infoCardTabs === undefined ? {} : { infoCardTabs }),
+    myStyle: FILL_BOX,
   }
 }
 
@@ -425,6 +583,43 @@ export function readLoadedColumns(payload: DataPageLoadPayload): readonly Report
     columns.push(alias === undefined ? { attr } : { attr, alias: cut(alias, MAX_HEADER_LENGTH) })
   }
   return columns
+}
+
+/**
+ * The form items of one of the scheme's two forms, as the page's own
+ * `add.form[0].formItems` and `modify.form[0].formItems` hold them.
+ * @param scheme - the `add` or `modify` part of the loaded scheme.
+ * @returns the items, empty where the scheme carries no such form.
+ */
+function formItemsOf(scheme: unknown): readonly Readonly<Record<string, unknown>>[] {
+  const form = readList(readRecord(scheme)?.['form'], readRecord)[0]
+  return readList(form?.['formItems'], readRecord)
+}
+
+/**
+ * Leave out of the loaded columns every attribute the table's scheme masks.
+ *
+ * An attribute is masked where any of the three schemes the load carries — the
+ * table's columns, the add form, the modify form — flags it `showAsPass`, read
+ * the way the vendored page reads the flag: any value that is not falsy. The
+ * flag is the scheme's own, not whether this user's screen draws the value
+ * hidden right now, because a report outlives the screen in the session's
+ * record. The masked column is still reported by its name in the load — the
+ * header is on screen — and no row report carries its value: every row, saved
+ * record and named record is read through what this returns.
+ * @param payload - the `load` event's payload.
+ * @param columns - the drawn columns, as {@link readLoadedColumns} read them.
+ * @returns the columns whose values a report may carry, in the same order.
+ */
+export function readValueColumns(payload: DataPageLoadPayload, columns: readonly ReportedColumn[]): readonly ReportedColumn[] {
+  const scheme = payload.schemaConfig
+  const items: readonly Readonly<Record<string, unknown>>[] = [
+    ...readList(scheme.query?.grid?.gridItems, readRecord),
+    ...formItemsOf(scheme.add),
+    ...formItemsOf(scheme.modify),
+  ]
+  const masked = new Set(items.filter(item => Boolean(item['showAsPass'])).map(item => item['relatedMetaAttr']))
+  return columns.filter(column => !masked.has(column.attr))
 }
 
 /**
@@ -561,22 +756,116 @@ export function readCellClick(payload: CrudTableCellClickPayload, columns: reado
  */
 export function readSelection(rows: readonly ToyRow[], columns: readonly ReportedColumn[]): SelectReport | undefined {
   if (rows.length > MAX_TICKED_ROWS) return undefined
-  const names: string[] = []
-  for (const row of rows.slice(0, MAX_NAMED_ROWS)) {
-    const name = nameRow(row, columns)
-    if (name !== undefined) names.push(name)
-  }
-  return { count: rows.length, names }
+  return { count: rows.length, names: nameRows(rows, columns) }
 }
 
 /**
- * Reduce one opened side card to the name of the row it belongs to.
- * @param payload - the `info-card-open` event's payload.
- * @returns the report, or `undefined` when the page named no row.
+ * Name the first few of a list of rows, each by its first drawn cell, skipping
+ * one no drawn column names.
+ * @param rows - the rows, as an event carries them; an item that is not a record names nothing.
+ * @param columns - the columns whose values a report may carry.
+ * @returns at most {@link MAX_NAMED_ROWS} names, taken from the first {@link MAX_NAMED_ROWS} rows.
  */
-export function readCardOpen(payload: DataPageInfoCardOpenPayload): CardOpenReport | undefined {
-  const named = readText(payload.name) ?? readText(payload.id)
-  return named === undefined ? undefined : { name: cut(named, MAX_CELL_LENGTH) }
+function nameRows(rows: readonly unknown[], columns: readonly ReportedColumn[]): readonly string[] {
+  const names: string[] = []
+  for (const row of rows.slice(0, MAX_NAMED_ROWS)) {
+    const record = readRecord(row)
+    const name = record === undefined ? undefined : nameRow(record, columns)
+    if (name !== undefined) names.push(name)
+  }
+  return names
+}
+
+/**
+ * Spell one record id as the text the outputs carry it as.
+ * @param value - the id, as an event carries it.
+ * @returns the id as text, or `undefined` where it is neither non-empty text nor a finite number.
+ */
+function spellId(value: unknown): string | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? String(value) : readText(value)
+}
+
+/**
+ * Read one record id an output may carry.
+ * @param value - the id, as an event carries it.
+ * @returns the id as text, or `undefined` where it is none or longer than {@link MAX_RECORD_ID_LENGTH}.
+ */
+function readRecordId(value: unknown): string | undefined {
+  const id = spellId(value)
+  return id !== undefined && id.length <= MAX_RECORD_ID_LENGTH ? id : undefined
+}
+
+/**
+ * Read one record name an output may carry.
+ * @param value - the name, as an event carries it.
+ * @returns the name, cut to {@link MAX_CELL_LENGTH}, or `undefined` where it is not non-empty text.
+ */
+function readRecordName(value: unknown): string | undefined {
+  const name = readText(value)
+  return name === undefined ? undefined : cut(name, MAX_CELL_LENGTH)
+}
+
+/**
+ * Reduce one opened card to the record it shows and that record's table.
+ *
+ * The data page raises this for its own side card and for a name or relation
+ * link whose card a block beside it draws; the info card block raises it when
+ * it is handed a new record. Both hand over the same record, whose `type` is
+ * the related table where a relation link opened it, so both report the
+ * table. A record the page shows no name for is named by its id.
+ * @param payload - the `info-card-open` event's payload.
+ * @returns the report, or `undefined` when the record names no table a report may carry, or neither a name nor an id.
+ */
+export function readCardOpen(payload: InfoCardRecord): CardOpenReport | undefined {
+  const record = readRecord(payload)
+  const type = readAttribute(record?.['type'])
+  const name = readText(record?.['name']) ?? spellId(record?.['id'])
+  return type === undefined || name === undefined ? undefined : { name: cut(name, MAX_CELL_LENGTH), type }
+}
+
+/**
+ * Read the record one name or relation link opened, as the data page's
+ * `opened` output carries it.
+ *
+ * The id is published as text whatever the backend typed it as. A record the
+ * catalog's `opened` would refuse — no id, one longer than
+ * {@link MAX_RECORD_ID_LENGTH}, a table name it would not admit — is not
+ * published at all, and the renderer withdraws the previous one instead: the
+ * placement package judges a bound property after resolving it, so a value it
+ * would refuse would turn the card into the seat's waiting line.
+ * @param payload - the `info-card-open` event's payload.
+ * @returns the record, or `undefined` when it is not one the output may carry.
+ */
+export function readOpened(payload: InfoCardRecord): OpenedRecord | undefined {
+  const record = readRecord(payload)
+  const id = readRecordId(record?.['id'])
+  const type = readAttribute(record?.['type'])
+  if (id === undefined || type === undefined) return undefined
+  const name = readRecordName(record?.['name'])
+  return name === undefined ? { id, type } : { id, name, type }
+}
+
+/**
+ * Read what one press of the add button or of a row's modify button opened
+ * for editing, as the data page's `editing` output carries it.
+ *
+ * An add carries the table and nothing else, whatever the payload holds beside
+ * it. A modify carries the row's id as text and, where the page shows one, its
+ * name; one without an id names no row and is not published, nor is a value
+ * the catalog's `editing` would refuse, for the reason {@link readOpened} gives.
+ * @param payload - the `form-open` event's payload.
+ * @returns the value, or `undefined` when it is not one the output may carry.
+ */
+export function readEditing(payload: DataPageFormOpenPayload): EditingRecord | undefined {
+  const record = readRecord(payload)
+  const mode = record?.['mode']
+  const type = readAttribute(record?.['type'])
+  if ((mode !== 'add' && mode !== 'modify') || type === undefined) return undefined
+  if (mode === 'add') return { mode, type }
+  const id = readRecordId(record?.['id'])
+  if (id === undefined) return undefined
+  const name = readRecordName(record?.['name'])
+  return name === undefined ? { mode, type, id } : { mode, type, id, name }
 }
 
 /**
@@ -598,6 +887,90 @@ export function readCardOpen(payload: DataPageInfoCardOpenPayload): CardOpenRepo
 export function readSaved(answer: unknown, columns: readonly ReportedColumn[]): SaveReport {
   const record = readRecord(answer)
   return { record: record === undefined ? {} : readRow(record, columns, MAX_SAVED_FIELDS) }
+}
+
+/**
+ * Reduce one record the form page saved to the fields that name it.
+ *
+ * The form page hands over a record it already trimmed: only the fields of the
+ * form that the table's data page last reported as columns, with every
+ * attribute any scheme of the table masks left out, and `{}` where no data page
+ * has reported the table's columns. What is left is held to what a report
+ * carries — an attribute name the catalog admits, a cell a report may carry,
+ * at most {@link MAX_SAVED_FIELDS} of them in the order the form page gave —
+ * and a record with nothing left still reports the save.
+ * @param payload - the `form-saved` event's payload.
+ * @returns the report, or `undefined` when the save names neither of the form's two modes.
+ */
+export function readFormSaved(payload: FormPageSavedPayload): SaveReport | undefined {
+  const saved = readRecord(payload)
+  const mode = saved?.['mode']
+  if (mode !== 'add' && mode !== 'modify') return undefined
+  const fields = readRecord(saved?.['record'])
+  const record: Record<string, ScalarValue> = {}
+  for (const [key, value] of Object.entries(fields ?? {})) {
+    const attr = readAttribute(key)
+    const cell = readCell(value)
+    if (attr === undefined || cell === undefined) continue
+    record[attr] = cell
+    if (Object.keys(record).length === MAX_SAVED_FIELDS) break
+  }
+  return { record }
+}
+
+/**
+ * Reduce one delete to how many records went, how many did not, and the names
+ * of the first few that went.
+ *
+ * The page raises this only where at least one record was deleted, for a
+ * row's own delete and for a batch delete alike, and hands over each deleted
+ * record already trimmed to the table's reported, unmasked columns. Each is
+ * named here through `columns` all the same, the way a ticked row is, so a
+ * name is never read out of a masked cell whoever trimmed the record.
+ * @param payload - the `delete-save-success` event's payload.
+ * @param columns - the columns whose values a report may carry.
+ * @returns the report, or `undefined` when the payload states no count a report may carry.
+ */
+export function readDeleted(payload: DataPageDeleteSavedPayload, columns: readonly ReportedColumn[]): DeleteReport | undefined {
+  const record = readRecord(payload)
+  const deleted = record?.['deleted']
+  const failed = readCount(record?.['failed'])
+  if (!Array.isArray(deleted) || failed === undefined) return undefined
+  return { succeeded: deleted.length, failed, names: nameRows(deleted, columns) }
+}
+
+/**
+ * Read the ids of the records one delete removed, which is what decides
+ * whether a value the data page published still names a record.
+ * @param payload - the `delete-save-success` event's payload.
+ * @returns the ids, as text; empty when the payload carries none.
+ */
+export function readDeletedIds(payload: DataPageDeleteSavedPayload): readonly string[] {
+  return readList(readRecord(payload)?.['ids'], readText)
+}
+
+/**
+ * Reduce one batch edit to how many records changed, the names of the first
+ * few, and which fields the user changed.
+ *
+ * The page raises this only where every record changed, handing over each
+ * already trimmed the way a deleted one is, and the names of the attributes
+ * the user ticked without the value written into them. The names are read
+ * through `columns` as a delete's are; a field name the catalog would refuse is
+ * left out, each is named once, and at most {@link MAX_SAVED_FIELDS} are kept.
+ * @param payload - the `batch-modify-save-success` event's payload.
+ * @param columns - the columns whose values a report may carry.
+ * @returns the report, or `undefined` when the payload carries no list of changed records.
+ */
+export function readBatchModified(
+  payload: DataPageBatchModifySavedPayload,
+  columns: readonly ReportedColumn[],
+): BatchModifyReport | undefined {
+  const record = readRecord(payload)
+  const modified = record?.['modified']
+  if (!Array.isArray(modified)) return undefined
+  const fields = [...new Set(readList(record?.['attrs'], readAttribute))].slice(0, MAX_SAVED_FIELDS)
+  return { succeeded: modified.length, failed: 0, names: nameRows(modified, columns), fields }
 }
 
 /**

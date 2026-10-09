@@ -1,5 +1,5 @@
 /**
- * The catalog these specs judge against: the six components
+ * The catalog these specs judge against: the eight components
  * `@deepseek-ai/dsh-experimental-component-kit` registers.
  *
  * Every deployment that offers `show_component` today composes that row, so
@@ -14,30 +14,22 @@ import type { Context } from '@deepseek-ai/cordis'
 import { ComponentCatalogRegistry, type ComponentSource } from '../src/catalog.ts'
 import {
   COMPONENT_KIT_ENTRIES,
-  COMPONENT_KIT_VIEW_ENTRIES,
   readCatalog,
   type ComponentCatalog,
   type ComponentCatalogEntry,
 } from '../src/component-call.ts'
 
-/** The component row's six components, as a catalog. */
+/** The component row's eight components, as a catalog. */
 export const KIT_CATALOG: ComponentCatalog = readCatalog(COMPONENT_KIT_ENTRIES)
 
-/**
- * The six and the two components only a view places beside a data page, as a
- * catalog: what a deployment judges against once the component row registers
- * those two as well.
- */
-export const KIT_VIEW_CATALOG: ComponentCatalog = readCatalog([...COMPONENT_KIT_ENTRIES, ...COMPONENT_KIT_VIEW_ENTRIES])
-
-/** The contributing package these specs register the six under; the real row reads its own manifest. */
+/** The contributing package these specs register the eight under; the real row reads its own manifest. */
 export const KIT_SOURCE: ComponentSource = {
   package: '@deepseek-ai/dsh-experimental-component-kit',
   version: '0.0.0-test',
 }
 
 /**
- * Install the catalog registry on a hand-built context and register the six
+ * Install the catalog registry on a hand-built context and register the eight
  * components into it, the way the component row does.
  * @param ctx - the context to install it on.
  * @returns the disposer of the contribution, for cases that take it back out.
@@ -53,14 +45,14 @@ export async function installKitCatalog(ctx: Context): Promise<() => void> {
 export const COMPONENT_PLUGIN_NAME = 'test:component-plugin'
 
 /**
- * A component plugin for the composition specs: it contributes the same six
+ * A component plugin for the composition specs: it contributes the same eight
  * components the component row does, through the same registry, and knows
  * nothing else.
  *
  * A stand-in rather than the real row, because the real one depends on this
  * package: the seam under test is the registry, and what a composition has to
  * prove is that a package this one does not own can fill it.
- * @param entries - the components to contribute; the component row's six by default.
+ * @param entries - the components to contribute; the component row's eight by default.
  * @returns the plugin to write into a test-only `cordis.yml` module table.
  */
 export function componentPlugin(

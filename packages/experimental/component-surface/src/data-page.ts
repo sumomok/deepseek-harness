@@ -476,20 +476,37 @@ function judgeForms(spec: ComponentSpec, page: ComponentNode): ComponentCallFail
 }
 
 /**
- * Judge the info card of one view against the data page whose record it shows.
+ * Judge the info card of one view against the data page whose record it shows,
+ * or, where the view places none, the page's links against the card it draws.
  * @param spec - the spec, as validation accepted it.
  * @param page - the view's data page.
- * @returns the refusal, or `undefined` when the view places no card or one beside a page drawing no card of its own.
+ * @returns the refusal, or `undefined` when the page's card, its links and the view's info card agree.
  */
 function judgeCard(spec: ComponentSpec, page: ComponentNode): ComponentCallFailure | undefined {
   const twice = secondReader(spec, page, INFO_CARD_ID, DATA_PAGE_OPENED_OUTPUT, 'one click would fill two cards.')
   if (twice !== undefined) return twice
   const card = spec.nodes.find(node => node.component === INFO_CARD_ID)
-  if (card === undefined || pageRegions(page)?.['infoCard'] === false) return undefined
+  const cardInPage = pageRegions(page)?.['infoCard'] !== false
+  const links = page.props['infoCardLinks'] === true
+  if (card === undefined) {
+    if (cardInPage || !links) return undefined
+    return refuse(
+      `spec.nodes[${spec.nodes.indexOf(page)}].props.infoCardLinks`,
+      `is true while regions.infoCard is false, and no ${INFO_CARD_ID} in this view reads ${DATA_PAGE_OPENED_OUTPUT} of `
+      + `"${page.id}": a name the user clicks would open nothing.`,
+    )
+  }
+  const reads = `reads ${DATA_PAGE_OPENED_OUTPUT} of "${page.id}"`
+  if (cardInPage) {
+    return refuse(
+      `spec.nodes[${spec.nodes.indexOf(card)}].props.record`,
+      `${reads}, whose own side card is still drawn because regions.infoCard is not false: one click would open two cards.`,
+    )
+  }
+  if (links) return undefined
   return refuse(
     `spec.nodes[${spec.nodes.indexOf(card)}].props.record`,
-    `reads ${DATA_PAGE_OPENED_OUTPUT} of "${page.id}", whose own side card is still drawn because regions.infoCard is `
-    + 'not false: one click would open two cards.',
+    `${reads}, whose names are not links because infoCardLinks is not true: nothing on the page opens a record.`,
   )
 }
 
@@ -506,7 +523,10 @@ function judgeCard(spec: ComponentSpec, page: ComponentNode): ComponentCallFailu
  * form while keeping the button that opens it needs the form page beside it.
  * Then the info card: at most one, beside a page whose own side card is
  * switched off with `regions.infoCard: false`, so that one click opens one
- * card and only the info card reports what it shows.
+ * card and only the info card reports what it shows, and whose names stay
+ * links with `infoCardLinks: true`, so that something on the page opens a
+ * record; and a page whose names are links while its own card is switched off
+ * needs the info card beside it.
  * @param catalog - the components this deployment offers.
  * @param spec - the spec, as validation accepted it.
  * @returns the refusal, or `undefined` when the view's blocks agree with one another.

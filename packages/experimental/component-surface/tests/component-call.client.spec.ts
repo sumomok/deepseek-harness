@@ -17,7 +17,6 @@ import {
   catalogLabels,
   catalogOutput,
   COMPONENT_KIT_ENTRIES,
-  COMPONENT_KIT_VIEW_ENTRIES,
   COMPONENT_KIND,
   CONFIRM_BAR_ID,
   DATA_PAGE_EDITING_OUTPUT,
@@ -41,6 +40,7 @@ import {
   parseComponentCall,
   readBinding,
   readByViewsOnly,
+  readCatalog,
   readComponentCall,
   SHOW_COMPONENT_TOOL_NAME,
   TABLE_ID,
@@ -48,7 +48,13 @@ import {
   viewPlacedNodes,
   type ComponentCatalogEntry,
 } from '../src/component-call.ts'
-import { KIT_CATALOG, KIT_VIEW_CATALOG } from './kit-catalog.client.ts'
+import { KIT_CATALOG } from './kit-catalog.client.ts'
+
+/** The kit's components a call may place: what the description a model reads is built from. */
+const CALL_PLACED: readonly ComponentCatalogEntry[] = COMPONENT_KIT_ENTRIES.filter(entry => !placedOnlyByViews(entry))
+
+/** The kit's two components only a view places, beside a data page. */
+const VIEW_PLACED: readonly ComponentCatalogEntry[] = COMPONENT_KIT_ENTRIES.filter(placedOnlyByViews)
 
 describe('component catalog', () => {
   it('claims one wire tool name and one content kind', () => {
@@ -163,10 +169,10 @@ describe('component catalog', () => {
     for (const name of DATA_PAGE_VIEW_PROP_NAMES) {
       expect(describeCatalog(COMPONENT_KIT_ENTRIES)).not.toContain(`${name}?`)
     }
-    // Two lines per component, and a third wherever a block a call places can
-    // read something out of one.
-    expect(describeCatalog(COMPONENT_KIT_ENTRIES).split('\n')).toHaveLength(2 * COMPONENT_KIT_ENTRIES.length
-      + COMPONENT_KIT_ENTRIES.filter(entry => entry.outputs.some(output => !readByViewsOnly(output))).length)
+    // Two lines per component a call places, and a third wherever a block a
+    // call places can read something out of one.
+    expect(describeCatalog(COMPONENT_KIT_ENTRIES).split('\n')).toHaveLength(2 * CALL_PLACED.length
+      + CALL_PLACED.filter(entry => entry.outputs.some(output => !readByViewsOnly(output))).length)
   })
 
   it('states what another block can read out of a component, and only where there is something', () => {
@@ -339,18 +345,18 @@ describe('components only a view places', () => {
     outputs: [VIEW_READ, { id: 'count', shape: { kind: 'number', min: 0, max: 9 } }],
   }
 
-  it('are the form page and the info card, under Chinese names the user reads, and nothing the kit row draws', () => {
-    expect(COMPONENT_KIT_VIEW_ENTRIES.map(entry => [entry.id, entry.label, placedOnlyByViews(entry)])).toEqual([
+  it('are the form page and the info card, registered after the data page under Chinese names the user reads', () => {
+    expect(VIEW_PLACED.map(entry => [entry.id, entry.label, placedOnlyByViews(entry)])).toEqual([
       [FORM_PAGE_ID, '表单页', true],
       [INFO_CARD_ID, '信息卡', true],
     ])
-    expect(COMPONENT_KIT_ENTRIES.filter(placedOnlyByViews)).toEqual([])
-    expect(COMPONENT_KIT_VIEW_ENTRIES.map(entry => Object.keys(entry.propsSchema)))
+    expect(COMPONENT_KIT_ENTRIES.slice(-3).map(entry => entry.id)).toEqual([DATA_PAGE_ID, FORM_PAGE_ID, INFO_CARD_ID])
+    expect(VIEW_PLACED.map(entry => Object.keys(entry.propsSchema)))
       .toEqual([['relatedMeta', 'request'], ['record', 'infoCardTabs']])
     // Neither reports a value another block reads, so the chain from the data
     // page through them runs one way.
-    expect(COMPONENT_KIT_VIEW_ENTRIES.map(entry => entry.outputs)).toEqual([[], []])
-    expect(COMPONENT_KIT_VIEW_ENTRIES.map(entry => entry.actions.map(action => [action.id, action.report]))).toEqual([
+    expect(VIEW_PLACED.map(entry => entry.outputs)).toEqual([[], []])
+    expect(VIEW_PLACED.map(entry => entry.actions.map(action => [action.id, action.report]))).toEqual([
       [['added', 'context'], ['modified', 'context']],
       [['card-open', 'context'], ['card-close', 'context']],
     ])
@@ -369,17 +375,18 @@ describe('components only a view places', () => {
       { id: 'c', component: 'toy.not-here', props: {} },
       { id: 'd', component: INFO_CARD_ID, props: {} },
     ]
-    expect(viewPlacedNodes(KIT_VIEW_CATALOG, { nodes }).map(node => node.id)).toEqual(['a', 'd'])
+    expect(viewPlacedNodes(KIT_CATALOG, { nodes }).map(node => node.id)).toEqual(['a', 'd'])
     // Read off the catalog a deployment registered, so a catalog without the
     // two finds none.
-    expect(viewPlacedNodes(KIT_CATALOG, { nodes })).toEqual([])
+    expect(viewPlacedNodes(readCatalog(CALL_PLACED), { nodes })).toEqual([])
   })
 
   it('leaves such a component, and an output only it reads, out of the lines a model reads', () => {
     // A call naming the component is refused, and nothing a call may place has
     // a property the output fits, so either line would be an offer every call
     // taking it up is refused for.
-    expect(describeCatalog([...COMPONENT_KIT_ENTRIES, ...COMPONENT_KIT_VIEW_ENTRIES])).toBe(describeCatalog(COMPONENT_KIT_ENTRIES))
+    expect(describeCatalog(COMPONENT_KIT_ENTRIES)).toBe(describeCatalog(CALL_PLACED))
+    for (const entry of VIEW_PLACED) expect(describeCatalog(COMPONENT_KIT_ENTRIES)).not.toContain(entry.id)
     expect(describeCatalog([MIXED_SOURCE])).toBe(
       '- toy.source-probe — 源探针 — Placed by calls and views. Nothing comes back from it.\n  props: note?\n  outputs: count number',
     )
@@ -388,10 +395,10 @@ describe('components only a view places', () => {
   it('declares a property that reads one output only on a component only a view places', () => {
     // Where the view is judged is the one place such a property is held to its
     // binding, so a component a call could place must not carry one.
-    const declaring = [...COMPONENT_KIT_ENTRIES, ...COMPONENT_KIT_VIEW_ENTRIES]
+    const declaring = COMPONENT_KIT_ENTRIES
       .filter(entry => Object.values(entry.propsSchema).some(field => field.bindsFrom !== undefined))
     expect(declaring.map(entry => [entry.id, placedOnlyByViews(entry)])).toEqual([[FORM_PAGE_ID, true], [INFO_CARD_ID, true]])
-    expect(COMPONENT_KIT_VIEW_ENTRIES.map(entry => Object.entries(entry.propsSchema)
+    expect(VIEW_PLACED.map(entry => Object.entries(entry.propsSchema)
       .filter(([, field]) => field.bindsFrom !== undefined)
       .map(([name, field]) => [name, field.required, field.bindsFrom?.component, field.bindsFrom?.output])))
       .toEqual([
@@ -401,7 +408,7 @@ describe('components only a view places', () => {
   })
 
   it('arranges an info card block\'s sections from the list the data page arranges its own card from', () => {
-    const card = COMPONENT_KIT_VIEW_ENTRIES.find(entry => entry.id === INFO_CARD_ID) as ComponentCatalogEntry
+    const card = COMPONENT_KIT_ENTRIES.find(entry => entry.id === INFO_CARD_ID) as ComponentCatalogEntry
     const page = COMPONENT_KIT_ENTRIES.find(entry => entry.id === DATA_PAGE_ID) as ComponentCatalogEntry
     for (const entry of [card, page]) {
       expect([entry.id, entry.propsSchema.infoCardTabs?.schema]).toEqual([entry.id, {

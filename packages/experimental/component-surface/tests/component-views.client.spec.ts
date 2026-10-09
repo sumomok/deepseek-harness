@@ -44,7 +44,7 @@ function bench(views: ContributedView[] = [], dataPage = false): Context {
   return ctx
 }
 
-/** Register the component row's six components, which is what makes any view judgeable. */
+/** Register the component row's eight components, which is what makes any view judgeable. */
 function fillCatalog(ctx: Context): () => void {
   return ctx.componentCatalog.register({ entries: COMPONENT_KIT_ENTRIES, source: KIT_SOURCE })
 }

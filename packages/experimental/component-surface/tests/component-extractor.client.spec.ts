@@ -27,7 +27,7 @@ import { COMPONENT_KIND, FORM_PAGE_ID, type ComponentCatalog, type ComponentSpec
 import { componentExtractor, type ComponentSurfaceData } from '../src/surface.ts'
 // Type-only: this package's own `content-component/shown` SessionEventMap merge.
 import type {} from '../src/types.ts'
-import { KIT_CATALOG, KIT_VIEW_CATALOG } from './kit-catalog.client.ts'
+import { KIT_CATALOG } from './kit-catalog.client.ts'
 
 /** One accepted confirmation-bar spec, and a second one differing only in its text. */
 const FIRST = { nodes: [{ id: 'bar', component: 'el.confirm-bar', props: { title: '本月预算', buttons: [{ id: 'ok', label: '确认' }] } }] }
@@ -244,7 +244,7 @@ describe('a block only a view places', () => {
   it('records nothing for a call carrying one, under any of the three event types a call is logged under', async () => {
     // Each of these is a call the tool refused, and the spec passes the shared
     // judgement all the same: what leaves it out is where it was recorded.
-    const { call, dispatch, resolved, entries } = await bench(KIT_VIEW_CATALOG)
+    const { call, dispatch, resolved, entries } = await bench(KIT_CATALOG)
     call('call_1', { id: 'form', title: '表单', spec: PLACED })
     dispatch('<root>:code:1', { id: 'form', title: '表单', spec: PLACED })
     resolved('call_2', 'form', '表单', PLACED)
@@ -252,13 +252,13 @@ describe('a block only a view places', () => {
   })
 
   it('records the view the user opened carrying one', async () => {
-    const { shown, entries } = await bench(KIT_VIEW_CATALOG)
+    const { shown, entries } = await bench(KIT_CATALOG)
     shown('crud', '图层管理', PLACED)
     expect(entries()).toEqual([{ kind: COMPONENT_KIND, entryId: 'crud', seq: 0, title: '图层管理', payload: { spec: PLACED } }])
   })
 
   it('records a filled call carrying none, which is the tool\'s own record of a read', async () => {
-    const { resolved, entries } = await bench(KIT_VIEW_CATALOG)
+    const { resolved, entries } = await bench(KIT_CATALOG)
     resolved('call_1', 'facts', '站点详情', RECORD)
     expect(entries().map(entry => entry.entryId)).toEqual(['facts'])
   })

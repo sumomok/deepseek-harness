@@ -13,7 +13,6 @@ import { describe, expect, it } from 'vitest'
 import {
   catalogId,
   COMPONENT_KIT_ENTRIES,
-  COMPONENT_KIT_VIEW_ENTRIES,
   EDITING_RECORD,
   OPENED_RECORD,
   readCatalog,
@@ -24,7 +23,7 @@ import {
 import { indexViews, judgeView, type ViewRefusal } from '../src/views.ts'
 import type { ContentView } from '../src/types.ts'
 import { CRUD_CARD, CRUD_FORM, CRUD_PAGE, crudSpec, rewritten, type WrittenNode } from './crud-view.client.ts'
-import { KIT_CATALOG, KIT_VIEW_CATALOG } from './kit-catalog.client.ts'
+import { KIT_CATALOG } from './kit-catalog.client.ts'
 
 /** One accepted two-block view: a table above the details of whatever row is picked. */
 const OVERVIEW = {
@@ -123,39 +122,66 @@ describe('a view arranging a data page toolbar', () => {
   }
 
   it('keeps the buttons the page draws something for', () => {
-    expect(judgeView(KIT_CATALOG, true, toolbar('add', 'exp', 'gridexp', 'search', 'clear')).ok).toBe(true)
+    expect(judgeView(KIT_CATALOG, true, toolbar('add', 'exp', 'gridexp', 'batch', 'search', 'clear')).ok).toBe(true)
   })
 
-  it.each([['imp'], ['batch']])('refuses %s, and says what the button would have done', (withdrawn) => {
+  it('refuses imp, and says what the button would have done', () => {
     // Whoever writes the view is told what this page does with the buttons it
     // accepts, rather than only that theirs is not among them: an import panel
-    // and a batch panel are what the page would need to draw for either of
-    // these, and it draws neither.
-    expect(judgeView(KIT_CATALOG, true, toolbar('add', withdrawn))).toEqual({
+    // is what the page would need to draw for it, and it draws none.
+    expect(judgeView(KIT_CATALOG, true, toolbar('add', 'imp'))).toEqual({
       ok: false,
       refusal: {
         path: 'spec.nodes[0].props.toolbarButtons[1]',
-        reason: 'spec.nodes[0].props.toolbarButtons[1] — must be one of "add", "exp", "gridexp", "search", "clear". '
-          + 'This page draws no import panel and no batch panel, so "imp" and "batch" are not on the list: either '
-          + 'button would draw and answer nothing when it was pressed.',
+        reason: 'spec.nodes[0].props.toolbarButtons[1] — must be one of "add", "exp", "gridexp", "batch", "search", '
+          + '"clear". This page draws no import panel, so "imp" is not on the list: the button would draw and answer '
+          + 'nothing when it was pressed.',
       },
     })
   })
 
-  it('refuses a row operation the page draws no panel for, in the same words', () => {
-    const deleting = view('layers', '图层数据', {
+  /** One view drawing a data page with the given row operations and delete handling. */
+  function rows(props: Readonly<Record<string, unknown>>): ContentView {
+    return view('layers', '图层数据', {
       nodes: [{
         id: 'layer-table',
         component: 'toy.data-page',
-        props: { relatedMeta: 'sys_layer', metaLabel: '图层', rowOperations: ['delete'], readOnly: false },
+        props: { relatedMeta: 'sys_layer', metaLabel: '图层', readOnly: false, ...props },
       }],
     })
-    expect(judgeView(KIT_CATALOG, true, deleting)).toEqual({
+  }
+
+  it('keeps the row operations the page draws something for', () => {
+    expect(judgeView(KIT_CATALOG, true, rows({ rowOperations: ['modify', 'delete'] })).ok).toBe(true)
+    expect(judgeView(KIT_CATALOG, true, rows({ rowOperations: ['delete'] })).ok).toBe(true)
+  })
+
+  it('refuses a row operation the page does not draw, naming the ones it does', () => {
+    expect(judgeView(KIT_CATALOG, true, rows({ rowOperations: ['export'] }))).toEqual({
       ok: false,
       refusal: {
         path: 'spec.nodes[0].props.rowOperations[0]',
-        reason: 'spec.nodes[0].props.rowOperations[0] — must be one of "modify". This page draws no delete '
-          + 'confirmation, so "delete" is not on the list: the button would draw and answer nothing when it was pressed.',
+        reason: 'spec.nodes[0].props.rowOperations[0] — must be one of "modify", "delete".',
+      },
+    })
+  })
+
+  it.each([[1], [2], [3]])('accepts %s as what a delete does to the spatial resources bound to a record', (value) => {
+    expect(judgeView(KIT_CATALOG, true, rows({ deleteGisResource: value })).ok).toBe(true)
+  })
+
+  it.each([
+    ['a number outside the three', 4],
+    ['the right number written as text', '3'],
+  ])('refuses %s as what a delete does to the spatial resources, and says what each value does', (_case, value) => {
+    expect(judgeView(KIT_CATALOG, true, rows({ deleteGisResource: value }))).toEqual({
+      ok: false,
+      refusal: {
+        path: 'spec.nodes[0].props.deleteGisResource',
+        reason: 'spec.nodes[0].props.deleteGisResource — must be one of 1, 2, 3. The page sends 3 where the view writes '
+          + 'none. 1 deletes the spatial resource data bound to the record together with it; 2 deletes that resource '
+          + 'data and clears the binding; 3 deletes no record that still has spatial resources bound to it and reports '
+          + 'it instead.',
       },
     })
   })
@@ -179,7 +205,7 @@ describe('a view placing a form page and an info card beside its data page', () 
    * @returns whether the judgement accepted the view.
    */
   function accepted(...nodes: readonly WrittenNode[]): boolean {
-    return judgeView(KIT_VIEW_CATALOG, true, crud(...nodes)).ok
+    return judgeView(KIT_CATALOG, true, crud(...nodes)).ok
   }
 
   /**
@@ -188,7 +214,7 @@ describe('a view placing a form page and an info card beside its data page', () 
    * @param catalog - the components the deployment registers; the kit's eight unless a case needs a probe.
    * @returns the refusal, which a person reads without the tool's name in front of it.
    */
-  function refused(nodes: readonly WrittenNode[], catalog: ComponentCatalog = KIT_VIEW_CATALOG): ViewRefusal {
+  function refused(nodes: readonly WrittenNode[], catalog: ComponentCatalog = KIT_CATALOG): ViewRefusal {
     const judged = judgeView(catalog, true, crud(...nodes))
     if (judged.ok) throw new Error('the view was accepted')
     expect(judged.refusal.reason).not.toContain(SHOW_COMPONENT_TOOL_NAME)
@@ -202,7 +228,9 @@ describe('a view placing a form page and an info card beside its data page', () 
 
   it('accepts the page beside the form page and the card it opens, and beside either alone', () => {
     expect(accepted(CRUD_PAGE, CRUD_FORM, CRUD_CARD)).toBe(true)
-    expect(accepted(CRUD_PAGE, CRUD_FORM)).toBe(true)
+    // With no card beside it, the page's names are not links, so nothing on it
+    // opens a record nobody shows.
+    expect(accepted(rewritten(CRUD_PAGE, { infoCardLinks: undefined }), CRUD_FORM)).toBe(true)
     // A page drawing both of its own forms keeps both of its buttons answered
     // without a form page beside it.
     expect(accepted(rewritten(CRUD_PAGE, { regions: { infoCard: false } }), CRUD_CARD)).toBe(true)
@@ -306,7 +334,7 @@ describe('a view placing a form page and an info card beside its data page', () 
     }
 
     /** The kit's eight and the three probes. */
-    const PROBED = readCatalog([...COMPONENT_KIT_ENTRIES, ...COMPONENT_KIT_VIEW_ENTRIES, EDITOR, LIST_FORM, EDIT_FORM])
+    const PROBED = readCatalog([...COMPONENT_KIT_ENTRIES, EDITOR, LIST_FORM, EDIT_FORM])
 
     /** One editor block. */
     const EDITOR_BLOCK: WrittenNode = { id: 'editor', component: EDITOR.id, props: {} }
@@ -450,5 +478,35 @@ describe('a view placing a form page and an info card beside its data page', () 
 
   it('accepts an info card beside a page that writes its own card false and nothing else', () => {
     expect(accepted(rewritten(CRUD_PAGE, { regions: { infoCard: false } }), CRUD_CARD)).toBe(true)
+  })
+
+  it.each([
+    ['leaves its links to the page', undefined],
+    ['writes its links false', false],
+  ])('refuses an info card beside a page whose own card is switched off and that %s', (_case, infoCardLinks) => {
+    // With its own card switched off, the page opens a record only through
+    // names that are links; without them the card would never show one.
+    expect(refused([rewritten(CRUD_PAGE, { infoCardLinks }), CRUD_FORM, CRUD_CARD])).toEqual(refusal(
+      'spec.nodes[2].props.record',
+      'reads opened of "page", whose names are not links because infoCardLinks is not true: nothing on the page opens '
+      + 'a record.',
+    ))
+  })
+
+  it('refuses a page whose names are links while its own card is switched off and no info card is beside it', () => {
+    expect(refused([CRUD_PAGE, CRUD_FORM])).toEqual(refusal(
+      'spec.nodes[0].props.infoCardLinks',
+      'is true while regions.infoCard is false, and no toy.info-card in this view reads opened of "page": a name the '
+      + 'user clicks would open nothing.',
+    ))
+  })
+
+  it.each([
+    ['writes no regions at all', undefined],
+    ['draws its own card', { infoCard: true }],
+  ])('accepts names that are links beside a page that %s, with no info card beside it', (_case, regions) => {
+    // The page's own card opens on the click, so the links open a card the
+    // page draws.
+    expect(accepted(rewritten(CRUD_PAGE, { regions, readOnly: undefined }))).toBe(true)
   })
 })

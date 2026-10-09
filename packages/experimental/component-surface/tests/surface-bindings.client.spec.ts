@@ -20,7 +20,7 @@ import {
 } from '../src/client/bindings.ts'
 import { acceptSurface, holdSteady, type SurfaceBlock } from '../src/client/spec.ts'
 import { CONFIRM_BAR_ID, DATA_PAGE_ID, FORM_PAGE_ID, RECORD_DETAIL_ID, TABLE_ID } from '../src/component-call.ts'
-import { KIT_CATALOG, KIT_VIEW_CATALOG } from './kit-catalog.client.ts'
+import { KIT_CATALOG } from './kit-catalog.client.ts'
 
 /** One table of published values. */
 function published(values: Readonly<Record<string, unknown>>): OutputValues {
@@ -252,7 +252,7 @@ describe('an output a block withdraws', () => {
 
   it('draws a block whose bound property is optional before anything is published, without that property', () => {
     // The form draws its own empty state rather than the seat's waiting line.
-    const view = acceptSurface(KIT_VIEW_CATALOG, PAIR, NO_OUTPUTS, [])
+    const view = acceptSurface(KIT_CATALOG, PAIR, NO_OUTPUTS, [])
     expect(view?.blocks.map(block => block.node?.props)).toEqual([
       { relatedMeta: 'SpaceLayer', metaLabel: '空间图层' },
       { relatedMeta: 'SpaceLayer' },
@@ -260,9 +260,9 @@ describe('an output a block withdraws', () => {
   })
 
   it('hands the block new properties without the value once the source publishes undefined', () => {
-    const fed = acceptSurface(KIT_VIEW_CATALOG, PAIR, published({ 'page.editing': EDITING }), [])
+    const fed = acceptSurface(KIT_CATALOG, PAIR, published({ 'page.editing': EDITING }), [])
     expect(fed?.blocks[1]?.node?.props).toEqual({ relatedMeta: 'SpaceLayer', request: EDITING })
-    const withdrawn = acceptSurface(KIT_VIEW_CATALOG, PAIR, published({ 'page.editing': undefined }), fed?.blocks ?? [])
+    const withdrawn = acceptSurface(KIT_CATALOG, PAIR, published({ 'page.editing': undefined }), fed?.blocks ?? [])
     expect(withdrawn?.blocks[1]?.node?.props).toEqual({ relatedMeta: 'SpaceLayer' })
     expect(withdrawn?.blocks[1]).not.toBe(fed?.blocks[1])
     // The page itself reads nothing, so it keeps the object it had.
@@ -272,8 +272,8 @@ describe('an output a block withdraws', () => {
   it('keeps the block it already had when the source publishes the value standing again', () => {
     // A second press of the same row's modify button is the same state, so
     // the form is handed nothing new.
-    const fed = acceptSurface(KIT_VIEW_CATALOG, PAIR, published({ 'page.editing': EDITING }), [])
-    const again = acceptSurface(KIT_VIEW_CATALOG, PAIR, published({ 'page.editing': { ...EDITING } }), fed?.blocks ?? [])
+    const fed = acceptSurface(KIT_CATALOG, PAIR, published({ 'page.editing': EDITING }), [])
+    const again = acceptSurface(KIT_CATALOG, PAIR, published({ 'page.editing': { ...EDITING } }), fed?.blocks ?? [])
     expect(again?.blocks[1]).toBe(fed?.blocks[1])
   })
 })

@@ -15,10 +15,17 @@ import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
-import { COMPONENT_KIT_ENTRIES, DATA_PAGE_ID, describeCatalog, SHOW_COMPONENT_TOOL_NAME } from '../src/component-call.ts'
+import {
+  COMPONENT_KIT_ENTRIES,
+  DATA_PAGE_ID,
+  describeCatalog,
+  placedOnlyByViews,
+  readCatalog,
+  SHOW_COMPONENT_TOOL_NAME,
+} from '../src/component-call.ts'
 import { PendingLoads } from '../src/data-page.ts'
 import { describeShowComponent, showComponentTool, type ShowComponentOptions } from '../src/tool.ts'
-import { KIT_CATALOG, KIT_VIEW_CATALOG } from './kit-catalog.client.ts'
+import { KIT_CATALOG } from './kit-catalog.client.ts'
 
 /** The offer of a deployment that composed no data backend, which is what this suite pins. */
 const PLAIN: ShowComponentOptions = { dataSource: false, defaultPageSize: 200, dataPage: false, dataPageLoadTimeoutMs: 1000 }
@@ -139,6 +146,9 @@ describe('show_component model-visible surface', () => {
   })
 
   it('describes itself byte for byte the same whether or not the components only a view places are registered', () => {
+    /** The kit's components less the two only a view places. */
+    const CALL_PLACED_CATALOG = readCatalog(COMPONENT_KIT_ENTRIES.filter(entry => !placedOnlyByViews(entry)))
+    expect(CALL_PLACED_CATALOG.entries.length).toBe(KIT_CATALOG.entries.length - 2)
     // Either is refused in any call, and the data page's two outputs are read
     // by nothing a call places, so the offer a model reads is the same offer it
     // would read without them — which is also what keeps the description's
@@ -146,7 +156,7 @@ describe('show_component model-visible surface', () => {
     for (const dataSource of [false, true]) {
       for (const dataPage of [false, true]) {
         const options = { ...PLAIN, dataSource, dataPage }
-        expect(describeShowComponent(KIT_VIEW_CATALOG, options)).toBe(describeShowComponent(KIT_CATALOG, options))
+        expect(describeShowComponent(KIT_CATALOG, options)).toBe(describeShowComponent(CALL_PLACED_CATALOG, options))
       }
     }
   })

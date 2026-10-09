@@ -244,6 +244,9 @@ function fieldFacts(field: PropsField, flags: CatalogObject): CatalogObject {
  * refuses a `$from` anywhere inside an object property. `unbindable` is the
  * component surface's own answer, so a property the component reads as a path,
  * a color or a renderer name is unbindable whether or not it is declared so.
+ * `bindsFrom` is stated only on a property that declares it: the component and
+ * the output a view must bind the property to, and the reason a view writing
+ * anything else is refused with.
  * @param entry - the component.
  * @returns one entry per property, in declaration order.
  */
@@ -251,6 +254,9 @@ function propsFacts(entry: ComponentCatalogEntry): CatalogObject {
   return Object.fromEntries(Object.entries(entry.propsSchema).map(([name, field]) => [name, fieldFacts(field, {
     viewOnly: field.viewOnly !== undefined,
     unbindable: unbindableReason(entry, name, field) !== undefined,
+    ...field.bindsFrom === undefined
+      ? {}
+      : { bindsFrom: { component: field.bindsFrom.component, output: field.bindsFrom.output, reason: field.bindsFrom.reason } },
   })]))
 }
 

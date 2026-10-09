@@ -6,33 +6,46 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  DATA_PAGE_DELETE_GIS_RESOURCE_VALUES as PAGE_DELETE_GIS_RESOURCE_VALUES,
   DATA_PAGE_LAYOUT_PROPS,
   DATA_PAGE_MODEL_SETTABLE_PROPS,
   DATA_PAGE_ROW_OPERATIONS as PAGE_ROW_OPERATIONS,
   DATA_PAGE_TOOLBAR_BUTTONS as PAGE_TOOLBAR_BUTTONS,
   type CrudTableCellClickPayload,
+  type DataPageLoadPayload,
 } from '@sumomok/toy-crud-kit'
 import {
+  DATA_PAGE_DELETE_GIS_RESOURCE_VALUES,
   DATA_PAGE_MODEL_PROP_NAMES,
   DATA_PAGE_ROW_OPERATIONS,
   DATA_PAGE_TOOLBAR_BUTTONS,
   DATA_PAGE_VIEW_PROP_NAMES,
+  MAX_RECORD_ID_LENGTH,
 } from '@deepseek-ai/dsh-experimental-component-surface'
 import { DATA_PAGE_REPORT_LIMITS } from '../src/client/data-page-limits.ts'
 import {
   loadReport,
   readAccessDenied,
   readAuthFailed,
-  readGrantedRights,
+  readBatchModified,
   readCardOpen,
   readCellClick,
   readDataPage,
+  readDeleted,
+  readDeletedIds,
+  readEditing,
   readExportTask,
+  readFormPage,
+  readFormSaved,
+  readGrantedRights,
+  readInfoCard,
   readLoadedColumns,
+  readOpened,
   readOperation,
   readQuery,
   readSaved,
   readSelection,
+  readValueColumns,
   type DataPageVueProps,
 } from '../src/client/data-page-read.ts'
 
@@ -97,7 +110,9 @@ describe('the prop record', () => {
       pageSize: 50,
       pageSizes: [10, 50],
       infoCardTabs: ['attributes'],
+      infoCardLinks: true,
       readOnly: false,
+      deleteGisResource: 2,
     })).toMatchObject({
       regions: { query: true, infoCard: false },
       toolbarButtons: ['add', 'search'],
@@ -106,7 +121,9 @@ describe('the prop record', () => {
       pageSize: 50,
       pageSizes: [10, 50],
       infoCardTabs: ['attributes'],
+      infoCardLinks: true,
       readOnly: false,
+      deleteGisResource: 2,
     })
   })
 
@@ -142,7 +159,8 @@ describe('the prop record', () => {
     // host side of the seam. A property on one side and not the other is a
     // property that reaches the page as nothing, with nothing failing.
     expect(DATA_PAGE_MODEL_PROP_NAMES.filter(name => name !== 'metaLabel')).toEqual([...DATA_PAGE_MODEL_SETTABLE_PROPS])
-    expect(DATA_PAGE_VIEW_PROP_NAMES.filter(name => name !== 'readOnly')).toEqual([...DATA_PAGE_LAYOUT_PROPS])
+    expect(DATA_PAGE_VIEW_PROP_NAMES.filter(name => name !== 'readOnly' && name !== 'deleteGisResource'))
+      .toEqual([...DATA_PAGE_LAYOUT_PROPS])
     // And the reading passes on every one of them: a name the reader forgot
     // would be a property the user arranged and the page never received.
     const arranged = page({
@@ -161,10 +179,12 @@ describe('the prop record', () => {
       pageSize: 20,
       pageSizes: [20],
       infoCardTabs: ['attributes'],
+      infoCardLinks: true,
       readOnly: false,
+      deleteGisResource: 3,
     })
     const reached = new Set(Object.keys(arranged))
-    for (const name of [...DATA_PAGE_MODEL_SETTABLE_PROPS, ...DATA_PAGE_LAYOUT_PROPS, 'readOnly']) {
+    for (const name of [...DATA_PAGE_MODEL_SETTABLE_PROPS, ...DATA_PAGE_LAYOUT_PROPS, 'readOnly', 'deleteGisResource']) {
       expect(reached).toContain(name)
     }
     // `metaLabel` is the one property the host keeps: it is the name on the
@@ -191,6 +211,12 @@ describe('the prop record', () => {
     // accepted there would be a button this deployment could not ask for.
     expect(DATA_PAGE_TOOLBAR_BUTTONS).toEqual([...PAGE_TOOLBAR_BUTTONS])
     expect(DATA_PAGE_ROW_OPERATIONS).toEqual([...PAGE_ROW_OPERATIONS])
+  })
+
+  it('admits the values of deleteGisResource the vendored page itself accepts, value for value', () => {
+    // A value the catalog admits and the page does not is sent as the page's
+    // own default, 3, so the delete would not do what the view wrote.
+    expect(DATA_PAGE_DELETE_GIS_RESOURCE_VALUES).toEqual([...PAGE_DELETE_GIS_RESOURCE_VALUES])
   })
 
   it('refuses a block that names no table rather than opening the page on nothing', () => {
@@ -352,17 +378,26 @@ describe('a change of ticked rows', () => {
   })
 })
 
-describe('an opened side card', () => {
-  it('names the row the page named, and falls back to the id it carries', () => {
-    expect(readCardOpen({ id: '41', name: '北京-核心-01', type: 'device' })).toEqual({ name: '北京-核心-01' })
-    expect(readCardOpen({ id: '41', name: '', type: 'device' })).toEqual({ name: '41' })
-    expect(readCardOpen({ id: '', name: '', type: '' })).toBeUndefined()
+describe('an opened card', () => {
+  it('names the record the page named and its table, and falls back to the id it carries', () => {
+    expect(readCardOpen({ id: '41', name: '北京-核心-01', type: 'device' })).toEqual({ name: '北京-核心-01', type: 'device' })
+    expect(readCardOpen({ id: '41', name: '', type: 'device' })).toEqual({ name: '41', type: 'device' })
+    // The info card block hands the record over without a name where the page showed none.
+    expect(readCardOpen({ id: 41, type: 'device_port' })).toEqual({ name: '41', type: 'device_port' })
   })
 
-  it('cuts a name longer than a report carries', () => {
+  it('cuts a name longer than a report carries, an id standing in for one included', () => {
     const long = 'x'.repeat(DATA_PAGE_REPORT_LIMITS.cellLength + 1)
     expect(readCardOpen({ id: '41', name: long, type: 'device' })?.name)
       .toBe(`${'x'.repeat(DATA_PAGE_REPORT_LIMITS.cellLength - 1)}…`)
+    expect(readCardOpen({ id: long, type: 'device' })?.name).toBe(`${'x'.repeat(DATA_PAGE_REPORT_LIMITS.cellLength - 1)}…`)
+  })
+
+  it('is not reported without a table a report may carry, or without a name or an id', () => {
+    expect(readCardOpen({ id: '', name: '', type: '' })).toBeUndefined()
+    expect(readCardOpen({ id: '41', name: 'A', type: '1st' })).toBeUndefined()
+    expect(readCardOpen({ id: Number.NaN, type: 'device' })).toBeUndefined()
+    expect(readCardOpen(undefined as never)).toBeUndefined()
   })
 })
 
@@ -519,5 +554,200 @@ describe('a sign-in this deployment refused', () => {
     expect(readAuthFailed({} as { status: number })).toBeUndefined()
     expect(readAuthFailed(undefined as unknown as { status: number })).toBeUndefined()
     expect(readAuthFailed([401] as unknown as { status: number })).toBeUndefined()
+  })
+})
+
+describe('the two blocks a view places beside a data page', () => {
+  it('hands the form its table and the request the placement package resolved, and nothing else', () => {
+    const request = { mode: 'modify', type: 'device', id: '41' }
+    expect(readFormPage({ relatedMeta: 'device', request, abilities: { create: true } })).toEqual({
+      relatedMeta: 'device',
+      request,
+      myStyle: 'width:100%;height:100%',
+    })
+    // Until the data page publishes what it opened, the form has nothing to edit.
+    expect(readFormPage({ relatedMeta: 'device' })).toEqual({ relatedMeta: 'device', myStyle: 'width:100%;height:100%' })
+  })
+
+  it('refuses a form that names no table, rather than opening it on nothing', () => {
+    expect(readFormPage({ request: { mode: 'add', type: 'device' } })).toBeUndefined()
+    expect(readFormPage({ relatedMeta: '' })).toBeUndefined()
+  })
+
+  it('hands the card the record the placement package resolved and the sections the view chose', () => {
+    const record = { id: '41', name: '北京-核心-01', type: 'device' }
+    expect(readInfoCard({ record, infoCardTabs: ['attributes', 7] })).toEqual({
+      record,
+      infoCardTabs: ['attributes'],
+      myStyle: 'width:100%;height:100%',
+    })
+    // A card nothing opened yet, and one whose view left the sections to the card, carry neither.
+    expect(readInfoCard({})).toEqual({ myStyle: 'width:100%;height:100%' })
+  })
+})
+
+describe('what the add and modify buttons opened', () => {
+  it('is the table alone for an add, whatever the payload holds beside it', () => {
+    expect(readEditing({ mode: 'add', type: 'device' })).toEqual({ mode: 'add', type: 'device' })
+    expect(readEditing({ mode: 'add', type: 'device', id: '41', name: 'A' })).toEqual({ mode: 'add', type: 'device' })
+  })
+
+  it('is the row by its id as text, and its name where the page shows one, for a modify', () => {
+    expect(readEditing({ mode: 'modify', type: 'device', id: 41, name: '北京-核心-01' }))
+      .toEqual({ mode: 'modify', type: 'device', id: '41', name: '北京-核心-01' })
+    expect(readEditing({ mode: 'modify', type: 'device', id: '41', name: '' })).toEqual({ mode: 'modify', type: 'device', id: '41' })
+    const long = 'x'.repeat(DATA_PAGE_REPORT_LIMITS.cellLength + 1)
+    expect(readEditing({ mode: 'modify', type: 'device', id: '41', name: long })?.name)
+      .toBe(`${'x'.repeat(DATA_PAGE_REPORT_LIMITS.cellLength - 1)}…`)
+    expect(readEditing({ mode: 'modify', type: 'device', id: 'i'.repeat(MAX_RECORD_ID_LENGTH) })?.id)
+      .toBe('i'.repeat(MAX_RECORD_ID_LENGTH))
+  })
+
+  it.each([
+    ['a modify naming no row', { mode: 'modify', type: 'device' }],
+    ['an empty id', { mode: 'modify', type: 'device', id: '' }],
+    ['an id that is not a finite number', { mode: 'modify', type: 'device', id: Number.POSITIVE_INFINITY }],
+    ['an id longer than the output carries', { mode: 'modify', type: 'device', id: 'i'.repeat(MAX_RECORD_ID_LENGTH + 1) }],
+    ['a table the catalog would refuse', { mode: 'add', type: '1st' }],
+    ['a mode that is neither', { mode: 'copy', type: 'device' }],
+    ['no payload at all', undefined],
+  ])('is not one the output may carry for %s', (_case, payload) => {
+    expect(readEditing(payload as never)).toBeUndefined()
+  })
+})
+
+describe('what a name or a relation link opened', () => {
+  it('is the record by its id as text, its name where the page shows one, and its own table', () => {
+    expect(readOpened({ id: 41, name: '端口-1', type: 'device_port' })).toEqual({ id: '41', name: '端口-1', type: 'device_port' })
+    expect(readOpened({ id: '41', type: 'device' })).toEqual({ id: '41', type: 'device' })
+    const long = 'x'.repeat(DATA_PAGE_REPORT_LIMITS.cellLength + 1)
+    expect(readOpened({ id: '41', name: long, type: 'device' })?.name).toBe(`${'x'.repeat(DATA_PAGE_REPORT_LIMITS.cellLength - 1)}…`)
+  })
+
+  it.each([
+    ['no id', { id: '', name: 'A', type: 'device' }],
+    ['an id longer than the output carries', { id: 'i'.repeat(MAX_RECORD_ID_LENGTH + 1), type: 'device' }],
+    ['a table the catalog would refuse', { id: '41', type: 'a b' }],
+    ['no payload at all', undefined],
+  ])('is not one the output may carry for %s', (_case, payload) => {
+    expect(readOpened(payload as never)).toBeUndefined()
+  })
+})
+
+describe('a record the form page saved', () => {
+  it('keeps the fields the form page handed over, in its order, held to what a report carries', () => {
+    expect(readFormSaved({ mode: 'add', meta: 'device', record: { zh_label: '新建-01', '1st': 'x', city: '北京', n: Number.NaN } }))
+      .toEqual({ record: { zh_label: '新建-01', city: '北京' } })
+    const long = 'x'.repeat(DATA_PAGE_REPORT_LIMITS.cellLength + 1)
+    expect(readFormSaved({ mode: 'modify', meta: 'device', record: { zh_label: long } }))
+      .toEqual({ record: { zh_label: `${'x'.repeat(DATA_PAGE_REPORT_LIMITS.cellLength - 1)}…` } })
+  })
+
+  it('stops at the ceiling', () => {
+    const record = Object.fromEntries(Array.from({ length: DATA_PAGE_REPORT_LIMITS.savedFields + 2 }, (_unused, index) => [`f${index}`, index]))
+    expect(Object.keys(readFormSaved({ mode: 'add', meta: 'device', record })?.record ?? {})).toHaveLength(DATA_PAGE_REPORT_LIMITS.savedFields)
+  })
+
+  it('still reports a save whose record carries nothing, which is what a table no data page reported is', () => {
+    expect(readFormSaved({ mode: 'add', meta: 'device', record: {} })).toEqual({ record: {} })
+    expect(readFormSaved({ mode: 'modify', meta: 'device', record: null as never })).toEqual({ record: {} })
+  })
+
+  it('is not reported for a save naming neither of the form\'s two modes', () => {
+    expect(readFormSaved({ mode: 'copy' as never, meta: 'device', record: { zh_label: 'A' } })).toBeUndefined()
+    expect(readFormSaved(undefined as never)).toBeUndefined()
+  })
+})
+
+describe('a delete', () => {
+  const COLUMNS = [{ attr: 'zh_label', alias: '名称' }, { attr: 'city' }]
+
+  it('counts what went and what did not, and names the first few that went', () => {
+    const deleted = Array.from({ length: 7 }, (_unused, index) => ({ zh_label: `A-${index}`, city: '北京' }))
+    expect(readDeleted({ meta: 'device', ids: deleted.map((_row, index) => String(index)), deleted, failed: 2 }, COLUMNS))
+      .toEqual({ succeeded: 7, failed: 2, names: ['A-0', 'A-1', 'A-2', 'A-3', 'A-4'] })
+    // A record the page trimmed to nothing is counted and not named.
+    expect(readDeleted({ meta: 'device', ids: ['1', '2'], deleted: [{}, { city: '济南' }], failed: 0 }, COLUMNS))
+      .toEqual({ succeeded: 2, failed: 0, names: ['济南'] })
+    // An item that is not a record is counted and names nothing.
+    expect(readDeleted({ meta: 'device', ids: ['1', '2'], deleted: [null as never, { city: '济南' }], failed: 0 }, COLUMNS))
+      .toEqual({ succeeded: 2, failed: 0, names: ['济南'] })
+  })
+
+  it('is not reported where the payload states no count a report may carry', () => {
+    expect(readDeleted({ meta: 'device', ids: [], deleted: [], failed: -1 }, COLUMNS)).toBeUndefined()
+    expect(readDeleted({ meta: 'device', ids: [], deleted: null as never, failed: 0 }, COLUMNS)).toBeUndefined()
+    expect(readDeleted(undefined as never, COLUMNS)).toBeUndefined()
+  })
+
+  it('names the records it removed by their ids as text, and nothing where it names none', () => {
+    expect(readDeletedIds({ meta: 'device', ids: ['41', '', 7 as never], deleted: [], failed: 0 })).toEqual(['41'])
+    expect(readDeletedIds(undefined as never)).toEqual([])
+  })
+})
+
+describe('a batch edit', () => {
+  const COLUMNS = [{ attr: 'zh_label', alias: '名称' }]
+
+  it('counts the records, names the first few, and lists each field changed once', () => {
+    const modified = Array.from({ length: 6 }, (_unused, index) => ({ zh_label: `B-${index}` }))
+    const attrs = ['state', 'state', '1st', ...Array.from({ length: DATA_PAGE_REPORT_LIMITS.savedFields + 1 }, (_unused, index) => `f${index}`)]
+    const report = readBatchModified({ meta: 'device', modified, attrs }, COLUMNS)
+    expect(report?.succeeded).toBe(6)
+    expect(report?.failed).toBe(0)
+    expect(report?.names).toEqual(['B-0', 'B-1', 'B-2', 'B-3', 'B-4'])
+    expect(report?.fields).toHaveLength(DATA_PAGE_REPORT_LIMITS.savedFields)
+    expect(report?.fields.slice(0, 2)).toEqual(['state', 'f0'])
+    expect(readBatchModified({ meta: 'device', modified: [], attrs: null as never }, COLUMNS)?.fields).toEqual([])
+  })
+
+  it('is not reported where the payload carries no list of changed records', () => {
+    expect(readBatchModified({ meta: 'device', modified: 'all' as never, attrs: [] }, COLUMNS)).toBeUndefined()
+    expect(readBatchModified(undefined as never, COLUMNS)).toBeUndefined()
+  })
+})
+
+describe('a column the scheme masks', () => {
+  // `code` is masked in the table's own columns; `phone` is drawn plainly there
+  // and masked in the modify form; `city` is masked nowhere. The masked cells
+  // come first, so a name read through the mask would be one of their values.
+  const LOAD: DataPageLoadPayload = {
+    authButton: {},
+    schemaConfig: {
+      query: { grid: { gridItems: [
+        { relatedMetaAttr: 'code', alias: '编码', showAsPass: 1 },
+        { relatedMetaAttr: 'phone', alias: '电话' },
+        { relatedMetaAttr: 'zh_label', alias: '名称' },
+        { relatedMetaAttr: 'city', alias: '城市' },
+      ] } },
+      add: { form: [{ formItems: [{ relatedMetaAttr: 'zh_label' }, { relatedMetaAttr: 'city', showAsPass: false }] }] },
+      modify: { form: [{ formItems: [{ relatedMetaAttr: 'phone', showAsPass: true }] }] },
+    },
+  }
+  const reported = readLoadedColumns(LOAD)
+  const values = readValueColumns(LOAD, reported)
+  const ROW = { code: 'C-1', phone: '13800000000', zh_label: '', city: '北京' }
+
+  it('is still named in the load, because its header is on screen', () => {
+    expect(loadReport('device', reported, []).columns.map(column => column.attr)).toEqual(['code', 'phone', 'zh_label', 'city'])
+    expect(values.map(column => column.attr)).toEqual(['zh_label', 'city'])
+  })
+
+  it('reaches no saved, deleted or batch-edited record the data page reports', () => {
+    expect(readSaved(ROW, values)).toEqual({ record: { zh_label: '', city: '北京' } })
+    expect(readDeleted({ meta: 'device', ids: ['1'], deleted: [ROW], failed: 0 }, values)?.names).toEqual(['北京'])
+    expect(readBatchModified({ meta: 'device', modified: [ROW], attrs: ['city'] }, values)?.names).toEqual(['北京'])
+  })
+
+  it('reaches no clicked, ticked or pressed row', () => {
+    expect(readCellClick(click(ROW, { property: 'code', label: '编码' }), values)?.row).toEqual({ zh_label: '', city: '北京' })
+    expect(readSelection([ROW], values)?.names).toEqual(['北京'])
+    expect(readOperation({ name: 'ping' }, ROW, values)?.row).toEqual({ zh_label: '', city: '北京' })
+  })
+
+  it('reads a scheme carrying no forms, or forms carrying no items, as masking only what its columns mark', () => {
+    const plain: DataPageLoadPayload = { authButton: {}, schemaConfig: { query: { grid: { gridItems: [{ relatedMetaAttr: 'code', showAsPass: '1' }] } }, add: { form: [] }, modify: { form: [{}] } } }
+    expect(readValueColumns(plain, [{ attr: 'code' }, { attr: 'city' }])).toEqual([{ attr: 'city' }])
+    expect(readValueColumns({ authButton: {}, schemaConfig: {} }, [{ attr: 'city' }])).toEqual([{ attr: 'city' }])
   })
 })

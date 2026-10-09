@@ -14,7 +14,6 @@ import {
   catalogAction,
   catalogEntry,
   COMPONENT_KIT_ENTRIES,
-  COMPONENT_KIT_VIEW_ENTRIES,
   DATA_PAGE_ID,
   DATA_PAGE_QUERY_ID,
   describeCatalog,
@@ -37,7 +36,7 @@ import {
   validateComponentSpec,
   type ComponentCallFailure,
 } from '../src/validate.ts'
-import { KIT_CATALOG, KIT_VIEW_CATALOG } from './kit-catalog.client.ts'
+import { KIT_CATALOG } from './kit-catalog.client.ts'
 import { CRUD_VIEW } from './crud-view.client.ts'
 import { probeDataSourceSpec, readDataSourceBlocks, resolveDataSourceTargets } from '../src/data-source.ts'
 
@@ -476,7 +475,7 @@ describe('refusing a node', () => {
   })
 
   it('hands back no component only a view places, which is no component a call could pick instead', () => {
-    const result = validateComponentCall(KIT_VIEW_CATALOG, call({ nodes: [{ ...confirmBar(), component: 'toy.chart' }] }))
+    const result = validateComponentCall(KIT_CATALOG, call({ nodes: [{ ...confirmBar(), component: 'toy.chart' }] }))
     if (result.ok) throw new Error('expected a refusal, got an accepted call')
     expect(result.failure.text).toBe(
       `show_component: spec.nodes[0].component — names no component of this deployment. Available components:\n${describeCatalog(COMPONENT_KIT_ENTRIES)}`,
@@ -626,20 +625,20 @@ describe('refusing a block only a view places', () => {
     ['nodes that are no list', { nodes: { 0: { component: FORM_PAGE_ID } } }],
     ['nodes naming no view-placed component', { nodes: [confirmBar(), { component: TABLE_ID }] }],
   ])('passes over %s, left to validation to refuse', (_case, spec) => {
-    expect(refuseViewPlaced(KIT_VIEW_CATALOG, spec)).toBeUndefined()
+    expect(refuseViewPlaced(KIT_CATALOG, spec)).toBeUndefined()
   })
 
   it('reads past nodes of any other form to the first one naming such a component, at its index as written', () => {
     // A node validation would refuse first is not one this judgement can read
     // a component off, and the call is refused for the form page all the same.
     const spec = { nodes: [null, 7, [FORM_PAGE_ID], { id: 'x' }, { component: 3 }, { component: 'toy.nosuch' }, { component: FORM_PAGE_ID }] }
-    expect(refuseViewPlaced(KIT_VIEW_CATALOG, spec)).toEqual(placedByViews(6))
+    expect(refuseViewPlaced(KIT_CATALOG, spec)).toEqual(placedByViews(6))
   })
 
   it('refuses a block whose properties validation would refuse, before naming any of them', () => {
     const spec = { nodes: [confirmBar(), { id: 'form', component: FORM_PAGE_ID, props: { bogus: 1 } }] }
-    expect(validateComponentCall(KIT_VIEW_CATALOG, call(spec))).toMatchObject({ ok: false, failure: { path: 'spec.nodes[1].props.bogus' } })
-    expect(refuseViewPlaced(KIT_VIEW_CATALOG, spec)).toEqual(placedByViews(1))
+    expect(validateComponentCall(KIT_CATALOG, call(spec))).toMatchObject({ ok: false, failure: { path: 'spec.nodes[1].props.bogus' } })
+    expect(refuseViewPlaced(KIT_CATALOG, spec)).toEqual(placedByViews(1))
   })
 })
 
@@ -654,12 +653,12 @@ describe('the components a call is judged for placement on', () => {
     return (spec as { nodes: readonly { component: unknown }[] }).nodes.map(node => node.component)
   }
 
-  it.each([...COMPONENT_KIT_ENTRIES, ...COMPONENT_KIT_VIEW_ENTRIES].map(entry => [entry.id, entry] as const))(
+  it.each(COMPONENT_KIT_ENTRIES.map(entry => [entry.id, entry] as const))(
     'are the ones written, for a %s node validation accepts',
     (id, entry) => {
       const written = { nodes: [{ id: 'n1', component: id, props: sampleProps(entry.propsSchema) }] }
       const before = components(written)
-      const result = validateComponentCall(KIT_VIEW_CATALOG, call(written))
+      const result = validateComponentCall(KIT_CATALOG, call(written))
       if (!result.ok) throw new Error(result.failure.text)
       expect(components(result.call.spec)).toEqual(before)
     },
@@ -667,7 +666,7 @@ describe('the components a call is judged for placement on', () => {
 
   it('are the ones written, for a view of several blocks validation accepts', () => {
     const before = components(CRUD_VIEW)
-    const result = validateComponentCall(KIT_VIEW_CATALOG, call(CRUD_VIEW))
+    const result = validateComponentCall(KIT_CATALOG, call(CRUD_VIEW))
     if (!result.ok) throw new Error(result.failure.text)
     expect(components(result.call.spec)).toEqual(before)
   })

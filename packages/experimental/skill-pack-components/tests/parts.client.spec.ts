@@ -97,11 +97,26 @@ const DATA_PAGE_PACK = [
   '    parts: [toy.data-page]',
 ]
 
-/** Boot the four rows over a freshly written pack root. */
-async function loadComposition(dataPage: boolean): Promise<Context> {
+/** A pack placing the form page a view lays beside the data page, and nothing else. */
+const FORM_PAGE_PACK = [
+  '  pack:',
+  '    version: 1.0.0',
+  '  requires:',
+  '    components:',
+  `      "${KIT}": ">=0.4.0"`,
+  '    parts: [toy.form-page]',
+]
+
+/**
+ * Boot the four rows over a freshly written pack root holding one pack.
+ * @param dataPage - the component surface's `dataPage` setting.
+ * @param metadata - the pack's `metadata` lines; the data page pack by default.
+ * @returns the booted context.
+ */
+async function loadComposition(dataPage: boolean, metadata: readonly string[] = DATA_PAGE_PACK): Promise<Context> {
   world = await mkdtemp(join(tmpdir(), 'dsh-skill-pack-components-'))
   const root = join(world, 'packs')
-  await writePack(root, 'space-data-page', DATA_PAGE_PACK)
+  await writePack(root, 'space-data-page', metadata)
 
   const configPath = join(world, 'cordis.yml')
   await writeFile(configPath, [
@@ -190,6 +205,18 @@ describe('the component catalog as a pack reads it', () => {
     })
     expect(await skillNames(ctx)).not.toContain('space-data-page')
     expect(ctx.skillPackParts.list().map(part => part.id)).not.toContain('toy.data-page')
+  })
+
+  it.each([
+    [true, 'active', []],
+    [false, 'inactive', [{ kind: 'part-absent', part: 'toy.form-page' }]],
+  ] as const)('judges a pack placing the form page as offered where dataPage is %s', async (dataPage, state, missing) => {
+    // The form page goes with the data page: a deployment that left the page
+    // off withholds the blocks a view lays beside it, and one that turned it
+    // on offers them although only a view places them.
+    const ctx = await loadComposition(dataPage, FORM_PAGE_PACK)
+    expect(await statusOf(ctx)).toEqual({ skill: 'space-data-page', version: '1.0.0', origin: 'pack-root', state, missing })
+    expect(ctx.skillPackParts.list().map(part => part.id).includes('toy.form-page')).toBe(dataPage)
   })
 
   it('withdraws the pack when the component plugin goes away, with no restart', async () => {

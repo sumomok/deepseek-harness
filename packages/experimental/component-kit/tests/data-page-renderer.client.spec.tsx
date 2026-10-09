@@ -7,24 +7,28 @@
  * its own box, leaves the shared element-ui defaults alone, and reports to the
  * agent exactly the bounded gestures the placement package's catalog declares —
  * the same load and query once per placing call, however often the block is
- * redrawn.
+ * redrawn, a card only where the page draws it, and no value of a column the
+ * table's scheme masks. And that it publishes what its add and modify buttons
+ * and its names opened, withdrawing each value that names a record a delete
+ * removed.
  *
- * The backend is a stub on `XMLHttpRequest`, which is what the page's own
- * request layer uses under jsdom, serving the smallest scheme the page accepts
- * and three rows. Nothing here reaches a network.
+ * The backend is the shared stub on `XMLHttpRequest`, which is what the page's
+ * own request layer uses under jsdom, serving the smallest scheme the page
+ * accepts and its rows. Nothing here reaches a network.
  */
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import { setBizBasePath } from '@sumomok/toy-crud-kit'
+import { reportedColumns, setBizBasePath } from '@sumomok/toy-crud-kit'
 import { Vue as SuppliedVue } from '@deepseek-ai/dsh-experimental-vue2-echarts-poc/client'
 import { installElementUI } from '../src/client/element-ui.ts'
 import { DataPageRenderer } from '../src/client/DataPageRenderer.tsx'
 import { DATA_PAGE_REPORT_LIMITS } from '../src/client/data-page-limits.ts'
 import { en } from '../src/client/locales.ts'
-import type { ComponentActionHandler, ComponentRendererProps } from '../src/client/renderer.ts'
+import type { ComponentActionHandler, ComponentOutputHandler, ComponentRendererProps } from '../src/client/renderer.ts'
 import type { VueInstance } from '../src/client/vue-shim.ts'
 import { NO_ABILITIES, type DataPageAbilityTable } from '../src/route.ts'
+import { answers, defineTable, drain, flush, seen, settleProgress, STORED_TOKEN, StubRequest } from './fixtures/crud-backend.client.ts'
 
 /** What the base-path read answers with, per case: a path, or a refusal. */
 let basePath: Promise<string> = Promise.resolve('/probe-base/')
@@ -55,9 +59,6 @@ const t: ComponentRendererProps['t'] = makeTranslate(en)
 /** The table every page here is opened on. */
 const META = 'probe_device'
 
-/** The token the page carries, the way this deployment's login page leaves one. */
-const STORED_TOKEN = 'Bearer aGVhZGVy.eyJzdWIiOiJ1LTEifQ.c2ln'
-
 /** Three drawn columns and one the scheme hides. */
 const GRID_ITEMS = [
   { relatedMetaAttr: 'zh_label', alias: '名称', isShow: '1', isSortable: '1' },
@@ -66,35 +67,6 @@ const GRID_ITEMS = [
   { relatedMetaAttr: 'secret', alias: '隐藏列', isShow: '0' },
 ]
 
-/** One scheme row of the three kinds the page asks for. */
-function schemeRow(schemaType: number, schemaEnName: string): Record<string, unknown> {
-  return {
-    schemaType,
-    isDefault: 1,
-    schemaEnName,
-    metaAlias: '演示设备',
-    metaEnName: META,
-    contentType: 'normal',
-    form: [{
-      formType: 'normal',
-      labelWidth: '100px',
-      formItems: [
-        { relatedMetaAttr: 'zh_label', alias: '名称', isShow: 1, isEditable: 1, isRequired: 0, relatedComponent: 'edit_input', op: 'LIKE' },
-        { relatedMetaAttr: 'city', alias: '城市', isShow: 1, isEditable: 1, isRequired: 0, relatedComponent: 'edit_input', op: 'EQ' },
-      ],
-    }],
-    grid: { gridItems: GRID_ITEMS },
-  }
-}
-
-/**
- * What the stub answers the profile request with, where a case needs something
- * other than the profile that grants {@link META}: the page reads this before
- * anything else, and the two answers that keep it from opening are both
- * answers to it.
- */
-let userInfo: [number, unknown] | undefined
-
 /** The three rows the stub answers every query with. */
 const ROWS = [
   { int_id: '1', zh_label: '北京-核心-01', city: '北京', state: '在用', secret: 's1' },
@@ -102,104 +74,34 @@ const ROWS = [
   { int_id: '3', zh_label: '上海-汇聚-03', city: '上海', state: '停用', secret: 's3' },
 ]
 
-/** One request the stub answered. */
-interface Seen {
-  method: string
-  url: string
-  authorization: string | undefined
-}
+defineTable(META, {
+  gridItems: GRID_ITEMS,
+  formItems: [
+    { relatedMetaAttr: 'zh_label', alias: '名称', isShow: 1, isEditable: 1, isRequired: 0, relatedComponent: 'edit_input', op: 'LIKE' },
+    { relatedMetaAttr: 'city', alias: '城市', isShow: 1, isEditable: 1, isRequired: 0, relatedComponent: 'edit_input', op: 'EQ' },
+  ],
+  rows: ROWS,
+})
 
-/** Every request the stub answered, in order. */
-const seen: Seen[] = []
+/** A table whose scheme masks one of its drawn columns, in its columns and in both of its forms. */
+const MASKED_META = 'probe_masked'
 
-/**
- * Answer one request the way the deployment's backend does.
- * @param method - the request method.
- * @param url - the request URL, query included.
- * @returns the status and the body.
- */
-function route(method: string, url: string): [number, unknown] {
-  const path = url.split('?')[0] ?? ''
-  if (path.endsWith('/nrms-auth/api/auth/userinfo')) {
-    if (userInfo !== undefined) return userInfo
-    return [200, { code: 0, data: { useraccount: 'probe', username: '探针用户', auth: { resclass: [
-      {
-        resclassenname: META, search: 1, add: 1, update: 1, delete: 1, imp: 1, exp: 1,
-        gridexp: 1, searchSetting: 1, advSearch: 1, showAsPass: 0, columns: [],
-      },
-    ] } } }]
-  }
-  if (path.includes('/nrms-schema-manage/api/schema/schema')) {
-    return [200, { code: 0, data: [schemeRow(1, `${META}_query`), schemeRow(2, `${META}_add`), schemeRow(3, `${META}_modify`)] }]
-  }
-  if (path.includes('/nrms-schema-manage/api/meta/resclass/')) {
-    return [200, { code: 0, data: { metaEnName: META, metaAlias: '演示设备', attrs: [
-      { relatedMetaAttr: 'zh_label', alias: '名称', dataType: 'string' },
-      { relatedMetaAttr: 'city', alias: '城市', dataType: 'string' },
-      { relatedMetaAttr: 'state', alias: '状态', dataType: 'string' },
-      { relatedMetaAttr: 'secret', alias: '隐藏列', dataType: 'string' },
-    ] } }]
-  }
-  if (method === 'POST' && path.endsWith('/_search')) {
-    return [200, { code: 0, data: { rawValue: ROWS, displayValue: ROWS, ref: [], page: { total: 3, currentPage: 1, pageSize: 20 } } }]
-  }
-  return [200, { code: 0, data: null }]
-}
+/** One row of {@link MASKED_META} whose first unmasked cell is empty, so a name read through the mask would be its code. */
+const MASKED_ROW = { int_id: '1', code: 'C-1', zh_label: '', city: '北京' }
 
-/** The stub the page's request layer talks to under jsdom. */
-class StubRequest {
-  readyState = 0
-  status = 0
-  responseText = ''
-  response = ''
-  timeout = 0
-  withCredentials = false
-  responseType = ''
-  onreadystatechange: (() => void) | null = null
-  onload: (() => void) | null = null
-  upload = { addEventListener: (): void => {} }
-  private method = ''
-  private url = ''
-  private readonly headers: Record<string, string> = {}
-  private readonly listeners: Record<string, (() => void)[]> = {}
-
-  open(method: string, url: string): void {
-    this.method = method
-    this.url = url
-    this.readyState = 1
-  }
-
-  setRequestHeader(name: string, value: string): void {
-    this.headers[name.toLowerCase()] = value
-  }
-
-  getAllResponseHeaders(): string {
-    return 'content-type: application/json\r\n'
-  }
-
-  addEventListener(type: string, listener: () => void): void {
-    (this.listeners[type] ??= []).push(listener)
-  }
-
-  removeEventListener(): void {}
-
-  abort(): void {}
-
-  send(): void {
-    seen.push({ method: this.method, url: this.url, authorization: this.headers['authorization'] })
-    const [status, body] = route(this.method, this.url)
-    setTimeout(() => {
-      this.readyState = 4
-      this.status = status
-      this.responseText = JSON.stringify(body)
-      this.response = this.responseText
-      this.onreadystatechange?.()
-      this.onload?.()
-      for (const listener of this.listeners['load'] ?? []) listener()
-      for (const listener of this.listeners['loadend'] ?? []) listener()
-    }, 0)
-  }
-}
+defineTable(MASKED_META, {
+  gridItems: [
+    { relatedMetaAttr: 'code', alias: '编码', isShow: '1', showAsPass: 1 },
+    { relatedMetaAttr: 'zh_label', alias: '名称', isShow: '1' },
+    { relatedMetaAttr: 'city', alias: '城市', isShow: '1' },
+  ],
+  formItems: [
+    { relatedMetaAttr: 'code', alias: '编码', isShow: 1, isEditable: 1, isRequired: 0, relatedComponent: 'edit_input', op: 'EQ', showAsPass: 1 },
+    { relatedMetaAttr: 'zh_label', alias: '名称', isShow: 1, isEditable: 1, isRequired: 0, relatedComponent: 'edit_input', op: 'LIKE' },
+    { relatedMetaAttr: 'city', alias: '城市', isShow: 1, isEditable: 1, isRequired: 0, relatedComponent: 'edit_input', op: 'EQ' },
+  ],
+  rows: [MASKED_ROW],
+})
 
 /** Every node appended straight under the document body, by id, while a case ran. */
 const escaped: string[] = []
@@ -233,7 +135,7 @@ beforeEach(() => {
   basePath = Promise.resolve('/probe-base/')
   abilities = Promise.resolve(ALL_ABILITIES)
   abilityReads.length = 0
-  userInfo = undefined
+  answers.userInfo = undefined
   // The request layer keeps the profile it fetched under this key and reuses
   // it while the stored token still matches, so a case that answers the
   // profile request differently has to start from nothing fetched.
@@ -254,6 +156,10 @@ afterEach(async () => {
   await drain()
 })
 
+// The last case's bar is still fading when the file ends, and jsdom is torn
+// down right after: the removal would reach for a document that is gone.
+afterAll(settleProgress)
+
 /**
  * The block a call opens on the device table, ticking allowed. A fresh record
  * per case: the renderer remembers what one record's block reported, so a
@@ -263,17 +169,13 @@ function pageProps(): Record<string, unknown> {
   return Object.freeze({ relatedMeta: META, metaLabel: '演示设备', selectMode: 'checkbox' })
 }
 
-/**
- * Let Vue and the stub backend finish one round.
- * @returns a promise settling after the queued timers.
- */
-function flush(): Promise<void> {
-  return new Promise((resolve) => { setTimeout(resolve, 20) })
-}
-
 /** Draw one page block over the properties under test, watching what lands inside its box. */
-function draw(props: Record<string, unknown> = pageProps(), onAction = vi.fn<ComponentActionHandler>()) {
-  const view = render(<DataPageRenderer nodeId="page-1" props={props} state="idle" onAction={onAction} onOutput={vi.fn()} t={t} />)
+function draw(
+  props: Record<string, unknown> = pageProps(),
+  onAction = vi.fn<ComponentActionHandler>(),
+  onOutput = vi.fn<ComponentOutputHandler>(),
+) {
+  const view = render(<DataPageRenderer nodeId="page-1" props={props} state="idle" onAction={onAction} onOutput={onOutput} t={t} />)
   const boxWatch = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
       for (const node of mutation.addedNodes) {
@@ -282,21 +184,7 @@ function draw(props: Record<string, unknown> = pageProps(), onAction = vi.fn<Com
     }
   })
   boxWatch.observe(view.container, { childList: true, subtree: true })
-  return { view, onAction, boxWatch }
-}
-
-/**
- * Wait until the stub backend has been quiet for three rounds, or forty rounds
- * have passed, whichever comes first.
- * @returns a promise settling once nothing new has been requested.
- */
-async function drain(): Promise<void> {
-  let quiet = 0
-  for (let round = 0; round < 40 && quiet < 3; round += 1) {
-    const before = seen.length
-    await flush()
-    quiet = seen.length === before ? quiet + 1 : 0
-  }
+  return { view, onAction, onOutput, boxWatch }
 }
 
 /**
@@ -311,13 +199,22 @@ async function loaded(onAction: ReturnType<typeof vi.fn>): Promise<void> {
   await flush()
 }
 
+/** The `DataPage` instance under one drawn block: where its events are raised, and its two save handlers. */
+type PageInstance = VueInstance & {
+  $props: Record<string, unknown>
+  /** The page's own handler for a delete that removed at least one record. */
+  handleDeleteSuccess(finished: readonly unknown[]): void
+  /** The page's own handler for a batch edit that changed every record. */
+  handleModifyBatchSuccess(finished: readonly unknown[], batch: unknown): void
+}
+
 /** The `DataPage` instance under one drawn block, which is where its events are raised. */
-function pageOf(container: HTMLElement): VueInstance & { $props: Record<string, unknown> } {
+function pageOf(container: HTMLElement): PageInstance {
   const box = container.querySelector('[data-toy-crud-box]') as HTMLElement
   const rootEl = box.firstElementChild?.firstElementChild as HTMLElement & { __vue__?: VueInstance }
   let instance = rootEl.__vue__ as VueInstance
   while (instance.$options.name !== 'ToyDataPage') instance = instance.$children[0] as VueInstance
-  return instance as VueInstance & { $props: Record<string, unknown> }
+  return instance as PageInstance
 }
 
 /**
@@ -416,6 +313,10 @@ describe('toy.data-page', () => {
   })
 
   it('requests its table under the configured base path with the token the page carries, inside a contained box', async () => {
+    // A bar the previous case left fading is drawn on the body once its box is
+    // gone; it is that case's, and this one starts once it has finished.
+    await settleProgress()
+    escaped.length = 0
     const { view, onAction, boxWatch } = draw()
     await loaded(onAction)
     const block = view.container.querySelector('[data-component-block="toy.data-page"]')
@@ -482,8 +383,8 @@ describe('toy.data-page', () => {
     expect(page.$props['regions']).toEqual({
       query: true, toolbar: true, table: true, operate: true, pagination: true, infoCard: true, addForm: true, modifyForm: true,
     })
-    expect(page.$props['toolbarButtons']).toEqual(['add', 'exp', 'gridexp', 'search', 'clear'])
-    expect(page.$props['rowOperations']).toEqual(['modify'])
+    expect(page.$props['toolbarButtons']).toEqual(['add', 'exp', 'gridexp', 'batch', 'search', 'clear'])
+    expect(page.$props['rowOperations']).toEqual(['modify', 'delete'])
     expect(page.$props['queryExpanded']).toBe(false)
     expect(page.$props['selectMode']).toBe('checkbox')
     expect(page.$props['relatedMeta']).toBe(META)
@@ -544,7 +445,7 @@ describe('toy.data-page', () => {
     // rather than with a permission table, so the page can tell nothing about
     // this table — and the two are different things to say to the person, which
     // is the whole of what the reason carries.
-    userInfo = [200, { code: 1, msg: '用户没有资源权限!' }]
+    answers.userInfo = [200, { code: 1, msg: '用户没有资源权限!' }]
     // A table of its own, so what was fetched for it is read by its name the
     // way the case above reads its own: the page a previous case tore down can
     // still have a request in flight, and this claim is about this page.
@@ -585,7 +486,7 @@ describe('toy.data-page', () => {
     // navigates — and both signals arrive: the request layer's refusal of the
     // sign-in, and the page's own judgement, which cannot read a permission
     // table out of that answer either.
-    userInfo = [401, { code: 1, msg: '登录已失效' }]
+    answers.userInfo = [401, { code: 1, msg: '登录已失效' }]
     const here = window.location.href
     const { onAction } = draw()
     await vi.waitFor(
@@ -651,7 +552,7 @@ describe('toy.data-page', () => {
     page.$emit('table-selection-change', ROWS, ROWS)
     expect(onAction).toHaveBeenLastCalledWith('select', { count: 3, names: ['北京-核心-01', '济南-接入-07', '上海-汇聚-03'] })
     page.$emit('info-card-open', { id: '1', name: '北京-核心-01', type: 'device' })
-    expect(onAction).toHaveBeenLastCalledWith('card-open', { name: '北京-核心-01' })
+    expect(onAction).toHaveBeenLastCalledWith('card-open', { name: '北京-核心-01', type: 'device' })
     page.$emit('info-card-close')
     expect(onAction).toHaveBeenLastCalledWith('card-close', {})
     // The save answers with the record the backend wrote, key and hidden
@@ -810,5 +711,169 @@ describe('toy.data-page', () => {
     view.unmount()
     answer(ALL_ABILITIES)
     await flush()
+  })
+  it('publishes what the add and modify buttons open, and withdraws what the output could not carry', async () => {
+    const { view, onAction, onOutput } = draw(Object.freeze({ ...pageProps(), readOnly: false }))
+    await loaded(onAction)
+    // The page's own add button: the page raises what it opened, and this
+    // block publishes it for a form page beside it.
+    const add = [...view.container.querySelectorAll('button')].find(button => button.textContent?.trim() === '新增')
+    add?.click()
+    await vi.waitFor(() => { expect(onOutput).toHaveBeenLastCalledWith('editing', { mode: 'add', type: META }) })
+    const page = pageOf(view.container)
+    page.$emit('form-open', { mode: 'modify', type: META, id: 2, name: '济南-接入-07' })
+    expect(onOutput).toHaveBeenLastCalledWith('editing', { mode: 'modify', type: META, id: '2', name: '济南-接入-07' })
+    // A modify naming no row is not one the output may carry, so the row the
+    // form page beside it was showing is withdrawn rather than left standing.
+    page.$emit('form-open', { mode: 'modify', type: META })
+    expect(onOutput).toHaveBeenLastCalledWith('editing', undefined)
+    // Publishing is not reporting: the agent is told nothing about either.
+    expect(onAction.mock.calls.map(([id]) => id)).toEqual(['load', 'query'])
+  })
+
+  it('publishes the record a name opens, and reports the card where the page draws it itself', async () => {
+    const { view, onAction, onOutput } = draw()
+    await loaded(onAction)
+    const page = pageOf(view.container)
+    page.$emit('info-card-open', { id: 41, name: '北京-核心-01', type: 'device_port' })
+    expect(onOutput).toHaveBeenLastCalledWith('opened', { id: '41', name: '北京-核心-01', type: 'device_port' })
+    expect(onAction).toHaveBeenLastCalledWith('card-open', { name: '北京-核心-01', type: 'device_port' })
+    page.$emit('info-card-close')
+    expect(onOutput).toHaveBeenLastCalledWith('opened', undefined)
+    expect(onAction).toHaveBeenLastCalledWith('card-close', {})
+    // An id longer than the output carries withdraws the record standing, and
+    // the card the page drew is still reported by its name.
+    page.$emit('info-card-open', { id: 'x'.repeat(65), name: '长编号', type: META })
+    expect(onOutput).toHaveBeenLastCalledWith('opened', undefined)
+    expect(onAction).toHaveBeenLastCalledWith('card-open', { name: '长编号', type: META })
+  })
+
+  it('only publishes and withdraws what a name opens where the view switched the page\'s own card off', async () => {
+    // The info card block beside the page reports that card, so reporting it
+    // here as well would tell the agent about one card twice.
+    const { view, onAction, onOutput } = draw(Object.freeze({ ...pageProps(), regions: { infoCard: false }, infoCardLinks: true }))
+    await loaded(onAction)
+    const page = pageOf(view.container)
+    onAction.mockClear()
+    page.$emit('info-card-open', { id: '1', name: '北京-核心-01', type: META })
+    page.$emit('info-card-close')
+    expect(onOutput.mock.calls).toEqual([['opened', { id: '1', name: '北京-核心-01', type: META }], ['opened', undefined]])
+    expect(onAction).not.toHaveBeenCalled()
+  })
+
+  it('hands the page what a view arranged for relation links and deletes', async () => {
+    const { view } = draw(Object.freeze({ ...pageProps(), regions: { infoCard: false }, infoCardLinks: true, deleteGisResource: 2 }))
+    await vi.waitFor(() => { expect(view.container.querySelector('[data-toy-crud-box]')).not.toBeNull() })
+    await flush()
+    const page = pageOf(view.container)
+    expect(page.$props['infoCardLinks']).toBe(true)
+    expect(page.$props['deleteGisResource']).toBe(2)
+  })
+
+  it('reports a delete by its counts and names, and withdraws each value naming a record it removed', async () => {
+    const { view, onAction, onOutput } = draw(Object.freeze({ ...pageProps(), readOnly: false }))
+    await loaded(onAction)
+    const page = pageOf(view.container)
+    page.$emit('form-open', { mode: 'modify', type: META, id: 2, name: '济南-接入-07' })
+    page.$emit('info-card-open', { id: '2', name: '济南-接入-07', type: META })
+    onOutput.mockClear()
+    page.$emit('delete-save-success', { meta: META, ids: ['2'], deleted: [{ zh_label: '济南-接入-07', city: '济南' }], failed: 1 })
+    expect(onAction).toHaveBeenLastCalledWith('deleted', { succeeded: 1, failed: 1, names: ['济南-接入-07'] })
+    expect(onOutput.mock.calls).toEqual([['editing', undefined], ['opened', undefined]])
+  })
+
+  it('leaves standing what names another record, a related table\'s record under a deleted id, or no record', async () => {
+    const { view, onAction, onOutput } = draw(Object.freeze({ ...pageProps(), readOnly: false }))
+    await loaded(onAction)
+    const page = pageOf(view.container)
+    page.$emit('form-open', { mode: 'modify', type: META, id: '3', name: '上海-汇聚-03' })
+    page.$emit('info-card-open', { id: '2', name: '端口-2', type: 'device_port' })
+    page.$emit('delete-save-success', { meta: META, ids: ['2'], deleted: [{ zh_label: '济南-接入-07' }], failed: 0 })
+    page.$emit('form-open', { mode: 'add', type: META })
+    page.$emit('delete-save-success', { meta: META, ids: ['3'], deleted: [{ zh_label: '上海-汇聚-03' }], failed: 0 })
+    expect(onOutput.mock.calls.filter(([, value]) => value === undefined)).toEqual([])
+    // A payload stating no count is not reported, and still withdraws nothing it does not name.
+    const before = onAction.mock.calls.length
+    page.$emit('delete-save-success', { meta: META, ids: ['9'], deleted: [], failed: 'one' })
+    expect(onAction.mock.calls).toHaveLength(before)
+  })
+
+  it('withdraws after a redraw of the same call what it published before the redraw', async () => {
+    // The placement package keeps a published value for the call rather than
+    // for one mount, so the block drawn again still owns it.
+    const props = Object.freeze({ ...pageProps(), readOnly: false })
+    const first = draw(props)
+    await loaded(first.onAction)
+    pageOf(first.view.container).$emit('info-card-open', { id: '1', name: '北京-核心-01', type: META })
+    first.view.unmount()
+    const again = draw(props, first.onAction, first.onOutput)
+    await vi.waitFor(() => { expect(again.view.container.querySelector('[data-toy-crud-box]')).not.toBeNull() })
+    await flush()
+    pageOf(again.view.container).$emit('delete-save-success', { meta: META, ids: ['1'], deleted: [{}], failed: 0 })
+    expect(first.onOutput).toHaveBeenLastCalledWith('opened', undefined)
+  })
+
+  it('reports a batch edit by its count, the names of the records and the fields changed', async () => {
+    const { view, onAction } = draw(Object.freeze({ ...pageProps(), readOnly: false }))
+    await loaded(onAction)
+    const page = pageOf(view.container)
+    page.$emit('batch-modify-save-success', {
+      meta: META,
+      modified: [{ zh_label: '北京-核心-01', city: '北京' }, { zh_label: '济南-接入-07' }],
+      attrs: ['state', 'state', '1st'],
+    })
+    expect(onAction).toHaveBeenLastCalledWith('batch-modified', {
+      succeeded: 2,
+      failed: 0,
+      names: ['北京-核心-01', '济南-接入-07'],
+      fields: ['state'],
+    })
+    const before = onAction.mock.calls.length
+    page.$emit('batch-modify-save-success', { meta: META, modified: null, attrs: [] })
+    expect(onAction.mock.calls).toHaveLength(before)
+  })
+})
+
+describe('a column the table\'s scheme masks', () => {
+  it('is named in the load, and its value reaches no record the page reports', async () => {
+    const { view, onAction } = draw(Object.freeze({ relatedMeta: MASKED_META, metaLabel: '脱敏表', readOnly: false }))
+    await loaded(onAction)
+    expect(onAction).toHaveBeenCalledWith('load', expect.objectContaining({
+      columns: [{ attr: 'code', alias: '编码' }, { attr: 'zh_label', alias: '名称' }, { attr: 'city', alias: '城市' }],
+    }))
+    const page = pageOf(view.container)
+    // A save answers with the whole record the backend wrote.
+    page.$emit('add-save-success', { ...MASKED_ROW, zh_label: '乙' })
+    expect(onAction).toHaveBeenLastCalledWith('added', { record: { zh_label: '乙', city: '北京' } })
+    page.$emit('modify-save-success', MASKED_ROW)
+    expect(onAction).toHaveBeenLastCalledWith('modified', { record: { zh_label: '', city: '北京' } })
+    // The page's own handlers trim a deleted or changed record before raising
+    // it; the record is named by its first unmasked cell that shows anything.
+    page.handleDeleteSuccess([{ type: 'success', rawValue: MASKED_ROW }])
+    expect(onAction).toHaveBeenLastCalledWith('deleted', { succeeded: 1, failed: 0, names: ['北京'] })
+    page.handleModifyBatchSuccess([{ type: 'success', rawValue: MASKED_ROW }], { checkedAttr: [{ name: 'city' }] })
+    expect(onAction).toHaveBeenLastCalledWith('batch-modified', { succeeded: 1, failed: 0, names: ['北京'], fields: ['city'] })
+    // The page registered its own columns before raising the load; the
+    // narrower list this block reports values from is the one it trims its
+    // own saves to, and the one a form page on the same table trims to.
+    expect(reportedColumns(MASKED_META)).toEqual(['zh_label', 'city'])
+  })
+
+  it('reads no clicked, ticked or pressed row through it', async () => {
+    const { view, onAction } = draw(Object.freeze({
+      relatedMeta: MASKED_META,
+      metaLabel: '脱敏表',
+      customOperations: [{ name: 'ping', label: '测试连通' }],
+    }))
+    await loaded(onAction)
+    const page = pageOf(view.container)
+    // A click on the masked column itself names the column, whose header is
+    // on screen, and carries no value of it.
+    page.$emit('table-cell-click', { row: MASKED_ROW, column: { property: 'code', label: '编码' }, cell: null, event: new Event('click') })
+    expect(onAction).toHaveBeenLastCalledWith('cell-click', { attr: 'code', label: '编码', row: { zh_label: '', city: '北京' } })
+    page.$emit('table-selection-change', [MASKED_ROW], [MASKED_ROW])
+    expect(onAction).toHaveBeenLastCalledWith('select', { count: 1, names: ['北京'] })
+    page.$emit('table-operation-custom', { $index: 0, row: MASKED_ROW }, { name: 'ping', label: '测试连通' }, MASKED_ROW)
+    expect(onAction).toHaveBeenLastCalledWith('operation', { opId: 'ping', row: { zh_label: '', city: '北京' } })
   })
 })

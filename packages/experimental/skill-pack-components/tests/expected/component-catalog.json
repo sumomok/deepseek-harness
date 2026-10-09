@@ -7,9 +7,9 @@
     },
     "toyCrudKit": {
       "package": "@sumomok/toy-crud-kit",
-      "version": "0.4.5"
+      "version": "0.5.0"
     },
-    "bodySha256": "dc40941e459f39a25d66c65b7a569344cfa4fa90de8e9ad70816a398761717b4",
+    "bodySha256": "295a84e374f134e83ff82d9b55c099221127cc4237873ae896c33ed4c9694c55",
     "exampleViewSha256": null
   },
   "body": {
@@ -989,7 +989,7 @@
             }
           },
           "toolbarButtons": {
-            "summary": "[add|exp|gridexp|search|clear] (0–5)",
+            "summary": "[add|exp|gridexp|batch|search|clear] (0–6)",
             "required": false,
             "viewOnly": true,
             "unbindable": true,
@@ -1001,17 +1001,18 @@
                   "add",
                   "exp",
                   "gridexp",
+                  "batch",
                   "search",
                   "clear"
                 ],
-                "hint": "This page draws no import panel and no batch panel, so \"imp\" and \"batch\" are not on the list: either button would draw and answer nothing when it was pressed."
+                "hint": "This page draws no import panel, so \"imp\" is not on the list: the button would draw and answer nothing when it was pressed."
               },
               "minItems": 0,
-              "maxItems": 5
+              "maxItems": 6
             }
           },
           "rowOperations": {
-            "summary": "[modify] (0–1)",
+            "summary": "[modify|delete] (0–2)",
             "required": false,
             "viewOnly": true,
             "unbindable": true,
@@ -1020,12 +1021,12 @@
               "item": {
                 "kind": "enum",
                 "values": [
-                  "modify"
-                ],
-                "hint": "This page draws no delete confirmation, so \"delete\" is not on the list: the button would draw and answer nothing when it was pressed."
+                  "modify",
+                  "delete"
+                ]
               },
               "minItems": 0,
-              "maxItems": 1
+              "maxItems": 2
             }
           },
           "queryExpanded": {
@@ -1087,6 +1088,15 @@
               "maxItems": 5
             }
           },
+          "infoCardLinks": {
+            "summary": "true|false",
+            "required": false,
+            "viewOnly": true,
+            "unbindable": true,
+            "schema": {
+              "kind": "boolean"
+            }
+          },
           "readOnly": {
             "summary": "true|false",
             "required": false,
@@ -1094,6 +1104,21 @@
             "unbindable": true,
             "schema": {
               "kind": "boolean"
+            }
+          },
+          "deleteGisResource": {
+            "summary": "1|2|3",
+            "required": false,
+            "viewOnly": true,
+            "unbindable": true,
+            "schema": {
+              "kind": "enum",
+              "values": [
+                1,
+                2,
+                3
+              ],
+              "hint": "The page sends 3 where the view writes none. 1 deletes the spatial resource data bound to the record together with it; 2 deletes that resource data and clears the binding; 3 deletes no record that still has spatial resources bound to it and reports it instead."
             }
           }
         },
@@ -1241,6 +1266,184 @@
           },
           {
             "id": "batch-modified",
+            "report": "context"
+          }
+        ]
+      },
+      {
+        "id": "toy.form-page",
+        "label": "表单页",
+        "purpose": "The add and modify form of one table, placed in a written-down view beside that table's data page: it follows the page's add and modify buttons and saves with the user's own credential.",
+        "placement": "view",
+        "deploymentSwitches": [
+          "dataPage"
+        ],
+        "props": {
+          "relatedMeta": {
+            "summary": "text",
+            "required": true,
+            "viewOnly": false,
+            "unbindable": true,
+            "schema": {
+              "kind": "string",
+              "maxLength": 64,
+              "charset": {
+                "pattern": "/^[A-Za-z_][\\w-]*$/",
+                "hint": "a letter or an underscore, then letters, digits, underscores and hyphens"
+              }
+            }
+          },
+          "request": {
+            "summary": "{mode (add|modify), type, id?, name?}",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": false,
+            "bindsFrom": {
+              "component": "toy.data-page",
+              "output": "editing",
+              "reason": "the form saves the record the data page's own add and modify buttons name, and nothing else names one."
+            },
+            "schema": {
+              "kind": "object",
+              "fields": {
+                "mode": {
+                  "summary": "add|modify",
+                  "required": true,
+                  "schema": {
+                    "kind": "enum",
+                    "values": [
+                      "add",
+                      "modify"
+                    ]
+                  }
+                },
+                "type": {
+                  "summary": "text",
+                  "required": true,
+                  "schema": {
+                    "kind": "string",
+                    "maxLength": 64,
+                    "charset": {
+                      "pattern": "/^[A-Za-z_][\\w-]*$/",
+                      "hint": "a letter or an underscore, then letters, digits, underscores and hyphens"
+                    }
+                  }
+                },
+                "id": {
+                  "summary": "text",
+                  "required": false,
+                  "schema": {
+                    "kind": "string",
+                    "maxLength": 64
+                  }
+                },
+                "name": {
+                  "summary": "text",
+                  "required": false,
+                  "schema": {
+                    "kind": "string",
+                    "maxLength": 40
+                  }
+                }
+              }
+            }
+          }
+        },
+        "outputs": [],
+        "actions": [
+          {
+            "id": "added",
+            "report": "context"
+          },
+          {
+            "id": "modified",
+            "report": "context"
+          }
+        ]
+      },
+      {
+        "id": "toy.info-card",
+        "label": "信息卡",
+        "purpose": "One record's card, placed in a written-down view: it shows the record a data page's name or relation link opened.",
+        "placement": "view",
+        "deploymentSwitches": [
+          "dataPage"
+        ],
+        "props": {
+          "record": {
+            "summary": "{id, name?, type}",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": false,
+            "bindsFrom": {
+              "component": "toy.data-page",
+              "output": "opened",
+              "reason": "the card shows the record the data page's own names and relation links open, and nothing else names one."
+            },
+            "schema": {
+              "kind": "object",
+              "fields": {
+                "id": {
+                  "summary": "text",
+                  "required": true,
+                  "schema": {
+                    "kind": "string",
+                    "maxLength": 64
+                  }
+                },
+                "name": {
+                  "summary": "text",
+                  "required": false,
+                  "schema": {
+                    "kind": "string",
+                    "maxLength": 40
+                  }
+                },
+                "type": {
+                  "summary": "text",
+                  "required": true,
+                  "schema": {
+                    "kind": "string",
+                    "maxLength": 64,
+                    "charset": {
+                      "pattern": "/^[A-Za-z_][\\w-]*$/",
+                      "hint": "a letter or an underscore, then letters, digits, underscores and hyphens"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "infoCardTabs": {
+            "summary": "[wrong-info|operation|related-stat|useage|attributes] (0–5)",
+            "required": false,
+            "viewOnly": false,
+            "unbindable": false,
+            "schema": {
+              "kind": "array",
+              "item": {
+                "kind": "enum",
+                "values": [
+                  "wrong-info",
+                  "operation",
+                  "related-stat",
+                  "useage",
+                  "attributes"
+                ]
+              },
+              "minItems": 0,
+              "maxItems": 5
+            }
+          }
+        },
+        "outputs": [],
+        "actions": [
+          {
+            "id": "card-open",
+            "report": "context"
+          },
+          {
+            "id": "card-close",
             "report": "context"
           }
         ]

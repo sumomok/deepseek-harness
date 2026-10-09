@@ -3,35 +3,35 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/component-kit/README.md
 /:
-  en: d14728187b8e46dc
-  zh: 1bc627ea630899a7
+  en: 52ab5ad821f94a1a
+  zh: e8867b4b9e79f1f4
 /deepseek-ai-dsh-experimental-component-kit:
   en: 66763e7a23af6560
   zh: d49db4f73231abea
 /deepseek-ai-dsh-experimental-component-kit/summary:
-  en: d923398826103c97
-  zh: d7055af2268332f9
+  en: 6a9d1ee41cd464bf
+  zh: e9149d4855b90e5e
 /deepseek-ai-dsh-experimental-component-kit/table-of-contents:
   en: 6ed2041dbb9fc9f9
   zh: 4d947da43610b5ce
 /deepseek-ai-dsh-experimental-component-kit/what-this-row-registers:
-  en: 2e1b9fc66425b60d
-  zh: b53cb2c19712483d
+  en: 1be836f3fdab7393
+  zh: ba35d932c3f2e552
 /deepseek-ai-dsh-experimental-component-kit/what-a-renderer-receives:
   en: c4f9a05be60e54d9
   zh: 6a65beecd51a7d4b
 /deepseek-ai-dsh-experimental-component-kit/copy:
-  en: bfa4709041150f60
-  zh: 245b482c8724406f
+  en: c721758b1218a358
+  zh: f8d112d1e2b65805
 /deepseek-ai-dsh-experimental-component-kit/components:
-  en: 95764a216be65a7c
-  zh: b2ffd11cc7458871
+  en: fde9b11c8824f2bf
+  zh: 21d8adffb3033216
 /deepseek-ai-dsh-experimental-component-kit/the-data-page:
-  en: 21dd697683dcb9b5
-  zh: 7d80ada34ac3c3d1
+  en: 70b3cb7eafb273b3
+  zh: 0b14cb371c2cbd2e
 /deepseek-ai-dsh-experimental-component-kit/how-the-originals-get-here:
-  en: f5b64dbd7e76fa29
-  zh: 996893ff926dc818
+  en: 52f55260cd312abe
+  zh: df14f98ae5491bb5
 /deepseek-ai-dsh-experimental-component-kit/composition:
   en: c191f84ec03c1c8d
   zh: 562d771cac544663
@@ -42,8 +42,8 @@
   en: ca75c51c89c2c9b0
   zh: ca75c51c89c2c9b0
 /deepseek-ai-dsh-experimental-component-kit/known-limitations-and-deferred-work:
-  en: 8cb19dd49e358980
-  zh: 553d4c8c1e26de9e
+  en: 3b3f0702b4fda284
+  zh: fceec4f69106d3ea
 /deepseek-ai-dsh-experimental-component-kit/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 3bb0c20c93f16f98

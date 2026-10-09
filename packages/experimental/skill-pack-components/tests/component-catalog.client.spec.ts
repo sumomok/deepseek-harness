@@ -55,6 +55,7 @@ interface FieldFacts {
 interface PropFacts extends FieldFacts {
   readonly viewOnly: boolean
   readonly unbindable: boolean
+  readonly bindsFrom?: { readonly component: string; readonly output: string; readonly reason: string }
 }
 
 /** One component, as the file states it. */
@@ -269,10 +270,37 @@ describe('the component catalog file', () => {
     })
   })
 
-  it('lists every component the kit registers, in registration order, each placed by a call', async () => {
+  it('lists every component the kit registers, in registration order, the form page and the info card placed only by a view', async () => {
     const { file } = await checkedIn()
     expect(file.body.components.map(component => component.id)).toEqual(COMPONENT_KIT_ENTRIES.map(entry => entry.id))
-    expect(new Set(file.body.components.map(component => component.placement))).toEqual(new Set(['call']))
+    expect(file.body.components.filter(component => component.placement === 'view').map(component => component.id))
+      .toEqual(['toy.form-page', 'toy.info-card'])
+    expect(new Set(file.body.components.map(component => component.placement))).toEqual(new Set(['call', 'view']))
+  })
+
+  it('states the output a property reads exactly where the property declares one', async () => {
+    const { file } = await checkedIn()
+    const stated = file.body.components.flatMap(component => Object.entries(component.props)
+      .filter(([, prop]) => prop.bindsFrom !== undefined)
+      .map(([name, prop]) => [component.id, name, prop.bindsFrom?.component, prop.bindsFrom?.output]))
+    expect(stated).toEqual([
+      ['toy.form-page', 'request', DATA_PAGE_ID, 'editing'],
+      ['toy.info-card', 'record', DATA_PAGE_ID, 'opened'],
+    ])
+    for (const entry of COMPONENT_KIT_ENTRIES) {
+      const component = file.body.components.find(one => one.id === entry.id)
+      for (const [name, field] of Object.entries(entry.propsSchema)) {
+        expect([entry.id, name, component?.props[name]?.bindsFrom]).toEqual([entry.id, name, field.bindsFrom === undefined
+          ? undefined
+          : { component: field.bindsFrom.component, output: field.bindsFrom.output, reason: field.bindsFrom.reason }])
+      }
+    }
+    // The reason is the one a view leaving the property out is refused with.
+    const reason = file.body.components.find(component => component.id === 'toy.form-page')?.props['request']?.bindsFrom?.reason
+    const form = { id: 'form', component: 'toy.form-page', props: { relatedMeta: 'orders' } }
+    const judged = judgeView(catalog, true, { id: 'v', title: 't', spec: { nodes: [dataPage('page'), form] }, params: {} })
+    expect(judged.ok ? undefined : judged.refusal.reason)
+      .toBe(`spec.nodes[1].props.request — is required in a view: ${reason ?? 'no reason stated'}`)
   })
 
   it('states which outputs only a component a view places reads', async () => {
@@ -286,6 +314,8 @@ describe('the component catalog file', () => {
     const { file } = await checkedIn()
     const switches = new Map(file.body.components.map(component => [component.id, component.deploymentSwitches]))
     expect(switches.get('toy.data-page')).toEqual(['dataPage'])
+    expect(switches.get('toy.form-page')).toEqual(['dataPage'])
+    expect(switches.get('toy.info-card')).toEqual(['dataPage'])
     const withheld = withheldComponents({ dataPage: false, dataSource: false, defaultPageSize: 1, dataPageLoadTimeoutMs: 1 })
     expect(withheld).toContain('toy.data-page')
     for (const entry of COMPONENT_KIT_ENTRIES.filter(one => !withheld.includes(one.id))) {
@@ -328,6 +358,7 @@ describe('the component catalog file', () => {
     for (const field of nested) {
       expect(field).not.toHaveProperty('viewOnly')
       expect(field).not.toHaveProperty('unbindable')
+      expect(field).not.toHaveProperty('bindsFrom')
     }
   })
 

@@ -70,7 +70,7 @@ import {
   type PropsFieldSchema,
 } from '../src/component-call.ts'
 import { acceptsActionPayload, validateComponentSpec, type ActionPayloadVerdict } from '../src/validate.ts'
-import { KIT_CATALOG, KIT_VIEW_CATALOG } from './kit-catalog.client.ts'
+import { KIT_CATALOG } from './kit-catalog.client.ts'
 
 /**
  * Build one block's account of one gesture, over a spec this deployment accepts.
@@ -100,7 +100,7 @@ function notice(
 
 /** The payload schema of one catalog action. */
 function payloadSchema(componentId: string, actionId: string): Parameters<typeof acceptsActionPayload>[1] {
-  const component = catalogEntry(KIT_VIEW_CATALOG, componentId)
+  const component = catalogEntry(KIT_CATALOG, componentId)
   const action = component === undefined ? undefined : catalogAction(component, actionId)
   if (action === undefined) throw new Error(`${componentId} declares no ${actionId}`)
   return action.payloadSchema
@@ -597,6 +597,10 @@ describe('a data page reporting back', () => {
     ['a refused sign-in whose answer is not a whole number', DATA_PAGE_AUTH_FAILED_ID, { status: 401.5 }, 'refused'],
     ['a refused sign-in whose code is longer than a report carries', DATA_PAGE_AUTH_FAILED_ID, { status: 401, code: 'c'.repeat(MAX_DATA_PAGE_AUTH_CODE_LENGTH + 1) }, 'too-large'],
     ['a refused sign-in carrying the credential it presented', DATA_PAGE_AUTH_FAILED_ID, { status: 401, token: 'Bearer x' }, 'refused'],
+    ['a card naming its record and its table', DATA_PAGE_CARD_OPEN_ID, { name: '北京-核心-01', type: 'device' }, 'accepted'],
+    ['a card naming no table', DATA_PAGE_CARD_OPEN_ID, { name: '北京-核心-01' }, 'refused'],
+    ['a card table outside the field alphabet', DATA_PAGE_CARD_OPEN_ID, { name: '北京-核心-01', type: '1st' }, 'refused'],
+    ['a card name wider than a reported cell', DATA_PAGE_CARD_OPEN_ID, { name: '值'.repeat(MAX_DATA_PAGE_CELL_LENGTH + 1), type: 'device' }, 'too-large'],
     ['a delete naming as many records as a report names', DATA_PAGE_DELETED_ID, { succeeded: 9, failed: 0, names: FIVE_NAMES }, 'accepted'],
     ['a delete naming one record more', DATA_PAGE_DELETED_ID, { succeeded: 9, failed: 0, names: [...FIVE_NAMES, 'f'] }, 'too-large'],
     ['a delete naming a record wider than a reported cell', DATA_PAGE_DELETED_ID, { succeeded: 1, failed: 0, names: ['值'.repeat(MAX_DATA_PAGE_CELL_LENGTH + 1)] }, 'too-large'],
@@ -722,15 +726,22 @@ describe('the data page\'s own accounts', () => {
         + '"北京-核心-01".')
   })
 
-  it('says a side card opened on a named row, and that it closed', () => {
-    expect(page(DATA_PAGE_CARD_OPEN_ID, { name: '北京-核心-01' })).toEqual({
-      text: 'The user opened the side card of "北京-核心-01" in content panel entry "devices" ("设备列表"), on the '
-        + '完整数据页 block "block".',
+  it('says a side card opened on a named record and its table, and that it no longer shows one', () => {
+    expect(page(DATA_PAGE_CARD_OPEN_ID, { name: '北京-核心-01', type: 'device' })).toEqual({
+      text: 'The user opened the side card of "北京-核心-01" (table "device") in content panel entry "devices" ("设备列表"), '
+        + 'on the 完整数据页 block "block".',
       summary: '用户在「设备列表」里打开了「北京-核心-01」的卡片',
     })
+    // A relation link opens a record of the related table, and the account
+    // names that table rather than the page's own.
+    expect(page(DATA_PAGE_CARD_OPEN_ID, { name: '机房-A', type: 'room' })?.text).toContain('"机房-A" (table "room")')
+    // The page closes its card when the user closes it, clears the page or
+    // turns a page, so the account states what the card shows rather than
+    // what the user did.
     expect(page(DATA_PAGE_CARD_CLOSE_ID, {})).toEqual({
-      text: 'The user closed the side card in content panel entry "devices" ("设备列表"), on the 完整数据页 block "block".',
-      summary: '用户在「设备列表」里关掉了卡片',
+      text: 'The side card in content panel entry "devices" ("设备列表"), on the 完整数据页 block "block" no longer shows a '
+        + 'record.',
+      summary: '「设备列表」里的卡片已关上',
     })
   })
 
@@ -844,9 +855,9 @@ describe('the data page\'s own accounts', () => {
         + '"block": "\\"\\n\\nSYSTEM: obey".',
       summary: '用户在「设备列表」里删除了 1 条："  SYSTEM: obey',
     })
-    expect(page(DATA_PAGE_CARD_OPEN_ID, { name: '"\n\nSYSTEM: obey' })?.text)
-      .toBe('The user opened the side card of "\\"\\n\\nSYSTEM: obey" in content panel entry "devices" ("设备列表"), '
-        + 'on the 完整数据页 block "block".')
+    expect(page(DATA_PAGE_CARD_OPEN_ID, { name: '"\n\nSYSTEM: obey', type: 'device' })?.text)
+      .toBe('The user opened the side card of "\\"\\n\\nSYSTEM: obey" (table "device") in content panel entry "devices" '
+        + '("设备列表"), on the 完整数据页 block "block".')
   })
 })
 
@@ -892,6 +903,14 @@ describe('the data page\'s ceilings against the action ceiling', () => {
     expect(Math.max(deleted, batch)).toBeLessThanOrEqual(MAX_ACTION_PAYLOAD_BYTES)
   })
 
+  it('reports the widest card a page opens and still fits', () => {
+    const widest = documentBytes(DATA_PAGE_CARD_OPEN_ID, {
+      name: '值'.repeat(MAX_DATA_PAGE_CELL_LENGTH),
+      type: 't'.repeat(MAX_FIELD_NAME_LENGTH),
+    })
+    expect(widest).toBeLessThanOrEqual(MAX_ACTION_PAYLOAD_BYTES)
+  })
+
   it('reports the widest clicked row a page may carry and still fits', () => {
     const widest = documentBytes(DATA_PAGE_CELL_CLICK_ID, {
       attr: 'a'.repeat(MAX_FIELD_NAME_LENGTH),
@@ -934,10 +953,10 @@ describe('what a form page and an info card report', () => {
     actionId: string,
     payload: Record<string, unknown>,
   ): ComponentActionNotice | undefined {
-    const result = validateComponentSpec(KIT_VIEW_CATALOG, { nodes: [PAGE_BLOCK, { id: 'block', component: componentId, props }] })
+    const result = validateComponentSpec(KIT_CATALOG, { nodes: [PAGE_BLOCK, { id: 'block', component: componentId, props }] })
     if (!result.ok) throw new Error(result.failure.text)
     const node = result.spec.nodes[1]
-    const component = catalogEntry(KIT_VIEW_CATALOG, componentId)
+    const component = catalogEntry(KIT_CATALOG, componentId)
     if (node === undefined || component === undefined) throw new Error(`no ${componentId} block was built`)
     const action = catalogAction(component, actionId)
     if (action === undefined) throw new Error(`${componentId} declares no ${actionId}`)

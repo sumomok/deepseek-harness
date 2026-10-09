@@ -3505,7 +3505,7 @@ Sources: [`packages/compaction/compaction/src/checkpoint.ts:22`](../packages/com
 
 SHA-256: `2f89b760fad5f2ea2f67a68e74f3e0e79484fb2f9fb675897206b95757baae62`
 
-Sources: [`packages/experimental/component-surface/src/component-call.ts:3243`](../packages/experimental/component-surface/src/component-call.ts)
+Sources: [`packages/experimental/component-surface/src/component-call.ts:3265`](../packages/experimental/component-surface/src/component-call.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -3531,7 +3531,7 @@ Array of [`ComponentNode`](#persistence-type-sha256-2f89b760fad5f2ea2f67a68e74f3
 
 SHA-256: `290c7d030b876045e1690e29c792ac37b50f44a2e104d8db2fe7925dd39346de`
 
-Sources: [`packages/experimental/component-surface/src/component-call.ts:3423`](../packages/experimental/component-surface/src/component-call.ts)
+Sources: [`packages/experimental/component-surface/src/component-call.ts:3445`](../packages/experimental/component-surface/src/component-call.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -4097,7 +4097,7 @@ One of:
 
 SHA-256: `c837b4f9662e4700649688666f1c5a2dd048c94e471bafbd564f45cb2240f0b6`
 
-Sources: [`packages/experimental/component-surface/src/component-call.ts:3309`](../packages/experimental/component-surface/src/component-call.ts)
+Sources: [`packages/experimental/component-surface/src/component-call.ts:3331`](../packages/experimental/component-surface/src/component-call.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -4115,7 +4115,7 @@ Sources: [`packages/experimental/component-surface/src/component-call.ts:3309`](
 
 SHA-256: `afde6ce34426ff00b2b328c56b2209b7926b1fd8bcaa79b871dd4559fdcaeeff`
 
-Sources: [`packages/experimental/component-surface/src/component-call.ts:3331`](../packages/experimental/component-surface/src/component-call.ts)
+Sources: [`packages/experimental/component-surface/src/component-call.ts:3353`](../packages/experimental/component-surface/src/component-call.ts)
 
 One of:
 
@@ -4140,7 +4140,7 @@ Array of [`LayoutChild`](#persistence-type-sha256-afde6ce34426ff00b2b328c56b2209
 
 SHA-256: `e852a960b78ed1306e10aa6619ef4a49ee24d63409dc99494da2ba1f55afc216`
 
-Sources: [`packages/experimental/component-surface/src/component-call.ts:3259`](../packages/experimental/component-surface/src/component-call.ts)
+Sources: [`packages/experimental/component-surface/src/component-call.ts:3281`](../packages/experimental/component-surface/src/component-call.ts)
 
 One of:
 
@@ -4161,7 +4161,7 @@ One of:
 
 SHA-256: `88c936bccab6528962e8621ec251268f4b4fe9c15ed01df24cbb7c0bb5cb9d6a`
 
-Sources: [`packages/experimental/component-surface/src/component-call.ts:3278`](../packages/experimental/component-surface/src/component-call.ts) · [`packages/experimental/component-surface/src/component-call.ts:3334`](../packages/experimental/component-surface/src/component-call.ts)
+Sources: [`packages/experimental/component-surface/src/component-call.ts:3300`](../packages/experimental/component-surface/src/component-call.ts) · [`packages/experimental/component-surface/src/component-call.ts:3356`](../packages/experimental/component-surface/src/component-call.ts)
 
 | Property | Presence | Type |
 |---|---|---|
