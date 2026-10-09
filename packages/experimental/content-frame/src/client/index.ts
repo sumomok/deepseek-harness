@@ -38,7 +38,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import type {} from '../types.ts'
 import { CONTENT_SETTINGS_ROUTE, type ContentFrameAccessSettings } from '../route.ts'
 import { ContentFrame, type ContentFrameFace } from './ContentFrame.tsx'
-import { ContentChannel } from './access/channel.ts'
+import { PAGE_CHANNEL } from './access/executor.ts'
 import { ContentReadRow } from './access/ContentReadRow.tsx'
 import { reportNavigation } from './perception/navigated.ts'
 import { HiddenCommandRow } from './HiddenCommandRow.tsx'
@@ -162,11 +162,13 @@ export async function apply(ctx: ClientContext): Promise<void> {
   // row's values. It is withdrawn with this row's fiber like every other effect,
   // and its name is this face's because the host half owns `contentChannel`.
   //
-  // A row applied twice on one context — a second apply of the same body, which
-  // is how a settings failure is rehearsed — finds the channel already there and
-  // keeps it: one channel per page load is the whole point of the tab identity
-  // it mints, and a second one would make the same seats bid against each other.
-  const channel = ctx.get('contentTabChannel') ?? new ContentChannel()
+  // The instance is `PAGE_CHANNEL`, the page-load channel the page seat falls
+  // back to when it is mounted without one: the tab id a claim is made under and
+  // the one its report carries have to be the same, and two instances would give
+  // the same page two identities. A row applied twice on one context — a second
+  // apply of the same body, which is how a settings failure is rehearsed — finds
+  // the channel already there and keeps it.
+  const channel = ctx.get('contentTabChannel') ?? PAGE_CHANNEL
   if (ctx.get('contentTabChannel') === undefined) {
     ctx.effect(() => ctx.provide('contentTabChannel', channel), 'content-frame: the content call channel')
   }

@@ -15,6 +15,7 @@ import { cleanup, render } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import { ContentFrame, type ContentFrameProps } from '../src/client/ContentFrame.tsx'
+import { PAGE_CHANNEL } from '../src/client/access/executor.ts'
 import { zh } from '../src/client/locales.ts'
 import { CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, type ReadOutcome } from '../src/access/wire.ts'
 import { NAVIGATION_SETTLE_MS } from '../src/client/perception/navigation.ts'
@@ -89,6 +90,7 @@ function mount(
     },
     useSessions,
     t: makeTranslate(zh),
+    channel: PAGE_CHANNEL,
     ...pageAccess === undefined ? {} : { pageAccess },
   } as unknown as ContentFrameProps
   const element = <ContentFrame {...props} />

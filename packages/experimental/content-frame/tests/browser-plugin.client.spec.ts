@@ -16,6 +16,7 @@ import { stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '../src/client/index.ts'
 import { ContentFrame } from '../src/client/ContentFrame.tsx'
+import { TAB_ID } from '../src/client/access/executor.ts'
 import { ContentReadRow } from '../src/client/access/ContentReadRow.tsx'
 import { HiddenCommandRow } from '../src/client/HiddenCommandRow.tsx'
 import { CONTENT_SETTINGS_ROUTE } from '../src/route.ts'
@@ -124,10 +125,21 @@ describe('content-frame browser half', () => {
     expect(entry?.options.key).toBe('page')
     // The bounds are settled in the apply world: the component receives them
     // as data, alongside the one callback it cannot settle for itself.
-    const face = entry?.inject?.() as { cacheSize: number; navigationPollMs: number; pageAccess: unknown; onNavigated: unknown }
+    const face = entry?.inject?.() as {
+      cacheSize: number
+      navigationPollMs: number
+      pageAccess: unknown
+      onNavigated: unknown
+      channel: unknown
+    }
     expect({ cacheSize: face.cacheSize, navigationPollMs: face.navigationPollMs, pageAccess: face.pageAccess })
       .toEqual(SETTINGS)
     expect(typeof face.onNavigated).toBe('function')
+    // The seat answers through the one channel this page provides, and takes
+    // its tab identity from it: a second instance would make the same page bid
+    // and report under two identities, which the host pins a session to.
+    expect(face.channel).toBe(ctx.contentTabChannel)
+    expect((face.channel as { tabId: string }).tabId).toBe(TAB_ID)
 
     await fiber.dispose()
     expect(ctx.slots.entries('content.surface.kind')).toHaveLength(0)

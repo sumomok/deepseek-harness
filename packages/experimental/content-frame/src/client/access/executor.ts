@@ -79,15 +79,20 @@ const NO_ENTRY_REASON = 'the content column is empty'
 const NOT_A_PAGE_REASON = 'the entry in front is not a page'
 
 /**
- * The channel this page's reading seat answers calls through.
+ * The channel this page load answers content calls through when a seat is
+ * mounted without one.
  *
- * One per page load: the tab id it mints is the identity the host pins a
- * session's reads to, so a second instance would make the same seat bid against
- * itself.
+ * One per page load, and the instance `content-frame`'s client entry provides
+ * as `ctx.contentTabChannel`: the tab id it mints is the identity the host pins
+ * a session's calls to, so a second instance would make the same seats bid
+ * against each other and would settle a report under an identity its claim did
+ * not carry. A seat is handed the provided instance and reads its identity off
+ * it; this constant is what a seat mounted without one joins, and the tab
+ * {@link TAB_ID} names.
  */
-const PAGE_CHANNEL = new ContentChannel()
+export const PAGE_CHANNEL = new ContentChannel()
 
-/** This page load's identity, which is what a session's reads are pinned to. */
+/** This page load's identity, which is what a session's calls are pinned to. */
 export const TAB_ID = PAGE_CHANNEL.tabId
 
 /**
