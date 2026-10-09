@@ -18,6 +18,23 @@
   background: var(--dsw-alias-interactive-bg-hover-solid);
 }
 
+/* The composer's tool row keeps its box of mode chips between 「+」 and this
+   seat even when the box draws no chip, as in the console, and the row's gap
+   on each side of that empty box leaves the button two gaps from 「+」. While
+   both chip seats in the box are empty the button takes one gap back: the
+   row's 12px, and 8px under the row's narrow-card rule (ui-conversation's
+   InputBar.module.css). The `content-point` web scenario holds the distance
+   from 「+」 to the row's gap. */
+:not(:has(> [data-slot] > *)):has(> [data-slot='conversation.input.permission']) + [data-slot='conversation.input.left'] > .point {
+  margin-left: -12px;
+}
+
+@container (max-width: 560px) {
+  :not(:has(> [data-slot] > *)):has(> [data-slot='conversation.input.permission']) + [data-slot='conversation.input.left'] > .point {
+    margin-left: -8px;
+  }
+}
+
 /* While a point runs the button stays pressed; a second click cancels it. */
 .point[aria-pressed='true'] {
   background: var(--dsw-alias-interactive-bg-hover-solid);

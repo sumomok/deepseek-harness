@@ -17,6 +17,8 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+// Type-only: the slot registry's Context merge (ctx.slots).
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { DraftAttachmentId } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { REFUSAL_WORDS } from '@haoran/dsh-point-anchor'
 import type { DescribeRefusal } from '@haoran/dsh-point-anchor'

@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
-import { IconInspectOutlineMedium, IconWarningOutlineRegular, Toast, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconGoalOutlineMedium, IconWarningOutlineRegular, Toast, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { DraftAttachmentId, InputActions } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { InjectFace, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { DescribeRefusal } from '@haoran/dsh-point-anchor'
@@ -95,7 +95,7 @@ export function PointButton({ inputActions, point, draft, refusal, t }: PointBut
           data-content-point-button=""
           onClick={onClick}
         >
-          <IconInspectOutlineMedium size={14} />
+          <IconGoalOutlineMedium size={14} />
         </button>
       </Tooltip>
       {toast !== null && (

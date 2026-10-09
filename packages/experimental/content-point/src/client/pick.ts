@@ -45,7 +45,8 @@ export type ReferenceData = PromptReference['data']
  * @returns the same object as a payload.
  */
 function asReferenceData(value: PointDescription | BlockData): ReferenceData {
-  return value as ReferenceData
+  const plain: object = value
+  return plain as ReferenceData
 }
 
 /** How one point ended. */
