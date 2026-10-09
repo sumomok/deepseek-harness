@@ -386,8 +386,7 @@ interface PartsSource {
 - **根目录里已经放着的那份发放靠什么都不做来安装，也就什么都不检查。** `syncPackRoot` 先对一遍，所以一套逐字节对上根目录的集合会答「没变」，既不读清单也不读视图。因此一个放着这套构建会拒的技能包的根目录，会一直留着它，直到另一套集合到来。状态路由把这样的读取写成 `unchanged`，进程日志里没有对应的行。
 - **只报最近一次发放，而且只报本次启动以来的。** `lastDelivery` 只在内存里，只留一次读取。重启会清空它；监视装好时的那次读取会记下目录里还放着的发放包，根目录已经放着它的集合时记为 `unchanged`。更早的发放只在进程日志里。
 - **发放控制台没法预先检查一套部署会怎么看它的视图。** `buildPackArchive` 只按技能包文件的规矩收一套集合，一份也不读；清单、视图格式和每份视图文件都在画它们的那个表面所在的地方判。要重新考虑这件事的触发条件，是一个自己也组合了一份目录的发放控制台。
-- **这套构建读哪些锚点格式，和 point-anchor 包之间只靠一条注释对上。** `PACK_ANCHOR_FORMATS` 跟着 point-anchor 包的 `ANCHOR_FORMATS_READ` 表走，在那个包被 vendor 进控制台组合之前，没有测试把两者绑在一起。触发条件就是那次 vendor，等价测试随它一起来。
-- **还没有测试装过 point-anchor 包写出的发放包。** 这里的发放包用例都用 `buildPackArchive` 自己写包；point-anchor 自己的写出端导出的发放包，要等那个包的锚点工作合并并推送之后，从推送过的提交生成，再成为夹具。
+- **把这个包和 point-anchor 绑在一起的测试，在 vendor 它的那个包里。** [`dsh-experimental-content-point`](../content-point/README.zh.md) 的 `tests/equivalence.spec.ts` 让 `PACK_ANCHOR_FORMATS` 与 point-anchor 的 `ANCHOR_FORMATS_READ` 相同、按 point-anchor 写的元数据路径读出，并把 point-anchor 写出的发放包完整读回，包括 255 字节边缘的名字；这里的改动破坏其中任何一项，失败的是那个包的测试，不是这个包自己的。
 - **每次读都重新读根目录。** `statuses()`、`activeViews()` 以及每次提供方调用都会扫一遍技能包根目录、重新解析每份清单。这让答案始终跟得上现状、没有会过期的缓存，也正因如此这条状态路由不适合按交互频率轮询。
 - **没挂部件提供方的技能包根目录交不出任何带视图的技能包。** 在有人挂上 `ctx.skillPackParts` 的提供方之前，每个点名了部件的技能包都是未激活。这是正确的 fail-closed 状态，也是很容易被当成 bug 的一种状态——状态路由就是为它存在的。部署方组合的那个提供方是 [`skill-pack-components`](../skill-pack-components/README.zh.md)。
 - **没有被组装快照覆盖** —— 这个包由它自己的用例覆盖，其中包括一次跑在真实技能包根目录上的真实 Loader 组合；快照泳道重放的是发行组合，而那里不组合任何 experimental 行。

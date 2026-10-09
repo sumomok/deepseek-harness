@@ -37,10 +37,9 @@ export const PACK_VIEW_FORMATS: readonly number[] = [1]
  * `metadata.pack.anchorFormat`; a pack that states none carries no anchors and
  * is read whatever this list holds. `ANCHOR_FORMATS_READ` of the point-anchor
  * package, which writes those anchor lines, is the authority this list copies;
- * until that package is vendored into the console composition nothing but
- * this comment ties the two, and its vendoring brings an equivalence test. A
- * number is only ever added: dropping one is a breaking change for every pack
- * that states it.
+ * `dsh-experimental-content-point`, which vendors that package, holds the two
+ * equal in its `tests/equivalence.spec.ts`. A number is only ever added:
+ * dropping one is a breaking change for every pack that states it.
  */
 export const PACK_ANCHOR_FORMATS: readonly number[] = [1]
 
