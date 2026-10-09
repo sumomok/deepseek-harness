@@ -9,6 +9,10 @@
  * model-facing text that names the offending parameter path, because the model
  * has no other way to learn which of twelve nodes it got wrong.
  *
+ * A property is read only where its object carries it itself, so the keys a
+ * rule lists, the ceilings it measures and the values it hands on are one set,
+ * and a value an object only inherits is absent rather than written.
+ *
  * Shapes and ceilings, and nothing about meaning. What a stack looks like on a
  * screen, and what a bound property actually holds, are the seat's — the second
  * of those out of the user's own gestures, which is what keeps it out of the log
@@ -142,6 +146,17 @@ export function refuse(path: string, message: string): ComponentCallFailure {
  */
 function refuseSize(path: string, message: string): ComponentCallFailure {
   return { ...refuse(path, message), oversize: true }
+}
+
+/**
+ * Read one property only where the object carries it itself, which is how this
+ * module reads every property of a call, a node, a layout or a record.
+ * @param value - the object, however it was built.
+ * @param key - the property's name.
+ * @returns the value, or `undefined` when the object does not carry that property itself.
+ */
+function ownValue(value: object, key: string): unknown {
+  return Object.hasOwn(value, key) ? (value as Readonly<Record<string, unknown>>)[key] : undefined
 }
 
 /**
@@ -409,7 +424,8 @@ function validateArray(
     const failure = validateField(item, schema.item, itemPath)
     if (failure !== undefined) return failure
     if (schema.uniqueBy === undefined) continue
-    const identity = (item as Record<string, unknown>)[schema.uniqueBy]
+    // An accepted item is an object: its schema declares the identifying property.
+    const identity = ownValue(item as object, schema.uniqueBy)
     if (seen.has(identity)) {
       return refuse(
         `${itemPath}.${schema.uniqueBy}`,
@@ -489,7 +505,7 @@ function validateProps(
     // A bound property is present and carries no value of its own; what it will
     // stand for is judged against this schema where the binding is resolved.
     if (bound.has(key)) continue
-    const present = record[key]
+    const present = ownValue(record, key)
     if (present === undefined) {
       if (field.required) return refuse(`${path}.${key}`, 'is required.')
       continue
@@ -727,7 +743,7 @@ function collectBindings(
         ),
       }
     }
-    const field = entry.propsSchema[key]
+    const field = Object.hasOwn(entry.propsSchema, key) ? entry.propsSchema[key] : undefined
     // A binding on a property this component does not declare is refused by the
     // properties pass right after, which names the spelling and lists what the
     // component accepts.
@@ -777,7 +793,7 @@ function validateNode(
       return { ok: false, failure: refuse(`${path}.${key}`, `is not part of a node. A node carries ${NODE_KEYS.join(', ')}.`) }
     }
   }
-  const id = record['id']
+  const id = ownValue(record, 'id')
   if (typeof id !== 'string' || !TOKEN_CHARSET.test(id) || id.length > MAX_NODE_ID_LENGTH) {
     return {
       ok: false,
@@ -790,7 +806,7 @@ function validateNode(
   if (takenIds.has(id)) {
     return { ok: false, failure: refuse(`${path}.id`, `repeats ${JSON.stringify(id)}; every node in one call needs its own id.`) }
   }
-  const entry = catalogEntry(catalog, record['component'])
+  const entry = catalogEntry(catalog, ownValue(record, 'component'))
   if (entry === undefined) {
     return {
       ok: false,
@@ -800,7 +816,7 @@ function validateNode(
       ),
     }
   }
-  const written = record['props']
+  const written = ownValue(record, 'props')
   // A value that is not a record carries no bindings to collect; the properties
   // pass below is what tells the model what it sent instead.
   const collected = written === null || typeof written !== 'object' || Array.isArray(written)
@@ -879,7 +895,7 @@ function validateLayoutBlock(
       return { ok: false, failure: refuse(`${path}.${key}`, `is not part of a placed block. A placed block carries ${BLOCK_KEYS.join(', ')}.`) }
     }
   }
-  const id = record['id']
+  const id = ownValue(record, 'id')
   if (typeof id !== 'string' || !placement.ids.has(id)) {
     return {
       ok: false,
@@ -892,7 +908,7 @@ function validateLayoutBlock(
       failure: refuse(`${path}.id`, `places ${JSON.stringify(id)} a second time; the layout places every node exactly once.`),
     }
   }
-  const flex = validateFlex(record['flex'], path)
+  const flex = validateFlex(ownValue(record, 'flex'), path)
   if (!flex.ok) return flex
   placement.placed.add(id)
   return { ok: true, node: Object.freeze({ node: 'component', id, ...(flex.flex === undefined ? {} : { flex: flex.flex }) }) }
@@ -916,8 +932,9 @@ function validateLayoutChild(
     return { ok: false, failure: refuse(path, 'must be {"node": "component", "id": "<a node id>"} or a stack.') }
   }
   const record = value as Record<string, unknown>
-  if (record['node'] === 'component') return validateLayoutBlock(record, path, placement)
-  if (record['node'] === 'stack') return validateLayoutStack(value, path, placement, depth)
+  const kind = ownValue(record, 'node')
+  if (kind === 'component') return validateLayoutBlock(record, path, placement)
+  if (kind === 'stack') return validateLayoutStack(value, path, placement, depth)
   return { ok: false, failure: refuse(`${path}.node`, 'must be "component" for a block or "stack" for a further row or column.') }
 }
 
@@ -942,7 +959,7 @@ function validateLayoutStack(
   // What kind of thing this is comes before what it may carry, so a block
   // written where a stack belongs is told which of the two it is, rather than
   // which of a stack's properties its own are not.
-  if (record['node'] !== 'stack') {
+  if (ownValue(record, 'node') !== 'stack') {
     return { ok: false, failure: refuse(`${path}.node`, 'must be "stack"; a layout starts with a row or a column, and places blocks inside it.') }
   }
   for (const key of Object.keys(record)) {
@@ -956,15 +973,15 @@ function validateLayoutStack(
       failure: refuse(path, `opens stack ${depth}; at most ${MAX_LAYOUT_DEPTH} stacks may be open at once. Flatten the layout.`),
     }
   }
-  const dir = record['dir']
+  const dir = ownValue(record, 'dir')
   if (!readsAs<LayoutDirection>(LAYOUT_DIRECTIONS, dir)) {
     return { ok: false, failure: refuse(`${path}.dir`, `must be one of ${LAYOUT_DIRECTIONS.map(one => JSON.stringify(one)).join(', ')}.`) }
   }
-  const gap = record['gap']
+  const gap = ownValue(record, 'gap')
   if (gap !== undefined && !readsAs<LayoutGap>(LAYOUT_GAPS, gap)) {
     return { ok: false, failure: refuse(`${path}.gap`, `must be one of ${LAYOUT_GAPS.map(one => JSON.stringify(one)).join(', ')}.`) }
   }
-  const wrap = record['wrap']
+  const wrap = ownValue(record, 'wrap')
   if (wrap !== undefined && typeof wrap !== 'boolean') {
     return { ok: false, failure: refuse(`${path}.wrap`, 'must be true or false.') }
   }
@@ -972,7 +989,8 @@ function validateLayoutStack(
   // outermost stack fills the entry on its own, so a `flex` on it divides
   // nothing. Refused by name rather than ignored, because a model that wrote it
   // meant something by it and would otherwise never learn it did nothing.
-  if (depth === 1 && record['flex'] !== undefined) {
+  const share = ownValue(record, 'flex')
+  if (depth === 1 && share !== undefined) {
     return {
       ok: false,
       failure: refuse(
@@ -982,9 +1000,9 @@ function validateLayoutStack(
       ),
     }
   }
-  const flex = validateFlex(record['flex'], path)
+  const flex = validateFlex(share, path)
   if (!flex.ok) return flex
-  const children = record['children']
+  const children = ownValue(record, 'children')
   if (!Array.isArray(children)) {
     return { ok: false, failure: refuse(`${path}.children`, 'must be an array of blocks and stacks.') }
   }
@@ -1154,7 +1172,7 @@ export function validateComponentSpec(catalog: ComponentCatalog, value: unknown)
       return { ok: false, failure: refuse(`spec.${key}`, `is not part of a spec. A spec carries ${SPEC_KEYS.join(', ')}.`) }
     }
   }
-  const nodes = (value as { nodes?: unknown }).nodes
+  const nodes = ownValue(value, 'nodes')
   if (!Array.isArray(nodes)) return { ok: false, failure: refuse('spec.nodes', 'must be an array of nodes.') }
   if (nodes.length === 0 || nodes.length > MAX_NODES) {
     return {
@@ -1174,7 +1192,7 @@ export function validateComponentSpec(catalog: ComponentCatalog, value: unknown)
     placed.set(result.node.id, result.component)
     bindings.push(...result.bindings.map(binding => ({ ...binding, nodeId: result.node.id })))
   }
-  const layout = (value as { layout?: unknown }).layout
+  const layout = ownValue(value, 'layout')
   let arrangement: LayoutNode | undefined
   if (layout !== undefined) {
     const result = validateLayout(layout, accepted)
@@ -1235,7 +1253,7 @@ export function acceptsActionPayload(payload: unknown, schema: PropsSchema): Act
  */
 export function validateComponentCall(catalog: ComponentCatalog, args: ComponentCallArguments): ComponentCallResult {
   const id = readBoundedString(
-    args.id,
+    ownValue(args, 'id'),
     'id',
     MAX_ENTRY_ID_LENGTH,
     'reuse an id to replace what it shows, and use a new one to add a second block',
@@ -1243,13 +1261,13 @@ export function validateComponentCall(catalog: ComponentCatalog, args: Component
   )
   if (!id.ok) return id
   const title = readBoundedString(
-    args.title,
+    ownValue(args, 'title'),
     'title',
     MAX_TITLE_LENGTH,
     'the short phrase the user reads on this block, in the language the user is writing in',
   )
   if (!title.ok) return title
-  const spec = validateComponentSpec(catalog, args.spec)
+  const spec = validateComponentSpec(catalog, ownValue(args, 'spec'))
   if (!spec.ok) return spec
   return { ok: true, call: { id: id.value, title: title.value, spec: spec.spec } }
 }
@@ -1274,13 +1292,13 @@ export function validateComponentCall(catalog: ComponentCatalog, args: Component
  * @returns the refusal, or `undefined` when no block names a component only a view places.
  */
 export function refuseViewPlaced(catalog: ComponentCatalog, spec: unknown): ComponentCallFailure | undefined {
-  if (typeof spec !== 'object' || spec === null || !('nodes' in spec)) return undefined
-  const written: unknown = spec.nodes
+  if (typeof spec !== 'object' || spec === null) return undefined
+  const written = ownValue(spec, 'nodes')
   if (!Array.isArray(written)) return undefined
   const nodes: readonly unknown[] = written
   for (const [index, node] of nodes.entries()) {
-    if (typeof node !== 'object' || node === null || !('component' in node)) continue
-    const entry = catalogEntry(catalog, node.component)
+    if (typeof node !== 'object' || node === null) continue
+    const entry = catalogEntry(catalog, ownValue(node, 'component'))
     if (entry === undefined || !placedOnlyByViews(entry)) continue
     return refuse(
       `spec.nodes[${index}].component`,

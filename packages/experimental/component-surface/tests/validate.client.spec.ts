@@ -25,6 +25,7 @@ import {
   MAX_SPEC_BYTES,
   MAX_TITLE_LENGTH,
   METRIC_ID,
+  RECORD_DETAIL_ID,
   TABLE_ID,
   type PropsFieldSchema,
   type PropsSchema,
@@ -539,6 +540,58 @@ describe('refusing a component\'s properties', () => {
     const failure = propsRefusal({ title: null, buttons: [{ id: 'ok', label: '确认' }] })
     expect(failure.path).toBe('spec.nodes[0].props.title')
     expect(failure.text).toContain('must be a string')
+  })
+})
+
+describe('a value an object only inherits', () => {
+  /**
+   * An object carrying nothing itself.
+   * @param inherited - every property it inherits.
+   * @returns the object.
+   */
+  function inheriting(inherited: object): Record<string, unknown> {
+    return Object.create(inherited) as Record<string, unknown>
+  }
+
+  /** One confirmation bar with its buttons, the properties every case below hides somewhere. */
+  const BUTTONS = { buttons: [{ id: 'ok', label: '确认' }] }
+
+  /** A one-row layout over the confirmation bar. */
+  const ROW = { node: 'stack', dir: 'row', children: [{ node: 'component', id: 'n1' }] }
+
+  // Each case writes an accepted spec with one level inherited from a
+  // prototype rather than carried. What a judgement reads is what it measures
+  // and what the seat draws, so an inherited value is one nobody wrote.
+  it.each([
+    ['a spec its nodes', inheriting({ nodes: [confirmBar(BUTTONS)] }), 'spec.nodes', 'must be an array of nodes.'],
+    ['a node its id', { nodes: [inheriting(confirmBar(BUTTONS))] }, 'spec.nodes[0].id', 'must be a string of at most 32 letters, digits, underscores and hyphens.'],
+    ['properties a required one', { nodes: [confirmBar(inheriting(BUTTONS))] }, 'spec.nodes[0].props.buttons', 'is required.'],
+    ['a list item a required field', { nodes: [confirmBar({ buttons: [inheriting({ id: 'ok', label: '确认' })] })] }, 'spec.nodes[0].props.buttons[0].id', 'is required.'],
+    [
+      'a stack its kind',
+      { nodes: [confirmBar(BUTTONS)], layout: inheriting(ROW) },
+      'spec.layout.node',
+      'must be "stack"; a layout starts with a row or a column, and places blocks inside it.',
+    ],
+    [
+      'a placed block its kind',
+      { nodes: [confirmBar(BUTTONS)], layout: { ...ROW, children: [inheriting({ node: 'component', id: 'n1' })] } },
+      'spec.layout.children[0].node',
+      'must be "component" for a block or "stack" for a further row or column.',
+    ],
+  ])('is read as absent where %s would be', (_case, spec, path, message) => {
+    expect(refusal(call(spec))).toEqual({ path, text: `show_component: ${path} — ${message}`, oversize: false })
+  })
+
+  it.each([['constructor'], ['toString'], ['__proto__']])('declares no property named %s, even one written as a binding', (key) => {
+    // Every object inherits a member of that name, the component's property
+    // table included; looked up there, it would be judged as a declaration.
+    const props: unknown = JSON.parse(`{"dataList":[{"label":"名称","display":"一号站点"}],"${key}":{"$from":"node:t.selectionDetail"}}`)
+    expect(refusal(call({ nodes: [{ id: 'd', component: RECORD_DETAIL_ID, props }] }))).toEqual({
+      path: `spec.nodes[0].props.${key}`,
+      text: `show_component: spec.nodes[0].props.${key} — is not accepted here. Accepted properties: dataList, labelWidth, columnNum.`,
+      oversize: false,
+    })
   })
 })
 

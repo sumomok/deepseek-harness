@@ -329,6 +329,8 @@ A caller-keyed object declares its own readings rather than sharing its componen
 
 In order, and each step can end the call: the entry `id` and the `title`; the spec's nesting depth; its size in bytes; the properties a spec and a node may carry at all; every node's id, its uniqueness within the call, and the component it names; every property of that component; then the layout over those nodes; and last the properties one node reads from another.
 
+Every property is read only where its object carries it itself. A value an object merely inherits is absent to every step, so the keys a step lists, the ceilings it measures and the properties it hands on are one set: the keys the call's JSON or the view file wrote. A key named `__proto__` is one of them like any other, and no component, node or spec declares it.
+
 The last two come last because both are about the whole spec rather than about one node: which nodes exist, and what each of them reports, is not settled until every node is in.
 
 An accepted node leaves that judgement with its properties already tightened, because validation is the one path all three readers take — the tool, the fold over the log, and the browser seat — and a second pass a caller has to remember to run is a second pass that eventually is not run.

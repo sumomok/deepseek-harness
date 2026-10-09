@@ -266,9 +266,33 @@ describe('a record whose keys are the caller\'s own', () => {
     expect(sanitized({ row: ['A-1'], caption: '在用' })).toEqual({ caption: '在用' })
   })
 
+  it('keeps a key named __proto__ as one more key of the record, leaving its prototype alone', () => {
+    // Copied by assignment, a scalar under that key would be dropped without a
+    // word and an object would become the record's prototype.
+    const row: unknown = sanitized({ row: JSON.parse('{"zh_label":"A-1","__proto__":"B-2"}') as Record<string, unknown> })['row']
+    expect(JSON.stringify(row)).toBe('{"zh_label":"A-1","__proto__":"B-2"}')
+    expect(typeof row === 'object' && row !== null ? Object.getPrototypeOf(row) : undefined).toBe(Object.prototype)
+  })
+
+  it('reads a key named like a member every object inherits as text, in a record that declares readings', () => {
+    // Looked up among the record's readings, such a key would find the member
+    // every object inherits instead of a reading.
+    const cell: unknown = sanitized({ cell: JSON.parse('{"constructor":"红","toString":"x","__proto__":"P","accent":"#67C23A"}') as Record<string, unknown> })['cell']
+    expect(JSON.stringify(cell)).toBe('{"constructor":"红","toString":"x","__proto__":"P","accent":"#67C23A"}')
+  })
+
   it('freezes what it answers with, so a Vue renderer cannot observe a row', () => {
     const result = sanitized({ row: { zh_label: 'A-1' } })
     expect(Object.isFrozen(result['row'])).toBe(true)
+  })
+})
+
+describe('a property the record only inherits', () => {
+  it('is not one the record carries, at any level', () => {
+    // Validation reads only what a record carries itself, so a value this pass
+    // copied out of a prototype would be one the judgement never saw.
+    expect(sanitized(Object.create({ caption: '在用', dense: false }) as Record<string, unknown>)).toEqual({})
+    expect(sanitized({ header: Object.create({ title: '设备' }) as Record<string, unknown> })).toEqual({ header: {} })
   })
 })
 

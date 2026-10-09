@@ -181,13 +181,18 @@ function sanitizeKeyedRecord(
   value: Readonly<Record<string, unknown>>,
   schema: RecordFieldSchema,
 ): Record<string, unknown> {
-  const kept: Record<string, unknown> = {}
+  const readings: SanitizeRules = schema.sanitize ?? {}
+  const kept: [string, unknown][] = []
   for (const [key, entry] of Object.entries(value)) {
-    const sanitizeClass = schema.sanitize?.[key]
+    // The key is the caller's, so only a reading the record declares under that
+    // name is one: `constructor` is a member every object inherits.
+    const sanitizeClass = Object.hasOwn(readings, key) ? readings[key] : undefined
     const cleaned = sanitizeClass === undefined ? scalarValue(entry) : sanitizeClassValue(entry, sanitizeClass)
-    if (cleaned !== undefined) kept[key] = cleaned
+    if (cleaned !== undefined) kept.push([key, cleaned])
   }
-  return Object.freeze(kept)
+  // Built from entries rather than by assignment, because assigning to a key
+  // named `__proto__` sets the record's prototype instead of adding the key.
+  return Object.freeze(Object.fromEntries(kept))
 }
 
 /**
@@ -211,7 +216,9 @@ function sanitizeBinding(value: unknown): unknown {
  *
  * The walk is over the schema rather than over the record, so a property the
  * schema does not declare is never copied — dropping it is the absence of a
- * step rather than a filter that has to recognize it.
+ * step rather than a filter that has to recognize it. A declared property is
+ * copied only where the record carries it itself, which is the only place
+ * validation reads it.
  * @param value - the record.
  * @param schema - the declared properties.
  * @param rules - the component's tightened readings.
@@ -226,7 +233,7 @@ function sanitizeRecord(
 ): Record<string, unknown> {
   const kept: Record<string, unknown> = {}
   for (const [key, field] of Object.entries(schema)) {
-    if (!(key in value)) continue
+    if (!Object.hasOwn(value, key)) continue
     const sanitizeClass = rules?.[key]
     const cleaned = (bindable ? sanitizeBinding(value[key]) : undefined)
       ?? (sanitizeClass === undefined
