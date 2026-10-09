@@ -1,0 +1,37 @@
+# The deployment layer the 「指一下」 scenario installs beside
+# `@deepseek-ai/dsh-experimental-console-profile`, whose own layer carries the
+# `content-point` row: the component rows a deployment adds for the data page
+# (the renderers, the Vue 2.7 runtime `component-kit` asks the loader's module
+# table for, and `show_component` with the data page offered), the gate that
+# signs the visitor in so the page carries their token, and one configured view
+# so the sidebar lists an entry to point at. The page's requests go browser →
+# the shell's own origin under `bizBasePath`, which the scenario answers itself.
+- insert:
+    - id: vue2-echarts-poc
+      name: '@deepseek-ai/dsh-experimental-vue2-echarts-poc'
+    - id: component-kit
+      name: '@deepseek-ai/dsh-experimental-component-kit'
+      config:
+        bizBasePath: /ini-server/
+    - id: auth-gate
+      name: '@deepseek-ai/dsh-experimental-auth-gate'
+      config:
+        loginUrl: /content-point-login/#/
+        cookieName: accessToken
+        refreshMarginSeconds: 300
+        mcpUpstreams: {}
+    - id: show-component
+      name: '@deepseek-ai/dsh-experimental-component-surface'
+      config:
+        dataPage: true
+        dataPageLoadTimeoutMs: 20000
+        views:
+          - id: space-layer-rate
+            title: 图层完成率
+            spec:
+              nodes:
+                - id: rate
+                  component: el.metric
+                  props:
+                    process: 72
+                    text: 完成率

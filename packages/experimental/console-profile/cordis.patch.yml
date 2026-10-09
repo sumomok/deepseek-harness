@@ -444,6 +444,18 @@
         disconnectNotice: true
         stuckAfterSeconds: 60
 
+# 「指一下」: a button in the composer's tool row that points at a place in the
+# content column or the sidebar. The place picked becomes a reference chip
+# above the composer, and before the step a message carrying it enters, the
+# row appends one logged message writing each point's key line and display
+# text, never a DataPage row's values. The row is a host-plane `agent/pre-step`
+# listener, so `console` and its `standard` twin both get it, and has no config.
+# Only this layer inserts it: a second row in a deployment layer would draw two
+# buttons and append each point's message twice.
+- insert:
+    - id: content-point
+      name: '@deepseek-ai/dsh-experimental-content-point'
+
 # The MCP capability, mounted with no server. This row is what makes reaching
 # an external MCP server a deployment's decision rather than a build's: the
 # console always carries the capability, and a deployment adds servers by

@@ -1,0 +1,58 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/experimental/content-point/README.md
+/:
+  en: 4c92e37fa4ef9838
+  zh: fa4d1b4a95b1e478
+/deepseek-ai-dsh-experimental-content-point:
+  en: a9b12a609363f317
+  zh: ce694c36f41a5689
+/deepseek-ai-dsh-experimental-content-point/summary:
+  en: 8f59030360edd6a2
+  zh: 02bfa3f9d1ecb6d0
+/deepseek-ai-dsh-experimental-content-point/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 5103e1812d95589b
+/deepseek-ai-dsh-experimental-content-point/use-this-package:
+  en: 369de28cba584bb6
+  zh: 2425b8f9bbd71df5
+/deepseek-ai-dsh-experimental-content-point/use-this-package/when-to-choose-it:
+  en: e16425b0450265f1
+  zh: 8d2f1a1a7704de75
+/deepseek-ai-dsh-experimental-content-point/use-this-package/minimal-configuration:
+  en: ca6a463996686542
+  zh: 7ad977ca9e77ed68
+/deepseek-ai-dsh-experimental-content-point/use-this-package/what-a-point-records:
+  en: 94ede73f17356a14
+  zh: a0a46e399aac9a24
+/deepseek-ai-dsh-experimental-content-point/understand-the-implementation:
+  en: 9676eab2c7c78202
+  zh: 3e1fd25f3531c84d
+/deepseek-ai-dsh-experimental-content-point/understand-the-implementation/formats:
+  en: a0f73d4249b99551
+  zh: e45d6597987833ad
+/deepseek-ai-dsh-experimental-content-point/further-exploration:
+  en: f206991f05527219
+  zh: f79c33daa0854ee7
+/deepseek-ai-dsh-experimental-content-point/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-experimental-content-point/model-experience/the-point-notice:
+  en: 8e2247a0634ae5b7
+  zh: eda8286480c1b036
+/deepseek-ai-dsh-experimental-content-point/model-experience/the-point-notice/what-the-model-sees:
+  en: b7e38aca83c23efd
+  zh: 5ef67f6ff46fe1ee
+/deepseek-ai-dsh-experimental-content-point/model-experience/the-point-notice/token-effect:
+  en: 8382a9dfb261d63c
+  zh: 9c10384fdd15fb44
+/deepseek-ai-dsh-experimental-content-point/model-experience/the-point-notice/kv-cache-effect:
+  en: 9d3b8ae5513c0e6a
+  zh: 00eeeaf7687d280c
+/deepseek-ai-dsh-experimental-content-point/known-limitations-and-deferred-work:
+  en: b2412399b9626d26
+  zh: c5d98c22421c6047
+/deepseek-ai-dsh-experimental-content-point/known-limitations-and-deferred-work/dev-note:
+  en: 1bea18aac8842db3
+  zh: fc1f333eace49ed9

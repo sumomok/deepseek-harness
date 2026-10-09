@@ -140,6 +140,7 @@ export const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   // Vendored as a tarball; the archive committed here, not a registry version,
   // is the artifact this payload ships, so the archive is what the notice names.
   '@haoran/dsh-auto-compact': { repo: 'packages/experimental/console-profile/vendor/haoran-dsh-auto-compact-0.5.1.tgz' },
+  '@haoran/dsh-point-anchor': { repo: 'packages/experimental/content-point/vendor/haoran-dsh-point-anchor-0.1.0.tgz' },
   // No `license` field in the published manifest; the tarball's LICENSE.txt is the MIT text.
 }
 

@@ -1,0 +1,25 @@
+/* The composer's round tool button, sized and inked as InputBar.module.css's
+   `.add` (the + button beside it), so the two read as one row of tools. */
+.point {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 999px;
+  corner-shape: round;
+  background: var(--dsw-specific-selector);
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+.point:hover {
+  background: var(--dsw-alias-interactive-bg-hover-solid);
+}
+
+/* While a point runs the button stays pressed; a second click cancels it. */
+.point[aria-pressed='true'] {
+  background: var(--dsw-alias-interactive-bg-hover-solid);
+  color: var(--dsw-alias-state-business-primary);
+}
