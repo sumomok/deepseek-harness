@@ -894,6 +894,7 @@
 - **本轮适配（并入 `feat/skill-pack-v0`）**：表中加 `console-mcp`、`skill-pack`、`skill-pack-components`、`system-map`，共十九个目录。
 - **本轮适配（并入 `feat/page-refresh`）**：表中加 `page-refresh`，共二十个目录。
 - **本轮适配（并入 `rc39/console-members-stub`）**：表中加 `console-members`，共二十一个目录。
+- **本轮适配（并入 `feat/m1-point`）**：表中加 `content-point`，共二十二个目录。
 - **路径**：`scripts/check-workspace-constraints.spec.ts` `scripts/experimental-package-policy.ts`
 
 ## unknown-casts-product-baseline — 本线既有 `as unknown` 断言进上游基线
@@ -928,13 +929,13 @@
 - **本轮核对（`dsh-v0.2.1-alpha.1`）**：取回 `dsh-v0.2.1-alpha.1` 版 `gen-client-catalog.{ts,spec.ts}` 后 `verify-client-catalog` 仍报 `tool.call.toolview` 121 行超出写死的 120 行；本线版本退出 0。
 - **路径**：`scripts/gen-client-catalog.spec.ts` `scripts/gen-client-catalog.ts`
 
-## console-vendored-plugin-notice — 第三方声明指向 `console-profile` 提交的自动压缩插件归档
+## console-vendored-plugin-notice — 第三方声明指向 `console-profile` 提交的仓外插件归档
 
-- **改了什么**：`scripts/gen-third-party-notices.ts` 的 `OVERRIDES` 加一项 `@haoran/dsh-auto-compact`，`repo` 指向 `packages/experimental/console-profile/vendor/haoran-dsh-auto-compact-0.5.1.tgz`。
-- **为什么**：`console-profile` 以 `file:` 引入这个仓外插件的 tarball。插件 manifest 的 `repository` 指向插件仓库，而本仓分发的是提交进来的这份归档，不是某个 registry 版本，也不是插件仓库里的某个提交，所以声明里写的出处是这份归档；develop 线对它 vendored 的 `@haoran` tarball 用同样的写法。
-- **要达到的效果**：`THIRD_PARTY_NOTICES.md` 里这个插件的条目指向随本仓提交的归档，换版本时归档路径与 `file:` 说明符一起改。
-- **退役条件**：`@haoran/dsh-auto-compact` 改为 registry 包，或移出 `console-profile`；任一成立即删掉这一项。
-- **状态**：在役（`product/server-console`）。核实依据：`console-profile` 的 `package.json` 以 `file:./vendor/haoran-dsh-auto-compact-0.5.1.tgz` 引入该插件；`dsh-v0.2.1-alpha.1` 的 `OVERRIDES` 没有这一项。
+- **改了什么**：`scripts/gen-third-party-notices.ts` 的 `OVERRIDES` 有两项：`@haoran/dsh-auto-compact`，`repo` 指向 `packages/experimental/console-profile/vendor/haoran-dsh-auto-compact-0.5.1.tgz`；`@haoran/dsh-point-anchor`，`repo` 指向 `packages/experimental/content-point/vendor/haoran-dsh-point-anchor-0.1.0.tgz`。
+- **为什么**：`console-profile` 以 `file:` 引入 `@haoran/dsh-auto-compact`，`content-point` 以 `file:` 引入 `@haoran/dsh-point-anchor`。两个插件的 manifest 的 `repository` 指向各自的插件仓库，而本仓分发的是提交进来的这两份归档，不是某个 registry 版本，也不是插件仓库里的某个提交，所以声明里写的出处是这两份归档；develop 线对它 vendored 的 `@haoran` tarball 用同样的写法。
+- **要达到的效果**：`THIRD_PARTY_NOTICES.md` 里这两个插件的条目分别指向随本仓提交的归档，换版本时归档路径与 `file:` 说明符一起改。
+- **退役条件**：`@haoran/dsh-auto-compact` 或 `@haoran/dsh-point-anchor` 改为 registry 包，或移出对应的包（`console-profile`、`content-point`）；任一成立即删掉对应那一项。
+- **状态**：在役（`product/server-console`）。核实依据：`console-profile` 的 `package.json` 以 `file:./vendor/haoran-dsh-auto-compact-0.5.1.tgz` 引入该插件，`content-point` 的 `package.json` 以 `file:./vendor/haoran-dsh-point-anchor-0.1.0.tgz` 引入该插件；`dsh-v0.2.1-alpha.1` 的 `OVERRIDES` 没有这两项。
 - **路径**：`scripts/gen-third-party-notices.ts`
 
 ## 历史轮次
