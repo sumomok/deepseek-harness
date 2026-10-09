@@ -788,6 +788,32 @@ describe('a press the control itself refuses', () => {
     }
   })
 
+  it('asks the hit test about the centre of the control, where a person\'s click would land', async () => {
+    const drawn = drawEntry('<button data-component-action="go">Go</button><span id="over">cover</span>')
+    const button = document.querySelector('[data-component-action="go"]') as HTMLElement
+    const over = document.querySelector('#over') as HTMLElement
+    const pressed = vi.fn()
+    button.addEventListener('click', pressed)
+    button.getBoundingClientRect = () => ({
+      left: 10, top: 20, width: 40, height: 10, right: 50, bottom: 30, x: 10, y: 20, toJSON: () => ({}),
+    })
+    // The overlay holds one point of the control and one only: its centre, the
+    // point the step's press would land on. Any other point the test is asked
+    // about answers the control itself, so a press that probes somewhere else
+    // reads as reachable and reports a step this case refuses.
+    document.elementFromPoint = (x, y) => (x === 30 && y === 25 ? over : button)
+    try {
+      expect((await run(args([{ action: 'click', key: 'go' }]), drawn)).steps).toEqual([{
+        index: 1,
+        status: 'failed',
+        message: 'control "go" is covered where it is drawn.',
+      }])
+      expect(pressed).not.toHaveBeenCalled()
+    } finally {
+      Reflect.deleteProperty(document, 'elementFromPoint')
+    }
+  })
+
   it('presses a control the document gives no box to test', async () => {
     const drawn = drawEntry('<button data-component-action="flat">Flat</button><span id="over">cover</span>')
     const button = document.querySelector('[data-component-action="flat"]') as HTMLElement
@@ -809,6 +835,27 @@ describe('a press the control itself refuses', () => {
 })
 
 describe('the key one control declares for itself', () => {
+  it('reads a step\'s key as an action first, so a control carrying it as its own key does not shadow one that declares it', async () => {
+    // One step names one key, and both alphabets may hold it: a component may
+    // declare an action called `go` and draw a control whose own key is also
+    // `go`. The action's control is the one the step means — the key the block
+    // declares as an action is what a call addresses — and it wins wherever the
+    // control carrying the key as its own name was drawn first.
+    const drawn = drawEntry(`
+      <button data-component-key="go">By key</button>
+      <button data-component-action="go">By action</button>
+    `)
+    // The entry's own two buttons: the console's switcher draws one beside them.
+    const [byKey, byAction] = [...document.querySelectorAll('[data-component-surface] button')]
+    const pressedKey = vi.fn()
+    const pressedAction = vi.fn()
+    byKey?.addEventListener('click', pressedKey)
+    byAction?.addEventListener('click', pressedAction)
+    expect((await run(args([{ action: 'click', key: 'go' }]), drawn)).status).toBe('done')
+    expect(pressedAction).toHaveBeenCalledTimes(1)
+    expect(pressedKey).not.toHaveBeenCalled()
+  })
+
   it('presses the control a step names by that key, and the action key\'s first control otherwise', async () => {
     const drawn = drawEntry(`
       <button data-component-action="press" data-component-key="ok">OK</button>

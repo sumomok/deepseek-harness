@@ -85,6 +85,10 @@ interface Bench {
   act: (args: { entry: string; steps: readonly unknown[] }, callId?: string) => Promise<ToolExecutionResult>
   /** Claim one open call over the served route, without ever reporting it. */
   claim: (callId: string) => Promise<void>
+  /** Post one report for a call over the served route, and answer with what the route said. */
+  post: (callId: string, outcome: unknown) => Promise<Response>
+  /** Dispose this row, as a composition dropping it does. */
+  unloadRow: () => Promise<void>
   /** Dispose the composition. */
   close: () => Promise<void>
 }
@@ -103,10 +107,10 @@ afterEach(async () => {
 
 /**
  * Boot the composition and join one seat to its channel.
- * @param config - this deployment's `act_component` deadlines.
+ * @param config - this deployment's `act_component` deadlines and the page domain's step bound.
  * @returns the booted chain.
  */
-async function boot(config: { actClaimTimeoutMs?: number; actTimeoutMs?: number } = {}): Promise<Bench> {
+async function boot(config: { actClaimTimeoutMs?: number; actTimeoutMs?: number; pageMaxSteps?: number } = {}): Promise<Bench> {
   const ctx = new Context()
   await ctx.plugin(HttpServer, { host: '127.0.0.1', port: 0 }).await()
   await ctx.plugin(SystemPrompt).await()
@@ -126,12 +130,16 @@ async function boot(config: { actClaimTimeoutMs?: number; actTimeoutMs?: number 
       settleQuietMs: 250,
       outlineChars: 12_000,
       actTimeoutMs: 60_000,
-      maxSteps: 20,
+      maxSteps: config.pageMaxSteps ?? 20,
       settleMaxMs: 2000,
       actApproval: 'always',
     },
   }).await()
-  await ctx.plugin(ComponentSurface, config).await()
+  const row = ctx.plugin(ComponentSurface, {
+    ...config.actClaimTimeoutMs === undefined ? {} : { actClaimTimeoutMs: config.actClaimTimeoutMs },
+    ...config.actTimeoutMs === undefined ? {} : { actTimeoutMs: config.actTimeoutMs },
+  })
+  await row
 
   // The client aggregate types this service's `create()` as minting an id; the
   // host store's own contract returns the live session, which is what the tools take.
@@ -170,6 +178,12 @@ async function boot(config: { actClaimTimeoutMs?: number; actTimeoutMs?: number 
         body: JSON.stringify({ callId, tabId: channel.tabId }),
       })
     },
+    post: (callId, outcome) => realFetch(`${origin}${CONTENT_REPORT_ROUTE}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ callId, tabId: channel.tabId, outcome }),
+    }),
+    unloadRow: async () => { await row.dispose() },
     close: async () => { await ctx.fiber.dispose() },
   }
   open = bench
@@ -353,6 +367,54 @@ describe('the act_component chain', () => {
     }
     // No seat bid, so no route was reached at all.
     expect(bench.posts).toEqual([])
+  })
+})
+
+describe('the channel member this row joins', () => {
+  it('leaves with the row, so a report for a call that domain opened is no longer read by it', async () => {
+    // Nothing here offers the calls to a seat: the posts are made the way a
+    // browser half posts them, so what the report route answers is the
+    // membership's own doing and not another domain's reading of the body.
+    // The page domain beside it accepts one step per call, which is what makes
+    // the two-step report below this domain's wherever the channel reads it.
+    const bench = await boot({ pageMaxSteps: 1, actTimeoutMs: 400 })
+    const report = {
+      status: 'done',
+      page: { id: ENTRY, title: ENTRY },
+      title: ENTRY,
+      steps: [{ index: 1, status: 'ok' }, { index: 2, status: 'ok' }],
+      text: `Acted on the component entry "${ENTRY}" (${ENTRY}).`,
+      truncated: false,
+    }
+    const started: Promise<ToolExecutionResult>[] = []
+    for (const callId of ['call_1', 'call_2']) {
+      bench.session.append('tool/call', {
+        turn: 1,
+        step: 1,
+        callId: callId as ToolCallId,
+        name: ACT_COMPONENT_TOOL_NAME,
+        arguments: JSON.stringify({ entry: ENTRY, steps: [CLICK_ADD] }),
+      })
+      started.push(bench.act({ entry: ENTRY, steps: [CLICK_ADD] }, callId))
+    }
+    await new Promise<void>((resolve) => { setTimeout(resolve, 30) })
+    await bench.claim('call_1')
+    await bench.claim('call_2')
+    // While the row is loaded its member is the one the call was opened by, so
+    // the report settles the call it names.
+    const read = await bench.post('call_1', report)
+    expect(read.status).toBe(200)
+    expect(await read.json()).toEqual({ accepted: true })
+    expect(await started[0]).toMatchObject({ isError: false, value: { status: 'done' } })
+    await bench.unloadRow()
+    // The row is gone, so the member it registered left the channel with it:
+    // the same report speaks for no domain any more, and the call it names is
+    // left waiting until the composition that opened it goes away.
+    const refused = await bench.post('call_2', report)
+    expect(refused.status).toBe(400)
+    // Nobody ran its steps and nobody read a report for it: the call waits out
+    // the answer deadline it was opened with and comes back as such.
+    expect(await started[1]).toMatchObject({ isError: false, value: { status: 'unverified' } })
   })
 })
 
