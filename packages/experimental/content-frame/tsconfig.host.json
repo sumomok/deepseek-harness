@@ -3,10 +3,7 @@
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "lib/types",
-    "tsBuildInfoFile": "lib/tsconfig.host.tsbuildinfo",
-    "types": [
-      "node"
-    ]
+    "tsBuildInfoFile": "lib/tsconfig.host.tsbuildinfo"
   },
   "include": [
     "src"
@@ -23,10 +20,19 @@
       "path": "../../../vendor/schemastery"
     },
     {
-      "path": "../../core/agent"
+      "path": "../../../vendor/loader"
+    },
+    {
+      "path": "../../api/session-controller/tsconfig.host.json"
+    },
+    {
+      "path": "../../attachment/attachment"
     },
     {
       "path": "../../core/session"
+    },
+    {
+      "path": "../../core/system-prompt"
     },
     {
       "path": "../../core/tools"
@@ -38,7 +44,7 @@
       "path": "../../interaction/commands"
     },
     {
-      "path": "../../interaction/user-approval"
+      "path": "../../interaction/user-questions"
     },
     {
       "path": "../../llm/llm"
@@ -47,13 +53,7 @@
       "path": "../../session/session-projection"
     },
     {
-      "path": "../../util/brand"
-    },
-    {
-      "path": "../biz-backend"
-    },
-    {
-      "path": "../content-frame/tsconfig.host.json"
+      "path": "../console-members"
     },
     {
       "path": "../content-surface"

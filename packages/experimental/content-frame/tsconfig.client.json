@@ -19,6 +19,15 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../../vendor/loader"
+    },
+    {
+      "path": "../../api/session-controller/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/connection/tsconfig.client.json"
+    },
+    {
       "path": "../../client/locale/tsconfig.client.json"
     },
     {
@@ -28,13 +37,10 @@
       "path": "../../client/ui-renderer"
     },
     {
-      "path": "../../client/ui-conversation/tsconfig.client.json"
-    },
-    {
       "path": "../../client/ui-slots"
     },
     {
-      "path": "../../core/agent"
+      "path": "../../client/ui-tool"
     },
     {
       "path": "../../core/session"
@@ -49,7 +55,7 @@
       "path": "../../interaction/commands"
     },
     {
-      "path": "../../interaction/user-approval"
+      "path": "../../interaction/user-questions"
     },
     {
       "path": "../../llm/llm"
@@ -58,16 +64,10 @@
       "path": "../../session/session-projection"
     },
     {
-      "path": "../../util/brand"
-    },
-    {
-      "path": "../biz-backend"
+      "path": "../console-members"
     },
     {
       "path": "../content-column"
-    },
-    {
-      "path": "../content-frame/tsconfig.client.json"
     },
     {
       "path": "../content-surface"
