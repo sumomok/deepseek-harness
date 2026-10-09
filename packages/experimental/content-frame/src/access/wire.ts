@@ -1502,8 +1502,32 @@ export function parseActArgs(value: unknown): ActArgs | undefined {
   return { steps, ...dialogs === undefined ? {} : { dialogs } }
 }
 
+/**
+ * What one claimed component read answers with: the entry the content column
+ * is drawing, read in the vocabulary the component tools address it by.
+ *
+ * The arm is told from the page documents by its discriminant alone — a page
+ * read answers `ok`, one of its pictures `image`, a set of page steps `done` or
+ * `failed`, and a component read `read` — because one channel carries every
+ * domain's reports and a body's owner is a fact about the call rather than
+ * about who reads it. What it carries is one reading the console composed
+ * itself: which blocks are drawn, what the entry's controls are and where they
+ * can be reached, and what its fields presently hold, bounded by the console
+ * looking at the document. A component read has no page of its own to be read
+ * through — the entry is drawn in the console's document — so there is no
+ * address, title, cursor or counter here to report.
+ */
+export interface ComponentReadOutcome {
+  /** Discriminant. */
+  readonly status: 'read'
+  /** The component entry the column had in front. */
+  readonly page: ReadPage
+  /** The reading, as the console composed and bounded it. */
+  readonly text: string
+}
+
 /** What one claimed call ends as, whichever tool opened it. */
-export type ChannelOutcome = ReadOutcome | ActOutcome
+export type ChannelOutcome = ReadOutcome | ActOutcome | ComponentReadOutcome
 
 /** One claimed call's answer as the browser half posts it. */
 export interface ChannelReportRequest {
@@ -1529,6 +1553,19 @@ export function isActOutcome(outcome: ChannelOutcome): outcome is ActOutcome {
 }
 
 /**
+ * Whether one settled call's outcome is an arm a page read answers with.
+ *
+ * Stated as what it is: a page read settles as a listing, a failure or one
+ * stored image, so naming those three statuses is the only test that stays true
+ * as other domains' arms join the channel.
+ * @param outcome - what the call settled as.
+ * @returns whether it is one of the page read's own arms.
+ */
+export function isReadOutcome(outcome: ChannelOutcome): outcome is ReadOutcome {
+  return outcome.status === 'ok' || outcome.status === 'image' || outcome.status === 'error'
+}
+
+/**
  * Read one posted report of either tool.
  *
  * A wire boundary: the document crossed a process, so its own contract is
@@ -1541,7 +1578,9 @@ export function isActOutcome(outcome: ChannelOutcome): outcome is ActOutcome {
  * claim: what differs is the document the seat posts, discriminated by
  * `outcome.status`. A read answers `ok` or `error`; a call that ran steps
  * answers `done` or `failed`, and reaches for the same `error` arm when there
- * was no page to act on at all.
+ * was no page to act on at all. Every other discriminant belongs to a domain
+ * that shares the channel rather than the page, and is refused here: the
+ * member that opened that call is the one that reads it.
  * @param body - the decoded request body, however malformed.
  * @param maxTextChars - longest accepted listing or body.
  * @param maxSteps - the deployment's bound on how many steps one call has.

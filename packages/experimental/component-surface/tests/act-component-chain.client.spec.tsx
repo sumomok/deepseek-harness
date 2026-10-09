@@ -29,9 +29,10 @@ import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surfac
 import * as ContentFrame from '@deepseek-ai/dsh-experimental-content-frame'
 import { CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE } from '@deepseek-ai/dsh-experimental-content-frame/src/access/wire.ts'
 import { ContentChannel } from '@deepseek-ai/dsh-experimental-content-frame/src/client/access/channel.ts'
-import { ACT_COMPONENT_TOOL_NAME, type ActComponentCall } from '../src/act-component-call.ts'
+import { ACT_COMPONENT_TOOL_NAME, type ComponentCall } from '../src/act-component-call.ts'
+import { READ_COMPONENT_TOOL_NAME } from '../src/read-component-call.ts'
 import * as ComponentSurface from '../src/index.ts'
-import { joinActComponentChannel, type ActComponentWiring } from '../src/client/act-channel.ts'
+import { joinComponentChannel, type ComponentChannelWiring } from '../src/client/component-channel.ts'
 
 /**
  * The hosted directory this composition serves; any real directory will do.
@@ -75,14 +76,14 @@ interface Bench {
   ctx: Context
   session: Session
   channel: ContentChannel
-  wiring: ActComponentWiring
+  wiring: ComponentChannelWiring
   posts: Post[]
   /** The served origin the browser half's posts are aimed at. */
   origin: string
   /** The open calls the projection publishes for this session. */
-  pending: () => readonly ActComponentCall[]
-  /** Start one call the way an agent loop would, and answer with what it settles as. */
-  act: (args: { entry: string; steps: readonly unknown[] }, callId?: string) => Promise<ToolExecutionResult>
+  pending: () => readonly ComponentCall[]
+  /** Start one call of either tool the way an agent loop would, and answer with what it settles as. */
+  call: (name: string, args: unknown, callId?: string) => Promise<ToolExecutionResult>
   /** Claim one open call over the served route, without ever reporting it. */
   claim: (callId: string) => Promise<void>
   /** Post one report for a call over the served route, and answer with what the route said. */
@@ -145,7 +146,7 @@ async function boot(config: { actClaimTimeoutMs?: number; actTimeoutMs?: number;
   // host store's own contract returns the live session, which is what the tools take.
   const session = (ctx.get('sessions') as unknown as SessionStore).create()
   const channel = new ContentChannel()
-  const wiring = joinActComponentChannel(channel)
+  const wiring = joinComponentChannel(channel)
   const posts: Post[] = []
   const origin = `http://127.0.0.1:${String(ctx.webServer.port)}`
   vi.stubGlobal('fetch', (url: URL | string, init?: RequestInit) => {
@@ -164,9 +165,9 @@ async function boot(config: { actClaimTimeoutMs?: number; actTimeoutMs?: number;
     posts,
     origin,
     pending: () => ctx.sessionProjections.snapshot(session).values.componentAccess?.pending ?? [],
-    act: (args, callId = CALL) => ctx.tools.execute({
+    call: (name, args, callId = CALL) => ctx.tools.execute({
       callId: callId as ToolCallId,
-      name: ACT_COMPONENT_TOOL_NAME,
+      name,
       arguments: args,
       agent: { id: session.id, session } as unknown as NonNullable<ToolExecutionInput['agent']>,
       signal: new AbortController().signal,
@@ -191,27 +192,29 @@ async function boot(config: { actClaimTimeoutMs?: number; actTimeoutMs?: number;
 }
 
 /**
- * Record the tool call in the session's log the way the agent loop does, start
+ * Record one tool call in the session's log the way the agent loop does, start
  * the call, and — unless the case is about nobody answering — hand the seat the
  * open calls the projection publishes.
  * @param bench - the booted chain.
+ * @param name - the tool the call is for.
  * @param args - the call's arguments.
  * @param offer - whether a seat bids for the call at all.
  * @returns what the call settles as.
  */
-async function actThroughTheColumn(
+async function callThroughTheColumn(
   bench: Bench,
-  args: { entry: string; steps: readonly unknown[] },
+  name: string,
+  args: unknown,
   offer = true,
 ): Promise<ToolExecutionResult> {
   bench.session.append('tool/call', {
     turn: 1,
     step: 1,
     callId: CALL as ToolCallId,
-    name: ACT_COMPONENT_TOOL_NAME,
+    name,
     arguments: JSON.stringify(args),
   })
-  const settled = bench.act(args)
+  const settled = bench.call(name, args)
   if (!offer) return settled
   // The seat offers what the projection publishes, on its own turn: the call is
   // registered inside the tool body, so a bid before that is answered `unknown`
@@ -221,6 +224,21 @@ async function actThroughTheColumn(
   expect(pending.map(call => call.callId)).toEqual([CALL])
   bench.wiring.offer(bench.session.id, pending)
   return settled
+}
+
+/**
+ * The same, for one `act_component` call.
+ * @param bench - the booted chain.
+ * @param args - the call's arguments.
+ * @param offer - whether a seat bids for the call at all.
+ * @returns what the call settles as.
+ */
+function actThroughTheColumn(
+  bench: Bench,
+  args: { entry: string; steps: readonly unknown[] },
+  offer = true,
+): Promise<ToolExecutionResult> {
+  return callThroughTheColumn(bench, ACT_COMPONENT_TOOL_NAME, args, offer)
 }
 
 describe('the act_component chain', () => {
@@ -321,7 +339,7 @@ describe('the act_component chain', () => {
       name: ACT_COMPONENT_TOOL_NAME,
       arguments: JSON.stringify({ entry: ENTRY, steps: [CLICK_ADD] }),
     })
-    const settled = bench.act({ entry: ENTRY, steps: [CLICK_ADD] })
+    const settled = bench.call(ACT_COMPONENT_TOOL_NAME, { entry: ENTRY, steps: [CLICK_ADD] })
     await new Promise<void>((resolve) => { setTimeout(resolve, 30) })
     await bench.claim(CALL)
     const result = await settled
@@ -341,7 +359,7 @@ describe('the act_component chain', () => {
       name: ACT_COMPONENT_TOOL_NAME,
       arguments: JSON.stringify({ entry: ENTRY, steps: [CLICK_ADD] }),
     })
-    const settled = bench.act({ entry: ENTRY, steps: [CLICK_ADD] })
+    const settled = bench.call(ACT_COMPONENT_TOOL_NAME, { entry: ENTRY, steps: [CLICK_ADD] })
     await new Promise<void>((resolve) => { setTimeout(resolve, 30) })
     // The report route reads the body with the member that opened the call, so
     // a document this domain does not take is refused there rather than folded
@@ -395,7 +413,7 @@ describe('the channel member this row joins', () => {
         name: ACT_COMPONENT_TOOL_NAME,
         arguments: JSON.stringify({ entry: ENTRY, steps: [CLICK_ADD] }),
       })
-      started.push(bench.act({ entry: ENTRY, steps: [CLICK_ADD] }, callId))
+      started.push(bench.call(ACT_COMPONENT_TOOL_NAME, { entry: ENTRY, steps: [CLICK_ADD] }, callId))
     }
     await new Promise<void>((resolve) => { setTimeout(resolve, 30) })
     await bench.claim('call_1')
@@ -415,6 +433,73 @@ describe('the channel member this row joins', () => {
     // Nobody ran its steps and nobody read a report for it: the call waits out
     // the answer deadline it was opened with and comes back as such.
     expect(await started[1]).toMatchObject({ isError: false, value: { status: 'unverified' } })
+  })
+})
+
+describe('the read_component chain', () => {
+  it('settles a read call with the reading the console composed inside the entry, over the served routes', async () => {
+    drawColumn(ENTRY, `
+      <div data-component-node="toolbar"><button data-component-action="add">Add</button></div>
+      <input data-component-field="zh_label" value="层名">
+    `)
+    const bench = await boot()
+
+    const result = await callThroughTheColumn(bench, READ_COMPONENT_TOOL_NAME, { entry: ENTRY })
+
+    expect(result.isError).toBe(false)
+    if (result.isError) return
+    expect(result.value).toEqual({
+      status: 'done',
+      entry: { id: ENTRY, title: ENTRY },
+      text: [
+        `Read the component entry "${ENTRY}" (${ENTRY}).`,
+        'Blocks: toolbar.',
+        'Controls:',
+        '- "add" (in toolbar): button "Add"',
+        'Fields:',
+        '- "zh_label": textbox = "层名"',
+        'No dialog is open.',
+      ].join('\n'),
+    })
+    // What the model reads is the reading's own text, rendered by the tool.
+    expect(result.content).toEqual([{ type: 'text', text: (result.value as { text: string }).text }])
+    // The read rode the same claim and report routes and the same tab identity
+    // the acting tool uses: one channel, one seat, two tools.
+    expect(bench.posts.map(post => post.path)).toEqual([CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE])
+    expect(bench.posts.every(post => post.body.tabId === bench.channel.tabId)).toBe(true)
+    expect(bench.posts[1]?.body.outcome).toMatchObject({ status: 'read' })
+  })
+
+  it('refuses a read call no console ever claimed, with the claim window it waited', async () => {
+    drawColumn()
+    const bench = await boot({ actClaimTimeoutMs: 300 })
+    const result = await callThroughTheColumn(bench, READ_COMPONENT_TOOL_NAME, { entry: ENTRY }, false)
+    expect(result.isError).toBe(true)
+    if (result.isError) {
+      expect(result.error.message).toBe('No console showing this session claimed the call within 300ms, so nothing was read.')
+    }
+    expect(bench.posts).toEqual([])
+  })
+
+  it('answers unverified when a console claimed the read and never reported', async () => {
+    drawColumn()
+    const bench = await boot({ actTimeoutMs: 300 })
+    bench.session.append('tool/call', {
+      turn: 1,
+      step: 1,
+      callId: CALL as ToolCallId,
+      name: READ_COMPONENT_TOOL_NAME,
+      arguments: JSON.stringify({ entry: ENTRY }),
+    })
+    const settled = bench.call(READ_COMPONENT_TOOL_NAME, { entry: ENTRY })
+    await new Promise<void>((resolve) => { setTimeout(resolve, 30) })
+    await bench.claim(CALL)
+    const result = await settled
+    expect(result.isError).toBe(false)
+    if (result.isError) return
+    expect(result.value).toMatchObject({ status: 'unverified' })
+    expect((result.value as { text: string }).text)
+      .toBe('A console claimed the call and reported nothing within 300ms; the reading never arrived.')
   })
 })
 

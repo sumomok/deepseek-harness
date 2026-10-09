@@ -1,6 +1,8 @@
 /**
  * `act_component`'s own vocabulary: the tool's arguments, the answer it settles
- * on, and the readers both halves of the package share.
+ * on, and the readers both halves of the package share — which are the
+ * readings this package's channel shares between its two tools, the log shapes
+ * a call arrives in and the id one settles by.
  *
  * The arguments are addressed in the components' own language rather than in
  * DOM references: which entry, which block of it, and which control or field the
@@ -21,6 +23,10 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
   ActOutcome, ActStepResult, ChannelOutcome, ChannelReportRequest,
 } from '@deepseek-ai/dsh-experimental-content-frame/src/access/wire.ts'
+// Type-only: the other tool's arm of this package's channel, which the union
+// below carries. The dependency is this direction alone — that module imports
+// this one's shared readers as values — so the runtime graph stays a tree.
+import type { ReadComponentCall } from './read-component-call.ts'
 import { MAX_ENTRY_ID_LENGTH, TOKEN_CHARSET } from './component-call.ts'
 
 /** Longest a report's own message or one step's sentence may be. */
@@ -152,11 +158,30 @@ export interface ActComponentCall {
   readonly args: ActComponentArgs
 }
 
+/**
+ * One open call of this package's channel, whichever of its tools opened it.
+ *
+ * The two tools share one channel, one pending list and one seat, and the arm
+ * the seat reads carries the tool's own name and its own arguments: a seat that
+ * has offered a call is told by `tool` whether it will run steps in the entry
+ * or read it.
+ */
+export type ComponentCall = ActComponentCall | ReadComponentCall
+
 /** Whole current value of the projection this package publishes for its own calls. */
-export interface ActComponentView {
+export interface ComponentView {
   /** Every open call, oldest first. */
-  readonly pending: readonly ActComponentCall[]
+  readonly pending: readonly ComponentCall[]
 }
+
+/**
+ * How this package's domain names itself on the shared content channel.
+ *
+ * One name for both tools, because a call is read by the member that opened it
+ * and both open theirs through this domain's registration; the name is what the
+ * channel's diagnostics call it and nothing the wire carries.
+ */
+export const COMPONENT_DOMAIN = 'component'
 
 /**
  * Whether one settled call's outcome reports steps that ran.
@@ -167,8 +192,14 @@ export function isActComponentReport(outcome: ActComponentOutcome): outcome is A
   return outcome.status === 'done' || outcome.status === 'failed'
 }
 
-/** Whether one decoded value is a target name the components' own alphabet admits. */
-function isTarget(value: unknown): value is string {
+/**
+ * Whether one decoded value is a target name the components' own alphabet
+ * admits: a block, a key, or a field name, which both of this package's tools
+ * address their calls by.
+ * @param value - the decoded value, however malformed.
+ * @returns whether it is such a name.
+ */
+export function isTarget(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= MAX_TARGET_CHARS && TOKEN_CHARSET.test(value)
 }
 
@@ -337,36 +368,51 @@ export function parseActComponentReport(body: unknown): ChannelReportRequest | u
   return outcome === undefined ? undefined : { callId: candidate.callId, tabId: candidate.tabId, outcome }
 }
 
-/** Every tool whose calls the projection below publishes. */
-const CHANNEL_TOOLS: ReadonlySet<string> = new Set([ACT_COMPONENT_TOOL_NAME])
-
 /**
- * Read the call one committed event opened, in either of the two log shapes.
+ * Read one tool call of this package's channel out of a committed event, in
+ * either of the two log shapes.
+ *
+ * The name is read before the arguments are: this fold runs over every event of
+ * every session, and parsing the JSON of every tool call in the log to throw it
+ * away is a cost the whole harness would pay for.
  * @param event - the committed session event.
- * @returns the call, or `undefined` when the event opens no usable one.
+ * @param tool - the tool name this reading takes.
+ * @param parse - that tool's own reading of its arguments.
+ * @returns the call id and the arguments, or `undefined` when the event opens no call of this tool.
  */
-export function readActComponentCall(event: SessionEvent): ActComponentCall | undefined {
+export function readChannelToolCall<Args>(
+  event: SessionEvent,
+  tool: string,
+  parse: (value: unknown) => Args | undefined,
+): { callId: string; args: Args } | undefined {
   if (event.type === 'tool/call') {
-    // The name is read before the arguments are: this fold runs over every
-    // event of every session, and parsing the JSON of every tool call in the
-    // log to throw it away is a cost the whole harness would pay for.
-    if (!CHANNEL_TOOLS.has(event.data.name)) return undefined
+    if (event.data.name !== tool) return undefined
     let decoded: unknown
     try {
-      decoded = JSON.parse(event.data.arguments) as unknown
+      decoded = JSON.parse(event.data.arguments)
     } catch (_argumentsAreNotJson) {
       // A model can emit anything as arguments; the tool refuses the same call.
       return undefined
     }
-    const args = parseActComponentArgs(decoded)
-    return args === undefined ? undefined : { callId: event.data.callId, tool: ACT_COMPONENT_TOOL_NAME, args }
+    const args = parse(decoded)
+    return args === undefined ? undefined : { callId: event.data.callId, args }
   }
   if (event.type === 'tool/ptc-dispatch-start') {
-    if (!CHANNEL_TOOLS.has(event.data.name)) return undefined
-    const args = parseActComponentArgs(event.data.arguments)
-    return args === undefined ? undefined : { callId: event.data.subCallId, tool: ACT_COMPONENT_TOOL_NAME, args }
+    if (event.data.name !== tool) return undefined
+    const args = parse(event.data.arguments)
+    return args === undefined ? undefined : { callId: event.data.subCallId, args }
   }
   return undefined
+}
+
+/**
+ * Read the call one committed event opened.
+ * @param event - the committed session event.
+ * @returns the call, or `undefined` when the event opens no usable one.
+ */
+export function readActComponentCall(event: SessionEvent): ActComponentCall | undefined {
+  const opened = readChannelToolCall(event, ACT_COMPONENT_TOOL_NAME, parseActComponentArgs)
+  return opened === undefined ? undefined : { callId: opened.callId, tool: ACT_COMPONENT_TOOL_NAME, args: opened.args }
 }
 
 /**
@@ -377,7 +423,7 @@ export function readActComponentCall(event: SessionEvent): ActComponentCall | un
  * @param event - the committed session event.
  * @returns the settled call id, or `undefined` when the event settles none.
  */
-export function settledActComponentCall(event: SessionEvent): string | undefined {
+export function settledComponentCall(event: SessionEvent): string | undefined {
   if (event.type === 'tool/result') return event.data.message.source.callId
   if (event.type === 'tool/ptc-dispatch') return event.data.subCallId
   return undefined
@@ -385,16 +431,17 @@ export function settledActComponentCall(event: SessionEvent): string | undefined
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionStateMap {
-    componentAccess: ActComponentCall[]
+    componentAccess: ComponentCall[]
   }
   interface SessionProjectionMap {
     /**
-     * The `act_component` calls this session has open: every call of that tool
-     * the log recorded without a result yet, in log order. It is how the host
-     * asks the tab showing this session to act inside a component entry — no
-     * host reaches a browser directly, so the request rides the session's own
-     * projection stream and the seat showing that session picks it up.
+     * The calls of this package's tools one session has open: every call the
+     * log recorded without a result yet, in log order, whichever of the tools
+     * opened it. It is how the host asks the tab showing this session to act
+     * inside a component entry or to read one — no host reaches a browser
+     * directly, so the request rides the session's own projection stream and
+     * the seat showing that session picks it up.
      */
-    componentAccess: ActComponentView
+    componentAccess: ComponentView
   }
 }

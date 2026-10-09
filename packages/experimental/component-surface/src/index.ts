@@ -67,8 +67,10 @@ import { ComponentViewRegistry } from './component-views.ts'
 import { installComponentAction } from './command.ts'
 import { PendingLoads } from './data-page.ts'
 import { actComponentProjection } from './act-component-projection.ts'
-import { ACT_COMPONENT_TOOL_NAME, MAX_ACT_COMPONENT_STEPS, parseActComponentReport } from './act-component-call.ts'
+import { COMPONENT_DOMAIN, MAX_ACT_COMPONENT_STEPS } from './act-component-call.ts'
 import { actComponentTool } from './act-component-tool.ts'
+import { parseComponentReport } from './read-component-call.ts'
+import { readComponentTool } from './read-component-tool.ts'
 import type { CallTimeouts } from '@deepseek-ai/dsh-experimental-content-frame/src/access/pending.ts'
 import { viewCatalogRoute, type ComponentViewsDocument } from './route.ts'
 import { componentExtractor } from './surface.ts'
@@ -211,14 +213,15 @@ export interface Config {
    */
   dataPageLoadTimeoutMs?: number
   /**
-   * How long an `act_component` call waits for the tab showing this session to
-   * claim it before the model is told no console answered, in milliseconds.
+   * How long a call of either of this row's channel tools waits for the tab
+   * showing this session to claim it before the model is told no console
+   * answered, in milliseconds.
    */
   actClaimTimeoutMs?: number
   /**
-   * How long a claimed `act_component` call waits for that tab to report what
-   * the steps did, in milliseconds. It is the call's whole deadline: the steps
-   * and the trip back are paid out of it.
+   * How long a claimed call waits for that tab to report, in milliseconds. It
+   * is the call's whole deadline: the steps a call runs, or the reading it
+   * composes, and the trip back are paid out of it.
    */
   actTimeoutMs?: number
 }
@@ -439,17 +442,17 @@ function installViews(ctx: Context, config: ResolvedConfig, options: ShowCompone
 const ACT_TAB_PIN_MS = 30_000
 
 /**
- * Claim `act_component`, its pending list, and this domain's place in the shared
- * content channel.
+ * Claim this package's two tools, their pending list, and this domain's place in
+ * the shared content channel.
  *
- * The three are one registration because they are one feature: the tool opens
- * the wait, the projection is what a browser sees to claim it, and the channel
+ * All of it is one registration because it is one feature: the tools open the
+ * waits, the projection is what a browser sees to claim one, and the channel
  * member is what reads the report that settles it. A composition carrying only
- * some of them would offer a tool nothing could answer.
+ * some of them would offer tools nothing could answer.
  * @param ctx - plugin context carrying the tool runtime, the channel and the projection registry.
  * @param config - the deployment's validated configuration, with its defaults applied.
  */
-function installActComponent(ctx: Context, config: ResolvedConfig): void {
+function installComponentAccess(ctx: Context, config: ResolvedConfig): void {
   const timeouts: CallTimeouts = {
     claimTimeoutMs: config.actClaimTimeoutMs,
     answerTimeoutMs: config.actTimeoutMs,
@@ -459,20 +462,20 @@ function installActComponent(ctx: Context, config: ResolvedConfig): void {
     pinMs: ACT_TAB_PIN_MS,
   }
   const membership = ctx.contentChannel.register({
-    name: ACT_COMPONENT_TOOL_NAME,
-    // The widest report this domain posts: one step result per step, one
-    // sentence, and the entry's own title.
+    name: COMPONENT_DOMAIN,
+    // The widest report either tool of this domain posts: one step result per
+    // step, one sentence and the entry's own title, or one bounded reading.
     reportBytes: 64 * 1024,
-    parseReport: (value) => {
-      const report = parseActComponentReport(value)
-      return report === undefined ? undefined : { callId: report.callId, tabId: report.tabId, outcome: report.outcome }
-    },
+    // One reader for both tools: the domain answers both arms, and each tool's
+    // own reading refuses the other's document.
+    parseReport: parseComponentReport,
   })
   // The member leaves with the child that joined it: a composition that drops
   // one of the services this child waits for keeps the row alive, and a member
   // left behind would read reports for a domain that is no longer offered.
   ctx.effect(() => () => { membership.release() }, 'show-component: this row\'s channel member')
   ctx.tools.register(actComponentTool(membership.calls, timeouts, MAX_ACT_COMPONENT_STEPS))
+  ctx.tools.register(readComponentTool(membership.calls, timeouts))
   ctx.sessionProjections.register(actComponentProjection(ctx.logger('component-surface')))
 }
 
@@ -522,12 +525,12 @@ export function apply(ctx: Context, config: Config): void {
     catalogCtx.inject(['commands', 'contentSurface', 'sessionProjections'], (actionCtx) => {
       installComponentAction(actionCtx, pending)
     })
-    // Acting inside a drawn entry needs the shared content channel, which the
-    // row serving the content column provides. Without it there is no way for a
-    // call to reach the tab showing this session, so the tool is absent rather
-    // than offered and always unanswered.
+    // Acting inside a drawn entry and reading one need the shared content
+    // channel, which the row serving the content column provides. Without it
+    // there is no way for a call to reach the tab showing this session, so the
+    // tools are absent rather than offered and always unanswered.
     catalogCtx.inject(['tools', 'contentChannel', 'sessionProjections'], (actCtx) => {
-      installActComponent(actCtx, resolved)
+      installComponentAccess(actCtx, resolved)
     })
     installViews(catalogCtx, resolved, options, config.homeView)
   })

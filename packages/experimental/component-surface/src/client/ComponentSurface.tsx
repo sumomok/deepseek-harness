@@ -66,7 +66,7 @@ import type { PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-cl
 // Type-only: the useSessions seat's own merge, and the branded id its rows are keyed by.
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { answersBlock, type ComponentAction, type ComponentNode } from '../component-call.ts'
-import type { ActComponentCall } from '../act-component-call.ts'
+import type { ComponentCall } from '../act-component-call.ts'
 import type {
   ComponentActionHandler,
   ComponentActionState,
@@ -128,11 +128,12 @@ export interface ComponentSurfaceInjected {
   components: ComponentRendererTable
   /**
    * Tell the content channel what this seat can answer now: one session's open
-   * `act_component` calls, as that session's projection published them. The
-   * seat is what knows an entry is on display, so it is what the channel is
-   * told from; the calls themselves are answered by the seat that claimed them.
+   * calls of either of this package's tools, as that session's projection
+   * published them. The seat is what knows an entry is on display, so it is
+   * what the channel is told from; the calls themselves are answered by the
+   * seat that claimed them.
    */
-  offerCalls: (sessionId: string | undefined, pending: readonly ActComponentCall[]) => void
+  offerCalls: (sessionId: string | undefined, pending: readonly ComponentCall[]) => void
   /** Stop answering: this seat is gone, and a bid it started outlives nothing. */
   parkCalls: () => void
 }
@@ -163,7 +164,7 @@ interface OutputState {
 const NO_OUTPUT_STATE: OutputState = { owner: '', values: NO_OUTPUTS }
 
 /** The empty call list, shared so a session with no open call does not re-offer a fresh one. */
-const NO_CALLS: readonly ActComponentCall[] = []
+const NO_CALLS: readonly ComponentCall[] = []
 
 /** The blocks the previous reading of one payload produced, so an unchanged block keeps its object. */
 interface HeldBlocks {
@@ -355,12 +356,12 @@ export function ComponentSurface({
     // erased crossing the kind slot's plain-data owner share (`action.ts`
     // restores it the same way for the command it dispatches).
     sessionId === undefined ? undefined : state.byId[sessionId as SessionId]?.projectionValues?.componentActions))
-  // The open `act_component` calls of this session, read where the column reads
-  // its own entries. The seat is what knows a component entry is on display, so
-  // it is what tells the channel what it can answer; the calls are answered by
-  // the channel's own domain, which looks the entry up again when one is
-  // claimed.
-  const calls: readonly ActComponentCall[] = useSessions(state => (
+  // The open calls of this session, whichever of this package's tools opened
+  // them, read where the column reads its own entries. The seat is what knows a
+  // component entry is on display, so it is what tells the channel what it can
+  // answer; the calls are answered by the channel's own domain, which looks the
+  // entry up again when one is claimed.
+  const calls: readonly ComponentCall[] = useSessions(state => (
     sessionId === undefined
       ? NO_CALLS
       : state.byId[sessionId as SessionId]?.projectionValues?.componentAccess?.pending)) ?? NO_CALLS

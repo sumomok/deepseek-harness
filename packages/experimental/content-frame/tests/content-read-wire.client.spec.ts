@@ -402,6 +402,15 @@ describe('what a posted report of steps must carry', () => {
     // package's browser half.
     expect(parseChannelReport(report({ status: 'image' }), MAX_TEXT, MAX_ACT_STEPS)).toBeUndefined()
   })
+
+  it('refuses another domain\'s arm, which the member that opened that call reads', () => {
+    // The component domain's reading settles as `read` on the same routes: the
+    // page member must not take it, or a body written for that domain would be
+    // delivered as a page read of a component entry.
+    expect(parseChannelReport(report({ status: 'read', page: { id: 'demo', title: 'Demo' }, text: 'Read.' }), MAX_TEXT, MAX_ACT_STEPS))
+      .toBeUndefined()
+    expect(isActOutcome({ status: 'read', page: { id: 'demo', title: 'Demo' }, text: 'Read.' })).toBe(false)
+  })
 })
 
 describe('what the envelope leaves a report of steps', () => {

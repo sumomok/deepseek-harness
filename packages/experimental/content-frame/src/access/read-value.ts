@@ -19,7 +19,7 @@ import type { CallTable, CallTimeouts } from './pending.ts'
 import {
   CANCELLED_REFUSAL, MISREPORTED_REFUSAL, NO_AGENT_REFUSAL, unansweredRefusal, unclaimedRefusal, type FrontEntry,
 } from './text.ts'
-import { isActOutcome, type ReadOutcome, type ReadSnapshot } from './wire.ts'
+import { isReadOutcome, type ReadOutcome, type ReadSnapshot } from './wire.ts'
 
 /**
  * Read the entry one session's column has in front.
@@ -154,9 +154,10 @@ export async function awaitRead<T>(
   switch (settlement.kind) {
     case 'reported': {
       // The table holds every tool's calls and hands over whatever was posted;
-      // a document reporting steps answers a different call than this one asked.
+      // a document answering another domain's call — a set of page steps, or a
+      // reading of a drawn component entry — is no answer to this one.
       const outcome = settlement.outcome
-      if (isActOutcome(outcome)) throw new Error(MISREPORTED_REFUSAL)
+      if (!isReadOutcome(outcome)) throw new Error(MISREPORTED_REFUSAL)
       return take(outcome)
     }
     case 'unclaimed': throw new Error(unclaimedRefusal(wait.timeouts.claimTimeoutMs, wait.front(exec.agent.session)))

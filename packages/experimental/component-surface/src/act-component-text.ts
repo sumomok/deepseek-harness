@@ -172,6 +172,21 @@ export function missingTargetReason(target: string): string {
 }
 
 /**
+ * The sentence a console posts for a wait whose target never appeared.
+ *
+ * Its own sentence rather than {@link missingTargetReason}'s: the block or the
+ * control may be one the entry declares and simply was not drawn in time, and
+ * "is not part of the entry on display" would tell the model the entry does not
+ * hold something it does.
+ * @param target - what the step waited for, named as the step names it.
+ * @param timeoutMs - how long the wait lasted.
+ * @returns the model-facing sentence.
+ */
+export function waitTimeoutReason(target: string, timeoutMs: number): string {
+  return `${target} did not appear within ${String(timeoutMs)}ms.`
+}
+
+/**
  * The sentence a console posts for a field the entry names but cannot be written.
  * @param name - the column or property the step named.
  * @returns the model-facing sentence.

@@ -1,24 +1,28 @@
 // @vitest-environment jsdom
 /**
  * This package's browser half of the shared content channel: what a claimed
- * `act_component` call answers with.
+ * call of either tool answers with.
  *
  * The channel itself belongs to another row and is stood in here — what this
- * file owns is the domain that is joined to it: which entry the call is matched
- * against, the two refusals when it is not the one in front, and what a run
- * reports. The real claim and report routes are exercised by
- * `act-component-chain.client.spec.tsx`.
+ * file owns is the domain that is joined to it: which entry a call is matched
+ * against, the two refusals when it is not the one in front, what a run
+ * reports, and what a reading reports. The real claim and report routes are
+ * exercised by `act-component-chain.client.spec.tsx`.
+ *
+ * The `.client.` suffix names the typecheck aggregate this package belongs to,
+ * not the face under test.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ChannelOutcome, ClaimAck } from '@deepseek-ai/dsh-experimental-content-frame/src/access/wire.ts'
+import type { ClaimAck } from '@deepseek-ai/dsh-experimental-content-frame/src/access/wire.ts'
 import type {
-  ChannelCall, ChannelDomain, ChannelSeat,
+  ChannelDomain, ChannelSeat,
 } from '@deepseek-ai/dsh-experimental-content-frame/src/client/access/channel.ts'
-import type { ActComponentCall } from '../src/act-component-call.ts'
+import { COMPONENT_DOMAIN, type ComponentCall } from '../src/act-component-call.ts'
+import type { ReadComponentCall } from '../src/read-component-call.ts'
 import {
-  joinActComponentChannel, type ActComponentSeatCall, type ContentChannelJoin,
-} from '../src/client/act-channel.ts'
+  joinComponentChannel, type ComponentSeatCall, type ContentChannelJoin,
+} from '../src/client/component-channel.ts'
 
 /** The entry id every case here acts on. */
 const ENTRY = 'demo'
@@ -38,59 +42,75 @@ const COLUMN = `
 </div>
 `
 
-/** The one call the cases here offer. */
-function request(entry = ENTRY): ActComponentCall {
+/** The one act call the cases here offer. */
+function request(entry = ENTRY): ComponentCall {
   return { callId: 'call_1', tool: 'act_component', args: { entry, steps: [{ action: 'click', key: 'add' }] } }
+}
+
+/** One read call of the same entry. */
+function reading(entry = ENTRY, node?: string): ReadComponentCall {
+  return {
+    callId: 'call_1',
+    tool: 'read_component',
+    args: { entry, ...node === undefined ? {} : { node } },
+  }
 }
 
 /** A channel that keeps the domain joined to it and the demand its seat was offered. */
 interface Stood {
   channel: ContentChannelJoin
-  domain: () => ChannelDomain<ActComponentSeatCall>
+  domain: () => ChannelDomain<ComponentSeatCall>
   offers: unknown[]
   parked: number
 }
 
 /** Stand in the channel another row provides, keeping what is joined and offered. */
 function stood(): Stood {
-  let joined: ChannelDomain<ActComponentSeatCall> | undefined
+  let joined: ChannelDomain<ComponentSeatCall> | undefined
   const offers: unknown[] = []
   const state = { parked: 0 }
-  const seat: ChannelSeat<ActComponentSeatCall> = {
+  const seat: ChannelSeat<ComponentSeatCall> = {
     offer: (demand) => { offers.push(demand) },
     park: () => { state.parked += 1 },
   }
   return {
     channel: {
-      join: <Call extends ChannelCall, Outcome = ChannelOutcome>(domain: ChannelDomain<Call, Outcome>) => {
-        joined = domain as unknown as ChannelDomain<ActComponentSeatCall>
-        return seat as unknown as ChannelSeat<Call>
+      join: (domain) => {
+        joined = domain
+        return seat
       },
     },
-    domain: () => joined as ChannelDomain<ActComponentSeatCall>,
+    domain: () => {
+      if (joined === undefined) throw new Error('no domain joined the standing channel')
+      return joined
+    },
     offers,
     get parked() { return state.parked },
-  } as Stood
+  }
 }
 
 beforeEach(() => { document.body.innerHTML = '' })
 
-describe('the act_component domain', () => {
-  it('joins under the tool name and is always ready', () => {
+describe('the component domain', () => {
+  it('joins under the package domain\'s name and is always ready', () => {
     const fake = stood()
-    const wiring = joinActComponentChannel(fake.channel)
-    expect(fake.domain().name).toBe('act_component')
+    const wiring = joinComponentChannel(fake.channel)
+    expect(fake.domain().name).toBe(COMPONENT_DOMAIN)
     expect(fake.domain().ready()).toBe(true)
     expect(typeof wiring.offer).toBe('function')
   })
 
-  it('offers every open call of the session, and nothing when the seat holds none', () => {
+  it('offers every open call of the session, whichever tool asked, and nothing when the seat holds none', () => {
     const fake = stood()
-    const wiring = joinActComponentChannel(fake.channel)
-    wiring.offer('session_1', [request()])
+    const wiring = joinComponentChannel(fake.channel)
+    const second = { ...reading(), callId: 'call_2' }
+    wiring.offer('session_1', [request(), second])
     expect(fake.offers).toEqual([{
-      calls: [{ callId: 'call_1', sessionId: 'session_1', request: request() }],
-      openCalls: ['call_1'],
+      calls: [
+        { callId: 'call_1', sessionId: 'session_1', request: request() },
+        { callId: 'call_2', sessionId: 'session_1', request: second },
+      ],
+      openCalls: ['call_1', 'call_2'],
     }])
     // A seat with no session offers no calls, but still reports every id open
     // on the tab, which is what prunes the calls it has taken up.
@@ -100,7 +120,7 @@ describe('the act_component domain', () => {
 
   it('parks the seat, which drops the calls it was offering', () => {
     const fake = stood()
-    const wiring = joinActComponentChannel(fake.channel)
+    const wiring = joinComponentChannel(fake.channel)
     wiring.park()
     expect(fake.parked).toBe(1)
   })
@@ -108,7 +128,7 @@ describe('the act_component domain', () => {
   it('refuses a call while no component entry is in front', async () => {
     document.body.innerHTML = '<div data-content-surface-seat="component"><div data-component-surface></div></div>'
     const fake = stood()
-    joinActComponentChannel(fake.channel)
+    joinComponentChannel(fake.channel)
     expect(await fake.domain().answer({ callId: 'call_1', sessionId: 'session_1', request: request() }, CLAIMED))
       .toEqual({
         kind: 'outcome',
@@ -126,7 +146,7 @@ describe('the act_component domain', () => {
       </div>
     `
     const fake = stood()
-    joinActComponentChannel(fake.channel)
+    joinComponentChannel(fake.channel)
     expect(await fake.domain().answer({ callId: 'call_1', sessionId: 'session_1', request: request() }, CLAIMED))
       .toEqual({
         kind: 'outcome',
@@ -139,7 +159,7 @@ describe('the act_component domain', () => {
     const pressed = vi.fn()
     document.querySelector('[data-component-action="add"]')?.addEventListener('click', pressed)
     const fake = stood()
-    joinActComponentChannel(fake.channel)
+    joinComponentChannel(fake.channel)
     const answer = await fake.domain().answer({ callId: 'call_1', sessionId: 'session_1', request: request() }, CLAIMED)
     expect(pressed).toHaveBeenCalledTimes(1)
     expect(answer).toEqual({
@@ -155,5 +175,48 @@ describe('the act_component domain', () => {
         truncated: false,
       },
     })
+  })
+
+  it('reads the entry and answers with the reading, pressing nothing', async () => {
+    document.body.innerHTML = COLUMN
+    const pressed = vi.fn()
+    document.querySelector('[data-component-action="add"]')?.addEventListener('click', pressed)
+    const fake = stood()
+    joinComponentChannel(fake.channel)
+    const answer = await fake.domain().answer({ callId: 'call_1', sessionId: 'session_1', request: reading() }, CLAIMED)
+    expect(pressed).not.toHaveBeenCalled()
+    expect(answer).toEqual({
+      kind: 'outcome',
+      outcome: {
+        status: 'read',
+        page: { id: ENTRY, title: 'Demo' },
+        text: [
+          'Read the component entry "Demo" (demo).',
+          'Blocks: none.',
+          'Controls:',
+          '- "add": button "Add"',
+          'Fields: none.',
+          'No dialog is open.',
+        ].join('\n'),
+      },
+    })
+  })
+
+  it('refuses a read call while another entry is in front, in the same sentences', async () => {
+    document.body.innerHTML = `
+      <nav data-content-surface-switcher>
+        <button data-content-surface-entry="page home" data-content-surface-selected>Home</button>
+      </nav>
+      <div data-content-surface-seat="component" data-content-surface-active>
+        <div data-component-surface></div>
+      </div>
+    `
+    const fake = stood()
+    joinComponentChannel(fake.channel)
+    expect(await fake.domain().answer({ callId: 'call_1', sessionId: 'session_1', request: reading() }, CLAIMED))
+      .toEqual({
+        kind: 'outcome',
+        outcome: { status: 'error', code: 'empty', message: 'No component entry is in front, so there is nothing to act on.' },
+      })
   })
 })

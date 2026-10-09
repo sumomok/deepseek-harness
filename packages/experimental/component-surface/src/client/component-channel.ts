@@ -1,12 +1,13 @@
 /**
  * This package's browser half of the shared content channel.
  *
- * A host cannot address a browser, so an `act_component` call reaches the page
- * as a projection and is claimed by the tab showing that session, over the same
- * claim and report routes every content domain posts through. What this module
- * adds to that channel is one domain: which tool it answers, and what a claimed
- * call does — find the entry the column is drawing, refuse when it is not the
- * one the call named, and otherwise run the steps inside it.
+ * A host cannot address a browser, so a call of either of this package's tools
+ * reaches the page as a projection and is claimed by the tab showing that
+ * session, over the same claim and report routes every content domain posts
+ * through. What this module adds to that channel is one domain serving both
+ * tools: which calls it answers, and what a claimed call does — find the entry
+ * the column is drawing, refuse when it is not the one the call named, and
+ * otherwise run the steps inside it or read it.
  *
  * The channel itself is another row's, reached through the `contentTabChannel`
  * service and read as a value only at the moment a seat joins it: a client
@@ -16,9 +17,9 @@
  * The refusal is the whole reason the entry is looked up again here rather than
  * taken from the call: the column replaces what it draws without telling this
  * seat, so the entry a call was claimed against and the entry on screen can
- * differ by the time the steps would run. Acting then would press a control the
- * call never asked for.
- * @module @deepseek-ai/dsh-experimental-component-surface/client/act-channel
+ * differ by the time the steps would run. Acting or reading then would press or
+ * describe a control the call never asked for.
+ * @module @deepseek-ai/dsh-experimental-component-surface/client/component-channel
  */
 
 // Type-only: the shared channel's own shapes, erased before any bundle carries them.
@@ -26,39 +27,47 @@ import type {
   ChannelCall, ChannelDomain, ChannelSeat,
 } from '@deepseek-ai/dsh-experimental-content-frame/src/client/access/channel.ts'
 import type { ChannelOutcome } from '@deepseek-ai/dsh-experimental-content-frame/src/access/wire.ts'
-import { ACT_COMPONENT_TOOL_NAME, type ActComponentCall } from '../act-component-call.ts'
+import {
+  ACT_COMPONENT_TOOL_NAME, COMPONENT_DOMAIN, type ComponentCall,
+} from '../act-component-call.ts'
 import { NO_ENTRY_IN_FRONT, anotherEntryInFront } from '../act-component-text.ts'
 import { runActComponent } from './act-executor.ts'
 import { drawnEntry } from './entry-container.ts'
+import { readComponent } from './read-executor.ts'
 
-/** One `act_component` call as this seat offers it: the call, and the request behind it. */
-export interface ActComponentSeatCall extends ChannelCall {
+/** One call of this package's channel as this seat offers it: the call, and the request behind it. */
+export interface ComponentSeatCall extends ChannelCall {
   /** The call as the projection published it. */
-  readonly request: ActComponentCall
+  readonly request: ComponentCall
 }
 
 /** Where one seat reports what it can answer: the offering point, and the parking call that ends it. */
-export interface ActComponentWiring {
+export interface ComponentChannelWiring {
   /**
    * Tell the channel what this seat can answer now.
    * @param sessionId - the session the seat is drawing, absent while none is.
-   * @param pending - that session's open `act_component` calls, as the projection published them.
+   * @param pending - that session's open calls, as the projection published them.
    */
-  offer(sessionId: string | undefined, pending: readonly ActComponentCall[]): void
+  offer(sessionId: string | undefined, pending: readonly ComponentCall[]): void
   /** Stop answering: the seat that offered the calls is gone. */
   park(): void
 }
 
-/** The one thing this module needs of the channel another row provides. */
+/**
+ * The one thing this module needs of the channel another row provides.
+ *
+ * The service's own `join` is generic over the domain a row joins; this states
+ * the one instantiation this module joins, which is what a caller that joins
+ * this package's seat hands it — the real service satisfies it by
+ * instantiation, and a test can stand the channel in without a cast.
+ */
 export interface ContentChannelJoin {
   /**
    * Join one domain to the channel.
    * @param domain - the domain: which calls it answers, and how.
    * @returns the seat's offering point, and the parking call that ends it.
    */
-  join<Call extends ChannelCall, Outcome = ChannelOutcome>(
-    domain: ChannelDomain<Call, Outcome>,
-  ): ChannelSeat<Call>
+  join(domain: ChannelDomain<ComponentSeatCall>): ChannelSeat<ComponentSeatCall>
 }
 
 /**
@@ -66,11 +75,11 @@ export interface ContentChannelJoin {
  * @param channel - the channel service, read at the moment this seat joins it.
  * @returns the seat's offering point and its parking call.
  */
-export function joinActComponentChannel(channel: ContentChannelJoin): ActComponentWiring {
-  const domain: ChannelDomain<ActComponentSeatCall> = {
-    name: ACT_COMPONENT_TOOL_NAME,
+export function joinComponentChannel(channel: ContentChannelJoin): ComponentChannelWiring {
+  const domain: ChannelDomain<ComponentSeatCall> = {
+    name: COMPONENT_DOMAIN,
     ready: () => true,
-    answer: async (call: ActComponentSeatCall) => {
+    answer: async (call: ComponentSeatCall) => {
       // Read again here, after the claim: the column switches what it draws
       // without re-rendering this seat, so what was on screen when the call was
       // offered is not what is on screen now.
@@ -79,26 +88,39 @@ export function joinActComponentChannel(channel: ContentChannelJoin): ActCompone
       if (drawn.entryId !== call.request.args.entry) {
         return refusal('front-changed', anotherEntryInFront(drawn.entryId))
       }
-      // The same reading is handed to the run, which takes it again before
-      // every step: a step that starts after the column switched what it
-      // draws would otherwise land in the entry that took this one's place.
-      const run = await runActComponent(call.request.args, drawn, () => drawnEntry(document))
+      if (call.request.tool === ACT_COMPONENT_TOOL_NAME) {
+        // The same reading is handed to the run, which takes it again before
+        // every step: a step that starts after the column switched what it
+        // draws would otherwise land in the entry that took this one's place.
+        const run = await runActComponent(call.request.args, drawn, () => drawnEntry(document))
+        return {
+          kind: 'outcome',
+          outcome: {
+            status: run.status,
+            page: { id: drawn.entryId, title: drawn.title },
+            title: drawn.title,
+            steps: [...run.steps],
+            text: run.text,
+            // The report carries the steps' own sentences rather than a listing,
+            // so nothing here is cut short by a budget of this package's.
+            truncated: false,
+          },
+        }
+      }
+      // The reading is one pass over the document as it stands, and the entry
+      // has just been matched to the one the call named: a reading is what is
+      // in front, so there is no second instant for it to have moved between.
       return {
         kind: 'outcome',
         outcome: {
-          status: run.status,
+          status: 'read',
           page: { id: drawn.entryId, title: drawn.title },
-          title: drawn.title,
-          steps: [...run.steps],
-          text: run.text,
-          // The report carries the steps' own sentences rather than a listing,
-          // so nothing here is cut short by a budget of this package's.
-          truncated: false,
+          text: readComponent(call.request.args, drawn),
         },
       }
     },
   }
-  const seat: ChannelSeat<ActComponentSeatCall> = channel.join(domain)
+  const seat: ChannelSeat<ComponentSeatCall> = channel.join(domain)
   return {
     offer: (sessionId, pending) => {
       seat.offer({

@@ -52,7 +52,7 @@ import type {} from '@deepseek-ai/dsh-experimental-content-column/client'
 // Type-only: pulls ui-conversation's `conversation.chat.commandview` SlotMap declaration.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { postAction, type PendingPresses } from './action.ts'
-import { joinActComponentChannel, type ActComponentWiring } from './act-channel.ts'
+import { joinComponentChannel, type ComponentChannelWiring } from './component-channel.ts'
 import { ActionCommandRow } from './ActionCommandRow.tsx'
 import { ComponentSurface, type ComponentSurfaceInjected } from './ComponentSurface.tsx'
 import { en, NS, zh } from './locales.ts'
@@ -90,8 +90,9 @@ export type {
   ComponentRendererProps,
 } from './renderer.ts'
 export type { ComponentSurfaceInjected, ComponentSurfaceProps } from './ComponentSurface.tsx'
-export type { ActComponentSeatCall, ActComponentWiring } from './act-channel.ts'
+export type { ComponentChannelWiring, ComponentSeatCall } from './component-channel.ts'
 export type { ActComponentRun } from './act-executor.ts'
+export type { ComponentReading } from '../read-component-call.ts'
 export type { DrawnEntry } from './entry-container.ts'
 export type { ViewCommandRowProps } from './ViewCommandRow.tsx'
 
@@ -118,22 +119,23 @@ export function apply(ctx: ClientContext): void {
   // ever mounts reads and writes the same ones.
   const pending: PendingPresses = new Map()
   // What the seat offers through until the channel row is composed, and what it
-  // offers through afterwards; a page with no channel answerers nothing.
-  let channelWiring: ActComponentWiring = {
+  // offers through afterwards; a page with no channel answers nothing.
+  let channelWiring: ComponentChannelWiring = {
     offer: () => {},
     park: () => {},
   }
   ctx.plugin(ComponentRendererRegistry)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'show-component: dictionaries')
-  // The seat answers `act_component` calls through the content channel another
-  // row provides. Without that row there is no way for a call to reach this
-  // tab, and the seat is mounted without one rather than failing to load: what
-  // a deployment loses is the tool, which the host half offers only where the
-  // same service is composed.
+  // The seat answers this package's channel calls — the steps a call runs in a
+  // drawn entry, and the readings one asks for — through the content channel
+  // another row provides. Without that row there is no way for a call to reach
+  // this tab, and the seat is mounted without one rather than failing to load:
+  // what a deployment loses are the tools, which the host half offers only
+  // where the same service is composed.
   ctx.inject(['contentTabChannel'], (channelCtx) => {
-    const actChannel = joinActComponentChannel(channelCtx.contentTabChannel)
-    channelWiring = actChannel
-    return () => { actChannel.park() }
+    const channel = joinComponentChannel(channelCtx.contentTabChannel)
+    channelWiring = channel
+    return () => { channel.park() }
   })
   ctx.inject(['componentRenderers'], (seatCtx) => {
     seatCtx.slots.inject('content.surface.kind', () => seatCtx.slots.register({

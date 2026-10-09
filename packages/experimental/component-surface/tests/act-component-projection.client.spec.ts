@@ -17,7 +17,8 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { SessionEventMap } from '@deepseek-ai/dsh-session/types'
-import { ACT_COMPONENT_TOOL_NAME, type ActComponentArgs, type ActComponentCall } from '../src/act-component-call.ts'
+import { ACT_COMPONENT_TOOL_NAME, type ActComponentArgs, type ComponentCall } from '../src/act-component-call.ts'
+import { READ_COMPONENT_TOOL_NAME, type ReadComponentArgs } from '../src/read-component-call.ts'
 import { actComponentProjection } from '../src/act-component-projection.ts'
 
 /** Every line this unit logged, in order; each case starts with none. */
@@ -89,8 +90,11 @@ function dispatched(target: Session, subCallId: string): void {
   })
 }
 
-/** The one call every case here opens. */
+/** The one act call every case here opens. */
 const OPENED: ActComponentArgs = { entry: 'demo', steps: [{ action: 'click', key: 'add' }] }
+
+/** The one read call the cases that carry both tools open. */
+const READ: ReadComponentArgs = { entry: 'demo', node: 'toolbar' }
 
 describe('the componentAccess unit', () => {
   it('declares its key, its version, and an empty start', () => {
@@ -100,7 +104,7 @@ describe('the componentAccess unit', () => {
     expect(unit.init(target.header, target.inheritedEventCount)).toEqual([])
   })
 
-  it('opened a call from either log shape and drops it when the result arrives', () => {
+  it('opened a call of either tool from either log shape and drops it when the result arrives', () => {
     const unit = projection()
     const target = session()
     let state = unit.init(target.header, target.inheritedEventCount)
@@ -110,9 +114,30 @@ describe('the componentAccess unit', () => {
     result(target, 'call_1')
     dispatch(target, 'call_3', OPENED)
     dispatched(target, 'call_3')
+    call(target, 'call_4', READ, READ_COMPONENT_TOOL_NAME)
+    dispatch(target, 'call_5', READ, READ_COMPONENT_TOOL_NAME)
+    result(target, 'call_5')
     events.push(...target.snapshotEvents())
     for (const event of events) state = unit.apply(state, event)
-    expect(state).toEqual([{ callId: 'call_2', tool: ACT_COMPONENT_TOOL_NAME, args: OPENED }])
+    expect(state).toEqual([
+      { callId: 'call_2', tool: ACT_COMPONENT_TOOL_NAME, args: OPENED },
+      { callId: 'call_4', tool: READ_COMPONENT_TOOL_NAME, args: READ },
+    ])
+  })
+
+  it('reads each tool\'s arguments with that tool\'s own reading, and opens nothing for the other\'s', () => {
+    const unit = projection()
+    const target = session()
+    let state = unit.init(target.header, target.inheritedEventCount)
+    // A read's arguments are not an act's, and the other way round: an event
+    // naming one tool with the other's arguments opens no call at all. What the
+    // other tool's reading is told to be unreadable is its own required field
+    // missing — an act names steps, a read names the entry.
+    call(target, 'call_1', READ)
+    call(target, 'call_2', { node: 'toolbar' }, READ_COMPONENT_TOOL_NAME)
+    call(target, 'call_3', { entry: 'demo', node: 'a b' }, READ_COMPONENT_TOOL_NAME)
+    for (const event of target.snapshotEvents()) state = unit.apply(state, event)
+    expect(state).toEqual([])
   })
 
   it('leaves the list alone for events that open or settle nothing', () => {
@@ -132,9 +157,12 @@ describe('the componentAccess unit', () => {
     }
   })
 
-  it('publishes the open calls in order, and refuses a view its own schema does not take', () => {
+  it('publishes the open calls of both tools in order, and refuses a view its own schema does not take', () => {
     const unit = projection()
-    const pending: ActComponentCall[] = [{ callId: 'call_1', tool: ACT_COMPONENT_TOOL_NAME, args: OPENED }]
+    const pending: ComponentCall[] = [
+      { callId: 'call_1', tool: ACT_COMPONENT_TOOL_NAME, args: OPENED },
+      { callId: 'call_2', tool: READ_COMPONENT_TOOL_NAME, args: READ },
+    ]
     expect(unit.wire.view(pending)).toEqual({ pending })
     expect(warnings).toEqual([])
     const impossible = [{ callId: 'call_1', tool: 'content_read', args: OPENED }] as never
@@ -145,16 +173,22 @@ describe('the componentAccess unit', () => {
     expect(warnings[0]).toContain('componentAccess refused its own view:')
   })
 
-  it('refuses a view whose arguments the shared reading cannot read', () => {
+  it('refuses a view whose arguments either tool\'s reading cannot read', () => {
     const unit = projection()
-    const impossible = [{ callId: 'call_1', tool: ACT_COMPONENT_TOOL_NAME, args: { entry: '', steps: [] } }] as never
-    expect(() => unit.wire.view(impossible)).toThrow()
+    const unreadableAct = [{ callId: 'call_1', tool: ACT_COMPONENT_TOOL_NAME, args: { entry: '', steps: [] } }] as never
+    expect(() => unit.wire.view(unreadableAct)).toThrow()
     expect(warnings[0]).toContain('not a set of arguments this tool takes')
+    const unreadableRead = [{ callId: 'call_1', tool: READ_COMPONENT_TOOL_NAME, args: { entry: '', node: 'a b' } }] as never
+    expect(() => unit.wire.view(unreadableRead)).toThrow()
+    expect(warnings[1]).toContain('not a set of arguments this tool takes')
   })
 
   it('reads back the state its own schema wrote, so a checkpoint cannot drift from the wire', () => {
     const unit = projection()
-    const calls: ActComponentCall[] = [{ callId: 'call_1', tool: ACT_COMPONENT_TOOL_NAME, args: OPENED }]
+    const calls: ComponentCall[] = [
+      { callId: 'call_1', tool: ACT_COMPONENT_TOOL_NAME, args: OPENED },
+      { callId: 'call_2', tool: READ_COMPONENT_TOOL_NAME, args: READ },
+    ]
     expect(unit.stateSchema.parse(calls)).toEqual(calls)
   })
 })
