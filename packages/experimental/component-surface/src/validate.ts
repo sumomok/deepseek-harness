@@ -285,7 +285,11 @@ function validateBoolean(value: unknown, path: string): ComponentCallFailure | u
  * alphabet and a count instead of the names — a row of a table is keyed by
  * whatever the columns read. A key past the length ceiling is refused without
  * being quoted back, and one that is merely outside the alphabet is quoted,
- * because by then it is short enough to name.
+ * because by then it is short enough to name. A key named `__proto__` is
+ * refused with the one sentence every read of a mapping's keys gives that key
+ * ({@link PROTO_KEY_REASON}), the same answer the view walk gives it: kept, the
+ * key would reach the session log and be dropped at the wire before the browser
+ * could draw its cell.
  * @param value - the property value, however malformed.
  * @param schema - the declared record.
  * @param path - parameter path used in the refusal.
@@ -304,6 +308,7 @@ function validateRecord(
     return refuseSize(path, `carries ${entries.length} fields; at most ${schema.maxKeys} are accepted.`)
   }
   for (const [key, entry] of entries) {
+    if (key === PROTO_KEY) return protoKeyRefusal(`${path}.${key}`)
     if (key.length > schema.key.maxLength) {
       return refuseSize(path, `carries a field name of ${key.length} characters; at most ${schema.key.maxLength} are accepted.`)
     }

@@ -246,6 +246,12 @@ describe('the data table', () => {
     })).toMatchObject({ ok: true })
   })
 
+  it('accepts a row whose value is the word __proto__, which is a value and not a key', () => {
+    expect(validateComponentSpec(KIT_CATALOG, {
+      nodes: [table(withProps({ displayValueList: [{ zh_label: '__proto__' }] }))],
+    })).toMatchObject({ ok: true })
+  })
+
   it.each([
     ['no columns', withProps({ tableConfig: { gridItems: [] } }), 'spec.nodes[0].props.tableConfig.gridItems', /lists 0 items; between 1 and 30 are accepted/],
     ['more columns than a table holds', withProps({ tableConfig: { gridItems: Array.from({ length: 31 }, (_unused, index) => ({ relatedMetaAttr: `c${index}` })) } }), 'spec.nodes[0].props.tableConfig.gridItems', /lists 31 items; between 1 and 30 are accepted/],
@@ -257,6 +263,7 @@ describe('the data table', () => {
     ['no rows at all', withProps({ displayValueList: [] }), 'spec.nodes[0].props.displayValueList', /lists 0 items; between 1 and 500 are accepted/],
     ['more rows than a table holds', withProps({ displayValueList: Array.from({ length: 501 }, () => ({ zh_label: 'A' })) }), 'spec.nodes[0].props.displayValueList', /lists 501 items; between 1 and 500 are accepted/],
     ['a row that is not an object', withProps({ displayValueList: ['A-1'] }), 'spec.nodes[0].props.displayValueList[0]', /must be an object of your own field names/],
+    ['a row field named __proto__', withProps({ displayValueList: [JSON.parse('{"zh_label":"A-1","__proto__":"内部值"}') as Record<string, unknown>] }), 'spec.nodes[0].props.displayValueList[0].__proto__', /is a key named __proto__, which no mapping of a view may carry/],
     ['a row field name outside the alphabet', withProps({ displayValueList: [{ 'zh label': 'A-1' }] }), 'spec.nodes[0].props.displayValueList[0]', /carries the field name "zh label", which may use only a letter or an underscore/],
     ['a row field name past the ceiling', withProps({ displayValueList: [{ [`a${'b'.repeat(64)}`]: 'A-1' }] }), 'spec.nodes[0].props.displayValueList[0]', /carries a field name of 65 characters; at most 64 are accepted/],
     ['a row carrying more fields than a row may', withProps({ displayValueList: [Object.fromEntries(Array.from({ length: 41 }, (_unused, index) => [`f${index}`, 'v']))] }), 'spec.nodes[0].props.displayValueList[0]', /carries 41 fields; at most 40 are accepted/],
