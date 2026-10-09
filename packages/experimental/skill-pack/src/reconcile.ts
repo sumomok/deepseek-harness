@@ -85,18 +85,38 @@ export function undrawableViews(status: PackStatus): RefusedView[] {
 /**
  * How one view file is judged against the surface that would draw it, where a
  * surface is composed. A judge that throws on a view refuses that view, at
- * `spec`, with the thrown value in the reason.
+ * `spec`, with the thrown value's text in the reason, or fixed words where the
+ * value has no text ({@link thrownText}).
  */
 export type ViewJudge = (view: PackView) => PackViewRefusal | undefined
+
+/**
+ * What a thrown value says, in one line, whatever type it is: its own text, or
+ * a fixed line when the value refuses to become text — a null-prototype object,
+ * or one whose own `toString` throws.
+ * @param error - the thrown value.
+ * @returns the text of the reason.
+ */
+function thrownText(error: unknown): string {
+  try {
+    return String(error)
+  } catch {
+    // A thrown value whose own conversion to text throws in turn; the reason
+    // still has to be written rather than the second throw ending the reading.
+    return 'a value that cannot be turned into text'
+  }
+}
 
 /**
  * Judge one view, reading a judgement that throws as a refusal of that view.
  *
  * The view is a pack author's file and the judge is the composed surface's, so
- * a value the judge does not expect can make it throw. Read as a refusal, that
- * withholds the one pack and leaves every other view and pack judged as usual;
- * let through, it would end the whole reading of the pack root, or the judgement
- * of a delivery, with nothing said about which file did it.
+ * a value the judge does not expect can make it throw — an `Error`, or any
+ * other value a judge hands on. Read as a refusal, that withholds the one pack
+ * and leaves every other view and pack judged as usual; let through, it would
+ * end the whole reading of the pack root, or the judgement of a delivery, with
+ * nothing said about which file did it. The reason carries the thrown value's
+ * text where it has one ({@link thrownText}).
  * @param judgeView - the composed surface's judgement.
  * @param view - one view file that parsed.
  * @returns the refusal, or `undefined` when the surface draws the view.
@@ -105,7 +125,7 @@ function judgeOneView(judgeView: ViewJudge, view: PackView): PackViewRefusal | u
   try {
     return judgeView(view)
   } catch (error) {
-    return { path: 'spec', reason: `could not be judged (${String(error)}); a view the component surface has not accepted is not drawn` }
+    return { path: 'spec', reason: `could not be judged (${thrownText(error)}); a view the component surface has not accepted is not drawn` }
   }
 }
 

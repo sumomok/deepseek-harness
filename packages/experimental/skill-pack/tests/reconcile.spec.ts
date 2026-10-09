@@ -312,13 +312,18 @@ describe('the views a pack declares, judged by the surface that would draw them'
       }
     }
 
-    /** The refusal a view whose judgement threw that error is reported with. */
-    const THREW: PackMissing = {
-      kind: 'view-refused',
-      view: 'views/a.yml',
-      path: 'spec',
-      reason: 'could not be judged (RangeError: Maximum call stack size exceeded); a view the component surface has not accepted is not drawn',
+    /** The refusal a view whose judgement threw a value with this text is reported with. */
+    function threwWith(text: string): PackMissing {
+      return {
+        kind: 'view-refused',
+        view: 'views/a.yml',
+        path: 'spec',
+        reason: `could not be judged (${text}); a view the component surface has not accepted is not drawn`,
+      }
     }
+
+    /** The refusal a view whose judgement threw that error is reported with. */
+    const THREW: PackMissing = threwWith('RangeError: Maximum call stack size exceeded')
 
     it('withholds that pack, naming the view, and offers the other packs as usual', () => {
       const judged: string[] = []
@@ -346,6 +351,43 @@ describe('the views a pack declares, judged by the surface that would draw them'
     it('withholds a pack judged on its own the same way, which is how a delivery is judged before it is installed', () => {
       expect(judgePackAlone(pack('space-data-page', { views: ['views/a.yml'] }, [view('views/a.yml', 'layers')]), [], PLATFORM, throwingOn('layers')))
         .toEqual({ skill: 'space-data-page', version: '1.0.0', origin: 'pack-root', state: 'inactive', missing: [THREW] })
+    })
+
+    it('withholds it the same way when the value thrown is not an Error', () => {
+      // A judge handing on whatever it caught, or throwing a bare string of its
+      // own, must withhold the one view rather than end the reading.
+      const outcome = judgePackAlone(
+        pack('space-data-page', { views: ['views/a.yml'] }, [view('views/a.yml', 'layers')]),
+        [],
+        PLATFORM,
+        (one) => {
+          if (one.id === 'layers') throw 'boom'
+          return undefined
+        },
+      )
+      expect(outcome).toEqual({ skill: 'space-data-page', version: '1.0.0', origin: 'pack-root', state: 'inactive', missing: [threwWith('boom')] })
+    })
+
+    it('withholds it when the thrown value refuses to become text', () => {
+      // `String` on a null-prototype object throws in turn; the reason is still
+      // written for that view rather than the second throw ending the reading.
+      const bare = Object.create(null) as object
+      const outcome = judgePackAlone(
+        pack('space-data-page', { views: ['views/a.yml'] }, [view('views/a.yml', 'layers')]),
+        [],
+        PLATFORM,
+        (one) => {
+          if (one.id === 'layers') throw bare
+          return undefined
+        },
+      )
+      expect(outcome).toEqual({
+        skill: 'space-data-page',
+        version: '1.0.0',
+        origin: 'pack-root',
+        state: 'inactive',
+        missing: [threwWith('a value that cannot be turned into text')],
+      })
     })
   })
 })
