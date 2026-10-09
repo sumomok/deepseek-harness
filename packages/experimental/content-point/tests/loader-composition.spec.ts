@@ -19,7 +19,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import LlmRuntime, { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { Message } from '@deepseek-ai/dsh-llm'
+import type { RequestMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -44,7 +44,7 @@ afterEach(async () => {
  * @param messages - the request's messages.
  * @returns each message's text.
  */
-function texts(messages: readonly Message[]): string[] {
+function texts(messages: readonly RequestMessage[]): string[] {
   return messages.map(message => message.content.map(block => (block.type === 'text' ? block.text : '')).join(''))
 }
 

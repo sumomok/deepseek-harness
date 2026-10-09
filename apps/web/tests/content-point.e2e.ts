@@ -131,7 +131,7 @@ const seat = (page: Page): Locator => page.locator('[data-content-surface-seat="
 const composer = (page: Page): Locator => page.locator('[data-composer-input]').first()
 const pointButton = (page: Page): Locator => page.locator('[data-content-point-button]')
 const chips = (page: Page): Promise<(string | null)[]> =>
-  page.getByRole('group', { name: '待发送的附件' }).locator('[data-reference-chip]').evaluateAll(nodes => nodes.map(node => node.getAttribute('title')))
+  page.getByRole('group', { name: '待发送附件' }).locator('[data-reference-chip]').evaluateAll(nodes => nodes.map(node => node.getAttribute('title')))
 
 describe.skipIf(MODE === 'record')('web e2e: 「指一下」 in the customer console', () => {
   let scaffold: WebScaffold
@@ -190,6 +190,8 @@ describe.skipIf(MODE === 'record')('web e2e: 「指一下」 in the customer con
     await pointButton(page).click()
     const header = block.locator('.el-table__header-wrapper th .cell', { hasText: '名称' }).first()
     await header.hover()
+    // The picker draws its box and words on the next animation frame after the pointer moves.
+    await page.waitForTimeout(300)
     await page.screenshot({ path: join(SHOTS, '02-hover-header.png') })
     await header.click()
     await expect.poll(() => chips(page), { timeout: 15_000 }).toHaveLength(1)
@@ -203,6 +205,8 @@ describe.skipIf(MODE === 'record')('web e2e: 「指一下」 in the customer con
     await pointButton(page).click()
     const metric = seat(page).locator('[data-component-block="el.metric"]')
     await metric.hover()
+    // The picker draws its box and words on the next animation frame after the pointer moves.
+    await page.waitForTimeout(300)
     await page.screenshot({ path: join(SHOTS, '03-hover-block.png') })
     await metric.click()
     await expect.poll(() => chips(page), { timeout: 15_000 }).toHaveLength(3)
