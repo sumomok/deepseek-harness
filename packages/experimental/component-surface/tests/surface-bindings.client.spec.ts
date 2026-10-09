@@ -81,6 +81,18 @@ describe('resolving one block bindings', () => {
     expect(resolved.bindingKey).toBeUndefined()
   })
 
+  it('keeps a key named __proto__ beside a reference as one more property, leaving the prototype alone', () => {
+    // As the payload's JSON carries it. Rebuilt by assignment, the value under
+    // the key would become the properties' prototype, and everything in it a
+    // property read without being written.
+    const resolved = resolveBindings(
+      { id: 'd', props: JSON.parse('{"dataList":{"$from":"node:t.selectionDetail"},"__proto__":{"columnNum":2}}') as Record<string, unknown> },
+      published({ 't.selectionDetail': DETAIL }),
+    )
+    expect(JSON.stringify(resolved.props)).toBe('{"dataList":[{"label":"名称","display":"一号站点"}],"__proto__":{"columnNum":2}}')
+    expect(Object.getPrototypeOf(resolved.props)).toBe(Object.prototype)
+  })
+
   it('keys two passes the same way while what they resolved is the same, and apart when it changes', () => {
     const node = { id: 'd', props: { dataList: { $from: 'node:t.selectionDetail' } } }
     const first = resolveBindings(node, published({ 't.selectionDetail': DETAIL }))
@@ -170,6 +182,12 @@ describe('reading one entry payload', () => {
       published({ 't.selectionDetail': 'nope', 'u.selectionDetail': DETAIL }),
     )
     expect(view?.blocks.map(block => block.node === undefined)).toEqual([false, true, true])
+  })
+
+  it('leaves a fed block waiting when it also carries a key named __proto__, which its component does not declare', () => {
+    const fed = { ...DETAILS, props: JSON.parse('{"dataList":{"$from":"node:t.selectionDetail"},"__proto__":{"columnNum":2}}') as Record<string, unknown> }
+    const view = accept(payload([ASK, fed]), published({ 't.selectionDetail': DETAIL }))
+    expect(view?.blocks.map(block => block.node === undefined)).toEqual([false, true])
   })
 
   it('leaves a block naming a component this deployment does not have to the judgement that names it', () => {
