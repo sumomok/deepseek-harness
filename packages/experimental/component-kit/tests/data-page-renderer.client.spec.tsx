@@ -662,10 +662,24 @@ describe('toy.data-page', () => {
     // The block named neither, so the page's own defaults stand.
     expect(page.$props['selectMode']).toBe('checkbox')
     expect(page.$props['readOnly']).toBe(true)
-    // No first query was asked for, so nothing was searched and nothing counted.
-    await flush()
-    expect(seen.map(request => request.url).filter(url => url.includes('_search'))).toEqual([])
-    expect(onAction).not.toHaveBeenCalledWith('query', expect.anything())
+    // The block told the page not to query on mount; the vendored container
+    // queries anyway, one 100 ms debounce later.
+    //
+    // The container mounts a query panel and a toolbar, and the toolbar's own
+    // mount is reported to it as a press of 查询 (`CrudAction.vue`'s `mounted`
+    // emits `action-click: 'query'`, which `handleToolbarAction` hands to
+    // `handleActionClick` once the query panel's mount has already set
+    // `firstQueryDone`). That path reaches `queryData()` with the mount flag
+    // off, so the container's `isInitQuery` check in `getQueryParams` never
+    // runs — with the toolbar drawn, `isInitQuery: false` changes nothing.
+    // Asserting before the debounce fires is what read as "nothing was
+    // searched"; this case waits for it, so it states what is observable. Both
+    // the reading and the container are the vendored kit's, and this line
+    // reads the other way once the kit honors the property.
+    await vi.waitFor(() => {
+      expect(onAction).toHaveBeenCalledWith('query', expect.anything())
+    }, { timeout: 5000, interval: 20 })
+    expect(seen.map(request => request.url).filter(url => url.includes('_search'))).toHaveLength(1)
   })
 
   it('draws every entrance it could remove removed until the verdict arrives, then changes them in place', async () => {
