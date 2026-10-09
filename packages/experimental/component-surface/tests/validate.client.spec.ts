@@ -603,6 +603,29 @@ describe('a value an object only inherits', () => {
       oversize: false,
     })
   })
+
+  it.each([
+    [
+      'a stack',
+      '{"node":"stack","dir":"row","children":[{"node":"component","id":"n1"}],"__proto__":{"wrap":true}}',
+      'spec.layout.__proto__',
+      'is not part of a stack. A stack carries node, dir, gap, wrap, flex, children.',
+    ],
+    [
+      'a placed block',
+      '{"node":"stack","dir":"row","children":[{"node":"component","id":"n1","__proto__":{"flex":2}}]}',
+      'spec.layout.children[0].__proto__',
+      'is not part of a placed block. A placed block carries node, id, flex.',
+    ],
+  ])('refuses a key named __proto__ in %s as one it does not carry', (_case, layout, path, message) => {
+    // As the call's JSON carries it, the key is one more key of the layout,
+    // and the values under it are not the stack's or the block's own.
+    expect(refusal(call({ nodes: [confirmBar()], layout: JSON.parse(layout) as unknown }))).toEqual({
+      path,
+      text: `show_component: ${path} — ${message}`,
+      oversize: false,
+    })
+  })
 })
 
 describe('a scalar property', () => {
