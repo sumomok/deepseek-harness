@@ -174,7 +174,7 @@ kind: "package-reference"
 
 **这套装置是一个服务，而页面工具是它的第一个消费者，不是它的主人。** `ContentChannel` 以 `ctx.contentChannel` 提供，一个域通过登记 member 加入：它如何自称、它的报告体有多宽、以及读一份报告的那个解析器。两条路由归服务所有，在第一个 member 登记时被认领，所以一个完全不送调用的组合在这两条路径上仍是 404——和只有这几个工具时一样。一次等待中的调用会记下开出它的那个 member，所以一份投递只由那个 member 来读，一个域拒绝的文档绝不会按另一个域的上界去判；针对已经结算的调用的投递不再指名任何 member，于是每一个已登记的 member 依次被问一遍，这正是单域通道当初读这种正文的方式。每个域保有自己的待办投影——这里用 `contentAccess`，组件行用 `componentAccess`——因为这种列表里的每一种分支都是那个域自己的词汇；两者共用的是 [`src/access/channel.ts`](src/access/channel.ts) 里的折叠与视图自检。一个 member 通过释放它登记时得到的那份登记离开，由登记它的那一行在它自己的子上下文可能消失的地方去做；两条路由在服务自己的生命期内照旧被认领，所以只剩最后一个域时它仍在这两条路由上被作答。
 
-浏览器侧同样如此。本行的客户端入口把唯一一个 `ContentChannel` 作为 `ctx.contentTabChannel` 提供，一个域用名字、就绪回答和「如何答一次被认领的调用」加入它。通道管标签页身份、隐藏标签页的宽限、出价循环、上报重试，以及被座位放弃的调用的清理；一个域只管「答自己的一次调用」是什么意思，并且要么交出自己称过重的文档，要么交出一个 outcome，由通道把 callId 与标签页组装进去。每个页面加载只有一个实例是重点而不是实现细节：它铸出的标签页 id 正是会话的调用被钉住的那个身份，所以座位用同一个身份认领与上报，那个页面里的每个域也是同一个读者。今天的第二个域是 [`component-surface`](../component-surface/README.zh.md#acting-inside-the-entry-on-display) 的 `act_component`，它通过那个服务读通道，除类型之外不从本行引入任何东西——客户端 bundle 不得携带另一个插件的值。
+浏览器侧同样如此。本行的客户端入口把唯一一个 `ContentChannel` 作为 `ctx.contentTabChannel` 提供，一个域用名字、就绪回答和「如何答一次被认领的调用」加入它。通道管标签页身份、隐藏标签页的宽限、出价循环、上报重试，以及被座位放弃的调用的清理；一个域只管「答自己的一次调用」是什么意思，并且要么交出自己称过重的文档，要么交出一个 outcome，由通道把 callId 与标签页组装进去。每个页面加载只有一个实例是重点而不是实现细节：它铸出的标签页 id 正是会话的调用被钉住的那个身份，所以座位用同一个身份认领与上报，那个页面里的每个域也是同一个读者。今天的第二个域是 [`component-surface`](../component-surface/README.zh.md#acting-inside-the-entry-on-display) 的——一个域同时答它的两个工具 `act_component` 与 `read_component`——它通过那个服务读通道，除类型之外不从本行引入任何东西——客户端 bundle 不得携带另一个插件的值。
 
 <a id="reading-the-page-in-the-frame"></a>
 ## 读取 frame 里的页面
@@ -281,7 +281,7 @@ kind: "package-reference"
 <a id="composing-with-the-review-gate"></a>
 ### 与自动审查闸同装时
 
-同时安装了 `@haoran/dsh-llm-permission-gateway`（>= 0.2.0）的部署，再多传一个 `--patch`：`overlay/permission-gateway.patch.yml`。这道闸会审查每一次没有被告知放行的工具调用，每次一趟模型往返。这份 overlay 告诉它放行五件读工具与 `content_show`，把 `content_act` 留给它审查——因为 `content_act` 是会驱动页面的那一件。[`component-surface`](../component-surface/README.zh.md) 在本行被组合时提供的 `act_component` 出于同样理由不在名单里——它驱动的是眼前的那块界面——该包的 `tests/act-component-gate.client.spec.ts` 同时钉住这两项缺席。没装这道闸时，这一行找不到目标，启动日志只留一条告警，别的什么都不变——所以这个文件装没装都可以照传。
+同时安装了 `@haoran/dsh-llm-permission-gateway`（>= 0.2.0）的部署，再多传一个 `--patch`：`overlay/permission-gateway.patch.yml`。这道闸会审查每一次没有被告知放行的工具调用，每次一趟模型往返。这份 overlay 告诉它放行页面五个读、`content_show` 与 `read_component`——本行被组合时 [`component-surface`](../component-surface/README.zh.md#reading-the-entry-on-display) 提供的读取工具，它什么都不写——把 `content_act` 留给它审查，因为 `content_act` 是会驱动页面的那一件。驱动眼前那块界面的工具出于同样理由不在名单里，该包的 `tests/act-component-gate.client.spec.ts` 把这三项处置都钉在这份文件上。没装这道闸时，这一行找不到目标，启动日志只留一条告警，别的什么都不变——所以这个文件装没装都可以照传。
 
 patch 是整体替换目标行的 `config` 而非把键并入其中，所以那个文件把闸的两个必填字段 `provider` 与 `model` 原样重写了一遍，也把它的默认放行表整份抄了下来而不是在其上追加。`tests/permission-gateway-overlay.client.spec.ts` 把这个文件钉在本包注册的工具名上。
 

@@ -58,15 +58,23 @@
       - job_output
       - content_show
       - web_search
-      # This deployment's addition: the content column's five reads. None of
-      # them writes anything on this machine or leaves it. Each registers a
-      # wait that the browser seat answers by reading the page the user
-      # already has in front of them, and posts the result back.
+      # This deployment's addition: the content column's five page reads and
+      # the component read. None of them writes anything on this machine or
+      # leaves it. Each registers a wait that the browser seat answers by
+      # reading the page, or the drawn component entry, that the user already
+      # has in front of them, and posts the result back.
       - content_read
       - content_read_dom
       - content_read_attrs
       - content_read_dom_content
       - content_read_image
+      # `read_component` reports the model's own drawing in the panel — the
+      # blocks and controls the entry draws, the keys they answer to, and the
+      # values its fields hold — so it is a read of the same kind as the five
+      # above and is listed here.
+      - read_component
       # `content_act` is deliberately absent. It drives the page, so the gate
       # judges every call of it, and
-      # tests/permission-gateway-overlay.client.spec.ts holds it out.
+      # tests/permission-gateway-overlay.client.spec.ts holds it out. The tool
+      # that drives a drawn component entry is absent for the same reason, and
+      # component-surface's tests/act-component-gate.client.spec.ts holds it out.

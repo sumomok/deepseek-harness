@@ -19,7 +19,7 @@ import {
   ACT_COMPONENT_TOOL_NAME, MAX_ACT_COMPONENT_STEPS, MAX_MESSAGE_CHARS,
   MAX_REPORT_TEXT_CHARS, MAX_SET_VALUE_CHARS, MAX_TARGET_CHARS, MAX_TITLE_CHARS, MAX_WAIT_MS,
   isActComponentReport, parseActComponentArgs, parseActComponentOutcome, parseActComponentReport,
-  readActComponentCall, readActComponentStep, settledActComponentCall,
+  readActComponentCall, readActComponentStep, settledComponentCall,
 } from '../src/act-component-call.ts'
 import { MAX_ENTRY_ID_LENGTH } from '../src/component-call.ts'
 
@@ -351,9 +351,9 @@ describe('reading the calls out of a session log', () => {
       arguments: { entry: ENTRY, steps: [{ action: 'wait', key: 'add' }] },
     })
     const [result, dispatch, start] = target.snapshotEvents()
-    expect(settledActComponentCall(result as SessionEvent)).toBe(CALL)
-    expect(settledActComponentCall(dispatch as SessionEvent)).toBe('call_2')
+    expect(settledComponentCall(result as SessionEvent)).toBe(CALL)
+    expect(settledComponentCall(dispatch as SessionEvent)).toBe('call_2')
     // A dispatch *start* opens a call; it settles none.
-    expect(settledActComponentCall(start as SessionEvent)).toBeUndefined()
+    expect(settledComponentCall(start as SessionEvent)).toBeUndefined()
   })
 })

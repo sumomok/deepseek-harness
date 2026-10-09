@@ -16,7 +16,7 @@ import type { ActComponentStep } from '../src/act-component-call.ts'
 import {
   ACT_COMPONENT_DESCRIPTION, NO_ENTRY_IN_FRONT, NO_STEPS_REFUSAL, STEP_REFUSAL_TEXT,
   actComponentReportText, anotherEntryInFront, failureRefusal, missingTargetReason, notWritableReason,
-  stepRefusal, tooManyStepsRefusal, unclaimedRefusal, unverifiedRefusal,
+  stepRefusal, tooManyStepsRefusal, unclaimedRefusal, unverifiedRefusal, waitTimeoutReason,
 } from '../src/act-component-text.ts'
 
 /** The entry id every report here names. */
@@ -50,6 +50,13 @@ describe('the offer and its refusals', () => {
   it('says only that a target is not part of the entry, whichever side of the confine it is on', () => {
     expect(missingTargetReason('control "add"')).toBe('control "add" is not part of the entry on display.')
     expect(notWritableReason('title')).toBe('The field for "title" is not one this call may write.')
+  })
+
+  it('gives a wait that ran out its own sentence, naming the target and the time waited', () => {
+    // A target the entry declares and simply did not draw in time is not a
+    // target the entry does not hold: the sentence says which it was plain.
+    expect(waitTimeoutReason('"ghost"', 50)).toBe('"ghost" did not appear within 50ms.')
+    expect(waitTimeoutReason('"add"', 2000)).toBe('"add" did not appear within 2000ms.')
   })
 })
 

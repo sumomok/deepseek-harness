@@ -447,22 +447,23 @@ describe('a wait step', () => {
     expect(report.status).toBe('done')
   })
 
-  it('fails with the target it waited for when the block or the key never appears', async () => {
+  it('fails with the target it waited for and the time it waited, not with a sentence about the entry', async () => {
     draw()
     const drawn = drawnEntry(document)
     if (drawn === undefined) throw new Error('the case drew no entry')
     const cases: [ActComponentArgs['steps'][number], string][] = [
-      [{ action: 'wait', node: 'ghost', timeoutMs: 50 }, '"ghost" did not appear in time'],
-      [{ action: 'wait', key: 'ghost', timeoutMs: 50 }, '"ghost" did not appear in time'],
+      [{ action: 'wait', node: 'ghost', timeoutMs: 50 }, '"ghost" did not appear within 50ms.'],
+      [{ action: 'wait', key: 'ghost', timeoutMs: 50 }, '"ghost" did not appear within 50ms.'],
     ]
     for (const [step, message] of cases) {
       const report = await run(args([step]), drawn)
       expect({ step, report: report.steps }).toEqual({
         step,
-        report: [{ index: 1, status: 'failed', message: `${message} is not part of the entry on display.` }],
+        report: [{ index: 1, status: 'failed', message }],
       })
     }
   })
+
 })
 
 describe('the entry a long call is running against', () => {

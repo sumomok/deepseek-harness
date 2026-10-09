@@ -27,6 +27,7 @@ kind: "package-reference"
 - [一条条目，多次调用](#one-entry-several-calls)
 - [回程](#what-comes-back)
 - [在眼前的条目里动手](#acting-inside-the-entry-on-display)
+- [在眼前的条目里读](#reading-the-entry-on-display)
 - [信任边界](#trust)
 - [座位](#the-seat)
 - [Model Experience](#model-experience)
@@ -52,12 +53,12 @@ kind: "package-reference"
 
 目录一动，这三块都会重建：后来装上的组件插件同时加宽描述、判定和折叠，卸掉的则同样收窄。改过的描述沿每份描述都走的那条路进日志——请求头逐字记下装配好的工具 schema，所以一次重新注册就是下一次请求可据以还原的一份新请求头，本行依然不追加任何属于自己的会话事件。
 
-反方向是 `act_component`：在已经显示出来的条目里跑步骤的工具。它只在共享内容通道被组合进来时才提供——宿主无法寻址浏览器，调用要靠 [content-frame](../content-frame/README.zh.md#the-channel) 提供的那两条认领与上报路由抵达标签页，也就是宿主半边的 `ctx.contentChannel` 与浏览器半边的 `ctx.contentTabChannel`。所以只组合本行、不组合 content-frame 的部署会提供 `show_component` 而完全不提供 `act_component`，对模型来说这就是那个工具根本不存在。这条通道今天住在 content-frame 而不是一个自己的包里，把它搬出去是记在 [Known Limitations](#known-limitations-and-deferred-work) 里的待办。
+伸回内容栏的两个方向是：在已经显示出来的条目里跑步骤的 `act_component`，以及用同一套词汇报告这条条目此刻画着什么、拿它读的 `read_component`。两者都只在共享内容通道被组合进来时才提供——宿主无法寻址浏览器，调用要靠 [content-frame](../content-frame/README.zh.md#the-channel) 提供的那两条认领与上报路由抵达标签页，也就是宿主半边的 `ctx.contentChannel` 与浏览器半边的 `ctx.contentTabChannel`。所以只组合本行、不组合 content-frame 的部署会提供 `show_component` 而这两个工具一个都不提供，对模型来说这就是它们根本不存在。这条通道今天住在 content-frame 而不是一个自己的包里，把它搬出去是记在 [Known Limitations](#known-limitations-and-deferred-work) 里的待办。
 
 <a id="configuration"></a>
 ## 配置
 
-八个配置项。`views` 与 `homeView` 说的是人写下的块，与模型做什么无关，下一节就是它们的全部说明；`dataSource` 与 `dataDefaultPageSize` 说的是模型向这个部署要来、而不是自己写出来的行，再下一节是它们的；`dataPage` 与 `dataPageLoadTimeoutMs` 说的是改为把部署自己的页面开进面板，连同视图摆在它旁边的两块，*再*下一节是它们的；`actClaimTimeoutMs` 与 `actTimeoutMs` 是一次 `act_component` 调用等待用的两个时限，[在眼前的条目里动手](#acting-inside-the-entry-on-display) 是它们的说明。其余一切都是固定的。
+八个配置项。`views` 与 `homeView` 说的是人写下的块，与模型做什么无关，下一节就是它们的全部说明；`dataSource` 与 `dataDefaultPageSize` 说的是模型向这个部署要来、而不是自己写出来的行，再下一节是它们的；`dataPage` 与 `dataPageLoadTimeoutMs` 说的是改为把部署自己的页面开进面板，连同视图摆在它旁边的两块，*再*下一节是它们的；`actClaimTimeoutMs` 与 `actTimeoutMs` 是一次通道工具调用等待用的两个时限——跑一套步骤，或者要一份读取——[在眼前的条目里动手](#acting-inside-the-entry-on-display) 是它们的说明。其余一切都是固定的。
 
 部署可能想调的那几个数——spec 字节上限、节点上限、嵌套上限、动作字节上限——被校验两次：这里一次，浏览器座位对着从线上收到的值再一次。座位收不到 Cordis 配置，所以按部署可变的上限就是两边会对不上的上限：结果是内容栏里悄悄少一块，而不是模型能据以纠正的一次拒绝。在座位能读到部署设置之前，它们是 [`src/component-call.ts`](src/component-call.ts) 里的协议常量；等座位能读设置那天，上限和提供设置的那条路由一起到来。嵌套上限连在那里也没有写死：它是从目录量出来的，所以某个组件声明了一个嵌套属性，上限就正好为它加宽，合法文档不会被当成畸形拒掉。
 
@@ -483,9 +484,24 @@ schema 说不出的是一个字符串**意味着**什么。把某个字符串读
 
 **这个工具一次只跑一次调用。** 两次调用作用在同一条条目上，会让各自的步骤交错在一个谁都没读过的文档里，所以定义里声明它不能与另一次调用并跑，运行时据此串行化。
 
-**审批闸逐次判它。** `act_component` 驱动的是用户眼前的东西，所以它不是只读工具，不能进 `@haoran/dsh-llm-permission-gateway` 的 `readOnlyTools` 名单。本仓库随附的那份分类文件——[`content-frame` 的闸 overlay](../content-frame/overlay/permission-gateway.patch.yml)——只列了页面五个读和 `content_show`，把这个工具留在外面；组合本行的部署写自己的名单时也要把它留在外面。`tests/act-component-gate.client.spec.ts` 钉住随附的那份文件。
+**审批闸逐次判它。** `act_component` 驱动的是用户眼前的东西，所以它不是只读工具，不能进 `@haoran/dsh-llm-permission-gateway` 的 `readOnlyTools` 名单。本仓库随附的那份分类文件——[`content-frame` 的闸 overlay](../content-frame/overlay/permission-gateway.patch.yml)——列了页面五个读、`read_component` 和 `content_show`，把这个工具留在外面；组合本行的部署写自己的名单时也要把它留在外面。`tests/act-component-gate.client.spec.ts` 把两个处置都钉在随附的那份文件上。
 
 **拾取与调用目前还不互斥。** content-point 的拾取在一次点选进行时读的是用户自己的指针，而这个工具会在条目里合成点击和输入事件；今天没有任何东西阻止两者同时发生，因为拾取的状态在另一个包的浏览器半边，也没有任何服务把它报出来。要互斥，需要在那边切一道缝——一个说明「正在拾取」的客户端服务，本工具据此拒绝——这条记在 [Known Limitations](#known-limitations-and-deferred-work)。
+
+<a id="reading-the-entry-on-display"></a>
+## 在眼前的条目里读
+
+`read_component` 是这套词汇的另一半：一次调用只指名一条条目——和动手调用同一个 `entry`，而且必须是在前的那一条——可选地再用 `node` 缩小到其中一个块，答案报告这条条目此刻画着什么。它用动手那套词汇而不是 DOM 引用来写，因为要补的缺口正是这个：准备动手的调用需要知道哪个键按下保存、某一列的值落在哪个字段里，而这两件事模型都编不出来。有一次，模型在数据页的写对话框里填好了七个字段，然后连续猜了六十五次保存控件的动作键——条目自己的 markup 申明的是带按钮自己的 id 的 `press`，而模型能读到的东西里没有任何一处这么说；那次会话就是这个工具存在的理由。
+
+**它报告什么。** 条目和它的标题；画出来的块的 node id；每个画在眼前的控件一行——它应答的动作键，带自己键时连自己的键一起给出，它是什么，以及它在那里是禁用还是被盖住；条目点名的字段各一行——按块自己的申明，或者按控件自己携带的名字——连同它此刻的值，密码一类报成 `(hidden)`，勾选框报成 `[x]` 或 `[ ]`；以及条目开着的对话框，按它自己申明的名字命名，什么都不申明的就叫 `unnamed`。`node` 指了条目不画的块不算拒绝：答案列出画着的块，并给出与动手步骤被拒时完全相同的那句话，因为记错块 id 的模型需要的是存在的那些 id。
+
+**两个工具走同一份实现。** 读取由[步骤执行器同一条寻址模块](src/client/targets.ts)产出——同一个块边界、同一套申明的动作键和自己的键、同一种字段名读法、同一个「人够不够得着」的问题——所以读取打印出来的键，就是步骤会按下的键；读取报告的动作状态也正是动手步骤会据以拒绝的那几个。每一次查找都以条目自己的容器为界，与步骤完全一样：控制台画在条目旁边的东西，既不会被动手碰到，也不会被读取描述。
+
+**读取有界，而且永远不是复制。** 一次读取被截在 200 行、10000 个字符，末尾用一句话说明还剩多少行没显示——几百行的表格是一列可让模型用 `node` 缩小的绘制，而不是值得花掉一次请求的清单——每个绘制出来的值、键或名字截到 120 个字符并加省略号。藏着的东西不报告：文档收回的控件或字段不进结果，页面标为秘密的值只报「是秘密」而不打印，因为读取会进模型请求，而密码字段的值是用户的。
+
+**它是读，闸也按读对待。** 读取不写任何东西，也不向条目索取它本来没在显示的东西，所以它和把 `act_component` 留在外面的那份 overlay 一起、被列进 `readOnlyTools`（见[在眼前的条目里动手](#acting-inside-the-entry-on-display)），不走审批，而且和一套步骤不同——可以和另一次调用并跑：同一步里的两次读取由同一个座位一前一后作答，而不是排上两个认领时限。
+
+**它的结局就是动手工具的结局。** `actClaimTimeoutMs` 之内没有控制台认领、眼前没有组件条目、在前的是另一条条目、或者组件抛了错：每一种都按动手调用的形状拒绝，只把前缀换成读取自己的。认领之后始终不上报的调用答 `status: "unverified"`，因为读取可能已经组好、只是在回来的路上丢了。
 
 <a id="trust"></a>
 ## 信任边界
@@ -577,11 +593,39 @@ schema 说不出的是一个字符串**意味着**什么。把某个字符串读
 
 只追加；结果跟在可复用的请求前缀之后，不让任何已缓存的内容失效。
 
+### `read_component` 的提供
+
+#### What the model sees
+
+一个工具 `read_component`，必填的 `entry` 字符串，外加可选的 `node` 字符串，指名把读取缩小到哪个块。描述说清这份读取答的是什么——画出来的块、每个控件应答的键、每个控件是什么以及它是禁用还是被盖住、条目点名的字段和它们此刻持有的值、以及是否有写对话框开着——然后说明一次调用怎么寻址条目：用的就是动手调用那一套名字，而且必须是在前的那一条。描述里没有目录，理由与动手工具相同：一次调用能点哪个键、写哪个字段，是条目的标记在被读的那一刻回答的。
+
+#### Token effect
+
+每次请求一份固定描述加参数 schema，只要工具可见就有。描述不带目录也不带逐组件的行，而一次调用产生的读取本身有界（200 行、10000 字符，含 markup），所以再宽的表格也填不满一次请求。
+
+#### KV Cache effect
+
+描述只依赖本行自己的文字，所以部署各次请求里的工具块逐字节相同，前缀得以保持。它与动手工具一起注册，只在共享通道被组合进来时才有。
+
+### 一次读取的结果
+
+#### What the model sees
+
+读到的调用答 `status`（`"done"`）、它读的条目 `{id, title}`，以及一段 `text`：先是 `Read the component entry "<title>" (<id>).`，然后 `Blocks:` 列出 node id，再是 `Controls:` 每个控件一行——`- "press" (in the dialog "编辑图层"): button "保存", own key "ok"`——再是 `Fields:` 每个字段一行连同它持有的值，最后是开着的对话框，或者 `No dialog is open.`。禁用或被盖住的控件会在自己那行说明；`node` 指了条目不画的块时，报的就是动手步骤被拒时那句话；被截到上限的读取以 `(Truncated: <n> more lines were not shown.)` 结束。没有任何控制台认领的调用带着 `No console showing this session claimed the call within <claimTimeoutMs>ms, so nothing was read.` 拒绝；被控制台拒的调用用控制台自己那句话拒绝，前面加上 `read_component did not read: `；认领之后始终不上报的调用答 `status: "unverified"`，配一句说这份读取始终没到。
+
+#### Token effect
+
+读取本身（上限如上）加上每种结局一行固定文本。前缀和结局是固定文字；可变的部分就是读取，整条条目多于所需时用 `node` 缩小。
+
+#### KV Cache effect
+
+只追加；结果跟在可复用的请求前缀之后，不让任何已缓存的内容失效。
+
 ## Known Limitations and Deferred Work
 
 - **步骤够不着条目画在自己之外的浮层** — 组件库挂到 `document.body` 上的下拉、日期面板或级联在条目容器之外，所以点开它的那一步会成功，而选一项的那一步会以「不属于这条条目」被拒。这是 v1 的规则而不是查找的缺陷：放行这次调用打开的东西，需要一种办法把这次调用引起的弹层和页面画出的其他一切分开。想要这类步骤的组件，把浮层画进自己的条目里，[`component-kit`](../component-kit/README.zh.md) 的对话框就是这么做的；重新考虑它的触发点是第一个无法把选择器搬进条目的组件插件。
 - **content-point 的拾取与 `act_component` 调用目前不互斥** — 拾取在一次点选进行时读用户自己的指针，而本工具会在条目里合成点击与输入事件；今天没有任何东西阻止两者重叠，因为拾取的状态住在另一个包的浏览器半边，也没有服务把它报出来。修法是在那边切一道缝——由 `content-point` 的客户端半边提供「是否正在拾取」，本工具的浏览器半边注入它并据此拒绝——那属于那个包而不是这里。触发点是第一份「在调用正按着的控件上完成了一次点选」的报告。
-- **只有共享内容通道被组合进来时这个工具才存在，而那条通道住在 `content-frame`** — 组合本行却不组合 [content-frame](../content-frame/README.zh.md) 的部署会得到 `show_component`，却没有 `act_component`；这是「工具不存在」，而不是一个每次调用都超时的工具。更窄的做法是把通道放进它自己的包，或者放进两个域本来就共用的 `content-surface` 那一层；两者都是纯搬运，也都没有排期，所以今天立着的是这条组合前提。
+- **两个通道工具都只在共享内容通道被组合进来时才存在，而那条通道住在 `content-frame`** — 组合本行却不组合 [content-frame](../content-frame/README.zh.md) 的部署会得到 `show_component`，而 `act_component` 和 `read_component` 都没有；这是「工具不存在」，而不是每次调用都超时的工具。更窄的做法是把通道放进它自己的包，或者放进两个域本来就共用的 `content-surface` 那一层；两者都是纯搬运，也都没有排期，所以今天立着的是这条组合前提。
 
 - **按行裁剪是后端的事，本行无法证明它真的发生** — 部署自己的前端有一套行/列权限判定，但在读不到登录态时它是提前返回把数据放开、而不是收紧，所以它根本不是权限边界。后端若不按拿到的 token 裁行，一次取数就可能把这个人本不该看到的行画上他自己的屏幕、写进他自己的会话日志——而退出并不清洗已经写下的日志。要闭掉这条，需要的是那套后端的主人给的答案，不是这里的代码。
 - **那行标识写在哪一行就画在哪一行** — 审批窗把理由里的换行画出来而不是折成空格，于是 `数据表：SpaceLayer` 单独占正文下面的一行，字号与上面那句一样。它依旧是卡片上模型写的任何词都够不着的那一部分；Web 场景是从审批窗画出来的文本里把它读回来的，所以写下的样子和画出来的样子不会各走各的。
