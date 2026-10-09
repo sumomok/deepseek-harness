@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/view-proto-key/guide.md
 /:
-  en: 5df86e0b2fc1e68c
-  zh: 67bb41817e3ae534
+  en: 7bd69116d63fdf8f
+  zh: f4f3ef46c8a494b8
 /a-view-cannot-write-a-key-named-proto:
   en: c1cf2a6a04afed5b
   zh: c41447b7c425709b
 /a-view-cannot-write-a-key-named-proto/change:
-  en: 082ce9148642f5f1
-  zh: ffac22c69ffce9f9
+  en: a1428c70f4aeb1cf
+  zh: e93be8fe8576b54a
 /a-view-cannot-write-a-key-named-proto/migration:
-  en: 3361624a856ab0b4
-  zh: c412f1e4d971979d
+  en: 55a6d21839a7f19a
+  zh: c42ec870c8055103

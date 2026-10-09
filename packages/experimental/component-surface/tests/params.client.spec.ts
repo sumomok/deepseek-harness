@@ -143,15 +143,34 @@ describe('an alias in a view file', () => {
 })
 
 describe('a key named __proto__ in a view file', () => {
-  it('stays one more key of the mapping it is written in, with its value substituted like any other', () => {
-    // A YAML or JSON reader hands the key over as an ordinary key, and the walk
-    // keeps it one: rebuilt by assignment, the value under it would become the
-    // mapping's prototype, and every property in it a value read without being
-    // written.
-    const spec: unknown = JSON.parse('{"nodes":[{"props":{"relatedMeta":"T","__proto__":{"readOnly":{"$param":"open"}}}}]}')
-    const result = substituted(spec, { open: false })
-    expect(JSON.stringify(result)).toBe('{"nodes":[{"props":{"relatedMeta":"T","__proto__":{"readOnly":false}}}]}')
-    const props = (result as { readonly nodes: readonly { readonly props: object }[] }).nodes[0]?.props
-    expect(props === undefined ? undefined : Object.getPrototypeOf(props)).toBe(Object.prototype)
+  /** The sentence a mapping carrying the key is refused in, at the key. */
+  const PROTO = 'is a key named __proto__, which no mapping of a view may carry: copied by assignment, the value under it '
+    + 'becomes the mapping\'s prototype instead of a key, so two readers of one file would disagree on what it holds'
+
+  // Each spec is parsed from JSON, which hands the key over as an ordinary key
+  // the way the YAML readers do; an object literal would set the prototype.
+  it.each([
+    ['properties', '{"nodes":[{"props":{"relatedMeta":"T","__proto__":{"readOnly":false}}}]}', 'spec.nodes[0].props.__proto__'],
+    ['a spec', '{"nodes":[],"__proto__":{"layout":{}}}', 'spec.__proto__'],
+    ['a list item', '{"nodes":[{"props":{"rows":[{"name":"A","__proto__":"B"}]}}]}', 'spec.nodes[0].props.rows[0].__proto__'],
+  ])('refuses it in %s, at the key', (_case, spec, path) => {
+    expect(refusal(JSON.parse(spec), {})).toEqual({ path, reason: PROTO })
+  })
+
+  it('refuses it before anything under it or beside it is read', () => {
+    // A reference under the key that names no param, and one beside it, would
+    // each be refused on their own; the key is the first thing said.
+    const spec: unknown = JSON.parse('{"nodes":[{"props":{"a":{"$param":"nope"},"__proto__":{"readOnly":{"$param":"nope"}}}}]}')
+    expect(refusal(spec, {})).toEqual({ path: 'spec.nodes[0].props.__proto__', reason: PROTO })
+    expect(refusal(JSON.parse('{"props":{"x":{"$param":"open","__proto__":1}}}'), { open: true }))
+      .toEqual({ path: 'spec.props.x.__proto__', reason: PROTO })
+  })
+
+  it('leaves a param named __proto__ to be read like any other', () => {
+    // The params block is where the view names its values, not part of what is
+    // drawn, so a key there is a name and nothing is copied out from under it.
+    const params = JSON.parse('{"__proto__":"sys_layer"}') as Record<string, unknown>
+    expect(substituted({ nodes: [{ props: { relatedMeta: { $param: '__proto__' } } }] }, params))
+      .toEqual({ nodes: [{ props: { relatedMeta: 'sys_layer' } }] })
   })
 })

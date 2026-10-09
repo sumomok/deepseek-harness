@@ -332,7 +332,7 @@ describe('a deployment whose views the tool would refuse', () => {
 
   it('says so for a view writing a key named __proto__, at that key', async () => {
     // The YAML reader keeps the key as one more key of the mapping, and the
-    // config schema hands the spec over as written.
+    // config schema hands the spec over as written, so the judgement meets it.
     await loadComposition({
       views: [
         '    views:',
@@ -349,8 +349,8 @@ describe('a deployment whose views the tool would refuse', () => {
     })
     const told = errorLog.filter(line => line.includes(CONSEQUENCE))
     expect(told).toHaveLength(1)
-    expect(told[0]).toContain('component-surface: views[0] "site-overview" — spec.nodes[0].props.__proto__ — is not accepted here. '
-      + 'Accepted properties: dataList, labelWidth, columnNum.')
+    expect(told[0]).toContain('component-surface: views[0] "site-overview" — spec.nodes[0].props.__proto__ — is a key named __proto__, '
+      + 'which no mapping of a view may carry')
   })
 
   it('refuses a homeView naming no configured view the same way', async () => {

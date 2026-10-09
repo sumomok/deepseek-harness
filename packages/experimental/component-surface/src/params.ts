@@ -22,6 +22,9 @@
 /** The key whose presence makes an object a parameter reference rather than a value. */
 export const PARAM_KEY = '$param'
 
+/** The one key no mapping of a view's spec may carry, wherever the mapping sits. */
+const PROTO_KEY = '__proto__'
+
 /** One refused reference: where it sits in the spec, and what is wrong with it. */
 export interface ViewParamFailure {
   /** Parameter path of the offending value, such as `spec.nodes[0].props.relatedMeta`. */
@@ -45,7 +48,7 @@ function isReference(value: unknown): boolean {
   return isMapping(value) && PARAM_KEY in value
 }
 
-/** Refuse one reference. */
+/** Refuse the value at one path. */
 function refuse(path: string, reason: string): ViewParamResult {
   return { ok: false, failure: { path, reason } }
 }
@@ -159,6 +162,14 @@ function substituteMapping(
   path: string,
   open: Set<object>,
 ): ViewParamResult {
+  // Refused before anything in the mapping is read, so what sits under the key
+  // or beside it, a size past the spec's ceiling included, is refused for the
+  // key. The YAML readers and this walk keep it a key, and any later copy by
+  // assignment would take what is under it as the mapping's prototype.
+  if (Object.hasOwn(mapping, PROTO_KEY)) {
+    return refuse(`${path}.${PROTO_KEY}`, `is a key named ${PROTO_KEY}, which no mapping of a view may carry: copied by assignment, `
+      + 'the value under it becomes the mapping\'s prototype instead of a key, so two readers of one file would disagree on what it holds')
+  }
   if (PARAM_KEY in mapping) return resolve(mapping, params, path)
   const entries: [string, unknown][] = []
   for (const [key, own] of Object.entries(mapping)) {
@@ -166,19 +177,18 @@ function substituteMapping(
     if (!done.ok) return done
     entries.push([key, done.spec])
   }
-  // Built from entries rather than by assignment, because assigning to a key
-  // named `__proto__` sets the mapping's prototype instead of adding the key.
   return { ok: true, spec: Object.fromEntries(entries) }
 }
 
 /**
- * Replace every parameter reference in one view's spec.
+ * Replace every parameter reference in one view's spec, refusing what no view's
+ * spec may carry before any of it is judged.
  * @param spec - the spec as the view file wrote it, however malformed.
  * @param params - the view file's `params` block; empty for a view that declares none.
  * @returns the substituted spec, carrying every key the file wrote as a key of
- *   its own, `__proto__` included, and holding no value twice; or the first
- *   reference that could not be resolved, or the first alias of a mapping or
- *   list that contains it.
+ *   its own and holding no value twice; or the first refusal in document order:
+ *   a key named `__proto__` in any mapping, an alias of a mapping or list that
+ *   contains it, or a reference that could not be resolved.
  */
 export function applyViewParams(spec: unknown, params: Readonly<Record<string, unknown>>): ViewParamResult {
   return substitute(spec, params, 'spec', new Set())

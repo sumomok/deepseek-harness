@@ -268,16 +268,19 @@ describe('one show_component call', () => {
     expect(text(result)).toContain('show_component: spec.nodes[0].props.onClick — is not accepted here.')
   })
 
-  it('denies a property written under a key named __proto__, in the words a view writing it is refused in', async () => {
+  it('denies a property written under a key named __proto__ as one no component declares, at the key a view writing it is refused at', async () => {
     // As the model's JSON carries it, the key is one more key of the
-    // properties; a pack's view file is read into the same object.
+    // properties; a pack's view file is read into the same object, and refused
+    // at the same key before anything is judged by name.
     const spec: unknown = JSON.parse('{"nodes":[{"id":"page","component":"toy.data-page","props":'
       + '{"relatedMeta":"SpaceLayer","metaLabel":"空间图层","__proto__":{"readOnly":false}}}]}')
     const { run } = await bench()
     const result = await run({ id: 'layers', title: '图层数据', spec })
     expect(result.isError).toBe(true)
+    expect(text(result))
+      .toMatch(/^Error: show_component: spec\.nodes\[0\]\.props\.__proto__ — is not accepted here\. Accepted properties: relatedMeta, /)
     const judged = judgeView(KIT_CATALOG, true, { id: 'layers', title: '图层数据', spec })
-    expect(judged.ok ? undefined : `Error: show_component: ${judged.refusal.reason}`).toBe(text(result))
+    expect(judged.ok ? undefined : judged.refusal.reason).toMatch(/^spec\.nodes\[0\]\.props\.__proto__ — is a key named __proto__, /)
   })
 
   it('rejects a call with no spec before the tool body runs', async () => {

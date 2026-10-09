@@ -475,8 +475,46 @@ describe('a pack\'s views', () => {
     const [missing] = status?.missing ?? []
     expect(missing).toMatchObject({ kind: 'view-refused', view: 'views/layers.yml', path: 'spec.nodes[0].props.__proto__' })
     expect(missing?.kind === 'view-refused' ? missing.reason : '')
-      .toMatch(/^spec\.nodes\[0\]\.props\.__proto__ — is not accepted here\. Accepted properties: relatedMeta, /)
+      .toMatch(/^spec\.nodes\[0\]\.props\.__proto__ — is a key named __proto__, which no mapping of a view may carry: /)
     expect((await readCatalog(ctx)).status).not.toBe(200)
+  })
+
+  it('hold their pack back at the __proto__ key when a view hides rows past the size ceiling under it, and list it nowhere', async () => {
+    // About 82 KB of rows under the key: the reason names the key, not the
+    // size, and the sidebar lists only the pack beside it.
+    const rows = Array.from({ length: 400 }, (_, index) => `            - { name: ${String(index).padStart(4, '0')}${'x'.repeat(190)} }`)
+    const sites = [
+      'id: sites',
+      'title: 站点',
+      'spec:',
+      '  nodes:',
+      '    - id: sites',
+      '      component: toy.table',
+      '      props:',
+      '        tableConfig: { gridItems: [{ relatedMetaAttr: name }] }',
+      '        displayValueList: [{ name: 一号站点 }]',
+      '        __proto__:',
+      '          rawValueList:',
+      ...rows,
+      '',
+    ].join('\n')
+    expect(sites.length).toBeGreaterThan(80_000)
+    const ctx = await loadComposition({
+      offered: ['layers'],
+      packs: {
+        'site-table': { 'sites.yml': sites },
+        'space-data-page': { 'layers.yml': recordView('layers', '图层数据', 'sys_layer') },
+      },
+    })
+    const path = 'spec.nodes[0].props.__proto__'
+    expect((await statusOf(ctx, 'site-table'))?.missing).toEqual([{
+      kind: 'view-refused',
+      view: 'views/sites.yml',
+      path,
+      reason: `${path} — is a key named __proto__, which no mapping of a view may carry: copied by assignment, the value under it `
+        + 'becomes the mapping\'s prototype instead of a key, so two readers of one file would disagree on what it holds',
+    }])
+    expect((await readCatalog(ctx)).body).toEqual({ views: [{ id: 'layers', title: '图层数据' }] })
   })
 
   it('hold back only the packs whose view aliases a value containing it, and offer the others from the same root', async () => {
