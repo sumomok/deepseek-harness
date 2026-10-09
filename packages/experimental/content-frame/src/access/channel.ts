@@ -63,6 +63,24 @@ const CLAIM_REFUSALS = {
 } as const
 
 /**
+ * One joined domain's place on the channel: the table its tools open calls in,
+ * and the call that withdraws it.
+ *
+ * The release exists for a row that registers from a child context of its own
+ * and goes away with it; a domain whose row is the channel's own leaves by the
+ * service going with it. Withdrawing a member stops its reports being read —
+ * the calls it opened and left waiting still settle, because waiting is the
+ * table's and not the member's, and their reports are then read the way a
+ * report for a settled call is.
+ */
+export interface ChannelMembership {
+  /** The table this domain's tools open their calls in. */
+  readonly calls: CallTable
+  /** Withdraw the domain: its reports are read by nobody but the other members. */
+  readonly release: () => void
+}
+
+/**
  * One domain's part of the channel: how it names itself, how wide its reports
  * are, and how one of them is read.
  *
@@ -194,20 +212,29 @@ export class ContentChannel extends Service implements ReportSink {
    *
    * The domain's tools open their calls through the returned table, which is
    * what tags each waiting call with the member that reads its report. A member
-   * stays registered for the life of this service: the rows that register one
-   * are the rows that own the domain's tools, and both leave with the same
-   * fiber.
+   * leaves when {@link ChannelMembership.release} is called, which the row that
+   * registered it does where that row's own fiber can go away; the two routes
+   * stay claimed for the life of this service either way, so a domain that is
+   * the only one left is still answered on them.
    * @param member - the domain's part: its name, its width, and how its reports are read.
-   * @returns the table its tools open their calls in.
+   * @returns the table its tools open their calls in, and the call that withdraws it.
    */
-  register(member: ChannelMember): CallTable {
+  register(member: ChannelMember): ChannelMembership {
     this.members.set(member.name, member)
     this.claimRoutes()
     return {
-      open: (callId, sessionId, signal, timeouts, page) => this.calls.open(
-        callId, sessionId, signal, timeouts, page, member.name,
-      ),
-      sessionOf: callId => this.calls.sessionOf(callId),
+      calls: {
+        open: (callId, sessionId, signal, timeouts, page) => this.calls.open(
+          callId, sessionId, signal, timeouts, page, member.name,
+        ),
+        sessionOf: callId => this.calls.sessionOf(callId),
+      },
+      release: () => {
+        // Only while this registration is the one standing under that name: a
+        // later registration replaced it, and a release that dropped the newer
+        // member would leave a domain that never left without a reader.
+        if (this.members.get(member.name) === member) this.members.delete(member.name)
+      },
     }
   }
 

@@ -590,11 +590,14 @@ function claimPageAccess(
   // can post, and the parser that reads its own reports. The two routes and the
   // waiting table are the channel's, so a second domain delivering calls here
   // neither registers them nor shares a vocabulary with this one.
+  // The member is registered from the row's own fiber and leaves with it: this
+  // row is the channel's own row, so there is no child context whose going away
+  // could leave the member behind.
   const pending = channel.register({
     name: 'page',
     reportBytes,
     parseReport: value => parseChannelReport(value, maxTextChars, maxSteps),
-  })
+  }).calls
 
   // The projection registry is an optional seam, and this is the one thing a
   // composition without it goes without: the unclaimed refusal falls back to
