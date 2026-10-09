@@ -64,8 +64,8 @@ interface VueNode {
 }
 
 /**
- * Component instances whose popper element escapes the host subtree, mapped to
- * the instance property that closes it.
+ * The element-ui component instances a hidden block's own poppers are closed
+ * through, mapped to the instance property that closes each one.
  *
  * A closed table of the element-ui components a block may use: `el-dialog`,
  * `el-message`, and `el-notification` are forbidden outright, because nothing
@@ -73,7 +73,11 @@ interface VueNode {
  * be added here in the same change, or it stays on screen after the block it
  * belongs to is hidden — `el-date-picker` is here because the filter bar draws
  * one for an attribute whose values are dates, and `el-dropdown` because the
- * data page's table export is a split button whose menu is one.
+ * data page's table export is a split button whose menu is one. A select is
+ * listed although its list is drawn inside the select rather than on the body
+ * (this row's own installation overrides where element-ui puts it, see
+ * `element-ui.ts`): an open list is closed the same way whatever subtree holds
+ * it, and a block shown again should not come back with its list standing open.
  *
  * The sweep runs only for a caller that passes `visible: false`. No placement
  * package in this repository does: the content column unmounts a block that
