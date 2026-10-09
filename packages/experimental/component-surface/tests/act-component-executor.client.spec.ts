@@ -537,6 +537,25 @@ describe('a press the control itself refuses', () => {
       Reflect.deleteProperty(document, 'elementFromPoint')
     }
   })
+
+  it('presses a control the document gives no box to test', async () => {
+    const drawn = drawEntry('<button data-component-action="flat">Flat</button><span id="over">cover</span>')
+    const button = document.querySelector('[data-component-action="flat"]') as HTMLElement
+    const over = document.querySelector('#over') as HTMLElement
+    const pressed = vi.fn()
+    button.addEventListener('click', pressed)
+    // A box with no width and no height is one drawn at no point, so the hit
+    // test below has nothing to say about it even where it names something
+    // else — the same rule as a point the test reports no element for.
+    button.getBoundingClientRect = () => ({ left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) })
+    document.elementFromPoint = () => over
+    try {
+      expect((await run(args([{ action: 'click', key: 'flat' }]), drawn)).status).toBe('done')
+      expect(pressed).toHaveBeenCalledTimes(1)
+    } finally {
+      Reflect.deleteProperty(document, 'elementFromPoint')
+    }
+  })
 })
 
 describe('the key one control declares for itself', () => {
@@ -559,6 +578,7 @@ describe('the key one control declares for itself', () => {
 describe('a control whose id is not an identifier', () => {
   it('reads the label by comparing `for`, and one such control breaks no other write', async () => {
     const drawn = drawEntry(`
+      <label for="gone">stale</label>
       <input id="a&quot;b"><label for="a&quot;b">title</label>
       <input id='q"uote'>
       <input aria-label="owner">

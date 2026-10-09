@@ -154,7 +154,9 @@ function ownName(el: Element, within: Element): string {
   const id = el.getAttribute('id')
   if (id === null || id === '') return ''
   for (const label of within.querySelectorAll('label[for]')) {
-    if (label.getAttribute('for') === id) return (label.textContent ?? '').trim()
+    if (label.getAttribute('for') !== id) continue
+    /* v8 ignore next -- an element's textContent is null only for a document node, and a label is an element */
+    return (label.textContent ?? '').trim()
   }
   return ''
 }
