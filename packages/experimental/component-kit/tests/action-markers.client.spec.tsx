@@ -7,12 +7,12 @@
  * catalog does not declare.
  *
  * What a disposition's `carried` arm means is asserted where the control is
- * drawn: each renderer's own spec drives its component and checks the control
+ * drawn: the renderer's own spec drives its component and checks the control
  * carries the action's id (`confirm-bar`, `table-detail-renderer`,
- * `tu-query-cond-adv-renderer` and `data-page-renderer` specs). This file is
- * the cross-component half, which no single component's spec can check: the
- * catalog `act_component` reads and the marks the renderers write agreeing on
- * the same set of actions.
+ * `tu-query-cond-adv-renderer`, `data-page-renderer` and `form-page-renderer`
+ * specs). This file is the cross-component half, which no single component's
+ * spec can check: the catalog `act_component` reads and the marks the
+ * renderers write agreeing on the same set of actions.
  *
  * The `.client.` suffix names the typecheck aggregate this package belongs to,
  * not the face under test.
@@ -32,9 +32,10 @@ const CARRIED = 'carried'
  * A `carried` action is one the renderer marks on the control that performs
  * it; anything else is a sentence saying which gesture reports the action and
  * why this row marks no control of the drawn block for it: nothing a press can
- * reach performs it, the vendored build draws its own control where no stable
- * class names it, or the delivery has not reached that control. The reasons
- * are the ones the delivery report's table carries.
+ * reach performs it, or the block draws no control of its own because the
+ * gesture belongs to a block beside it. Every declared action is ruled on
+ * here; no row defers its control to a later round, and the last case of the
+ * gate refuses one that tries.
  */
 const DISPOSITIONS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   'el.confirm-bar': {
@@ -58,21 +59,21 @@ const DISPOSITIONS: Readonly<Record<string, Readonly<Record<string, string>>>> =
     'cell-click': CARRIED,
     select: CARRIED,
     'card-open': 'the page opens its side card from the row interaction already marked as cell-click; the action has no control of its own',
-    'card-close': 'the card draws its own closer inside the vendored component, which this row identifies by no stable class and does not mark',
+    'card-close': CARRIED,
     added: CARRIED,
     modified: CARRIED,
     operation: CARRIED,
     exported: CARRIED,
-    deleted: 'reported when a delete finishes; the vendored page draws its own delete control in the row operation column, which this delivery does not mark',
-    'batch-modified': 'reported when a batch edit finishes; the batch menu and its dialogs are drawn inside the vendored page, which this delivery does not mark',
+    deleted: CARRIED,
+    'batch-modified': CARRIED,
   },
   'toy.form-page': {
-    added: 'reported when the form saves a new record; the block draws the vendored page\'s own form, whose save control this delivery does not mark',
-    modified: 'reported when the form saves an edit; the block draws the vendored page\'s own form, whose save control this delivery does not mark',
+    added: CARRIED,
+    modified: CARRIED,
   },
   'toy.info-card': {
-    'card-open': 'reported when a name or a relation link on the data page opens a record; the click belongs to the page, whose cells are already marked as cell-click, and the card draws no entrance of its own',
-    'card-close': 'the card draws its own closer inside the vendored component, which this row identifies by no stable class and does not mark',
+    'card-open': 'reported when the data page hands the card the record it opened; the gesture is the page\'s own row interaction, and the card this block draws has no entrance of its own',
+    'card-close': 'reported when the data page withdraws the record it published — it closed its own card, cleared the query, turned the page, or deleted the record; the card this block mounts is drawn without a closer, so no press of the block performs it',
   },
 }
 
@@ -122,10 +123,26 @@ describe('the actions the catalog declares and the marks the renderers write', (
       'toy.data-page/query',
       'toy.data-page/cell-click',
       'toy.data-page/select',
+      'toy.data-page/card-close',
       'toy.data-page/added',
       'toy.data-page/modified',
       'toy.data-page/operation',
       'toy.data-page/exported',
+      'toy.data-page/deleted',
+      'toy.data-page/batch-modified',
+      'toy.form-page/added',
+      'toy.form-page/modified',
     ])
+  })
+
+  it('rules on every action without deferring its control to a later round', () => {
+    // The dispositions that are not `carried` have to say where the action is
+    // reported from and why no control of the drawn block performs it. A row
+    // that instead promises the control later is the state this file exists to
+    // end, so the words such a row would use are refused.
+    const deferred = /does not mark|not yet|not this round|this delivery|promised/
+    const rows = Object.entries(DISPOSITIONS).flatMap(([component, actions]) =>
+      Object.entries(actions).map(([action, disposition]) => `${component}/${action}: ${disposition}`))
+    for (const row of rows) expect(row).not.toMatch(deferred)
   })
 })

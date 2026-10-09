@@ -175,7 +175,9 @@ function draw(
   onAction = vi.fn<ComponentActionHandler>(),
   onOutput = vi.fn<ComponentOutputHandler>(),
 ) {
-  const view = render(<DataPageRenderer nodeId="page-1" props={props} state="idle" onAction={onAction} onOutput={onOutput} t={t} />)
+  const element = (next: Record<string, unknown>) =>
+    <DataPageRenderer nodeId="page-1" props={next} state="idle" onAction={onAction} onOutput={onOutput} t={t} />
+  const view = render(element(props))
   const boxWatch = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
       for (const node of mutation.addedNodes) {
@@ -184,7 +186,7 @@ function draw(
     }
   })
   boxWatch.observe(view.container, { childList: true, subtree: true })
-  return { view, onAction, onOutput, boxWatch }
+  return { view, onAction, onOutput, boxWatch, redraw: (next: Record<string, unknown>) => { view.rerender(element(next)) } }
 }
 
 /**
@@ -206,6 +208,8 @@ type PageInstance = VueInstance & {
   handleDeleteSuccess(finished: readonly unknown[]): void
   /** The page's own handler for a batch edit that changed every record. */
   handleModifyBatchSuccess(finished: readonly unknown[], batch: unknown): void
+  /** The page's own handler for a name or a relation link a person clicked, which opens its side card. */
+  handleTableTransCellClick(payload: { readonly dataBase: unknown }): void
 }
 
 /** The `DataPage` instance under one drawn block, which is where its events are raised. */
@@ -916,7 +920,7 @@ describe('the controls one data page marks for the act tool', () => {
     expect([
       markOf(view.container, 'button.query-btn'),
       markOf(view.container, '.crud-action button.el-button--success'),
-      markOf(view.container, '.crud-action button.el-button--default:not(.query-btn)'),
+      markOf(view.container, '.crud-action .right button.el-button--default:not(.query-btn)'),
       markOf(view.container, '.crud-action button.action-button'),
       markOf(view.container, '.crud-action .el-button-group .el-button:first-child'),
       markOf(view.container, '[data-component-key="modify"]'),
@@ -982,5 +986,86 @@ describe('the controls one data page marks for the act tool', () => {
     await loaded(onAction)
     await vi.waitFor(() => { expect(view.container.querySelector('.el-table__body-wrapper tbody tr')).not.toBeNull() })
     expect(view.container.querySelector('[data-component-key="modify"]')).toBeNull()
+  })
+
+  it('marks the row delete control, the batch menu and the batch dialogs with what they carry', async () => {
+    const { view, onAction } = draw(Object.freeze({
+      relatedMeta: META,
+      metaLabel: '演示设备',
+      readOnly: false,
+      toolbarButtons: ['add', 'batch', 'search', 'clear'],
+      rowOperations: ['modify', 'delete'],
+      selectMode: 'checkbox',
+    }))
+    await loaded(onAction)
+    await vi.waitFor(() => { expect(view.container.querySelector('.el-table__body-wrapper tbody tr')).not.toBeNull() })
+    await flush()
+    // The row's own delete control opens the page's confirmation bubble, and
+    // the button that answers the bubble is what a delete is reported from —
+    // the same split the toolbar's add button and the add dialog's save have.
+    expect(markOf(view.container, '[data-component-key="delete"]'))
+      .toEqual({ action: null, key: 'delete' })
+    expect(markOf(view.container, '[data-component-action="deleted"]'))
+      .toEqual({ action: 'deleted', key: null })
+    expect(view.container.querySelector('[data-component-action="deleted"]')?.textContent?.trim()).toBe('确定')
+    // The batch button is the toolbar's own `batch`, and the clear button is
+    // the one beside the query button: nothing else carries either key.
+    expect(markOf(view.container, '.crud-action button.more-button')).toEqual({ action: null, key: 'batch' })
+    expect(markOf(view.container, '.crud-action .right button.el-button--default:not(.query-btn)'))
+      .toEqual({ action: null, key: 'clear' })
+    expect(markOf(view.container, 'button.query-btn')).toEqual({ action: 'query', key: 'search' })
+    expect([...view.container.querySelectorAll('.crud-action .el-dropdown-menu__item')].map(item => item.getAttribute('data-component-key')))
+      .toEqual(['batch-update', 'batch-delete'])
+    // The item opens the batch edit; the dialog's own save button performs it.
+    fireEvent.click(view.container.querySelector('.el-table__body-wrapper .el-checkbox__original') as HTMLElement)
+    await flush()
+    fireEvent.click(view.container.querySelector('[data-component-key="batch-update"]') as HTMLElement)
+    await vi.waitFor(() => {
+      expect(view.container.querySelector('.crud-modify-batch-dialog .dialog-footer .center .el-button:last-child')).not.toBeNull()
+    }, { timeout: 5000, interval: 20 })
+    await flush()
+    expect(markOf(view.container, '.crud-modify-batch-dialog .dialog-footer .center .el-button:last-child'))
+      .toEqual({ action: 'batch-modified', key: null })
+    // A batch delete is confirmed inside the page's own delete dialog.
+    fireEvent.click(view.container.querySelector('[data-component-key="batch-delete"]') as HTMLElement)
+    await vi.waitFor(() => { expect(view.container.querySelector('.crud-delete-dialog button.confirm-button')).not.toBeNull() }, { timeout: 5000, interval: 20 })
+    expect(markOf(view.container, '.crud-delete-dialog button.confirm-button'))
+      .toEqual({ action: null, key: 'batch-delete-confirm' })
+  }, 20_000)
+
+  it('marks the closer of the card the page draws for an opened record', async () => {
+    const { view, onAction } = draw()
+    await loaded(onAction)
+    expect(markOf(view.container, '.crud-small-card .close-btn .icon-close')).toBeNull()
+    // What opens the page's own side card is its row interaction; until one
+    // is taken there is no card and no closer to mark.
+    pageOf(view.container).handleTableTransCellClick({ dataBase: { id: '1', name: '北京-核心-01', type: META } })
+    await vi.waitFor(() => { expect(view.container.querySelector('.crud-small-card .close-btn .icon-close')).not.toBeNull() }, { timeout: 5000, interval: 20 })
+    await flush()
+    expect(markOf(view.container, '.crud-small-card .close-btn .icon-close')).toEqual({ action: 'card-close', key: null })
+  }, 20_000)
+
+  it('marks a control a redraw adds by the key the call now declares', async () => {
+    // The operations are the placing call's, and a call may be replaced
+    // without the block being taken down: the pass that marks the row then
+    // has to name the controls as the call declares them now, not as the
+    // mount it started with did.
+    const { view, onAction, redraw } = draw(Object.freeze({
+      relatedMeta: META,
+      metaLabel: '演示设备',
+      readOnly: false,
+      customOperations: [{ name: 'ping', label: '测试连通' }],
+    }))
+    await loaded(onAction)
+    await vi.waitFor(() => { expect(markOf(view.container, '[data-component-key="ping"]')).not.toBeNull() })
+    redraw(Object.freeze({
+      relatedMeta: META,
+      metaLabel: '演示设备',
+      readOnly: false,
+      customOperations: [{ name: 'ping', label: '测试连通' }, { name: 'pong', label: '测一下' }],
+    }))
+    await vi.waitFor(() => { expect(markOf(view.container, '[data-component-key="pong"]')).not.toBeNull() }, { timeout: 3000, interval: 20 })
+    expect(new Set([...view.container.querySelectorAll('.operation-custom a[data-component-key]')]
+      .map(control => control.getAttribute('data-component-key')))).toEqual(new Set(['ping', 'pong']))
   })
 })

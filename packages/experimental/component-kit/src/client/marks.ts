@@ -86,6 +86,18 @@ const OPERATION_CELLS = under(BODY_WRAPPERS, 'tbody td:not(.is-hidden) .column-o
 /** The built-in modify control a data page's operation column draws. */
 const BUILTIN_MODIFY = '.operation-modify'
 
+/** The built-in delete control a data page's operation column draws, with the confirmation bubble it opens. */
+const BUILTIN_DELETE = under(BODY_WRAPPERS, 'tbody td:not(.is-hidden) .operation-delete')
+
+/**
+ * The confirming control inside that bubble: the button that performs the
+ * delete once a person has answered it. The bubble is drawn with the row's
+ * operation cell and kept in the document while it is closed, so the control
+ * is marked from the mount on and the press that answers the bubble is the
+ * one a delete reports from.
+ */
+const DELETE_CONFIRM = under(BODY_WRAPPERS, 'tbody td:not(.is-hidden) .column-operation .el-popover .el-button--primary')
+
 /** One declared custom operation's control, as both builds draw it: the link inside its wrapper. */
 const CUSTOM_OPERATION = '.operation-custom a'
 
@@ -176,21 +188,26 @@ export function markTable(root: Element, marks: TableMarks): void {
 }
 
 /**
- * Every field input one data page draws: its query panel's and its write
+ * Every field input one data page draws: its query panel's and its three write
  * dialogs'. One selector per form rather than one form list, because a
- * descendant combinator applies to the last selector of a list alone. The two
- * dialogs' own classes are what tell them apart: both are also drawn with
+ * descendant combinator applies to the last selector of a list alone. The
+ * dialogs' own classes are what tell them apart: each is also drawn with
  * `modify-single-dialog`, which is the dialog component rather than the write
- * either one performs.
+ * it performs.
  */
 const DATA_PAGE_FIELD_INPUTS = [
   '.crud-query input.el-input__inner',
   '.crud-add-dialog input.el-input__inner',
   '.crud-modify-dialog input.el-input__inner',
+  '.crud-modify-batch-dialog input.el-input__inner',
 ].join(', ')
 
+/** The field inputs one form page's own form draws: the vendored page's form, without its dialogs. */
+const FORM_PAGE_FIELD_INPUTS = '.toy-form-page input.el-input__inner'
+
 /**
- * Name every field one data page draws, by the column it stands for.
+ * Name every field input a selector list finds, by the column its field item
+ * labels it with.
  *
  * The field items are drawn from the table's own scheme, and each one's label
  * carries the column's own name in its `for` — the same name the block's
@@ -198,13 +215,55 @@ const DATA_PAGE_FIELD_INPUTS = [
  * those panels that no field item labels, the query panel's own search box,
  * carries no name and is left unmarked rather than named after a guess.
  * @param root - the block's subtree.
+ * @param inputs - the inputs one block's fields are drawn as.
  */
-export function markPageFields(root: Element): void {
-  for (const input of root.querySelectorAll(DATA_PAGE_FIELD_INPUTS)) {
+function markFields(root: Element, inputs: string): void {
+  for (const input of root.querySelectorAll(inputs)) {
     const field = input.closest('.el-form-item')?.querySelector('label[for]')?.getAttribute('for') ?? ''
     if (field === '') continue
     input.setAttribute(FIELD_MARK, field)
   }
+}
+
+/**
+ * Name every field one data page draws, by the column it stands for.
+ * @param root - the block's subtree.
+ */
+export function markPageFields(root: Element): void {
+  markFields(root, DATA_PAGE_FIELD_INPUTS)
+}
+
+/** The save control one form page draws at the centre of its footer. */
+const FORM_PAGE_SAVE = '.toy-form-page .dialog-footer .center button.el-button--primary'
+
+/** What one form page block reports, in the catalog's own vocabulary. */
+export interface FormPageMarks {
+  /**
+   * The action the form's save control reports; absent while the form has
+   * nothing to save — the form's mode is what decides whether saving adds a
+   * record or edits one, and this block reports that mode's action.
+   */
+  readonly save?: string
+}
+
+/**
+ * Mark one drawn form page's controls.
+ *
+ * The form draws its own save control at the centre of its footer, and that
+ * button is the one a saved record is reported from; the form's fields are
+ * named by the columns their labels carry, as a data page's are. Both are
+ * drawn by the vendored component, so the mark pass runs again whenever it
+ * renders.
+ * @param root - the block's subtree.
+ * @param marks - the action saving reports right now.
+ */
+export function markFormPage(root: Element, marks: FormPageMarks): void {
+  const { save } = marks
+  if (save !== undefined) {
+    const control = root.querySelector(FORM_PAGE_SAVE)
+    if (control !== null) control.setAttribute(ACTION_MARK, save)
+  }
+  markFields(root, FORM_PAGE_FIELD_INPUTS)
 }
 
 /** One control of a data page, with the action and key it is marked by. */
@@ -230,17 +289,43 @@ interface PageControl {
  * it by, or both. The two export buttons are one action with two keys: what
  * the page reports on either is that an export task was submitted, and which
  * of the two it was is what the key says. The dialog buttons are drawn only
- * while their dialog is open, and the mark pass runs again when it is.
+ * while their dialog is open, and the mark pass runs again when it is. The
+ * clear button is looked for inside the toolbar's right half, where the page
+ * draws it: the batch menu's trigger is a plain button too, and a selector
+ * taking the first of both would mark the menu with the clear key.
  */
 const DATA_PAGE_CONTROLS: readonly PageControl[] = [
   { select: 'button.query-btn', action: 'query', key: 'search' },
   { select: '.crud-add-dialog .dialog-footer .center .el-button:last-child', action: 'added' },
   { select: '.crud-modify-dialog .dialog-footer .center .el-button:last-child', action: 'modified' },
+  { select: '.crud-modify-batch-dialog .dialog-footer .center .el-button:last-child', action: 'batch-modified' },
   { select: '.crud-action button.el-button--success', key: 'add' },
-  { select: '.crud-action button.el-button--default:not(.query-btn)', key: 'clear' },
+  { select: '.crud-action .right button.el-button--default:not(.query-btn)', key: 'clear' },
+  { select: '.crud-action button.more-button', key: 'batch' },
   { select: '.crud-action button.action-button', action: 'exported', key: 'exp' },
   { select: '.crud-action .el-button-group .el-button:first-child', action: 'exported', key: 'gridexp' },
+  { select: BUILTIN_DELETE, key: 'delete' },
+  { select: DELETE_CONFIRM, action: 'deleted' },
+  { select: '.crud-delete-dialog button.confirm-button', key: 'batch-delete-confirm' },
+  { select: '.crud-small-card .close-btn .icon-close', action: 'card-close' },
 ]
+
+/**
+ * The key each item of a data page's batch menu carries, by the icon the
+ * vendored build draws on it.
+ *
+ * The items are `el-dropdown-item`s whose only own markup is their text and
+ * one icon, so the icon is what tells which operation an item starts; the
+ * page's own names for the two — its `batchUpdate` and `batchDelete` toolbar
+ * states — are what the keys spell.
+ */
+const BATCH_MENU_KEYS: readonly { readonly icon: string; readonly key: string }[] = [
+  { icon: 'i.el-icon-edit', key: 'batch-update' },
+  { icon: 'i.el-icon-delete', key: 'batch-delete' },
+]
+
+/** One item of the toolbar dropdown a data page's batch button opens. */
+const BATCH_MENU_ITEM = '.crud-action .el-dropdown-menu__item'
 
 /**
  * What one data page block reports, in the catalog's own vocabulary.
@@ -260,7 +345,9 @@ export interface DataPageMarks {
  * Its table is marked as the table it is, with the one row action this page
  * reports and the operation keys its arrangement declares; its toolbar and its
  * dialogs are marked with the actions the catalog declares and the keys the
- * arrangement names.
+ * arrangement names; and the menu the batch button opens is marked item by
+ * item, because what a batch edit is performed by is the dialog's own confirm
+ * rather than the item that opened it.
  * @param root - the block's subtree.
  * @param marks - the custom operations the block declared.
  */
@@ -270,6 +357,10 @@ export function markDataPage(root: Element, marks: DataPageMarks): void {
       if (control.action !== undefined) el.setAttribute(ACTION_MARK, control.action)
       if (control.key !== undefined) el.setAttribute(KEY_MARK, control.key)
     }
+  }
+  for (const item of root.querySelectorAll(BATCH_MENU_ITEM)) {
+    const key = BATCH_MENU_KEYS.find(entry => item.querySelector(entry.icon) !== null)?.key
+    if (key !== undefined) item.setAttribute(KEY_MARK, key)
   }
   markPageFields(root)
   markTable(root, {

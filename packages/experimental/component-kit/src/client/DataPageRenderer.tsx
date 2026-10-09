@@ -445,9 +445,16 @@ function DataPageBlock({ props, vueProps, onAction, onOutput }: DataPageProps) {
   // and every field input with the column its own label names. Kept on the
   // contained box through a MutationObserver rather than one pass per commit,
   // because the page draws on state of its own: a cell after a query and a
-  // dialog after a press are drawn afresh and have to be marked again.
+  // dialog after a press are drawn afresh and have to be marked again. What is
+  // marked reads the block's current properties through a ref, the way every
+  // other effect that outlives its commit does: a placing call that changes
+  // the operations within one mount redraws the row's controls, and the pass
+  // that marks them must name them as the call now declares them.
+  const marking = useRef({ props: vueProps })
+  useEffect(() => { marking.current = { props: vueProps } })
   useEffect(() => keepMarked(box.current as HTMLDivElement, (root) => {
-    markDataPage(root, { custom: (vueProps.customOperations ?? []).map(operation => operation.name) })
+    const current = marking.current.props
+    markDataPage(root, { custom: (current.customOperations ?? []).map(operation => operation.name) })
   }), [])
   return (
     <div ref={box} className={css.box}>

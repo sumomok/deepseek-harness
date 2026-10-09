@@ -41,6 +41,7 @@ import { FormPage, type FormPageSavedPayload } from '@sumomok/toy-crud-kit'
 import { readFormPage, readFormSaved, type FormPageVueProps } from './data-page-read.ts'
 import { useBasePathState, useContainedComponent } from './crud-box.ts'
 import { useAbilities } from './use-abilities.ts'
+import { keepMarked, markFormPage } from './marks.ts'
 import type { DataPageAbilityTable } from '../route.ts'
 import type { VueEventHandlers } from './vue2-bridge.tsx'
 import css from './crud-part.module.css'
@@ -62,6 +63,22 @@ type FormPageMountProps = FormPageVueProps & {
   readonly abilities: DataPageAbilityTable
 }
 
+/** The action a save reports, by the mode of the request the form is open on. */
+const SAVE_ACTION: Readonly<Record<string, string>> = {
+  add: ADDED_ACTION_ID,
+  modify: MODIFIED_ACTION_ID,
+}
+
+/**
+ * The action saving this form reports right now.
+ * @param vueProps - the form's properties, as the block is drawing it.
+ * @returns the mode's action, or `undefined` for a form no request opened.
+ */
+function saveAction(vueProps: FormPageMountProps): string | undefined {
+  const mode = vueProps.request?.['mode']
+  return typeof mode === 'string' ? SAVE_ACTION[mode] : undefined
+}
+
 /** What one drawn form needs. */
 interface FormPageBlockProps {
   /** The block's properties and the host's verdict, as `FormPage` takes them. */
@@ -81,6 +98,16 @@ function FormPageBlock({ vueProps, onAction }: FormPageBlockProps) {
     },
   }), [])
   const { box, host } = useContainedComponent({ component: FormPage, props: vueProps, on })
+  // The form and its save button are drawn by Vue inside this box, and the
+  // request the form is open on is what decides which action a save reports,
+  // so the mark pass reads the current properties through a ref the way every
+  // other effect that outlives its commit does.
+  const marking = useRef({ props: vueProps })
+  useEffect(() => { marking.current = { props: vueProps } })
+  useEffect(() => keepMarked(box.current as HTMLDivElement, (root) => {
+    const save = saveAction(marking.current.props)
+    markFormPage(root, save === undefined ? {} : { save })
+  }), [])
   return (
     <div ref={box} className={vueProps.request === undefined ? css.idleBox : css.box}>
       <div ref={host} className={css.host} />

@@ -240,6 +240,25 @@ describe('toy.form-page', () => {
     expect(onAction).toHaveBeenLastCalledWith('modified', { record: { zh_label: '甲', city: '济南' } })
   })
 
+  it('marks the save control with the action saving reports, and follows the form\'s mode', async () => {
+    const meta = table('probe_form_marks')
+    const { view, redraw } = draw(Object.freeze({ relatedMeta: meta, request: { mode: 'add', type: meta } }))
+    await opened(view.container)
+    const save = () => view.container.querySelector('.toy-form-page .dialog-footer .center .el-button--primary')
+    await vi.waitFor(() => { expect(save()?.getAttribute('data-component-action')).toBe('added') }, { timeout: 5000, interval: 20 })
+    expect(save()?.textContent?.trim()).toBe('确 定')
+    // The form's fields are named after the columns their labels carry, so a
+    // step names the column it wants written rather than the alias drawn.
+    await vi.waitFor(() => {
+      expect([...view.container.querySelectorAll('.toy-form-page input.el-input__inner')]
+        .map(input => input.getAttribute('data-component-field'))).toEqual(['code', 'zh_label', 'city'])
+    }, { timeout: 3000, interval: 20 })
+    // The same form redrawn on a modify request saves an edit, and the mark
+    // says so rather than reporting the mount's own mode.
+    redraw(Object.freeze({ relatedMeta: meta, request: { mode: 'modify', type: meta, id: '1', name: '甲' } }))
+    await vi.waitFor(() => { expect(save()?.getAttribute('data-component-action')).toBe('modified') }, { timeout: 5000, interval: 20 })
+  }, 20_000)
+
   it('draws the line saying the block names no table, and mounts nothing', async () => {
     const { view } = draw({ request: { mode: 'add', type: 'probe_form_none' } })
     await flush()
