@@ -687,11 +687,12 @@ describe('a delete', () => {
 })
 
 describe('a batch edit', () => {
-  const COLUMNS = [{ attr: 'zh_label', alias: '名称' }]
+  const MANY = Array.from({ length: DATA_PAGE_REPORT_LIMITS.savedFields + 1 }, (_unused, index) => `f${index}`)
+  const COLUMNS = [{ attr: 'zh_label', alias: '名称' }, { attr: 'state' }, ...MANY.map(attr => ({ attr }))]
 
   it('counts the records, names the first few, and lists each field changed once', () => {
     const modified = Array.from({ length: 6 }, (_unused, index) => ({ zh_label: `B-${index}` }))
-    const attrs = ['state', 'state', '1st', ...Array.from({ length: DATA_PAGE_REPORT_LIMITS.savedFields + 1 }, (_unused, index) => `f${index}`)]
+    const attrs = ['state', 'state', '1st', ...MANY]
     const report = readBatchModified({ meta: 'device', modified, attrs }, COLUMNS)
     expect(report?.succeeded).toBe(6)
     expect(report?.failed).toBe(0)
@@ -699,6 +700,13 @@ describe('a batch edit', () => {
     expect(report?.fields).toHaveLength(DATA_PAGE_REPORT_LIMITS.savedFields)
     expect(report?.fields.slice(0, 2)).toEqual(['state', 'f0'])
     expect(readBatchModified({ meta: 'device', modified: [], attrs: null as never }, COLUMNS)?.fields).toEqual([])
+  })
+
+  it('names only the fields among the columns a report may carry', () => {
+    // The page hands over every ticked attribute; `layer_id` is one the table
+    // does not draw and `phone` one the scheme masks, so neither is reported.
+    const report = readBatchModified({ meta: 'device', modified: [{ zh_label: 'B-0' }], attrs: ['layer_id', 'state', 'phone'] }, COLUMNS)
+    expect(report?.fields).toEqual(['state'])
   })
 
   it('is not reported where the payload carries no list of changed records', () => {
@@ -736,7 +744,8 @@ describe('a column the scheme masks', () => {
   it('reaches no saved, deleted or batch-edited record the data page reports', () => {
     expect(readSaved(ROW, values)).toEqual({ record: { zh_label: '', city: '北京' } })
     expect(readDeleted({ meta: 'device', ids: ['1'], deleted: [ROW], failed: 0 }, values)?.names).toEqual(['北京'])
-    expect(readBatchModified({ meta: 'device', modified: [ROW], attrs: ['city'] }, values)?.names).toEqual(['北京'])
+    expect(readBatchModified({ meta: 'device', modified: [ROW], attrs: ['code', 'city'] }, values))
+      .toEqual({ succeeded: 1, failed: 0, names: ['北京'], fields: ['city'] })
   })
 
   it('reaches no clicked, ticked or pressed row', () => {
