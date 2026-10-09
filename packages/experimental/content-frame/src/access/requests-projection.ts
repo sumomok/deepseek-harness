@@ -25,6 +25,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 // Type-only: pulls this package's own `contentAccess` projection declarations.
 import type { ContentAccessRequest, ContentAccessView } from '../types.ts'
+import { checkedPending, foldPending, type ProjectionLogger } from './channel.ts'
 import {
   CONTENT_ACT_TOOL_NAME, CONTENT_READ_ATTRS_TOOL_NAME, CONTENT_READ_DOM_CONTENT_TOOL_NAME,
   CONTENT_READ_DOM_TOOL_NAME, CONTENT_READ_IMAGE_TOOL_NAME, CONTENT_READ_TOOL_NAME, parseActArgs, parseDomArgs,
@@ -240,33 +241,22 @@ function settledCallId(event: SessionEvent): string | undefined {
 
 /**
  * What this unit needs of a logger: one line for a call it folded and then
- * refused, which is the whole of what the model's own sentence leaves out.
+ * refused, which is the whole of what the model's own sentence leaves out. The
+ * channel's own declaration is this unit's — every pending list shares it.
  */
-export interface ProjectionLogger {
-  /**
-   * Record one line.
-   * @param message - the line.
-   */
-  readonly warn: (message: string) => void
-}
+export type { ProjectionLogger }
+
+/** How this unit names itself in the line it writes about a value it refused. */
+const UNIT_NAME = 'contentAccess'
 
 /**
  * The view this unit publishes, checked against the schema that guards it.
- *
- * The registry parses every view before it leaves, and a failure there reaches
- * the model as the validator's raw issue list — an argument to change, about a
- * call whose arguments are fine. Checking here turns the same defect into one
- * sentence the model can act on and one log line carrying the issues.
  * @param pending - the calls this fold holds open.
  * @param logger - where the refused value's issues are recorded.
  * @returns the wire value.
  */
 function publishable(pending: ContentAccessRequest[], logger: ProjectionLogger): ContentAccessView {
-  const value = { pending }
-  const read = viewSchema.safeParse(value)
-  if (read.success) return value
-  logger.warn(`contentAccess refused its own view: ${JSON.stringify(read.error.issues)}`)
-  throw new Error(UNPUBLISHABLE_CALL_REFUSAL)
+  return checkedPending({ pending }, viewSchema, logger, UNIT_NAME, UNPUBLISHABLE_CALL_REFUSAL)
 }
 
 /**
@@ -279,14 +269,9 @@ export function contentAccessProjection(logger: ProjectionLogger): ContentAccess
     key: 'contentAccess',
     stateSchema,
     init: () => [],
-    apply: (state: ContentAccessRequest[], event: SessionEvent) => {
-      const opened = readContentAccessCall(event)
-      if (opened !== undefined) return [...state, opened]
-      const settled = settledCallId(event)
-      if (settled === undefined) return state
-      const at = state.findIndex(request => request.callId === settled)
-      return at === -1 ? state : [...state.slice(0, at), ...state.slice(at + 1)]
-    },
+    apply: (state: ContentAccessRequest[], event: SessionEvent) => (
+      foldPending(state, event, readContentAccessCall, settledCallId)
+    ),
     wire: { viewSchema, view: pending => publishable(pending, logger) },
     stateVersion: 4,
   }

@@ -42,18 +42,18 @@ packages/experimental/content-frame/src/access/channel.ts   （新）
 - 成员限权（`members.ts` 的 `admitCaller`/`placeByMember`）、同站 JSON 围栏（`http.ts`）、body 上界都跟着 route 一起搬进服务，页面域的这几条不变量一字不改。
 - `pendingProjection({ key, stateSchema, viewSchema, readCall, logger })` 是「待办」共享的那一半：页面域继续用 `contentAccess`（`contentAccessProjection` 变成它的一层薄包装，schema 与行为不变），组件域用同一个构造器注册自己的键。**投影键仍按域分摊**，因为键里的参数词汇（工具名 + 参数 arm）是域自己的词汇；把两域塞进一个键就得让页面那套换成泛型 arm 并在标签页里重新窄化，那是把页面域的行为拿去冒险，本阶段不做。
 
-**浏览器半边：新服务 `ctx.contentChannel`（由 `content-frame/client` 提供）。**
+**浏览器半边：新模块 `ContentChannel`（`content-frame/client`）。**
 
 ```
 packages/experimental/content-frame/src/client/access/channel.ts （新）
-  ContentChannel  服务：TAB_ID、hidden 宽限、bid loop、上报 + 一次重试、prune
-  ChannelDomain   一个域的登记口：工具名集合、enabled、holds(sessionId)、answer(call, claimed) -> { route, body }
+  ContentChannel  一个域一份实例：TAB_ID、hidden 宽限、bid loop、上报 + 一次重试、prune
+  ChannelDomain   一个域的登记口：name、ready()、answer(call, claimed) -> { route, body }
   ChannelDemand   一个域座位每一帧报上的「我现在能答哪些 call、哪些 call 还开着」
 ```
 
-- `TAB_ID` 在服务实例里铸造一次，两域共用同一个 tab 身份（否则宿主的 session→tab 钉选会在两域间来回抖动，每次交替多付一个 `PREFERRED_TAB_WINDOW_MS` 的 hold）。
-- 座位（`ContentFrame` 与组件座位）每一帧把 `ChannelDemand` 交给服务；服务按 openCalls 剪枝、按 started 去重、对未开始的 call 起后台 `answer()`（隐藏宽限 → claim → `domain.answer()` → 按 body 报到域自己指定的 route，未落地再报一次）。这套逻辑与今天 `executor.ts` 的 `answer()`/`claimRead()`/`reportRead()` 逐条对应，只是把「谁来答」变成了域的回调。
-- 页面域把 `prepare()`/`readPage()`/`readImage()`/`actOnPage()` 原样留在 `executor.ts`，外面包一层 `pageDomain(...)`；组件域在 `component-surface/client` 里实现自己的 domain。
+- 座位（`ContentFrame` 与组件座位）每一帧把 `ChannelDemand` 报给它 `join` 的那个 channel；channel 按 openCalls 剪枝、按 started 去重、对未开始的 call 起后台 `answer()`（隐藏宽限 → claim → `domain.answer()` → 按 body 报到域自己指定的 route，未落地再报一次）。这套逻辑与今天 `executor.ts` 的 `answer()`/`claimRead()`/`reportRead()` 逐条对应，只是把「谁来答」变成了域的回调。
+- 页面域把 `prepare()`/`readPage()`/`readImage()`/`actOnPage()` 原样留在 `executor.ts`，外面包一层 `pageDomain(...)`；`useContentRead(seat, channel = 页面自己的 channel)` 的签名与语义不变，于是页面那两份执行器回归测试一行都不用改——这是把它做成**每域一个实例的共享类**而不是一个 Cordis 单例服务的原因。组件域在 `component-surface/client` 里 `new ContentChannel()` 并实现自己的 domain。
+- **代价（写进缺口）**：两个域的 client bundle 各自内联这份模块，于是各有一个 `TAB_ID`；一个 session 的调用在页面域与组件域之间交替时，宿主会多付一次 `PREFERRED_TAB_WINDOW_MS`（250ms）的 tab 钉选窗口。第一阶段接受这个代价，换取页面半边零改动。
 
 **谁注册、谁消费。**
 
@@ -64,7 +64,7 @@ packages/experimental/content-frame/src/client/access/channel.ts （新）
 ### 1.3 这一刀的已知缺口（留给主会话定）
 
 1. **接缝的物理位置仍寄居 `content-frame`。** 于是一个只组合 `component-surface`、不组合 `content-frame` 的部署拿不到通道，`act_component` 只能超时。真正的解法是把宿主与浏览器两半的接缝移进独立包（或挂到两域共同的 `content-surface` 那一层），本阶段只把它收成一个窄接口，好让那次搬迁是纯搬运。
-2. **客户端单例要求 `content-frame/client` 也在页面里**（同一 `TAB_ID`、同一 bid loop）。若将来允许组件域独立装载，接缝必须先独立成模块。
+2. **客户端是「共享类、每域一份实例」而不是单例服务**（见 1.2 末条）：两域各有一个 tab 身份，交替调用要付一次 250ms 的钉选窗口。想让两域共用一个实例，要么让 `content-frame/client` 的插件在页面里扮演提供者并把实例通过 DI 交给组件域（代价是组件域从此要求页面行已加载），要么等接缝搬进独立包。本阶段取零改动页面回归网的那条路。
 3. 页面域的报告体解析仍按页面上界校验（`maxTextChars`、`maxSteps`），组件域用自己的上界；两域的 `parseReport` 互不代劳，这正是成员派发要解决的事。
 
 ## 2. `act_component` 的入参与动作词汇表（最小集）

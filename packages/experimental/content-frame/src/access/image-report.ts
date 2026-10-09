@@ -24,7 +24,7 @@
 
 import { Buffer } from 'node:buffer'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
-import { REPORT_REFUSED, type PendingCalls } from './pending.ts'
+import { REPORT_REFUSED, type ReportSink } from './pending.ts'
 import { imageStoreRefusal } from './text.ts'
 import type { ImageCapture, ImageReportRequest, ReadOutcome, ReportAck } from './wire.ts'
 
@@ -84,7 +84,7 @@ export async function storeCapture(attachments: AttachmentStore, capture: ImageC
  * written. A store's own refusals are settlements here rather than throws, so a
  * store that answers at all ends the call on this post; a save that never
  * settles holds the reservation until the call's own deadline ends it, on the
- * terms {@link PendingCalls.reserveReport} states. Both arms go to the same
+ * terms {@link ReportSink.reserveReport} states. Both arms go to the same
  * call and the same table, so one call id is never raced by two routes: an
  * image read's failures travel this route too rather than the listing routes'.
  * @param attachments - the deployment's attachment store.
@@ -95,7 +95,7 @@ export async function storeCapture(attachments: AttachmentStore, capture: ImageC
  */
 export async function settleImageReport(
   attachments: AttachmentStore,
-  pending: PendingCalls,
+  pending: ReportSink,
   report: ImageReportRequest,
 ): Promise<ReportAck> {
   if (!pending.reserveReport(report.callId, report.tabId)) return REPORT_REFUSED

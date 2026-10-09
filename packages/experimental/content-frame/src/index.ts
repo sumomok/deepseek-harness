@@ -51,7 +51,8 @@ import {
   answerJson, readJsonBody, rejectMethod, rejectUntrustedPost, takeJsonBody, type BodyRefusals,
 } from './access/http.ts'
 import { admitCaller, placeByMember, placeEveryCaller, reportDirectoryMismatch } from './access/members.ts'
-import { PendingCalls, REPORT_REFUSED, UNKNOWN_CLAIM, type CallTimeouts } from './access/pending.ts'
+import { REPORT_REFUSED, type CallTimeouts } from './access/pending.ts'
+import { ContentChannel } from './access/channel.ts'
 import { contentAccessProjection } from './access/requests-projection.ts'
 import { contentReadTool } from './access/read-tool.ts'
 import { contentReadAttrsTool, contentReadDomContentTool, contentReadDomTool } from './access/markup-tool.ts'
@@ -62,9 +63,9 @@ import { DialogApprovals } from './access/dialog-approvals.ts'
 import { registerActApproval, type ActApproval } from './access/act-approval.ts'
 import type { FrontEntry } from './access/text.ts'
 import {
-  ACT_RUN_SHARE, CONTENT_CLAIM_ROUTE, CONTENT_IMAGE_ROUTE, CONTENT_REPORT_ROUTE, EXPORT_WAIT_SHARE,
+  ACT_RUN_SHARE, CONTENT_IMAGE_ROUTE, EXPORT_WAIT_SHARE,
   IMAGE_REPORT_BYTES, MAX_ACT_STEPS, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR, MIN_OUTLINE_CHARS,
-  parseChannelReport, parseClaimRequest, parseImageReport, REPORT_ENVELOPE_BYTES, SETTLE_WAIT_SHARE,
+  parseChannelReport, parseImageReport, REPORT_ENVELOPE_BYTES, SETTLE_WAIT_SHARE,
 } from './access/wire.ts'
 import { contentPagesProjection } from './perception/pages-projection.ts'
 import { registerColumnContext } from './perception/context.ts'
@@ -484,38 +485,33 @@ function resolveActApproval(config: PageAccessConfig): ActApproval {
   return { kind: 'judged', judgedBy }
 }
 
-/**
- * Bytes a claim can possibly need: one call id, one tab id, and the JSON around
- * them. A protocol bound, not a deployment choice.
- */
-const MAX_CLAIM_BYTES = 1024
-
-/** What the claim route calls itself in its own refusals. */
-const CLAIM_ROUTE_NAME = 'the read claim route'
-
-/** What the report route calls itself in its own refusals. */
-const REPORT_ROUTE_NAME = 'the read report route'
-
 /** What the picture route calls itself in its own refusals. */
 const IMAGE_ROUTE_NAME = 'the picture report route'
 
 /**
- * Claim the three read routes, the five reading tools, the acting tool, and the
- * pending projection.
+ * Join the page domain to the shared call channel: its two report shapes, the
+ * five reading tools, the acting tool, its pending list, and the picture route.
  *
  * Every registration lives inside this one call, so a deployment that
- * configures no `pageAccess` has none of them: the routes 404, the model is
- * offered no tool, no session publishes a pending list, and the browser half
- * reads the absent settings field and installs no reader. The picture read and
- * the route its pixels arrive on are claimed one level further in, where an
+ * configures no `pageAccess` has none of them: the page domain registers no
+ * member, so the channel claims no route and 404s; the model is offered no
+ * tool, no session publishes a page pending list, and the browser half reads
+ * the absent settings field and installs no reader. The picture read and the
+ * route its pixels arrive on are claimed one level further in, where an
  * attachment store is mounted: pixels reach the model as a stored attachment,
  * so a deployment with nowhere to keep them is offered neither.
  * @param ctx - plugin context carrying the webServer service.
+ * @param channel - the shared channel this domain delivers its calls through.
  * @param config - the deployment's page-access block.
  * @param perMember - whether each post is answered only for its member's calls.
  * @returns the settings the browser half needs to run a read.
  */
-function claimPageAccess(ctx: Context, config: PageAccessConfig, perMember: boolean): ContentFrameSettings['pageAccess'] {
+function claimPageAccess(
+  ctx: Context,
+  channel: ContentChannel,
+  config: PageAccessConfig,
+  perMember: boolean,
+): ContentFrameSettings['pageAccess'] {
   // Loud at load: a zero deadline would refuse every read the model can make,
   // with no diagnostic pointing at the row that set it.
   const claimTimeoutMs = requireAtLeast('claimTimeoutMs', config.claimTimeoutMs, 1)
@@ -580,14 +576,6 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig, perMember: bool
   // budget the envelope no longer covers, this bound refuses a listing of
   // multibyte text that the parser's character bound alone would have taken.
   const reportBytes = outlineChars * MAX_TEXT_BYTES_PER_CHAR + REPORT_ENVELOPE_BYTES
-  const claimRefusals: BodyRefusals = {
-    oversize: `content-frame: ${CLAIM_ROUTE_NAME} refuses a body past ${MAX_CLAIM_BYTES} bytes`,
-    shape: 'content-frame: expected a JSON body with callId and tabId',
-  }
-  const reportRefusals: BodyRefusals = {
-    oversize: `content-frame: ${REPORT_ROUTE_NAME} refuses a body past ${reportBytes} bytes`,
-    shape: 'content-frame: expected a JSON body with callId, tabId, and outcome',
-  }
   // A bound of its own, computed from the protocol's own picture constants
   // rather than from the deployment's character budget: carrying pixels through
   // the report route would have raised the bound on every text read with them.
@@ -595,54 +583,18 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig, perMember: bool
     oversize: `content-frame: ${IMAGE_ROUTE_NAME} refuses a body past ${IMAGE_REPORT_BYTES} bytes`,
     shape: 'content-frame: expected a JSON body with callId, tabId, and capture',
   }
-  const pending = new PendingCalls()
   const approvals = new DialogApprovals()
   const place = perMember ? placeByMember(ctx) : placeEveryCaller
   reportDirectoryMismatch(ctx, perMember, ctx.logger('content-frame'))
-
-  ctx.effect(() => ctx.webServer.register({
-    kind: 'exact',
-    path: CONTENT_CLAIM_ROUTE,
-    handler: async (req, res) => {
-      if (req.method !== 'POST') {
-        rejectMethod(req, res, 'POST', MAX_CLAIM_BYTES)
-        return
-      }
-      if (rejectUntrustedPost(req, res, CLAIM_ROUTE_NAME, MAX_CLAIM_BYTES)) return
-      const caller = admitCaller(place, req, res, CLAIM_ROUTE_NAME, MAX_CLAIM_BYTES)
-      if (caller === undefined) return
-      const body = takeJsonBody(res, await readJsonBody(req, MAX_CLAIM_BYTES), claimRefusals)
-      if (body === undefined) return
-      const claim = parseClaimRequest(body.value)
-      if (claim === undefined) {
-        answerJson(res, 400, { error: claimRefusals.shape })
-        return
-      }
-      answerJson(res, 200, caller.owns(pending.sessionOf(claim.callId)) ? await pending.claim(claim) : UNKNOWN_CLAIM)
-    },
-  }), 'content-frame: page read claim route')
-
-  ctx.effect(() => ctx.webServer.register({
-    kind: 'exact',
-    path: CONTENT_REPORT_ROUTE,
-    handler: async (req, res) => {
-      if (req.method !== 'POST') {
-        rejectMethod(req, res, 'POST', reportBytes)
-        return
-      }
-      if (rejectUntrustedPost(req, res, REPORT_ROUTE_NAME, reportBytes)) return
-      const caller = admitCaller(place, req, res, REPORT_ROUTE_NAME, reportBytes)
-      if (caller === undefined) return
-      const body = takeJsonBody(res, await readJsonBody(req, reportBytes), reportRefusals)
-      if (body === undefined) return
-      const report = parseChannelReport(body.value, maxTextChars, maxSteps)
-      if (report === undefined) {
-        answerJson(res, 400, { error: reportRefusals.shape })
-        return
-      }
-      answerJson(res, 200, caller.owns(pending.sessionOf(report.callId)) ? pending.report(report) : REPORT_REFUSED)
-    },
-  }), 'content-frame: page read report route')
+  // The page domain joins the shared channel: its own name, the widest body it
+  // can post, and the parser that reads its own reports. The two routes and the
+  // waiting table are the channel's, so a second domain delivering calls here
+  // neither registers them nor shares a vocabulary with this one.
+  const pending = channel.register({
+    name: 'page',
+    reportBytes,
+    parseReport: value => parseChannelReport(value, maxTextChars, maxSteps),
+  })
 
   // The projection registry is an optional seam, and this is the one thing a
   // composition without it goes without: the unclaimed refusal falls back to
@@ -689,7 +641,7 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig, perMember: bool
         answerJson(
           res,
           200,
-          caller.owns(pending.sessionOf(report.callId)) ? await settleImageReport(attachments, pending, report) : REPORT_REFUSED,
+          caller.owns(pending.sessionOf(report.callId)) ? await settleImageReport(attachments, channel, report) : REPORT_REFUSED,
         )
       },
     }), 'content-frame: page picture report route')
@@ -771,9 +723,14 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       await serveContentApp(pathname.slice(CONTENT_APP_ROUTE.length), res, root)
     },
   }), 'content-frame: hosted application route')
+  // The channel is provided here and joins whichever domains deliver calls
+  // through it; it claims no route until one does.
+  const channel = new ContentChannel(ctx, {
+    place: config.perMember === true ? placeByMember(ctx) : placeEveryCaller,
+  })
   const pageAccess = config.pageAccess === undefined
     ? undefined
-    : claimPageAccess(ctx, config.pageAccess, config.perMember === true)
+    : claimPageAccess(ctx, channel, config.pageAccess, config.perMember === true)
   const settings: ContentFrameSettings = {
     cacheSize,
     navigationPollMs,

@@ -3,9 +3,10 @@
  *
  * A host cannot address a browser, so the call comes the other way: the session
  * publishes its open reads in the `contentAccess` projection, this seat claims
- * one, walks the frame's own document, and posts the listing back. Only the
- * claiming tab's report is taken, which is why the claim is a round trip rather
- * than an announcement.
+ * one, walks the frame's own document, and posts the listing back. The claim,
+ * the bidding, and the report are the shared channel's (`./channel.ts`); what
+ * is this module's is what a claimed call is *run* against — the frame, its
+ * numbering, and the walk.
  *
  * Layout is injected into the reader rather than read by it, because a frame's
  * layout belongs to that frame: visibility and geometry are asked of each
@@ -24,20 +25,19 @@
  * second one's verdict travels with the listing rather than replacing it.
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/executor
  */
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import type { MutableRefObject } from 'react'
-import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
+import { ContentChannel, type ChannelCall, type ChannelDomain } from './channel.ts'
 import {
-  ACT_RUN_SHARE, CLAIM_RETRY_MS, CONTENT_ACT_TOOL_NAME, CONTENT_CLAIM_ROUTE, CONTENT_IMAGE_ROUTE,
+  ACT_RUN_SHARE, CONTENT_ACT_TOOL_NAME, CONTENT_IMAGE_ROUTE,
   CONTENT_READ_ATTRS_TOOL_NAME, CONTENT_READ_DOM_CONTENT_TOOL_NAME, CONTENT_READ_DOM_TOOL_NAME,
   CONTENT_READ_IMAGE_TOOL_NAME, CONTENT_READ_TOOL_NAME,
-  CONTENT_REPORT_ROUTE, EXPORT_WAIT_SHARE, forWire, HIDDEN_CLAIM_GRACE_MS, LOAD_WAIT_SHARE, MAX_BID_MS,
-  MAX_HEADER_CHARS,
+  CONTENT_REPORT_ROUTE, EXPORT_WAIT_SHARE, forWire, LOAD_WAIT_SHARE, MAX_HEADER_CHARS,
   MAX_NAME_CHARS, MAX_OUTCOME_MESSAGE_CHARS, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR,
-  MAX_CLAIM_BACKOFF, MAX_URL_CHARS, REPORT_ENVELOPE_BYTES, ROUTE_REFUSAL_STATUSES, sanitize,
-  SETTLE_WAIT_SHARE, type ActOutcome, type ChannelOutcome, type ClaimAck, type ImageReport, type ReadFailure,
-  type ReadOutcome, type ReadPage, type ReportAck,
+  MAX_URL_CHARS, REPORT_ENVELOPE_BYTES, sanitize,
+  SETTLE_WAIT_SHARE, type ActOutcome, type ChannelOutcome, type ImageReport, type ReadFailure,
+  type ReadOutcome, type ReadPage,
 } from '../../access/wire.ts'
 import {
   FRAME_LOADING_MESSAGE, FRAME_LOST_MESSAGE, FRAME_RETIRED_MESSAGE, FRAME_UNREACHABLE_MESSAGE,
@@ -78,8 +78,17 @@ const NO_ENTRY_REASON = 'the content column is empty'
 /** Reason for an outcome whose model-facing sentence the tool composes instead. */
 const NOT_A_PAGE_REASON = 'the entry in front is not a page'
 
+/**
+ * The channel this page's reading seat answers calls through.
+ *
+ * One per page load: the tab id it mints is the identity the host pins a
+ * session's reads to, so a second instance would make the same seat bid against
+ * itself.
+ */
+const PAGE_CHANNEL = new ContentChannel()
+
 /** This page load's identity, which is what a session's reads are pinned to. */
-export const TAB_ID = randomUUID()
+export const TAB_ID = PAGE_CHANNEL.tabId
 
 /**
  * The window an element's own styles belong to.
@@ -240,60 +249,6 @@ function weighed(document: unknown): Report {
   return { body, bytes: new TextEncoder().encode(body).length }
 }
 
-/** What one post to a read route ended as, for a caller deciding whether to try again. */
-type Posted<T> =
-  | {
-    /** Discriminant: the route answered. */
-    kind: 'answered'
-    /** The answer, as the route composed it. */
-    value: T
-  }
-  | {
-    /** Discriminant: the route refused this document, and would refuse it again. */
-    kind: 'refused'
-  }
-  | {
-    /** Discriminant: the post reached no route that could answer it. */
-    kind: 'undelivered'
-  }
-
-/**
- * Post one document to a read route.
- *
- * A refusal and a post that never landed are different endings, and only the
- * statuses in {@link ROUTE_REFUSAL_STATUSES} are the first: the route answers
- * this exact document with one of those however many times it is sent, so
- * there is nothing to gain by sending it again. Every other ending, the rest of
- * the 4xx range included, says nothing about the document and is worth one
- * more try, and treating one as final would end a read the next post would
- * have completed. That list's documentation names what answers the rest.
- *
- * The address is resolved here rather than written into the route constants,
- * because the two halves need different ones: the node half registers these
- * routes at the server root, and a deployment publishing the console under a
- * path prefix has a reverse proxy strip that prefix before the request arrives.
- * The browser is therefore the half that has to put it back, which it does by
- * posting the document-relative form of the route: the served index's
- * `<base href="./">` resolves it under whatever prefix the page was loaded
- * from.
- * @param route - the route to post to, as the node half registers it.
- * @param body - the document, already serialized.
- * @returns what the post ended as.
- */
-async function post<T>(route: string, body: string): Promise<Posted<T>> {
-  try {
-    const response = await fetch(new URL(route.slice(1), document.baseURI), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body,
-    })
-    if (response.ok) return { kind: 'answered', value: await response.json() as T }
-    return ROUTE_REFUSAL_STATUSES.includes(response.status) ? { kind: 'refused' } : { kind: 'undelivered' }
-  } catch (_hostUnreachable) {
-    return { kind: 'undelivered' }
-  }
-}
-
 /**
  * One session's column as this seat holds it now.
  * @param seat - the seat as it stands.
@@ -302,95 +257,6 @@ async function post<T>(route: string, body: string): Promise<Posted<T>> {
  */
 function sessionOf(seat: ContentReadSeat, sessionId: string): SeatSession | undefined {
   return seat.sessions.find(session => session.sessionId === sessionId)
-}
-
-/** Wait one interval before re-claiming. */
-function delay(ms: number): Promise<void> {
-  return new Promise<void>((resolve) => { setTimeout(resolve, ms) })
-}
-
-/**
- * Win one call, bidding again for as long as it is still waiting for somebody.
- *
- * Two answers are worth another try. `unknown` is expected on a first claim:
- * the log records `tool/call` — which is what puts the call in this seat's
- * pending list — before the tool body registers the wait. An undelivered post
- * is the other, and one dropped request would otherwise cost the whole call:
- * the model would be told no console is open while the console sits in front of
- * the user. A refused claim ends the bidding, because the route refused the bid
- * itself and would refuse each one after it, and so does any other answer — a
- * call another tab took, or one that has already settled.
- *
- * What ends the bidding otherwise is the call leaving this seat's pending list,
- * which happens when its result reaches the log — every ending puts one there,
- * the host's own claim timeout included. A clock cannot stand in for that:
- * `content_act` registers its wait only after a person has answered its
- * approval, and a seat that gave up after the host's claim window would have
- * stopped bidding seconds before the body opened the wait, leaving the model
- * told that no console is open with the console in front of the user the whole
- * time. `claimTimeoutMs` bounds the host's side of that — a wait nobody
- * claimed — and is not this side's deadline.
- *
- * The interval doubles up to {@link MAX_CLAIM_BACKOFF} times {@link
- * CLAIM_RETRY_MS} so a wait measured in minutes costs one bid a second rather
- * than five.
- * @param seat - the live seat, re-read on every attempt.
- * @param mounted - whether this seat is still mounted; a bid outlives nothing.
- * @param sessionId - the session whose pending list bounds the bidding.
- * @param callId - the call to claim.
- * @returns whether this tab owns the call.
- */
-async function claimRead(
-  seat: MutableRefObject<ContentReadSeat>,
-  mounted: MutableRefObject<boolean>,
-  sessionId: string,
-  callId: string,
-): Promise<ClaimAck | undefined> {
-  let waitMs = CLAIM_RETRY_MS
-  const until = Date.now() + MAX_BID_MS
-  for (;;) {
-    const posted = await post<ClaimAck>(CONTENT_CLAIM_ROUTE, JSON.stringify({ callId, tabId: seat.current.tabId }))
-    if (posted.kind === 'refused') return undefined
-    if (posted.kind === 'answered') {
-      if (posted.value.claimed) return posted.value
-      if (posted.value.reason !== 'unknown') return undefined
-    }
-    await delay(waitMs)
-    waitMs = Math.min(waitMs * 2, CLAIM_RETRY_MS * MAX_CLAIM_BACKOFF)
-    // The seat went with the tab, the session, or the column: there is nothing
-    // left here to read the page with, whatever the last pending list said.
-    if (!mounted.current) return undefined
-    // The result reached the log while this seat waited, or the column this
-    // session was read through left this seat: the call is over here either way.
-    if (sessionOf(seat.current, sessionId)?.pending.some(request => request.callId === callId) !== true) {
-      return undefined
-    }
-    // And the ceiling, for the call that never leaves the list at all: a host
-    // that stopped mid-write leaves one opened and never settled, and nobody is
-    // coming back to an approval this old.
-    if (Date.now() >= until) return undefined
-  }
-}
-
-/**
- * Post one read back, trying a second time when the first post never lands.
- *
- * A read that was claimed and then answered nowhere is the worst ending
- * available: the call holds its whole report deadline and the model is told the
- * console went quiet. One retry covers a dropped request; past that the host's
- * own deadline is the right place for it to end. A report the route refused is
- * not that ending and is not sent again — the second post would carry the same
- * document to the same check.
- * @param route - the route this call settles on, as the node half registers it:
- * the picture route for a picture read and the report route for every other
- * call. {@link post} resolves it against the page's deployment base, so a
- * console published under a path prefix reports through that prefix.
- * @param report - the read's report, as {@link readPage} weighed it.
- */
-async function reportRead(route: string, report: Report): Promise<void> {
-  if ((await post<ReportAck>(route, report.body)).kind !== 'undelivered') return
-  await delay(CLAIM_RETRY_MS)
-  await post<ReportAck>(route, report.body)
 }
 
 /**
@@ -883,56 +749,51 @@ async function actOnPage(
   }
 }
 
+/** One page call as this seat answers it: the call it was offered, and the pending request behind it. */
+interface PageCall extends ChannelCall {
+  /** The call as the projection published it, which is what says how to answer it. */
+  readonly request: ContentAccessRequest
+}
+
 /**
- * Claim one call and answer it from the page this seat holds.
+ * The page domain of the shared channel.
  *
- * A seat whose tab is not in front pays {@link HIDDEN_CLAIM_GRACE_MS} before
- * its first bid and nothing after it: the wait orders the first round between
- * two consoles, and the re-bidding inside the claim is the same for both.
- * @param seat - the live seat, re-read after the claim round trip.
- * @param mounted - whether this seat is still mounted, which bounds the bidding.
- * @param started - the calls this seat has taken up; a call given up on is
- * dropped from it, because it is still open on the host.
- * @param sessionId - the session whose column the call is against.
- * @param request - the pending call, of either tool.
- * @param access - the node half's budget and deadlines, settled when the seat booted.
+ * What this adds to the channel is where a claimed call is run: the frame the
+ * session's column holds, its numbering, and the reader's own injections. A
+ * seat that has left the channel or lost its frames answers with the failure
+ * every one of its tools composes for that, so the model is told what happened
+ * rather than left waiting.
+ * @param seat - the live seat, re-read when a claimed call runs.
+ * @returns the domain to join to the channel.
  */
-async function answer(
-  seat: MutableRefObject<ContentReadSeat>,
-  mounted: MutableRefObject<boolean>,
-  started: MutableRefObject<Set<string>>,
-  sessionId: string,
-  request: ContentAccessRequest,
-  access: ContentFrameAccessSettings,
-): Promise<void> {
-  // A tab the user is looking at bids first. Both tabs hold the same frames and
-  // either can answer, so this orders them rather than silencing one: a window
-  // another window covers, a locked screen and a tab in the background all
-  // report `hidden`, and none of the three means the console is not there.
-  if (document.visibilityState !== 'visible') await delay(HIDDEN_CLAIM_GRACE_MS)
-  const claimed = await claimRead(seat, mounted, sessionId, request.callId)
-  if (claimed === undefined) {
-    // Giving up is not answering. Every ending but the call leaving the list —
-    // a refused bid, a claim another tab held, the bidding ceiling, a pending
-    // list that blipped empty — leaves a call the host is still waiting for, so
-    // the seat forgets it and can take it up again.
-    started.current.delete(request.callId)
-    return
+function pageDomain(seat: MutableRefObject<ContentReadSeat>): ChannelDomain<PageCall> {
+  return {
+    name: 'page',
+    ready: () => seat.current.access !== undefined,
+    answer: async (call, claimed) => {
+      const live = seat.current
+      const access = live.access
+      const session = sessionOf(live, call.sessionId)
+      // The deployment's reader is settled when the page boots, so a seat with
+      // none never offered a call; the answer keeps the arm total.
+      /* v8 ignore next -- an offered call only exists where `ready()` was true */
+      if (access === undefined) {
+        return { route: CONTENT_REPORT_ROUTE, body: reportOf(live, call.request.callId, frameError(FRAME_LOST_MESSAGE)).body }
+      }
+      if (call.request.tool === CONTENT_ACT_TOOL_NAME) {
+        const report = await actOnPage(live, session, call.request, access, claimed.page)
+        return { route: CONTENT_REPORT_ROUTE, body: report.body }
+      }
+      // One call, one settling route: a picture read's failures travel the
+      // picture route too, so no call id is ever raced by two routes.
+      if (call.request.tool === CONTENT_READ_IMAGE_TOOL_NAME) {
+        const report = await readImage(live, session, call.request, access)
+        return { route: CONTENT_IMAGE_ROUTE, body: report.body }
+      }
+      const report = await readPage(live, session, call.request, access)
+      return { route: CONTENT_REPORT_ROUTE, body: report.body }
+    },
   }
-  // The column as it stands after the claim round trip, which is what every
-  // read below runs against and what the step guard compares the approval to.
-  const session = sessionOf(seat.current, sessionId)
-  if (request.tool === CONTENT_ACT_TOOL_NAME) {
-    await reportRead(CONTENT_REPORT_ROUTE, await actOnPage(seat.current, session, request, access, claimed.page))
-    return
-  }
-  // One call, one settling route: a picture read's failures travel the picture
-  // route too, so no call id is ever raced by two routes.
-  if (request.tool === CONTENT_READ_IMAGE_TOOL_NAME) {
-    await reportRead(CONTENT_IMAGE_ROUTE, await readImage(seat.current, session, request, access))
-    return
-  }
-  await reportRead(CONTENT_REPORT_ROUTE, await readPage(seat.current, session, request, access))
 }
 
 /**
@@ -944,56 +805,33 @@ async function answer(
  * front. A session with no frame here is not on the list at all, and its call
  * ends on the host's claim window instead.
  *
- * One call is answered at most once from this tab: a call the seat has taken up
- * is remembered until it leaves the pending list, so no amount of re-rendering
- * turns one read into two claims. A claim the host does not know yet is not
- * that failure — it is bid again, at a widening interval, for as long as the
- * call is on the list — and neither is a report that never lands, which is
- * posted once more.
- *
- * A call the bidding gave up on is forgotten instead: it is still open on the
- * host, so the seat must be able to take it up again when the next projection
- * frame carries it. That forgetting runs before the guard below and whether or
- * not this deployment configured the reader at all, because a seat that skipped
- * it would leave the call unclaimable for the rest of its life.
- *
- * Each call is answered by background work nobody awaits: this hook returns as
- * soon as the reads are under way, and every result reaches the host over the
- * report route rather than through anything the seat renders.
- * @param seat - what the seat currently holds; re-read live by each running read.
+ * Every offer carries the whole of what this seat can answer, and the channel
+ * decides what to do with it: one call is claimed at most once, a call the
+ * bidding gave up on is forgotten so the next projection frame can offer it
+ * again, and each call is answered by background work nobody awaits. What this
+ * hook owns is only when the seat's own list moved.
+ * @param seat - what the seat currently holds; re-read live when a call runs.
+ * @param channel - the page load's channel, injected for a case that drives one of its own.
  */
-export function useContentRead(seat: ContentReadSeat): void {
+export function useContentRead(seat: ContentReadSeat, channel: ContentChannel = PAGE_CHANNEL): void {
   const live = useRef(seat)
-  const mounted = useRef(true)
-  const started = useRef<Set<string>>(new Set())
-
   useEffect(() => { live.current = seat })
 
-  // A bid outlives nothing: the loop below runs for as long as its call is
-  // pending, and a seat that has gone has no frame to read the page with.
-  useEffect(() => () => { mounted.current = false }, [])
+  const domain = useMemo(() => pageDomain(live), [])
+  const joined = useMemo(() => channel.join(domain), [channel, domain])
+
+  // A bid outlives nothing: parking drops the calls this seat was offering, and
+  // the loop that is bidding for one ends because it is no longer held.
+  useEffect(() => () => { joined.park() }, [joined])
 
   useEffect(() => {
-    // A call that has left the list has settled and cannot come back, so the
-    // memory of having taken it up is dropped with it — a tab left open for a
-    // long session would otherwise accumulate one id per read it ever saw. This
-    // runs before the guard below: a seat that cannot read still has to forget,
-    // or a call it gave up on stays skipped on the frame that carries it again.
-    // The list it is pruned against is every session's, not the servable ones':
-    // a call being answered when its session left this seat is still that
-    // answer's, and forgetting it here would spawn a second one.
-    const open = new Set(seat.openCalls)
-    for (const callId of started.current) {
-      if (!open.has(callId)) started.current.delete(callId)
-    }
-    const access = seat.access
-    if (access === undefined) return
-    for (const session of seat.sessions) {
-      for (const request of session.pending) {
-        if (started.current.has(request.callId)) continue
-        started.current.add(request.callId)
-        void answer(live, mounted, started, session.sessionId, request, access)
-      }
-    }
-  }, [seat.access, seat.sessions, seat.openCalls])
+    joined.offer({
+      calls: seat.sessions.flatMap(session => session.pending.map(request => ({
+        callId: request.callId,
+        sessionId: session.sessionId,
+        request,
+      }))),
+      openCalls: seat.openCalls,
+    })
+  }, [joined, seat.access, seat.sessions, seat.openCalls])
 }

@@ -17,7 +17,7 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, GenericResultView, ToolDefinition } from '@deepseek-ai/dsh-tools'
-import type { CallTimeouts, PendingCalls } from './pending.ts'
+import type { CallTable, CallTimeouts } from './pending.ts'
 import type { DialogApprovals } from './dialog-approvals.ts'
 import {
   ACTION_DESCRIPTION, approvalReason, CONTENT_ACT_DESCRIPTION,
@@ -125,7 +125,7 @@ function valueOf(outcome: ActOutcome): ContentActValue {
  * @returns the definition to hand to `ctx.tools.register`.
  */
 export function contentActTool(
-  pending: PendingCalls,
+  pending: CallTable,
   timeouts: CallTimeouts,
   maxSteps: number,
   front: FrontEntryLookup,

@@ -15,7 +15,7 @@
 
 import type { GenericResultView, ToolResult, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { Session } from '@deepseek-ai/dsh-session'
-import type { CallTimeouts, PendingCalls } from './pending.ts'
+import type { CallTable, CallTimeouts } from './pending.ts'
 import {
   CANCELLED_REFUSAL, MISREPORTED_REFUSAL, NO_AGENT_REFUSAL, unansweredRefusal, unclaimedRefusal, type FrontEntry,
 } from './text.ts'
@@ -34,7 +34,7 @@ export type FrontEntryLookup = (session: Session) => FrontEntry | undefined
 /** The channel one reading tool waits on, as its deployment settled it. */
 export interface ReadWait {
   /** The table calls wait on for a browser to answer them. */
-  readonly pending: PendingCalls
+  readonly pending: CallTable
   /** The deployment's deadlines, also quoted in the two timeout refusals. */
   readonly timeouts: CallTimeouts
   /** Reads the entry the calling session's column has in front, for the unclaimed refusal. */
