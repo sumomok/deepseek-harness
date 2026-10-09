@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-「指一下」 lets the console's user point at what they are asking about. A button beside the composer's 「+」 starts a pick over the console; the place clicked becomes a reference chip above the composer, and the model, when the message is sent, is told where each point is: its key line and its display text. Data pages are pointed at by column, toolbar button and row operation, original-system pages by control, and sidebar entries by entry; every other block of the component view, and an original-system page where nothing finer is named, is pointed at as a whole. No value of any record reaches the reference or the model.
+「指一下」 lets the console's user point at what they ask about. A button beside the composer's 「+」 starts a pick; the place clicked becomes a reference chip above the composer, and the sent message tells the model each point's key line and display text. Data pages are pointed at by column, toolbar button and row operation, original-system pages by control, sidebar entries by entry; any other block, and an original-system page where nothing finer is named, as a whole. No record value reaches the reference or the model.
 
 ## Table of Contents
 
