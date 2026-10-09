@@ -9,7 +9,7 @@
       "package": "@sumomok/toy-crud-kit",
       "version": "0.4.5"
     },
-    "bodySha256": "dc40941e459f39a25d66c65b7a569344cfa4fa90de8e9ad70816a398761717b4",
+    "bodySha256": "d2d56505c885b5891d4f6300362d5e9bf636d1a3e7560dd5fa522f18728f2fad",
     "exampleViewSha256": null
   },
   "body": {
@@ -1283,7 +1283,9 @@
           "A spec carries nodes and may leave out layout; a spec without a layout stacks its blocks in one column, in the order nodes lists them.",
           "Every node carries id, component and props, and props is an object. No two nodes of a view share an id.",
           "A view places at most one toy.data-page block; a second one is refused.",
-          "The querySort of a toy.data-page block names at most one of asc and desc."
+          "The querySort of a toy.data-page block names at most one of asc and desc.",
+          "No mapping anywhere in a spec, a table row included, carries a key named __proto__; a view writing one is refused at that key before anything else in it is judged.",
+          "An alias written inside the mapping or list its anchor names is refused at that alias; an anchor aliased at two places, neither inside the other, is judged at each."
         ]
       },
       "layout": {

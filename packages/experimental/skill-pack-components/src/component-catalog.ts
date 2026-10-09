@@ -298,6 +298,8 @@ function catalogRules(): CatalogObject {
         'Every node carries id, component and props, and props is an object. No two nodes of a view share an id.',
         `A view places at most one ${DATA_PAGE_ID} block; a second one is refused.`,
         `The querySort of a ${DATA_PAGE_ID} block names at most one of asc and desc.`,
+        'No mapping anywhere in a spec, a table row included, carries a key named __proto__; a view writing one is refused at that key before anything else in it is judged.',
+        'An alias written inside the mapping or list its anchor names is refused at that alias; an anchor aliased at two places, neither inside the other, is judged at each.',
       ],
     },
     layout: {

@@ -364,6 +364,10 @@ describe('the component catalog file', () => {
       'Every node carries id, component and props, and props is an object. No two nodes of a view share an id.',
       'A view places at most one toy.data-page block; a second one is refused.',
       'The querySort of a toy.data-page block names at most one of asc and desc.',
+      'No mapping anywhere in a spec, a table row included, carries a key named __proto__; a view writing one is refused at that key '
+      + 'before anything else in it is judged.',
+      'An alias written inside the mapping or list its anchor names is refused at that alias; an anchor aliased at two places, '
+      + 'neither inside the other, is judged at each.',
     ])
     expect(refusedAt({ nodes: [METRIC] })).toBeUndefined()
     expect(refusedAt({ layout: column([{ node: 'component', id: 'a' }]) })).toBe('spec.nodes')
@@ -378,6 +382,13 @@ describe('the component catalog file', () => {
       expect(viewRefusedAt({ nodes: [dataPage('p', { querySort })] })).toBeUndefined()
     }
     expect(viewRefusedAt({ nodes: [dataPage('p', { querySort: { asc: 'a', desc: 'b' } })] })).toBe('spec.nodes[0].props.querySort.desc')
+    expect(viewRefusedAt(JSON.parse('{"nodes":[{"id":"t","component":"toy.table","props":{"tableConfig":{"gridItems":[{"relatedMetaAttr":"a"}]},'
+      + '"displayValueList":[{"a":1,"__proto__":2}]}}]}'))).toBe('spec.nodes[0].props.displayValueList[0].__proto__')
+    const looped: Record<string, unknown> = { node: 'stack', dir: 'col', children: [{ node: 'component', id: 'a' }] }
+    looped['self'] = looped
+    expect(viewRefusedAt({ nodes: [METRIC], layout: looped })).toBe('spec.layout.self')
+    const shared = { label: 'x', display: 'y' }
+    expect(viewRefusedAt({ nodes: [{ id: 'r', component: 'toy.record', props: { dataList: [shared, shared] } }] })).toBeUndefined()
   })
 
   it('states the layout rules the component surface judges a stack, a placed block and the placement by', async () => {
