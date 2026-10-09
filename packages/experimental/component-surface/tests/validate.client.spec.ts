@@ -38,6 +38,7 @@ import {
   validateComponentSpec,
   type ComponentCallFailure,
 } from '../src/validate.ts'
+import { PROTO_KEY_REASON } from '../src/proto-key.ts'
 import { KIT_CATALOG, KIT_VIEW_CATALOG } from './kit-catalog.client.ts'
 import { CRUD_VIEW } from './crud-view.client.ts'
 import { probeDataSourceSpec, readDataSourceBlocks, resolveDataSourceTargets } from '../src/data-source.ts'
@@ -593,7 +594,7 @@ describe('a value an object only inherits', () => {
     expect(failure.text).toBe('show_component: spec.nodes[1].props.dataList — must be an array.')
   })
 
-  it.each([['constructor'], ['toString'], ['__proto__']])('declares no property named %s, even one written as a binding', (key) => {
+  it.each([['constructor'], ['toString']])('declares no property named %s, even one written as a binding', (key) => {
     // Every object inherits a member of that name, the component's property
     // table included; looked up there, it would be judged as a declaration.
     const props: unknown = JSON.parse(`{"dataList":[{"label":"名称","display":"一号站点"}],"${key}":{"$from":"node:t.selectionDetail"}}`)
@@ -604,25 +605,45 @@ describe('a value an object only inherits', () => {
     })
   })
 
+  it('refuses a property written under a key named __proto__, with the one sentence for that key', () => {
+    // The key is refused wherever a mapping's keys are read, so the tool path
+    // and the view walk give the same reason for it.
+    const props: unknown = JSON.parse('{"dataList":[{"label":"名称","display":"一号站点"}],"__proto__":{"$from":"node:t.selectionDetail"}}')
+    expect(refusal(call({ nodes: [{ id: 'd', component: RECORD_DETAIL_ID, props }] }))).toEqual({
+      path: 'spec.nodes[0].props.__proto__',
+      text: 'show_component: spec.nodes[0].props.__proto__ — ' + PROTO_KEY_REASON,
+      oversize: false,
+    })
+  })
+
   it.each([
     [
+      'a spec',
+      '{"nodes":[{"id":"n1","component":"el.confirm-bar","props":{"buttons":[{"id":"ok","label":"确认"}]}}],"__proto__":{"layout":{"node":"stack","dir":"row","children":[{"node":"component","id":"n1"}]}}}',
+      'spec.__proto__',
+    ],
+    [
+      'a node',
+      '{"nodes":[{"id":"n1","component":"el.confirm-bar","__proto__":{"props":{"buttons":[{"id":"ok","label":"确认"}]}}}]}',
+      'spec.nodes[0].__proto__',
+    ],
+    [
       'a stack',
-      '{"node":"stack","dir":"row","children":[{"node":"component","id":"n1"}],"__proto__":{"wrap":true}}',
+      '{"nodes":[{"id":"n1","component":"el.confirm-bar","props":{"buttons":[{"id":"ok","label":"确认"}]}}],"layout":{"node":"stack","dir":"row","children":[{"node":"component","id":"n1"}],"__proto__":{"wrap":true}}}',
       'spec.layout.__proto__',
-      'is not part of a stack. A stack carries node, dir, gap, wrap, flex, children.',
     ],
     [
       'a placed block',
-      '{"node":"stack","dir":"row","children":[{"node":"component","id":"n1","__proto__":{"flex":2}}]}',
+      '{"nodes":[{"id":"n1","component":"el.confirm-bar","props":{"buttons":[{"id":"ok","label":"确认"}]}}],"layout":{"node":"stack","dir":"row","children":[{"node":"component","id":"n1","__proto__":{"flex":2}}]}}',
       'spec.layout.children[0].__proto__',
-      'is not part of a placed block. A placed block carries node, id, flex.',
     ],
-  ])('refuses a key named __proto__ in %s as one it does not carry', (_case, layout, path, message) => {
-    // As the call's JSON carries it, the key is one more key of the layout,
-    // and the values under it are not the stack's or the block's own.
-    expect(refusal(call({ nodes: [confirmBar()], layout: JSON.parse(layout) as unknown }))).toEqual({
+  ])('refuses a key named __proto__ in %s with the one sentence for that key', (_case, spec, path) => {
+    // As the call's JSON carries it, the key is one more key of the spec or the
+    // layout, and wherever it sits it is refused with the same reason the view
+    // walk gives it.
+    expect(refusal(call(JSON.parse(spec) as unknown))).toEqual({
       path,
-      text: `show_component: ${path} — ${message}`,
+      text: `show_component: ${path} — ` + PROTO_KEY_REASON,
       oversize: false,
     })
   })

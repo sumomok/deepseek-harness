@@ -84,6 +84,7 @@ import {
   type SanitizeRules,
   type StringCharset,
 } from './component-call.ts'
+import { PROTO_KEY, PROTO_KEY_REASON } from './proto-key.ts'
 import { sanitizeNodeProps } from './sanitize.ts'
 
 /** One refusal: where in the arguments it happened, and what the model is told. */
@@ -133,6 +134,16 @@ export const SPEC_KEYS: readonly string[] = ['nodes', 'layout']
  */
 export function refuse(path: string, message: string): ComponentCallFailure {
   return { path, text: `show_component: ${path} — ${message}`, oversize: false }
+}
+
+/**
+ * The refusal of a mapping's key named `__proto__`, with the one sentence every
+ * read of a mapping's keys gives that key ({@link PROTO_KEY_REASON}).
+ * @param path - where the key sits.
+ * @returns the refusal.
+ */
+function protoKeyRefusal(path: string): ComponentCallFailure {
+  return refuse(path, PROTO_KEY_REASON)
 }
 
 /**
@@ -497,6 +508,7 @@ function validateProps(
   // one, and naming the spelling is what lets the next call be right. A binding
   // on a property nothing declares is refused here too, by the same sentence.
   for (const key of Object.keys(record)) {
+    if (key === PROTO_KEY) return protoKeyRefusal(`${path}.${key}`)
     if (!declared.includes(key)) {
       return refuse(`${path}.${key}`, `is not accepted here. Accepted properties: ${declared.join(', ')}.`)
     }
@@ -789,6 +801,7 @@ function validateNode(
   }
   const record = value as Record<string, unknown>
   for (const key of Object.keys(record)) {
+    if (key === PROTO_KEY) return { ok: false, failure: protoKeyRefusal(`${path}.${key}`) }
     if (!NODE_KEYS.includes(key)) {
       return { ok: false, failure: refuse(`${path}.${key}`, `is not part of a node. A node carries ${NODE_KEYS.join(', ')}.`) }
     }
@@ -891,6 +904,7 @@ function validateLayoutBlock(
   placement: LayoutPlacement,
 ): LayoutResult<LayoutBlock> {
   for (const key of Object.keys(record)) {
+    if (key === PROTO_KEY) return { ok: false, failure: protoKeyRefusal(`${path}.${key}`) }
     if (!BLOCK_KEYS.includes(key)) {
       return { ok: false, failure: refuse(`${path}.${key}`, `is not part of a placed block. A placed block carries ${BLOCK_KEYS.join(', ')}.`) }
     }
@@ -963,6 +977,7 @@ function validateLayoutStack(
     return { ok: false, failure: refuse(`${path}.node`, 'must be "stack"; a layout starts with a row or a column, and places blocks inside it.') }
   }
   for (const key of Object.keys(record)) {
+    if (key === PROTO_KEY) return { ok: false, failure: protoKeyRefusal(`${path}.${key}`) }
     if (!STACK_KEYS.includes(key)) {
       return { ok: false, failure: refuse(`${path}.${key}`, `is not part of a stack. A stack carries ${STACK_KEYS.join(', ')}.`) }
     }
@@ -1168,6 +1183,7 @@ export function validateComponentSpec(catalog: ComponentCatalog, value: unknown)
     }
   }
   for (const key of Object.keys(value)) {
+    if (key === PROTO_KEY) return { ok: false, failure: protoKeyRefusal(`spec.${key}`) }
     if (!SPEC_KEYS.includes(key)) {
       return { ok: false, failure: refuse(`spec.${key}`, `is not part of a spec. A spec carries ${SPEC_KEYS.join(', ')}.`) }
     }

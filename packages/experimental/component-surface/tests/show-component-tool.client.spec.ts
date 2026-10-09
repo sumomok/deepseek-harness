@@ -278,7 +278,7 @@ describe('one show_component call', () => {
     const result = await run({ id: 'layers', title: '图层数据', spec })
     expect(result.isError).toBe(true)
     expect(text(result))
-      .toMatch(/^Error: show_component: spec\.nodes\[0\]\.props\.__proto__ — is not accepted here\. Accepted properties: relatedMeta, /)
+      .toMatch(/^Error: show_component: spec\.nodes\[0\]\.props\.__proto__ — is a key named __proto__, /)
     const judged = judgeView(KIT_CATALOG, true, { id: 'layers', title: '图层数据', spec })
     expect(judged.ok ? undefined : judged.refusal.reason).toMatch(/^spec\.nodes\[0\]\.props\.__proto__ — is a key named __proto__, /)
   })

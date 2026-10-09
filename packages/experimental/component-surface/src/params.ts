@@ -1,3 +1,5 @@
+import { PROTO_KEY, PROTO_KEY_REASON } from './proto-key.ts'
+
 /**
  * `{"$param": "<name>"}` — the one substitution a view file's `spec` may carry.
  *
@@ -21,9 +23,6 @@
 
 /** The key whose presence makes an object a parameter reference rather than a value. */
 export const PARAM_KEY = '$param'
-
-/** The one key no mapping of a view's spec may carry, wherever the mapping sits. */
-const PROTO_KEY = '__proto__'
 
 /** One refused reference: where it sits in the spec, and what is wrong with it. */
 export interface ViewParamFailure {
@@ -166,10 +165,7 @@ function substituteMapping(
   // or beside it, a size past the spec's ceiling included, is refused for the
   // key. The YAML readers and this walk keep it a key, and any later copy by
   // assignment would take what is under it as the mapping's prototype.
-  if (Object.hasOwn(mapping, PROTO_KEY)) {
-    return refuse(`${path}.${PROTO_KEY}`, `is a key named ${PROTO_KEY}, which no mapping of a view may carry: copied by assignment, `
-      + 'the value under it becomes the mapping\'s prototype instead of a key, so two readers of one file would disagree on what it holds')
-  }
+  if (Object.hasOwn(mapping, PROTO_KEY)) return refuse(`${path}.${PROTO_KEY}`, PROTO_KEY_REASON)
   if (isReference(mapping)) return resolve(mapping, params, path)
   const entries: [string, unknown][] = []
   for (const [key, own] of Object.entries(mapping)) {
