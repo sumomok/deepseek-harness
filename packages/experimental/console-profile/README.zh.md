@@ -158,7 +158,7 @@ vendored 的 tarball 把它用到的 harness 包声明为可选 peer，而 pnpm 
 - **远程面的 e2e 只探测 loopback 上的 HTTP 路径。** `server-sidebar.e2e.ts` 的 `remoteCall` 带登录 cookie 向 loopback 上的 `/api/<ns>/<method>` 发 POST，走过连接放行与 Gateway，但不经过 auth-gate 的 ownsHost 传输，也不打开 WebSocket 流路径；`workspaceFiles.changes` 与终端流这类流方法没有被探测，`directory-picker`、`open-in-app` 与 `llm-deepseek` 锁行只由 `tests/profile.spec.ts` 证明。Gateway 派发只取决于服务是否存在，所以被禁用的行在每条路径上都是关闭的；缺的是证明，不是关闭。
 - **锁的预设表保留 `danger-full-access`。** 它重述这个预设，带 `approval: never`。控制台里没有任何被组合的东西调用 `PermissionPresetService.set`——`/permission` 在 `permission` 行上被隔离，唯二的其他调用方（auto-review、webhook）都没被组合——所以今天没有会话够得着它。保留而不删除，是因为在它之下创建的某个已存会话，面对一张不再带它的表会解析失败，而是否存在这样的会话无法从本包核实；将来某个被组合的、调用 `set()` 的行可能把会话切到它。
 
-- **后端真有一列叫 `__proto__` 时，浏览器侧那一列的值为空。** 客户后端若真以这个名字回一列，页面对那一列画不出值：宿主一侧留着这个单元格，共享投影面在解析时把键丢掉，值到不了浏览器。调用或视图写下这个键的，会在键上被拒收。后端这一档要改的是共享投影面，不是这个 bundle。
+- **读回来的行里带着名为 `__proto__` 的单元格时，整次读取被拒收。** 客户后端若真以这个名字回列、且有行带着它，这些行就画不出来：把行填回页面 spec 后，调用的整体校验会用与手写映射相同的那句话拒收这个键，于是这次调用得到 `the rows read from "SpaceLayer" cannot be drawn — spec.nodes[0].props.displayValueList[0].__proto__ — is a key named __proto__, which no mapping of a view may carry … Nothing on the panel changed.`，页面保持原样。行里没有这个单元格的读取照常成功，列名照常点名。调用或视图写下这个键的，会在键上被拒收。要支持这一列，得放开本轮的行键拒收或改共享投影面，两条都超出这个 bundle。
 
 <a id="dev-note"></a>
 ### 开发备注
