@@ -403,6 +403,192 @@ describe('a field the entry draws more than once', () => {
   })
 })
 
+/**
+ * Draw one select the way element-ui draws one, with the behaviour a case needs
+ * from the component behind it: the list is a child of the select, in the
+ * document from the start and hidden, the field's control is the select's own
+ * read-only input, and a click on the select is what opens the list.
+ * @param options - the labels the list offers, in order.
+ * @param behavior - how the fixture's own component answers: a list already
+ *   open, a component that takes nothing on a click, one that shows what it
+ *   took as a tag rather than in its input.
+ * @returns the drawn entry, and the select with the parts a case asserts on.
+ */
+function drawSelect(
+  options: readonly string[],
+  behavior: { readonly open?: boolean; readonly ignores?: boolean; readonly multiple?: boolean } = {},
+): { drawn: DrawnEntry; select: HTMLElement; input: HTMLInputElement; menu: HTMLElement } {
+  const items = options.map(label => `<li class="el-select-dropdown__item">${label}</li>`).join('')
+  const drawn = drawEntry(`
+    <div class="el-select">
+      <input class="el-input__inner" data-component-field="city" readonly>
+      <div class="el-select-dropdown">${items}</div>
+    </div>
+  `)
+  const select = drawn.container.querySelector('.el-select') as HTMLElement
+  const input = select.querySelector('input.el-input__inner') as HTMLInputElement
+  const menu = select.querySelector('.el-select-dropdown') as HTMLElement
+  menu.style.display = behavior.open === true ? '' : 'none'
+  select.addEventListener('click', () => { menu.style.display = '' })
+  for (const option of select.querySelectorAll('.el-select-dropdown__item')) {
+    if (behavior.ignores === true) continue
+    option.addEventListener('click', (event) => {
+      // element-ui stops an option's click at the option, so the select's own
+      // toggle never sees the choice.
+      event.stopPropagation()
+      if (behavior.multiple !== true) {
+        input.value = (option.textContent ?? '').trim()
+        return
+      }
+      // element-ui draws a multiple select's choice as a tag and clears the
+      // input, so what the step's confirmation reads is the tag.
+      input.value = ''
+      const tag = document.createElement('span')
+      tag.className = 'el-select__tags-text'
+      tag.textContent = (option.textContent ?? '').trim()
+      select.appendChild(tag)
+    })
+  }
+  return { drawn, select, input, menu }
+}
+
+describe('a field the entry draws as a select', () => {
+  it('opens the list, chooses the option the value names, and reports done once the select shows it', async () => {
+    const { drawn, input, menu } = drawSelect(['核心', '接入'])
+    // element-ui draws the field control read-only, with the list in the
+    // document and hidden: the open a step makes is the click a person makes.
+    expect(input.readOnly).toBe(true)
+    expect(menu.style.display).toBe('none')
+    expect(await run(args([{ action: 'set', name: 'city', value: '接入' }]), drawn)).toEqual({
+      status: 'done',
+      steps: [{ index: 1, status: 'ok' }],
+      text: 'Acted on the component entry "Demo" (demo).\n- set "city": done',
+    })
+    expect(input.value).toBe('接入')
+  })
+
+  it('chooses from a list already open without the click that would toggle it shut', async () => {
+    // A previous step may have left the list open, and the toggle an open list
+    // gets is the one that closes it.
+    const { drawn, input, select, menu } = drawSelect(['接入'], { open: true })
+    const toggled = vi.fn()
+    select.addEventListener('click', toggled)
+    expect((await run(args([{ action: 'set', name: 'city', value: '接入' }]), drawn)).status).toBe('done')
+    expect(toggled).not.toHaveBeenCalled()
+    expect(input.value).toBe('接入')
+    expect(menu.style.display).toBe('')
+  })
+
+  it('confirms a multiple select through the tag it draws', async () => {
+    const { drawn, input, select } = drawSelect(['接入'], { multiple: true })
+    expect((await run(args([{ action: 'set', name: 'city', value: '接入' }]), drawn)).status).toBe('done')
+    expect(input.value).toBe('')
+    expect(select.querySelector('.el-select__tags-text')?.textContent).toBe('接入')
+  })
+
+  it('refuses a value no drawn option carries, naming it, and writes nothing', async () => {
+    const { drawn, input } = drawSelect(['核心'])
+    expect(await run(args([{ action: 'set', name: 'city', value: '接入' }]), drawn)).toEqual({
+      status: 'failed',
+      steps: [{ index: 1, status: 'failed', message: 'The field for "city" has no option "接入".' }],
+      text: 'Acted on the component entry "Demo" (demo).\n- set "city": The field for "city" has no option "接入".',
+    })
+    expect(input.value).toBe('')
+  })
+
+  it('refuses a value two drawn options carry rather than choosing one of them', async () => {
+    const { drawn, input } = drawSelect(['重复', '重复'])
+    expect(await run(args([{ action: 'set', name: 'city', value: '重复' }]), drawn)).toEqual({
+      status: 'failed',
+      steps: [{
+        index: 1,
+        status: 'failed',
+        message: 'The field for "city" draws more than one option "重复", so this call cannot tell which to choose.',
+      }],
+      text: 'Acted on the component entry "Demo" (demo).'
+        + '\n- set "city": The field for "city" draws more than one option "重复", so this call cannot tell which to choose.',
+    })
+    // Nothing was chosen: a guess between the two would write where the call
+    // did not say.
+    expect(input.value).toBe('')
+  })
+
+  it('fails where the select did not take the chosen option, rather than reporting the write', async () => {
+    // A component that takes nothing on the click: nothing about the select
+    // will ever show the value, so the step fails instead of reporting it.
+    const { drawn, input } = drawSelect(['接入'], { ignores: true })
+    expect(await run(args([{ action: 'set', name: 'city', value: '接入' }]), drawn)).toEqual({
+      status: 'failed',
+      steps: [{ index: 1, status: 'failed', message: 'The field for "city" did not take the option "接入".' }],
+      text: 'Acted on the component entry "Demo" (demo).\n- set "city": The field for "city" did not take the option "接入".',
+    })
+    expect(input.value).toBe('')
+  })
+
+  it('refuses a disabled select before opening its list', async () => {
+    const { drawn, input, menu } = drawSelect(['接入'])
+    input.setAttribute('disabled', '')
+    expect(await run(args([{ action: 'set', name: 'city', value: '接入' }]), drawn)).toEqual({
+      status: 'failed',
+      steps: [{ index: 1, status: 'failed', message: 'The field for "city" is disabled, so this call cannot write it.' }],
+      text: 'Acted on the component entry "Demo" (demo).\n- set "city": The field for "city" is disabled, so this call cannot write it.',
+    })
+    expect(menu.style.display).toBe('none')
+  })
+
+  it('treats a select that holds the entry rather than standing inside it as no select at all', async () => {
+    // The confine is the entry: a select wrapping it from outside would hold
+    // options and a list this call may not reach, so the field counts as a
+    // select only where the select itself stands inside the entry.
+    document.body.innerHTML = `
+      <nav data-content-surface-switcher>
+        <button data-content-surface-entry="component ${ENTRY}" data-content-surface-selected>Demo</button>
+      </nav>
+      <div data-content-surface-seat="component" data-content-surface-active>
+        <div class="el-select">
+          <div data-component-surface>
+            <input class="el-input__inner" data-component-field="city" readonly>
+          </div>
+        </div>
+      </div>
+    `
+    const drawn = drawnEntry(document)
+    if (drawn === undefined) throw new Error('the case drew no entry')
+    const report = await run(args([{ action: 'set', name: 'city', value: '接入' }]), drawn)
+    expect(report.steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'The field for "city" is read-only, so this call cannot write it.',
+    }])
+  })
+
+  it('refuses a read-only control that is not a select instead of reporting a write it never made', async () => {
+    // The regression this pins: the DOM value of a read-only control can be
+    // assigned and read back, so the step used to report done for a field the
+    // component behind it never took — the same false success a select's own
+    // read-only control produces.
+    const drawn = drawEntry('<input data-component-field="title" readonly>')
+    const report = await run(args([{ action: 'set', name: 'title', value: 'X' }]), drawn)
+    expect(report.steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'The field for "title" is read-only, so this call cannot write it.',
+    }])
+    expect((document.querySelector('input') as HTMLInputElement).value).toBe('')
+  })
+
+  it('refuses a disabled field', async () => {
+    const drawn = drawEntry('<input data-component-field="title" disabled>')
+    const report = await run(args([{ action: 'set', name: 'title', value: 'X' }]), drawn)
+    expect(report.steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'The field for "title" is disabled, so this call cannot write it.',
+    }])
+    expect((document.querySelector('input') as HTMLInputElement).value).toBe('')
+  })
+})
+
 describe('a control that is not an HTMLElement', () => {
   it('is pressed with a click event, so a drawn SVG control still runs its handler', async () => {
     const drawn = drawEntry('<svg><circle data-component-action="pick"></circle></svg>')

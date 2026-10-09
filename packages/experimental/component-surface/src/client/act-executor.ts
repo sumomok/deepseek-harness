@@ -21,6 +21,16 @@
  * one something else is drawn over each stop the call, because the click would
  * otherwise reach a handler no real press could.
  *
+ * A field the entry draws as a select is the one write that is not a value
+ * assignment. The control the entry marks for it is element-ui's own input,
+ * which is read-only and shows the chosen label while the value itself lives in
+ * the component, so a plain write would report a write the component never
+ * took: the step opens the list, chooses the one drawn option whose label is
+ * the value, and reports done only once the select displays it. What every
+ * write shares is the refusal: a disabled or read-only control, and a control
+ * that did not take the value, end the step with the part that failed named
+ * rather than reporting a write nobody made.
+ *
  * The entry itself is read again before every step and the run stops where it
  * no longer matches the one the call was claimed against — the column replaces
  * what it draws without telling this seat, and the steps after a switch would
@@ -39,8 +49,9 @@ import {
   type ActComponentStepResult,
 } from '../act-component-call.ts'
 import {
-  actComponentReportText, ambiguousFieldReason, anotherEntryInFront, coveredReason, disabledReason,
-  ENTRY_REDRAWN_REASON, missingTargetReason, NO_ENTRY_IN_FRONT, notWritableReason,
+  actComponentReportText, ambiguousFieldReason, ambiguousOptionReason, anotherEntryInFront, coveredReason,
+  disabledFieldReason, disabledReason, ENTRY_REDRAWN_REASON, missingTargetReason, noOptionReason,
+  NO_ENTRY_IN_FRONT, notWritableReason, optionNotTakenReason, readOnlyFieldReason,
 } from '../act-component-text.ts'
 import type { DrawnEntry } from './entry-container.ts'
 
@@ -49,6 +60,24 @@ const WAIT_POLL_MS = 50
 
 /** The controls a `set` step may write into. */
 const WRITABLE = 'input, textarea, select'
+
+/** The element-ui select one field control is drawn inside, which is what makes the field a select. */
+const SELECT = '.el-select'
+
+/** One select's drawn options, a child of the select itself since this row contains its list. */
+const SELECT_OPTION = '.el-select-dropdown__item'
+
+/** The input element-ui draws one select's own text in. */
+const SELECT_INPUT = 'input.el-input__inner'
+
+/**
+ * How long a select's list, and then the value it shows, may take to settle
+ * after the step's own click.
+ *
+ * Both are the component's own re-renders rather than network answers, so this
+ * is a ceiling on a Vue turn and not on a request.
+ */
+const SELECT_SETTLE_MS = 1000
 
 /** The parts of a form control a `set` step may match a name against. */
 const NAMED_BY = ['aria-label', 'name', 'placeholder'] as const
@@ -259,6 +288,157 @@ function setTarget(scope: Element, name: string, within: Element): Element | und
 }
 
 /**
+ * The select one field control belongs to, when that control is a select's own.
+ *
+ * A component-kit block draws element-ui's select with its list inside the
+ * select itself, so a control under `.el-select` is one whose value is chosen
+ * from a list rather than typed, and the list is reachable from the same
+ * element the entry declares. The select counts only while it stands inside the
+ * entry: one wrapping the entry from outside would hold options the confine
+ * does not cover, and a step that chose among them would be writing outside the
+ * entry it named.
+ *
+ * This is the resolution any reading of the same field goes through too: one
+ * definition of which element is a select and which options it draws, so what a
+ * reading of a field describes is what a `set` step on it reaches.
+ * @param control - the field's control.
+ * @param within - the entry's own container, past which nothing is asked.
+ * @returns the select element, or undefined when the control is not a select's.
+ */
+export function selectOf(control: Element, within: Element): Element | undefined {
+  const select = control.closest(SELECT)
+  return select === null || !within.contains(select) ? undefined : select
+}
+
+/**
+ * Every option one select draws, in document order.
+ *
+ * A select's options are in the document from the mount with the list hidden,
+ * so what is drawn is what a step waits for: the open is what takes the hidden
+ * state off the list, and an option a filter or a closed group has taken away
+ * stays undrawn. The same reading is what a reader reports as the options a
+ * select currently offers.
+ * @param select - the select element.
+ * @param within - the entry's own container, past which nothing is asked.
+ * @returns the drawn option elements.
+ */
+export function selectOptions(select: Element, within: Element): Element[] {
+  return [...select.querySelectorAll(SELECT_OPTION)].filter(option => isDrawn(option, within))
+}
+
+/**
+ * What one drawn element shows as its label: an option's text, or a tag's.
+ * @param el - the option or tag.
+ * @returns the label, trimmed.
+ */
+export function optionLabel(el: Element): string {
+  /* v8 ignore next -- an element's textContent is null only for a document node, and an option is an element */
+  return (el.textContent ?? '').trim()
+}
+
+/**
+ * What one select displays as the value it holds.
+ *
+ * element-ui draws a single select's value as the text of the select's own
+ * input and a multiple select's as one tag per chosen option; both are the
+ * component's own rendering of the value, which is what a step confirms its
+ * choice against.
+ * @param select - the select element.
+ * @returns the labels it displays, in the order drawn.
+ */
+export function selectShows(select: Element): string[] {
+  return [...select.querySelectorAll(`.el-select__tags-text, ${SELECT_INPUT}`)]
+    .map(el => (el instanceof HTMLInputElement ? el.value : optionLabel(el)))
+    .filter(shown => shown !== '')
+}
+
+/**
+ * Whether one control refuses a person's own writing.
+ *
+ * The `readonly` attribute is the platform's way of saying so: a script can
+ * still assign the control's value, which is exactly why a write that reported
+ * success would be a write nobody made. element-ui draws a select's own input
+ * read-only whatever the select's state — the value is chosen, not typed — so
+ * this is asked of a field only after it was told apart from a select.
+ * @param el - the control.
+ * @returns whether it is read-only.
+ */
+function isReadOnly(el: Element): boolean {
+  return (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && el.readOnly
+}
+
+/**
+ * Wait for one condition to hold, up to a deadline.
+ * @param holds - the condition, read again every turn.
+ * @param timeoutMs - how long it may take to hold.
+ * @returns whether it held in time.
+ */
+async function settles(holds: () => boolean, timeoutMs: number): Promise<boolean> {
+  const until = Date.now() + timeoutMs
+  for (;;) {
+    if (holds()) return true
+    if (Date.now() >= until) return false
+    await delay(Math.min(WAIT_POLL_MS, Math.max(until - Date.now(), 1)))
+  }
+}
+
+/**
+ * Fill one select field the way a person chooses an option.
+ *
+ * A select's value lives in the component rather than in the input the entry
+ * marks — element-ui's input is read-only and shows the chosen label; the value
+ * itself is the component's — so a write through the input would be reported as
+ * a write the component never took. The step performs the gesture instead: open
+ * the list, choose the one drawn option whose label is the value, and report
+ * done only once the select displays it. Every way that can fail is a refusal
+ * naming the part that failed rather than a step reported as one that ran.
+ * @param entry - the drawn entry.
+ * @param select - the select the field's control belongs to.
+ * @param trigger - the control the field was found by.
+ * @param name - the column or property the step named, for the refusals.
+ * @param value - the option label the step named.
+ * @throws {Error} with the model-facing reason when the value cannot be chosen.
+ */
+async function fillSelect(entry: DrawnEntry, select: Element, trigger: Element, name: string, value: string): Promise<void> {
+  // A select whose list is already drawn is open — a previous step may have
+  // left it so, and the toggle this would click is the one that closes it.
+  if (selectOptions(select, entry.container).length === 0) clickOn(trigger)
+  await settles(() => selectOptions(select, entry.container).length > 0, SELECT_SETTLE_MS)
+  const matches = selectOptions(select, entry.container).filter(option => optionLabel(option) === value)
+  if (matches.length > 1) throw new Error(ambiguousOptionReason(name, value))
+  const option = matches[0]
+  if (option === undefined) throw new Error(noOptionReason(name, value))
+  clickOn(option)
+  const taken = await settles(() => selectShows(select).includes(value), SELECT_SETTLE_MS)
+  if (!taken) throw new Error(optionNotTakenReason(name, value))
+}
+
+/**
+ * Write one value into the field one `set` step named.
+ *
+ * A text control is written the way a person typing writes it, and a select is
+ * filled by choosing an option; the difference is where the component's value
+ * lives, not what the step promises. What both share is the refusal: a disabled
+ * or read-only control, and a value the control did not take, end the step
+ * rather than report a write that never happened.
+ * @param entry - the drawn entry.
+ * @param target - the control the field was found by.
+ * @param name - the column or property the step named.
+ * @param value - what to write.
+ * @throws {Error} with the model-facing reason when the value cannot be written.
+ */
+async function setField(entry: DrawnEntry, target: Element, name: string, value: string): Promise<void> {
+  if (isDisabled(target)) throw new Error(disabledFieldReason(name))
+  const select = selectOf(target, entry.container)
+  if (select !== undefined) {
+    await fillSelect(entry, select, target, name, value)
+    return
+  }
+  if (isReadOnly(target)) throw new Error(readOnlyFieldReason(name))
+  writeValue(target, name, value)
+}
+
+/**
  * Write one value into a form control the way a person typing would.
  *
  * The value is set through the prototype's own setter rather than by assigning
@@ -338,7 +518,7 @@ async function runStep(entry: DrawnEntry, step: ActComponentStep): Promise<void>
   }
   const target = setTarget(scope, step.name, entry.container)
   if (target === undefined) throw new Error(missingTargetReason(`field "${step.name}"`))
-  writeValue(target, step.name, step.value)
+  await setField(entry, target, step.name, step.value)
 }
 
 /**
@@ -402,11 +582,25 @@ function isCovered(target: Element): boolean {
 }
 
 /**
- * Press one element the way a person would, so the block's own handler runs.
+ * Click one element the way a person would, whatever kind of element it is.
  *
- * An element with its own `click()` is pressed through it, which is what carries
- * the default action and the element's own activation behaviour; anything else —
- * an SVG control in a drawn chart — is given a bubbling click event instead.
+ * An element with its own `click()` is clicked through it, which is what
+ * carries the default action and the element's own activation behaviour;
+ * anything else — an SVG control in a drawn chart — is given a bubbling click
+ * event instead. A `set` step on a select clicks its trigger and its option
+ * through here too: it is the same gesture a person makes.
+ * @param target - the element to click.
+ */
+function clickOn(target: Element): void {
+  if (target instanceof HTMLElement) {
+    target.click()
+    return
+  }
+  target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+}
+
+/**
+ * Press one element the way a person would, so the block's own handler runs.
  *
  * A control the block disabled, and one something else is drawn over, are
  * refusals rather than presses: the click this function would dispatch reaches
@@ -419,11 +613,7 @@ function isCovered(target: Element): boolean {
 function press(target: Element, key: string): void {
   if (isDisabled(target)) throw new Error(disabledReason(key))
   if (isCovered(target)) throw new Error(coveredReason(key))
-  if (target instanceof HTMLElement) {
-    target.click()
-    return
-  }
-  target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+  clickOn(target)
 }
 
 /** What running one call's steps produced, before either half turns it into a report. */
