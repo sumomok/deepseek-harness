@@ -104,36 +104,51 @@ function schemeRow(schemaType: number): Record<string, unknown> {
 /** How many row queries the page has made; a pick that reached 查询 would make one more. */
 let searchesSeen = 0
 
+/** What the stub backend answers one request with. */
+interface BackendAnswer {
+  readonly status: number
+  readonly document: unknown
+}
+
+/**
+ * What the deployment's backend answers one request of the page's own request
+ * layer with; a request not presenting the visitor's token is refused.
+ * @param path - the request's path.
+ * @param authorization - its `Authorization` header.
+ * @returns the status and the JSON document.
+ */
+function backendAnswer(path: string, authorization: string | undefined): BackendAnswer {
+  if (authorization !== STORED_TOKEN) return { status: 401, document: { code: 3, msg: 'token invalid' } }
+  if (path.endsWith('/nrms-auth/api/auth/userinfo')) {
+    return { status: 200, document: { code: 0, data: { useraccount: 'e2e-visitor', username: '访客', auth: { resclass: [{
+      resclassenname: META, search: 1, add: 1, update: 1, delete: 1, imp: 1, exp: 1, gridexp: 1,
+      searchSetting: 1, advSearch: 1, showAsPass: 0, columns: [],
+    }] } } } }
+  }
+  if (path.endsWith('/nrms-schema-manage/api/schema/schema')) return { status: 200, document: { code: 0, data: [schemeRow(1), schemeRow(2), schemeRow(3)] } }
+  if (path.endsWith(`/nrms-schema-manage/api/meta/resclass/${META}`)) {
+    return { status: 200, document: { code: 0, data: { metaEnName: META, metaAlias: '图层', attrs: [
+      { relatedMetaAttr: 'zh_label', alias: '名称', dataType: 'string' },
+      { relatedMetaAttr: 'belong_map_topic', alias: '所属地图主题', dataType: 'string' },
+    ] } } }
+  }
+  if (path.endsWith(`/nrms-datamanagement/api/resources/${META}/_search`)) {
+    searchesSeen += 1
+    const page = { total: ROWS_SHOWN.length, currentPage: 1, pageSize: 20 }
+    return { status: 200, document: { code: 0, data: { rawValue: ROWS_SHOWN, displayValue: ROWS_SHOWN, ref: [], page } } }
+  }
+  if (path.includes('/nrms-resourcehistory/api/log/frontevent')) return { status: 200, document: { code: 0, data: null } }
+  return { status: 404, document: { code: 1, msg: 'no such endpoint' } }
+}
+
 /**
  * Answer one request of the page's own request layer as the deployment's backend does.
  * @param route - the intercepted request.
  */
 async function answerBackend(route: Route): Promise<void> {
   const request = route.request()
-  const path = new URL(request.url()).pathname
-  const answer = (document: unknown, status = 200): Promise<void> =>
-    route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(document) })
-  if (request.headers()['authorization'] !== STORED_TOKEN) return await answer({ code: 3, msg: 'token invalid' }, 401)
-  if (path.endsWith('/nrms-auth/api/auth/userinfo')) {
-    return await answer({ code: 0, data: { useraccount: 'e2e-visitor', username: '访客', auth: { resclass: [{
-      resclassenname: META, search: 1, add: 1, update: 1, delete: 1, imp: 1, exp: 1, gridexp: 1,
-      searchSetting: 1, advSearch: 1, showAsPass: 0, columns: [],
-    }] } } })
-  }
-  if (path.endsWith('/nrms-schema-manage/api/schema/schema')) return await answer({ code: 0, data: [schemeRow(1), schemeRow(2), schemeRow(3)] })
-  if (path.endsWith(`/nrms-schema-manage/api/meta/resclass/${META}`)) {
-    return await answer({ code: 0, data: { metaEnName: META, metaAlias: '图层', attrs: [
-      { relatedMetaAttr: 'zh_label', alias: '名称', dataType: 'string' },
-      { relatedMetaAttr: 'belong_map_topic', alias: '所属地图主题', dataType: 'string' },
-    ] } })
-  }
-  if (path.endsWith(`/nrms-datamanagement/api/resources/${META}/_search`)) {
-    searchesSeen += 1
-    const page = { total: ROWS_SHOWN.length, currentPage: 1, pageSize: 20 }
-    return await answer({ code: 0, data: { rawValue: ROWS_SHOWN, displayValue: ROWS_SHOWN, ref: [], page } })
-  }
-  if (path.includes('/nrms-resourcehistory/api/log/frontevent')) return await answer({ code: 0, data: null })
-  await answer({ code: 1, msg: 'no such endpoint' }, 404)
+  const { status, document } = backendAnswer(new URL(request.url()).pathname, request.headers()['authorization'])
+  await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(document) })
 }
 
 /** The stub login page: stores the header value and returns where it was sent from. */

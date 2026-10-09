@@ -7,17 +7,17 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-## 概要
+## 概述
 
 「指一下」让控制台的用户指着自己要问的东西。输入框「+」右侧的按钮在整个控制台上开始拾取；点到的地方成为输入框上方的一个引用标签，消息发出后，模型会知道每一处指的是哪里：它的键行和显示文字。数据页能指到列、工具栏按钮和行内操作，原系统页面能指到控件，侧栏能指到条目；组件视图里的其它每一块都能按整块指到。任何一行的值都不会进入引用，也不会到模型那里。
 
 ## 目录
 
 - [使用本包](#use-this-package)
-- [实现说明](#understand-the-implementation)
-- [延伸阅读](#further-exploration)
-- [模型体验](#model-experience)
-- [已知限制与暂缓事项](#known-limitations-and-deferred-work)
+- [理解实现](#understand-the-implementation)
+- [进一步探索](#further-exploration)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [开发备注](#dev-note)
 
 -----
@@ -59,7 +59,7 @@ point-anchor 因其它原因拒绝的地方——弹出层、控制台读不到�
 -----
 
 <a id="understand-the-implementation"></a>
-## 实现说明
+## 理解实现
 
 本包分两半，没有自己的会话事件。
 
@@ -74,7 +74,7 @@ point-anchor 的描述带 `v`（描述格式）和 `anchorFormat`；本版本读
 -----
 
 <a id="further-exploration"></a>
-## 延伸阅读
+## 进一步探索
 
 - [`@haoran/dsh-point-anchor`](vendor/)——拾取器、描述和键行，以 `vendor/haoran-dsh-point-anchor-0.1.0.tgz` vendor 进来。
 - [`dsh-client-ui-conversation`](../../client/ui-conversation/README.zh.md)——引用草稿与附件行。
@@ -84,15 +84,17 @@ point-anchor 的描述带 `v`（描述格式）和 `anchorFormat`；本版本读
 -----
 
 <a id="model-experience"></a>
-## 模型体验
+## Model Experience
 
 ### 指一处的说明
 
-#### 模型看到什么
+#### What the model sees
 
-在带有指向的用户消息后面，一条用户消息，每一处一段，段与段之间空一行：
+在带有指向的用户消息后面，一条用户消息，每一处一段，段与段之间空一行：标签、键行和显示文字。没有锚点的地方写 `锚点：没有（…）` 和原因；本版本读不了的引用写一句话，说明所写的格式和本版本读的格式。任何一段都不写一行的值。用户看到的标签不在用户写的消息里；这条消息是它们在模型那里的唯一痕迹。
 
-```text
+##### 一个列头和一整块的说明
+
+```markdown
 用户在内容栏里指着「列「名称」」。
 锚点：`data-page model=SpaceLayer region=table part=header column=zh_label`
 显示：数据页「图层配置」 · 列「名称」
@@ -102,17 +104,15 @@ point-anchor 的描述带 `v`（描述格式）和 `anchorFormat`；本版本读
 显示：图层配置 · 指标
 ```
 
-没有锚点的地方写 `锚点：没有（…）` 和原因；本版本读不了的引用写一句话，说明所写的格式和本版本读的格式。任何一段都不写一行的值。用户看到的标签不在用户写的消息里；这条消息是它们在模型那里的唯一痕迹。
-
-#### Token 影响
+#### Token effect
 
 每一处约 40 到 80 个 token，只出现在带有指向的消息里；每条消息最多 16 处。
 
-#### KV Cache 影响
+#### KV Cache effect
 
 只追加：这条消息插在它对应的用户消息后面、那条消息进入的那一步里，之前的请求前缀都不变。
 
-## 已知限制与暂缓事项
+## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
 

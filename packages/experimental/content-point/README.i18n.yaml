@@ -10,10 +10,10 @@
   zh: ce694c36f41a5689
 /deepseek-ai-dsh-experimental-content-point/summary:
   en: 8f59030360edd6a2
-  zh: 02bfa3f9d1ecb6d0
+  zh: 727819c014a455ab
 /deepseek-ai-dsh-experimental-content-point/table-of-contents:
   en: d152484eb41ac6b4
-  zh: 5103e1812d95589b
+  zh: 567cbc298d08aecc
 /deepseek-ai-dsh-experimental-content-point/use-this-package:
   en: 369de28cba584bb6
   zh: 2425b8f9bbd71df5
@@ -28,31 +28,34 @@
   zh: a0a46e399aac9a24
 /deepseek-ai-dsh-experimental-content-point/understand-the-implementation:
   en: 9676eab2c7c78202
-  zh: 3e1fd25f3531c84d
+  zh: 131e30b4061c91df
 /deepseek-ai-dsh-experimental-content-point/understand-the-implementation/formats:
   en: a0f73d4249b99551
   zh: e45d6597987833ad
 /deepseek-ai-dsh-experimental-content-point/further-exploration:
   en: f206991f05527219
-  zh: f79c33daa0854ee7
+  zh: 6e6fb9ec69230c64
 /deepseek-ai-dsh-experimental-content-point/model-experience:
   en: 215e7ba838619b7b
-  zh: a311da3843709f90
+  zh: 215e7ba838619b7b
 /deepseek-ai-dsh-experimental-content-point/model-experience/the-point-notice:
   en: 8e2247a0634ae5b7
   zh: eda8286480c1b036
 /deepseek-ai-dsh-experimental-content-point/model-experience/the-point-notice/what-the-model-sees:
-  en: b7e38aca83c23efd
-  zh: 5ef67f6ff46fe1ee
+  en: 6ac088dd2758b9e7
+  zh: 5fe043baf58a5d5c
+/deepseek-ai-dsh-experimental-content-point/model-experience/the-point-notice/what-the-model-sees/the-notice-for-a-column-header-and-a-block:
+  en: 02b061bd5d4b9341
+  zh: 8ad848166c24dd7b
 /deepseek-ai-dsh-experimental-content-point/model-experience/the-point-notice/token-effect:
   en: 8382a9dfb261d63c
-  zh: 9c10384fdd15fb44
+  zh: b1cb41bdd436f71c
 /deepseek-ai-dsh-experimental-content-point/model-experience/the-point-notice/kv-cache-effect:
   en: 9d3b8ae5513c0e6a
-  zh: 00eeeaf7687d280c
+  zh: 58e8e8a263737308
 /deepseek-ai-dsh-experimental-content-point/known-limitations-and-deferred-work:
   en: adc041224454f018
-  zh: f2a8ad282d214a2f
+  zh: e4f6476f64f55b8e
 /deepseek-ai-dsh-experimental-content-point/known-limitations-and-deferred-work/dev-note:
   en: 4565c28977dd4a55
   zh: e0720173fa324583

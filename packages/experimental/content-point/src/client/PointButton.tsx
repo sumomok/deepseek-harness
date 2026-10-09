@@ -104,7 +104,7 @@ export function PointButton({ inputActions, point, draft, refusal, t }: PointBut
           text={toast.text}
           icon={<IconWarningOutlineRegular />}
           anchor={button.current?.closest<HTMLElement>('[data-composer-card]') ?? null}
-          onDone={() => setToast(null)}
+          onDone={() => { setToast(null) }}
         />
       )}
     </>

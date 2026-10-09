@@ -99,7 +99,7 @@ describe('the 「指一下」 button', () => {
     expect(running?.signal.aborted).toBe(true)
     await act(async () => { running?.settle({ kind: 'reference', label: 'x', data: {} }) })
     expect(b.draft).not.toHaveBeenCalled()
-    await waitFor(() => expect(b.addAttachments).not.toHaveBeenCalled())
+    await waitFor(() => { expect(b.addAttachments).not.toHaveBeenCalled() })
   })
 
   it('takes no failure after the composer unmounts', async () => {

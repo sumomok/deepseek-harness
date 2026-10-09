@@ -90,9 +90,11 @@ A point-anchor description carries `v` (its describe format) and `anchorFormat`;
 
 #### What the model sees
 
-After a user message carrying points, one user message with one paragraph per point, separated by an empty line:
+After a user message carrying points, one user message with one paragraph per point, separated by an empty line: the chip's label, the key line, and the display text. A point without an anchor writes `锚点：没有（…）` with the reason; a reference this build cannot read writes one sentence naming the stated format and the formats read. No paragraph writes a row's values. The chips the user saw are not in the message the user wrote; this message is the only model-visible trace of them.
 
-```text
+##### The notice for a column header and a block
+
+```markdown
 用户在内容栏里指着「列「名称」」。
 锚点：`data-page model=SpaceLayer region=table part=header column=zh_label`
 显示：数据页「图层配置」 · 列「名称」
@@ -101,8 +103,6 @@ After a user message carrying points, one user message with one paragraph per po
 锚点：`block seat=component component=el.metric node=rate`
 显示：图层配置 · 指标
 ```
-
-A point without an anchor writes `锚点：没有（…）` with the reason; a reference this build cannot read writes one sentence naming the stated format and the formats read. No paragraph writes a row's values. The chips the user saw are not in the message the user wrote; this message is the only model-visible trace of them.
 
 #### Token effect
 

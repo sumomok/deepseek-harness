@@ -63,7 +63,7 @@ export const name = 'content-point'
  */
 function recordedReferences(message: UserMessage): readonly RecordedReference[] {
   const source = message.source
-  return source.kind === 'user' && 'references' in source && source.references !== undefined ? source.references : []
+  return source.kind === 'user' && 'references' in source ? source.references : []
 }
 
 /**
