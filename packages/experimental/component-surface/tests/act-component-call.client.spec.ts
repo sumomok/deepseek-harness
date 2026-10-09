@@ -201,10 +201,24 @@ describe('reading a posted outcome', () => {
       null, 'x', {},
       { ...REPORT, callId: '' },
       { ...REPORT, tabId: '' },
-      { ...REPORT, callId: 'a'.repeat(MAX_ENTRY_ID_LENGTH + 1) },
+      { ...REPORT, callId: 'a'.repeat(257) },
+      { ...REPORT, tabId: 'a'.repeat(257) },
     ]) {
       expect(parseActComponentReport(value)).toBeUndefined()
     }
+  })
+
+  it("takes the channel's own ids at the bound the page domain takes them at", () => {
+    // The call and tab ids are the host's, not this domain's, and both domains
+    // read the same two off the same channel: a bound narrower here would
+    // refuse a report the page domain takes, and the call would be answered as
+    // a console that went quiet. 256 is that bound written out rather than
+    // read from this package's own constant, so a bound that moves here fails
+    // against the number the two domains have to agree on.
+    const long = 'a'.repeat(256)
+    expect(parseActComponentReport({ ...REPORT, callId: long, tabId: long }))
+      .toEqual({ ...REPORT, callId: long, tabId: long })
+    expect(parseActComponentReport({ ...REPORT, callId: 'a'.repeat(257) })).toBeUndefined()
   })
 })
 

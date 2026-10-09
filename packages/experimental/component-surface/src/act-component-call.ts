@@ -32,6 +32,21 @@ export const MAX_REPORT_TEXT_CHARS = 20_000
 /** Longest an entry title a report names may be. */
 export const MAX_TITLE_CHARS = 200
 
+/**
+ * Longest call or tab id a posted report may name, in characters.
+ *
+ * The same bound the page domain's own report reader takes those two ids at
+ * (`MAX_NAME_CHARS` in content-frame's `access/wire.ts`): one channel carries
+ * both domains' posts, and the ids are minted by the host rather than by either
+ * domain, so a domain that bounded them more tightly would refuse a report the
+ * other takes — a call left to answer as a console that went quiet while its
+ * answer was on the wire. The number is written here rather than imported
+ * because this module is part of the browser bundle, which carries no other
+ * plugin's values (the seam's own constraint, recorded in the channel's module
+ * doc and in `.agents/notes/implemented/architecture/2026-10-09-content-channel-seam-and-duplication.md`).
+ */
+export const MAX_CHANNEL_ID_CHARS = 256
+
 /** The tool this channel serves. */
 export const ACT_COMPONENT_TOOL_NAME = 'act_component'
 
@@ -317,7 +332,7 @@ function isStepResult(value: unknown): value is ActComponentStepResult {
 export function parseActComponentReport(body: unknown): ChannelReportRequest | undefined {
   if (body === null || typeof body !== 'object') return undefined
   const candidate = body as { callId?: unknown; tabId?: unknown; outcome?: unknown }
-  if (!isName(candidate.callId, MAX_ENTRY_ID_LENGTH) || !isName(candidate.tabId, MAX_ENTRY_ID_LENGTH)) return undefined
+  if (!isName(candidate.callId, MAX_CHANNEL_ID_CHARS) || !isName(candidate.tabId, MAX_CHANNEL_ID_CHARS)) return undefined
   const outcome = parseActComponentOutcome(candidate.outcome)
   return outcome === undefined ? undefined : { callId: candidate.callId, tabId: candidate.tabId, outcome }
 }

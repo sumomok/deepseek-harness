@@ -446,7 +446,7 @@ function installActComponent(ctx: Context, config: ResolvedConfig): void {
     // deployment rather than a configurable one.
     pinMs: ACT_TAB_PIN_MS,
   }
-  const calls = ctx.contentChannel.register({
+  const membership = ctx.contentChannel.register({
     name: ACT_COMPONENT_TOOL_NAME,
     // The widest report this domain posts: one step result per step, one
     // sentence, and the entry's own title.
@@ -456,7 +456,11 @@ function installActComponent(ctx: Context, config: ResolvedConfig): void {
       return report === undefined ? undefined : { callId: report.callId, tabId: report.tabId, outcome: report.outcome }
     },
   })
-  ctx.tools.register(actComponentTool(calls, timeouts, MAX_ACT_COMPONENT_STEPS))
+  // The member leaves with the child that joined it: a composition that drops
+  // one of the services this child waits for keeps the row alive, and a member
+  // left behind would read reports for a domain that is no longer offered.
+  ctx.effect(() => () => { membership.release() }, 'show-component: this row\'s channel member')
+  ctx.tools.register(actComponentTool(membership.calls, timeouts, MAX_ACT_COMPONENT_STEPS))
   ctx.sessionProjections.register(actComponentProjection(ctx.logger('component-surface')))
 }
 

@@ -134,6 +134,27 @@ export function anotherEntryInFront(inFront: string): string {
   return `The entry in front is "${inFront}", not the one this call named.`
 }
 
+/** The sentence a console posts when the entry it started on was redrawn under it. */
+export const ENTRY_REDRAWN_REASON = 'The entry was redrawn while this call was running.'
+
+/**
+ * The sentence a console posts for a control it may not press.
+ * @param key - the action key the step named.
+ * @returns the model-facing sentence.
+ */
+export function disabledReason(key: string): string {
+  return `control "${key}" is disabled.`
+}
+
+/**
+ * The sentence a console posts for a control something else is drawn over.
+ * @param key - the action key the step named.
+ * @returns the model-facing sentence.
+ */
+export function coveredReason(key: string): string {
+  return `control "${key}" is covered where it is drawn.`
+}
+
 /**
  * The sentence a console posts for a step whose target the entry does not
  * declare.

@@ -3,18 +3,28 @@
  * element the content column is drawing the named entry in.
  *
  * Every step is resolved inside that element and nowhere else. A control is
- * found by the key its component declares (`data-component-action`), a field by
- * the name the entry gives it (`data-component-field`, or the label, placeholder
- * or `name` a form control already carries), and both searches are bounded by
- * the block the step names — or by the whole entry when it names none. That
- * bound is the confine: a control the entry does not declare is a step that
- * names nothing, whatever else the console draws, and the reason says only that
- * it is not part of the entry rather than describing the user's screen.
+ * found by the key its component declares (`data-component-action`, or the
+ * control's own key where one action is performed by several controls), a field
+ * by the name the entry gives it (`data-component-field`, or the label,
+ * placeholder or `name` a form control already carries), and both searches are
+ * bounded by the block the step names — or by the whole entry when it names
+ * none. That bound is the confine: a control the entry does not declare is a
+ * step that names nothing, whatever else the console draws, and the reason says
+ * only that it is not part of the entry rather than describing the user's
+ * screen.
  *
  * Actions go through the block's own handlers: a press is a real `click()` on
  * the element, and a write goes through the prototype's value setter and then
  * dispatches `input` and `change`, which is what a React-controlled or Vue
- * component sees as a person typing.
+ * component sees as a person typing. What a press checks before it dispatches
+ * is whether the control is one a person could reach: a disabled control and
+ * one something else is drawn over each stop the call, because the click would
+ * otherwise reach a handler no real press could.
+ *
+ * The entry itself is read again before every step and the run stops where it
+ * no longer matches the one the call was claimed against — the column replaces
+ * what it draws without telling this seat, and the steps after a switch would
+ * otherwise land in whatever entry took this one's place.
  *
  * Nothing here is copied from the page domain: a component entry has no ref
  * table, no frames and no cross-origin question, and no step of this tool ever
@@ -28,7 +38,10 @@ import {
   type ActComponentStep,
   type ActComponentStepResult,
 } from '../act-component-call.ts'
-import { actComponentReportText, missingTargetReason, notWritableReason } from '../act-component-text.ts'
+import {
+  actComponentReportText, anotherEntryInFront, coveredReason, disabledReason, ENTRY_REDRAWN_REASON,
+  missingTargetReason, NO_ENTRY_IN_FRONT, notWritableReason,
+} from '../act-component-text.ts'
 import type { DrawnEntry } from './entry-container.ts'
 
 /** How often a `wait` step looks again. */
@@ -39,6 +52,23 @@ const WRITABLE = 'input, textarea, select'
 
 /** The parts of a form control a `set` step may match a name against. */
 const NAMED_BY = ['aria-label', 'name', 'placeholder'] as const
+
+/**
+ * The attribute an element carrying one action key is marked with.
+ *
+ * The attribute is read and the key compared in the page rather than turned
+ * into a selector, for the reason {@link withAttribute} states.
+ */
+const ACTION_KEY = 'data-component-action'
+
+/**
+ * The attribute a control carrying its own key is marked with, for a component
+ * whose one declared action is performed by several controls: a confirmation
+ * bar's buttons each carry the bar's `press` action and their own id, and a
+ * step naming the id presses that button while one naming the action presses
+ * the first. Absent on controls that have no key of their own.
+ */
+const OWN_KEY = 'data-component-key'
 
 /**
  * One element's own attribute value, compared exactly.
@@ -81,12 +111,23 @@ function scopeOf(entry: DrawnEntry, node: string | undefined): Element | undefin
 
 /**
  * The control one `click` step presses.
+ *
+ * Two keys address one control, and both are the component's own declaration
+ * rather than anything this package invents: the action the block declares
+ * ({@link ACTION_KEY}), and — where one action is performed by several controls
+ * that each carry a key of their own — that key ({@link OWN_KEY}). The action
+ * key is looked for first, so a step naming an action the block declares
+ * presses its first control whatever the controls call themselves.
  * @param scope - the subtree the step is confined to.
- * @param key - the action key the component declares for it.
+ * @param key - the action key, or the control's own key, the step names.
  * @returns the element, or undefined when nothing in the subtree declares it.
  */
 function clickTarget(scope: Element, key: string): Element | undefined {
-  return withAttribute(scope, 'data-component-action').find(el => marked(el, 'data-component-action', key))
+  for (const attribute of [ACTION_KEY, OWN_KEY]) {
+    const found = withAttribute(scope, attribute).find(el => marked(el, attribute, key))
+    if (found !== undefined) return found
+  }
+  return undefined
 }
 
 /**
@@ -94,8 +135,13 @@ function clickTarget(scope: Element, key: string): Element | undefined {
  *
  * The label is looked up inside the entry as well: a `for` pointing outside it
  * would otherwise let the console's own words decide which field a call writes,
- * and this step's whole confine is that one entry. Ids are the entry's own
- * tokens, so the selector carries no escaping question.
+ * and this step's whole confine is that one entry.
+ *
+ * The labels are read and their `for` compared rather than spliced into a
+ * selector: an id is the block's own markup, which nothing here validates, and
+ * one carrying a quote or a bracket would make the selector invalid — the
+ * engine's own error would reach the model, and one such control would break
+ * every `set` searching that entry.
  * @param el - the control.
  * @param within - the entry's own container.
  * @returns the name it carries there, empty when it carries none.
@@ -107,7 +153,10 @@ function ownName(el: Element, within: Element): string {
   }
   const id = el.getAttribute('id')
   if (id === null || id === '') return ''
-  return (within.querySelector(`label[for="${id}"]`)?.textContent ?? '').trim()
+  for (const label of within.querySelectorAll('label[for]')) {
+    if (label.getAttribute('for') === id) return (label.textContent ?? '').trim()
+  }
+  return ''
 }
 
 /**
@@ -205,7 +254,7 @@ async function runStep(entry: DrawnEntry, step: ActComponentStep): Promise<void>
   if (step.action === 'click') {
     const target = clickTarget(scope, step.key)
     if (target === undefined) throw new Error(missingTargetReason(`control "${step.key}"`))
-    press(target)
+    press(target, step.key)
     return
   }
   const target = setTarget(scope, step.name, entry.container)
@@ -214,14 +263,76 @@ async function runStep(entry: DrawnEntry, step: ActComponentStep): Promise<void>
 }
 
 /**
+ * Whether a block has disabled one control.
+ *
+ * A block says so the two ways the platform does — the `disabled` attribute a
+ * form control carries, and `aria-disabled` for anything else. A press of such
+ * a control would be reported as one that ran while the block's own handler,
+ * which a real browser never calls through a disabled control, never ran.
+ * @param el - the control.
+ * @returns whether it is disabled.
+ */
+function isDisabled(el: Element): boolean {
+  if (el.getAttribute('aria-disabled') === 'true') return true
+  const disabled: unknown = (el as { readonly disabled?: unknown }).disabled
+  return disabled === true
+}
+
+/**
+ * Whether one element of a hit test is the control a press would reach.
+ *
+ * The element a person's click would land on is the control itself, something
+ * inside it, or the label that carries it: an `el-checkbox` hides its own input,
+ * so the point over it lands on the label's box while a click there still
+ * toggles that input, and the two are one control.
+ * @param top - the topmost element at the control's own point.
+ * @param target - the control a press is aimed at.
+ * @returns whether a click there reaches the control.
+ */
+function reaches(top: Element, target: Element): boolean {
+  if (top === target || target.contains(top)) return true
+  const label = top.closest('label')
+  return label !== null && label.control === target
+}
+
+/**
+ * Whether something else is drawn over the control at the point it occupies.
+ *
+ * Read from the document's own hit test, so it answers the question a person's
+ * click would: the element that owns the point the control is drawn at. A
+ * document with no hit test at all (jsdom) and a control with no box to test
+ * (a hidden one, or layout the document does not compute) answer that there is
+ * nothing to find rather than refusing every press — as does a point the hit
+ * test reports no element for, which is one outside the rendered page.
+ * @param target - the control a press is aimed at.
+ * @returns whether it is covered.
+ */
+function isCovered(target: Element): boolean {
+  if (typeof document.elementFromPoint !== 'function') return false
+  const rect = target.getBoundingClientRect()
+  if (rect.width === 0 && rect.height === 0) return false
+  const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+  return top !== null && !reaches(top, target)
+}
+
+/**
  * Press one element the way a person would, so the block's own handler runs.
  *
  * An element with its own `click()` is pressed through it, which is what carries
  * the default action and the element's own activation behaviour; anything else —
  * an SVG control in a drawn chart — is given a bubbling click event instead.
+ *
+ * A control the block disabled, and one something else is drawn over, are
+ * refusals rather than presses: the click this function would dispatch reaches
+ * the block whether or not the control is reachable, so reporting the step as
+ * one that ran would say a person could have done what they could not.
  * @param target - the element to press.
+ * @param key - the action key the step named, for the refusal.
+ * @throws {Error} when the control is disabled or covered.
  */
-function press(target: Element): void {
+function press(target: Element, key: string): void {
+  if (isDisabled(target)) throw new Error(disabledReason(key))
+  if (isCovered(target)) throw new Error(coveredReason(key))
   if (target instanceof HTMLElement) {
     target.click()
     return
@@ -240,6 +351,29 @@ export interface ActComponentRun {
 }
 
 /**
+ * Why the entry one step was about to run on is no longer the one in front.
+ *
+ * The column replaces what it draws without telling the seat, and one kind's
+ * entries share the element they are drawn in — so a step that starts after a
+ * switch would press a control of the entry that took this one's place while
+ * the report kept naming the entry the call asked for. The entry is therefore
+ * read again before every step, and the two facts the column writes about it
+ * are compared: which entry the switcher marks as selected, and which element
+ * the entry is drawn in. A redraw of the same entry in a new element is a
+ * mismatch too: the steps would otherwise run in a subtree nobody sees.
+ * @param entry - the entry the call resolved when it was claimed.
+ * @param locate - how the console reads the entry in front now, the same reading the claim used.
+ * @returns what stopped the call, or undefined while the entry is still the one in front.
+ */
+function displacedReason(entry: DrawnEntry, locate: () => DrawnEntry | undefined): string | undefined {
+  const drawn = locate()
+  if (drawn === undefined) return NO_ENTRY_IN_FRONT
+  if (drawn.entryId !== entry.entryId) return anotherEntryInFront(drawn.entryId)
+  if (drawn.container !== entry.container) return ENTRY_REDRAWN_REASON
+  return undefined
+}
+
+/**
  * Run one call's steps against the entry the column is drawing.
  *
  * A failing step is a value rather than a rejection: it stops the call, the
@@ -247,9 +381,14 @@ export interface ActComponentRun {
  * stopped it in the same answer that carries the rest.
  * @param args - the call's arguments.
  * @param entry - the entry the column is drawing, which the caller has matched to the call.
+ * @param locate - reads the entry in front again, for the check before every step.
  * @returns what the call ended as.
  */
-export async function runActComponent(args: ActComponentArgs, entry: DrawnEntry): Promise<ActComponentRun> {
+export async function runActComponent(
+  args: ActComponentArgs,
+  entry: DrawnEntry,
+  locate: () => DrawnEntry | undefined,
+): Promise<ActComponentRun> {
   const results: ActComponentStepResult[] = []
   let failed = false
   for (const [at, step] of args.steps.entries()) {
@@ -258,6 +397,8 @@ export async function runActComponent(args: ActComponentArgs, entry: DrawnEntry)
       continue
     }
     try {
+      const displaced = displacedReason(entry, locate)
+      if (displaced !== undefined) throw new Error(displaced)
       await runStep(entry, step)
       results.push({ index: at + 1, status: 'ok' })
     } catch (refusal) {

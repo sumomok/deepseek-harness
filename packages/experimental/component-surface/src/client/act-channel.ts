@@ -79,7 +79,10 @@ export function joinActComponentChannel(channel: ContentChannelJoin): ActCompone
       if (drawn.entryId !== call.request.args.entry) {
         return refusal('front-changed', anotherEntryInFront(drawn.entryId))
       }
-      const run = await runActComponent(call.request.args, drawn)
+      // The same reading is handed to the run, which takes it again before
+      // every step: a step that starts after the column switched what it
+      // draws would otherwise land in the entry that took this one's place.
+      const run = await runActComponent(call.request.args, drawn, () => drawnEntry(document))
       return {
         kind: 'outcome',
         outcome: {
