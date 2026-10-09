@@ -12,7 +12,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { parseActComponentArgs, type ActComponentArgs } from '../src/act-component-call.ts'
-import { drawnEntry } from '../src/client/entry-container.ts'
+import { drawnEntry, type DrawnEntry } from '../src/client/entry-container.ts'
 import { runActComponent } from '../src/client/act-executor.ts'
 
 /** The entry id every case here acts on. */
@@ -82,6 +82,42 @@ describe('the component entry a call may act on', () => {
 
   it('draws nothing to act on while no component entry is in front', () => {
     document.body.innerHTML = '<div data-content-surface-seat="component"><div data-component-surface></div></div>'
+    expect(drawnEntry(document)).toBeUndefined()
+  })
+
+  it('refuses a selected entry of another kind, and one whose key names no kind at all', () => {
+    document.body.innerHTML = `
+      <nav data-content-surface-switcher>
+        <button data-content-surface-entry="page home" data-content-surface-selected>Home</button>
+      </nav>
+      <div data-content-surface-seat="component" data-content-surface-active>
+        <div data-component-surface></div>
+      </div>
+    `
+    expect(drawnEntry(document)).toBeUndefined()
+    document.querySelector('[data-content-surface-entry]')?.setAttribute('data-content-surface-entry', 'demo')
+    expect(drawnEntry(document)).toBeUndefined()
+  })
+
+  it('refuses a selected tab that carries no entry key at all', () => {
+    document.body.innerHTML = `
+      <nav data-content-surface-switcher>
+        <button data-content-surface-selected>Demo</button>
+      </nav>
+      <div data-content-surface-seat="component" data-content-surface-active>
+        <div data-component-surface></div>
+      </div>
+    `
+    expect(drawnEntry(document)).toBeUndefined()
+  })
+
+  it('draws nothing when the selected entry has no container drawn for it yet', () => {
+    document.body.innerHTML = `
+      <nav data-content-surface-switcher>
+        <button data-content-surface-entry="component demo" data-content-surface-selected>Demo</button>
+      </nav>
+      <div data-content-surface-seat="component" data-content-surface-active></div>
+    `
     expect(drawnEntry(document)).toBeUndefined()
   })
 })
@@ -181,5 +217,169 @@ describe('the arguments one call may carry', () => {
     expect(parseActComponentArgs({ entry: ENTRY, steps: [{ action: 'wait' }] })).toBeUndefined()
     expect(parseActComponentArgs({ entry: ENTRY, steps: [{ action: 'click', key: 'a b' }] })).toBeUndefined()
     expect(parseActComponentArgs({ entry: ENTRY, steps: [] })).toBeUndefined()
+  })
+})
+
+/** Draw one entry whose own container holds the markup a case needs. */
+function drawEntry(inner: string): DrawnEntry {
+  document.body.innerHTML = `
+    <nav data-content-surface-switcher>
+      <button data-content-surface-entry="component ${ENTRY}" data-content-surface-selected>Demo</button>
+    </nav>
+    <div data-content-surface-seat="component" data-content-surface-active>
+      <div data-component-surface>${inner}</div>
+    </div>
+  `
+  const drawn = drawnEntry(document)
+  if (drawn === undefined) throw new Error('the case drew no entry')
+  return drawn
+}
+
+describe('the field a step writes', () => {
+  it('takes the control whose own name is the column, when the block declares no field', async () => {
+    const drawn = drawEntry('<input aria-label="title">')
+    const report = await runActComponent(args([{ action: 'set', name: 'title', value: 'X' }]), drawn)
+    expect(report.status).toBe('done')
+    expect((document.querySelector('input') as HTMLInputElement).value).toBe('X')
+  })
+
+  it('writes a select and a textarea the way a person would', async () => {
+    const drawn = drawEntry(`
+      <select data-component-field="kind"><option value="a">a</option><option value="b">b</option></select>
+      <textarea data-component-field="note"></textarea>
+    `)
+    const report = await runActComponent(args([
+      { action: 'set', name: 'kind', value: 'b' },
+      { action: 'set', name: 'note', value: 'hello' },
+    ]), drawn)
+    expect(report.status).toBe('done')
+    expect(document.querySelector('select')?.value).toBe('b')
+    expect(document.querySelector('textarea')?.value).toBe('hello')
+  })
+
+  it('writes through the element itself when its prototype declares no value accessor', async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+    const drawn = drawEntry('<input data-component-field="title">')
+    try {
+      // The prototype accessor is what a controlled component replaces; a DOM
+      // implementation without one leaves the step the plain assignment.
+      delete (HTMLInputElement.prototype as { value?: unknown }).value
+      const report = await runActComponent(args([{ action: 'set', name: 'title', value: 'X' }]), drawn)
+      expect(report.status).toBe('done')
+      expect((document.querySelector('input') as HTMLInputElement).value).toBe('X')
+    } finally {
+      if (descriptor !== undefined) Object.defineProperty(HTMLInputElement.prototype, 'value', descriptor)
+    }
+  })
+
+  it('fails the step when the control refuses the value rather than reporting a write that never happened', async () => {
+    const drawn = drawEntry('<input type="number" data-component-field="count">')
+    const report = await runActComponent(args([{ action: 'set', name: 'count', value: 'abc' }]), drawn)
+    expect(report).toEqual({
+      status: 'failed',
+      steps: [{ index: 1, status: 'failed', message: 'The field for "count" is not one this call may write.' }],
+      text: 'Acted on the component entry "Demo" (demo).\n- set "count": The field for "count" is not one this call may write.',
+    })
+  })
+
+  it('searches the block itself when the block is the control', async () => {
+    document.body.innerHTML = `
+      <nav data-content-surface-switcher>
+        <button data-content-surface-entry="component ${ENTRY}" data-content-surface-selected>Demo</button>
+      </nav>
+      <div data-content-surface-seat="component" data-content-surface-active>
+        <input data-component-surface data-component-field="other" placeholder="title">
+      </div>
+    `
+    const drawn = drawnEntry(document)
+    if (drawn === undefined) throw new Error('the case drew no entry')
+    const report = await runActComponent(args([{ action: 'set', name: 'title', value: 'X' }]), drawn)
+    expect(report.status).toBe('done')
+    expect((document.querySelector('input') as HTMLInputElement).value).toBe('X')
+  })
+
+  it('fails a step naming a control that names itself by nothing and cannot take a value', async () => {
+    const drawn = drawEntry('<div data-component-field="title"><input id="unlabelled"></div>')
+    const report = await runActComponent(args([{ action: 'set', name: 'title', value: 'X' }]), drawn)
+    // The declared marker wins, and the control it names is not one that takes
+    // a value: the step fails rather than reporting a write that never happened.
+    expect(report.steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'The field for "title" is not one this call may write.',
+    }])
+    expect((document.querySelector('#unlabelled') as HTMLInputElement).value).toBe('')
+  })
+
+  it('reads a control naming itself by an id no label inside the entry points at as naming nothing', async () => {
+    const drawn = drawEntry('<input id="elsewhere">')
+    const report = await runActComponent(args([{ action: 'set', name: 'title', value: 'X' }]), drawn)
+    expect(report.steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'field "title" is not part of the entry on display.',
+    }])
+  })
+})
+
+describe('a control that is not an HTMLElement', () => {
+  it('is pressed with a click event, so a drawn SVG control still runs its handler', async () => {
+    const drawn = drawEntry('<svg><circle data-component-action="pick"></circle></svg>')
+    const picked = vi.fn()
+    document.querySelector('circle')?.addEventListener('click', picked)
+    const report = await runActComponent(args([{ action: 'click', key: 'pick' }]), drawn)
+    expect(report.status).toBe('done')
+    expect(picked).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a step naming a block the entry does not draw', () => {
+  it('refuses the click and the write before touching anything', async () => {
+    draw()
+    const drawn = drawnEntry(document)
+    if (drawn === undefined) throw new Error('the case drew no entry')
+    const report = await runActComponent(args([
+      { action: 'click', node: 'ghost', key: 'add' },
+      { action: 'set', node: 'ghost', name: 'title', value: 'X' },
+    ]), drawn)
+    expect(report).toEqual({
+      status: 'failed',
+      steps: [
+        { index: 1, status: 'failed', message: 'block "ghost" is not part of the entry on display.' },
+        { index: 2, status: 'skipped' },
+      ],
+      text: [
+        'Acted on the component entry "Demo" (demo).',
+        '- click in ghost on "add": block "ghost" is not part of the entry on display.',
+        '- set "title" in ghost: not run',
+      ].join('\n'),
+    })
+  })
+})
+
+describe('a wait step', () => {
+  it('waits for a declared key with the built-in deadline when the step names none', async () => {
+    draw()
+    const drawn = drawnEntry(document)
+    if (drawn === undefined) throw new Error('the case drew no entry')
+    const report = await runActComponent(args([{ action: 'wait', key: 'add' }]), drawn)
+    expect(report.status).toBe('done')
+  })
+
+  it('fails with the target it waited for when the block or the key never appears', async () => {
+    draw()
+    const drawn = drawnEntry(document)
+    if (drawn === undefined) throw new Error('the case drew no entry')
+    const cases: [ActComponentArgs['steps'][number], string][] = [
+      [{ action: 'wait', node: 'ghost', timeoutMs: 50 }, '"ghost" did not appear in time'],
+      [{ action: 'wait', key: 'ghost', timeoutMs: 50 }, '"ghost" did not appear in time'],
+    ]
+    for (const [step, message] of cases) {
+      const report = await runActComponent(args([step]), drawn)
+      expect({ step, report: report.steps }).toEqual({
+        step,
+        report: [{ index: 1, status: 'failed', message: `${message} is not part of the entry on display.` }],
+      })
+    }
   })
 })
