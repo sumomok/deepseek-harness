@@ -519,6 +519,170 @@ describe('a press the control itself refuses', () => {
     }
   })
 
+  it('reaches a table control through the copy the fixed-column layer draws of it', async () => {
+    // One drawn column, drawn the way element-ui draws a fixed one: a body
+    // wrapper a person scrolls, and a fixed layer standing over it as a second
+    // copy of the same cell and the same heading. The copy is what the point
+    // over the control's centre hits, and it is the same control reached twice
+    // — pressing the one the block declared runs what a click there runs.
+    const drawn = drawEntry(`
+      <div data-component-node="grid" class="el-table">
+        <div class="el-table__header-wrapper"><table class="el-table__header"><thead><tr>
+          <th data-component-action="sort"><i class="sort-caret"></i></th>
+        </tr></thead></table></div>
+        <div class="el-table__body-wrapper"><table class="el-table__body"><tbody><tr>
+          <td data-component-action="cell-click"><div class="cell" id="own-cell">row</div></td>
+        </tr></tbody></table></div>
+        <div class="el-table__fixed">
+          <div class="el-table__fixed-header-wrapper"><table class="el-table__header"><thead><tr>
+            <th data-component-action="sort"><i class="sort-caret"></i></th>
+          </tr></thead></table></div>
+          <div class="el-table__fixed-body-wrapper"><table class="el-table__body"><tbody><tr>
+            <td data-component-action="cell-click"><div class="cell" id="copy-cell">row</div></td>
+          </tr></tbody></table></div>
+        </div>
+      </div>
+    `)
+    const cell = document.querySelector('.el-table__body-wrapper td') as HTMLElement
+    const heading = document.querySelector('.el-table__header-wrapper th') as HTMLElement
+    const copyOfCell = document.querySelector('#copy-cell') as HTMLElement
+    const copyOfCaret = document.querySelector('.el-table__fixed-header-wrapper .sort-caret') as HTMLElement
+    const pressed = vi.fn()
+    const sorted = vi.fn()
+    cell.addEventListener('click', pressed)
+    heading.addEventListener('click', sorted)
+    for (const el of [cell, heading]) {
+      el.getBoundingClientRect = () => ({
+        left: 10, top: 20, width: 40, height: 10, right: 50, bottom: 30, x: 10, y: 20, toJSON: () => ({}),
+      })
+    }
+    try {
+      // The point over the cell's centre is held by the copy, and the point
+      // over the heading's by the caret the fixed header draws.
+      document.elementFromPoint = () => copyOfCell
+      expect((await run(args([{ action: 'click', key: 'cell-click' }]), drawn)).status).toBe('done')
+      expect(pressed).toHaveBeenCalledTimes(1)
+      document.elementFromPoint = () => copyOfCaret
+      expect((await run(args([{ action: 'click', key: 'sort' }]), drawn)).status).toBe('done')
+      expect(sorted).toHaveBeenCalledTimes(1)
+    } finally {
+      Reflect.deleteProperty(document, 'elementFromPoint')
+    }
+  })
+
+  it('refuses a point held by another control of the same action, which is no copy of this one', async () => {
+    // Copying is what a block does to ONE control: the row's operation links
+    // all declare the same action and each carries its own key, so a link
+    // holding the point over another link is a different operation rather
+    // than the same one reached twice.
+    const drawn = drawEntry(`
+      <div data-component-node="grid">
+        <a id="keep" data-component-action="operation" data-component-key="keep" href="#">Keep</a>
+        <a id="drop" data-component-action="operation" data-component-key="drop" href="#">Drop</a>
+        <div id="row-holder" data-component-action="operation" data-component-key="keep"><div class="cell" id="row-cell">row</div></div>
+      </div>
+    `)
+    const keep = document.querySelector('#keep') as HTMLElement
+    const dropped = vi.fn()
+    keep.addEventListener('click', dropped)
+    keep.getBoundingClientRect = () => ({
+      left: 10, top: 20, width: 40, height: 10, right: 50, bottom: 30, x: 10, y: 20, toJSON: () => ({}),
+    })
+    try {
+      // The other operation's own link holds the point, and so does an element
+      // declaring this key on another kind of element: neither is a second
+      // drawing of this control.
+      document.elementFromPoint = () => document.querySelector('#drop')
+      expect((await run(args([{ action: 'click', key: 'keep' }]), drawn)).steps).toEqual([{
+        index: 1,
+        status: 'failed',
+        message: 'control "keep" is covered where it is drawn.',
+      }])
+      document.elementFromPoint = () => document.querySelector('#row-cell')
+      expect((await run(args([{ action: 'click', key: 'keep' }]), drawn)).steps).toEqual([{
+        index: 1,
+        status: 'failed',
+        message: 'control "keep" is covered where it is drawn.',
+      }])
+      expect(dropped).not.toHaveBeenCalled()
+    } finally {
+      Reflect.deleteProperty(document, 'elementFromPoint')
+    }
+  })
+
+  it('refuses a copy drawn by another block, which is no drawing of this control', async () => {
+    const drawn = drawEntry(`
+      <div data-component-node="grid-a">
+        <table><tbody><tr><td data-component-action="cell-click"><div class="cell" id="own-a">row</div></td></tr></tbody></table>
+      </div>
+      <div data-component-node="grid-b">
+        <table><tbody><tr><td data-component-action="cell-click"><div class="cell" id="copy-b">row</div></td></tr></tbody></table>
+      </div>
+    `)
+    const cell = document.querySelector('[data-component-node="grid-a"] td') as HTMLElement
+    const pressed = vi.fn()
+    cell.addEventListener('click', pressed)
+    cell.getBoundingClientRect = () => ({
+      left: 10, top: 20, width: 40, height: 10, right: 50, bottom: 30, x: 10, y: 20, toJSON: () => ({}),
+    })
+    document.elementFromPoint = () => document.querySelector('#copy-b')
+    try {
+      expect((await run(args([{ action: 'click', key: 'cell-click' }]), drawn)).steps).toEqual([{
+        index: 1,
+        status: 'failed',
+        message: 'control "cell-click" is covered where it is drawn.',
+      }])
+      expect(pressed).not.toHaveBeenCalled()
+    } finally {
+      Reflect.deleteProperty(document, 'elementFromPoint')
+    }
+  })
+
+  it('refuses a table control something unrelated is drawn over', async () => {
+    const drawn = drawEntry(`
+      <div data-component-node="grid" class="el-table">
+        <div class="el-table__body-wrapper"><table class="el-table__body"><tbody><tr>
+          <td data-component-action="cell-click"><div class="cell">row</div></td>
+        </tr></tbody></table></div>
+        <div class="el-table__fixed"><div class="el-table__fixed-body-wrapper"><table class="el-table__body"><tbody><tr>
+          <td data-component-action="cell-click"><div class="cell">row</div></td>
+        </tr></tbody></table></div></div>
+        <button data-component-key="only">Only a key</button>
+        <div id="mask">cover</div>
+      </div>
+    `)
+    const cell = document.querySelector('.el-table__body-wrapper td') as HTMLElement
+    const only = document.querySelector('[data-component-key="only"]') as HTMLElement
+    const pressed = vi.fn()
+    const pressedOnly = vi.fn()
+    cell.addEventListener('click', pressed)
+    only.addEventListener('click', pressedOnly)
+    for (const el of [cell, only]) {
+      el.getBoundingClientRect = () => ({
+        left: 10, top: 20, width: 40, height: 10, right: 50, bottom: 30, x: 10, y: 20, toJSON: () => ({}),
+      })
+    }
+    document.elementFromPoint = () => document.querySelector('#mask')
+    try {
+      expect((await run(args([{ action: 'click', key: 'cell-click' }]), drawn)).steps).toEqual([{
+        index: 1,
+        status: 'failed',
+        message: 'control "cell-click" is covered where it is drawn.',
+      }])
+      // A control the block marks by its own key alone is covered the same
+      // way: nothing on the point carries an action that could be its copy.
+      expect((await run(args([{ action: 'click', key: 'only' }]), drawn)).steps).toEqual([{
+        index: 1,
+        status: 'failed',
+        message: 'control "only" is covered where it is drawn.',
+      }])
+      expect(pressed).not.toHaveBeenCalled()
+      expect(pressedOnly).not.toHaveBeenCalled()
+    } finally {
+      Reflect.deleteProperty(document, 'elementFromPoint')
+    }
+  })
+
   it('reaches a control through the label that carries it', async () => {
     const drawn = drawEntry('<label><input type="checkbox" data-component-action="tick"><span id="box">tick</span></label>')
     const input = document.querySelector('input') as HTMLInputElement

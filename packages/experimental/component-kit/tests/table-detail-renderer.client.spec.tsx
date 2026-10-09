@@ -428,6 +428,31 @@ describe('the controls a table marks for the act tool', () => {
     expect(operation?.textContent).toBe('查看')
   })
 
+  it('marks the copy drawn where the column stands, not the hidden one the fixed layer is drawn over', async () => {
+    // Every cell of a fixed column is drawn twice: element-ui draws the
+    // scrolling body's copy as an `is-hidden` placeholder and the fixed
+    // layer's over it. The marks follow the drawn copy — the one a person's
+    // click reaches and the one standing where the column is — so a control
+    // the tool addresses is one a person could have clicked.
+    const { view } = await draw({
+      tableConfig: { gridItems: COLUMNS },
+      displayValueList: ROWS,
+      isNameClick: true,
+      tableSortable: true,
+    })
+    const container = view.container
+    // The name column is the fixed one, so its drawn cell is the fixed layer's.
+    expect(container.querySelector('.el-table__fixed-body-wrapper [data-component-action="row-click"]')).not.toBeNull()
+    const hiddenCell = [...container.querySelectorAll('.el-table__body-wrapper tbody td')]
+      .find(td => td.classList.contains('is-hidden'))
+    expect(hiddenCell?.getAttribute('data-component-action')).toBeNull()
+    // The sortable heading, likewise, is marked in the fixed header.
+    expect(container.querySelector('[data-component-action="sort"]')?.closest('.el-table__fixed-header-wrapper')).not.toBeNull()
+    const hiddenHeading = [...container.querySelectorAll('.el-table__header-wrapper th')]
+      .find(th => th.classList.contains('is-hidden'))
+    expect(hiddenHeading?.getAttribute('data-component-action')).toBeNull()
+  })
+
   it('marks no cell as an opened row where the call opened none, and no control it does not draw', async () => {
     const { view } = await draw({ tableConfig: { gridItems: COLUMNS }, displayValueList: ROWS, tableSortable: false })
     expect(view.container.querySelector('[data-component-action="row-click"]')).toBeNull()

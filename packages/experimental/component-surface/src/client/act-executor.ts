@@ -70,6 +70,9 @@ const ACTION_KEY = 'data-component-action'
  */
 const OWN_KEY = 'data-component-key'
 
+/** The attribute naming the block an element is drawn by. */
+const NODE_KEY = 'data-component-node'
+
 /**
  * One element's own attribute value, compared exactly.
  * @param el - the element.
@@ -105,7 +108,7 @@ function withAttribute(root: Element, attribute: string): Element[] {
  */
 function scopeOf(entry: DrawnEntry, node: string | undefined): Element | undefined {
   if (node === undefined) return entry.container
-  const found = withAttribute(entry.container, 'data-component-node').find(el => marked(el, 'data-component-node', node))
+  const found = withAttribute(entry.container, NODE_KEY).find(el => marked(el, NODE_KEY, node))
   return found === undefined ? undefined : found
 }
 
@@ -286,7 +289,8 @@ function isDisabled(el: Element): boolean {
  * The element a person's click would land on is the control itself, something
  * inside it, or the label that carries it: an `el-checkbox` hides its own input,
  * so the point over it lands on the label's box while a click there still
- * toggles that input, and the two are one control.
+ * toggles that input, and the two are one control. A second drawing of the same
+ * control reaches it as well, for the reason {@link secondDrawing} states.
  * @param top - the topmost element at the control's own point.
  * @param target - the control a press is aimed at.
  * @returns whether a click there reaches the control.
@@ -294,7 +298,8 @@ function isDisabled(el: Element): boolean {
 function reaches(top: Element, target: Element): boolean {
   if (top === target || target.contains(top)) return true
   const label = top.closest('label')
-  return label !== null && label.control === target
+  if (label !== null && label.control === target) return true
+  return secondDrawing(top, target)
 }
 
 /**
@@ -350,6 +355,32 @@ export interface ActComponentRun {
   readonly steps: readonly ActComponentStepResult[]
   /** What ran, and what the entry's own controls answered. */
   readonly text: string
+}
+
+/**
+ * Whether the element on top is a second drawing of the same control.
+ *
+ * A block that draws one control twice — a table splits its fixed columns into
+ * a layer of its own and draws each of their controls again there — leaves the
+ * copy standing over the one a step found. Both carry the block's own
+ * declaration, so the copy is told from anything else by that declaration: the
+ * same action and the same own key, on an element of the same kind, under the
+ * same block. A person's click at that point reaches the same control the step
+ * named rather than something covering it.
+ * @param top - the topmost element at the control's own point.
+ * @param target - the control a press is aimed at.
+ * @returns whether the point reaches the same control.
+ */
+function secondDrawing(top: Element, target: Element): boolean {
+  const action = target.getAttribute(ACTION_KEY)
+  if (action === null) return false
+  const key = target.getAttribute(OWN_KEY)
+  const block = target.closest(`[${NODE_KEY}]`)
+  for (let el: Element | null = top; el !== null; el = el.parentElement) {
+    if (el.getAttribute(ACTION_KEY) === action && el.getAttribute(OWN_KEY) === key
+      && el.tagName === target.tagName && el.closest(`[${NODE_KEY}]`) === block) return true
+  }
+  return false
 }
 
 /**

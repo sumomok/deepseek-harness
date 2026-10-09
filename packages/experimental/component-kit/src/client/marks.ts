@@ -39,20 +39,49 @@ const SELECT_ACTION = 'select'
 /** The action every per-row operation control reports, whichever key it carries. */
 const OPERATION_ACTION = 'operation'
 
+/*
+ * Every cell of one table is drawn twice: once in the body wrapper a person
+ * scrolls, and once in the fixed-column layer el-table stands over it. Of the
+ * two drawings exactly one is where the column stands — the other is
+ * el-table's `is-hidden` placeholder, which takes no point a person can click
+ * — so each selector below marks the drawn copy in both wrappers and the
+ * hidden one in neither. A control `act_component` addresses is then one a
+ * person can click wherever the table drew the column fixed or not.
+ */
+
+/** The two wrappers one table draws its body in: the one a person scrolls, and the fixed layer's copy. */
+const BODY_WRAPPERS = ['.el-table__body-wrapper', '.el-table__fixed-body-wrapper'] as const
+
+/** The two wrappers it draws its headings in, likewise. */
+const HEADING_WRAPPERS = ['.el-table__header-wrapper', '.el-table__fixed-header-wrapper'] as const
+
+/**
+ * One selector per wrapper, so a trailing descendant applies to each of them.
+ * @param wrappers - the wrappers to write the selector under.
+ * @param selector - what is drawn under each.
+ * @returns the selector list.
+ */
+function under(wrappers: readonly string[], selector: string): string {
+  return wrappers.map(wrapper => `${wrapper} ${selector}`).join(', ')
+}
+
 /** Every control a table's selection reports from, in both the drawn modes. */
-const SELECT_CONTROLS = '.el-table__body-wrapper .el-checkbox__original, .el-table__body-wrapper .el-radio__original'
+const SELECT_CONTROLS = [
+  under(BODY_WRAPPERS, 'tbody td:not(.is-hidden) .el-checkbox__original'),
+  under(BODY_WRAPPERS, 'tbody td:not(.is-hidden) .el-radio__original'),
+].join(', ')
 
 /**
  * A row's own cells, minus the selection column's: the cell a click opens the
  * row from.
  */
-const ROW_CELLS = '.el-table__body-wrapper tbody td:not(.el-table-column--selection)'
+const ROW_CELLS = under(BODY_WRAPPERS, 'tbody td:not(.el-table-column--selection):not(.is-hidden)')
 
-/** The heading of every column the user may sort. */
-const SORT_HEADINGS = '.el-table__header-wrapper th.is-sortable'
+/** The heading of every column the user may sort, in whichever wrapper draws it. */
+const SORT_HEADINGS = under(HEADING_WRAPPERS, 'th.is-sortable:not(.is-hidden)')
 
 /** One row's operation cell, where its per-row buttons are drawn. */
-const OPERATION_CELLS = '.el-table__body-wrapper .column-operation'
+const OPERATION_CELLS = under(BODY_WRAPPERS, 'tbody td:not(.is-hidden) .column-operation')
 
 /** The built-in modify control a data page's operation column draws. */
 const BUILTIN_MODIFY = '.operation-modify'

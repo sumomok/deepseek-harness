@@ -85,9 +85,9 @@ describe('the actions the catalog declares and the marks the renderers write', (
     // draw must not land on the next row's control, which would name an
     // operation nobody pressed.
     document.body.innerHTML = `
-      <div class="el-table__body-wrapper"><tbody><tr>
+      <div class="el-table__body-wrapper"><table><tbody><tr>
         <td><div class="column-operation"><span class="operation-custom"><a href="#">Ping</a></span></div></td>
-      </tr></tbody></div>
+      </tr></tbody></table></div>
     `
     markTable(document.body, { operations: { custom: ['ping', 'ghost'] } })
     expect(document.querySelector('.operation-custom a')?.getAttribute('data-component-key')).toBe('ping')
