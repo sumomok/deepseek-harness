@@ -3,20 +3,20 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/content-point/README.md
 /:
-  en: 4c92e37fa4ef9838
-  zh: fa4d1b4a95b1e478
+  en: cc9f8ffe533d79b4
+  zh: 18a9100e893b4b6d
 /deepseek-ai-dsh-experimental-content-point:
   en: a9b12a609363f317
   zh: ce694c36f41a5689
 /deepseek-ai-dsh-experimental-content-point/summary:
-  en: 8f59030360edd6a2
-  zh: 727819c014a455ab
+  en: aff36f1b93c0d74b
+  zh: 94a4b72226ad29ed
 /deepseek-ai-dsh-experimental-content-point/table-of-contents:
   en: d152484eb41ac6b4
   zh: 567cbc298d08aecc
 /deepseek-ai-dsh-experimental-content-point/use-this-package:
-  en: 369de28cba584bb6
-  zh: 2425b8f9bbd71df5
+  en: 7b2e256f4c5699ec
+  zh: 6515af31f3b25d16
 /deepseek-ai-dsh-experimental-content-point/use-this-package/when-to-choose-it:
   en: e16425b0450265f1
   zh: 8d2f1a1a7704de75
@@ -24,11 +24,11 @@
   en: ca6a463996686542
   zh: 7ad977ca9e77ed68
 /deepseek-ai-dsh-experimental-content-point/use-this-package/what-a-point-records:
-  en: 94ede73f17356a14
-  zh: a0a46e399aac9a24
+  en: 8d8662c38987d7e4
+  zh: 21fad5a316ffa13f
 /deepseek-ai-dsh-experimental-content-point/understand-the-implementation:
-  en: 9676eab2c7c78202
-  zh: 131e30b4061c91df
+  en: 8b9e5909e21e972a
+  zh: 74493d3ec81bb461
 /deepseek-ai-dsh-experimental-content-point/understand-the-implementation/formats:
   en: a0f73d4249b99551
   zh: e45d6597987833ad
@@ -42,8 +42,8 @@
   en: 8e2247a0634ae5b7
   zh: eda8286480c1b036
 /deepseek-ai-dsh-experimental-content-point/model-experience/the-point-notice/what-the-model-sees:
-  en: 6ac088dd2758b9e7
-  zh: 5fe043baf58a5d5c
+  en: 026b337ab0a6f894
+  zh: 70c030e822a522fe
 /deepseek-ai-dsh-experimental-content-point/model-experience/the-point-notice/what-the-model-sees/the-notice-for-a-column-header-and-a-block:
   en: 02b061bd5d4b9341
   zh: 8ad848166c24dd7b
@@ -54,8 +54,8 @@
   en: 9d3b8ae5513c0e6a
   zh: 58e8e8a263737308
 /deepseek-ai-dsh-experimental-content-point/known-limitations-and-deferred-work:
-  en: adc041224454f018
-  zh: e4f6476f64f55b8e
+  en: 6d07845779398bec
+  zh: eb437ac0bbf11c6e
 /deepseek-ai-dsh-experimental-content-point/known-limitations-and-deferred-work/dev-note:
   en: 4565c28977dd4a55
   zh: e0720173fa324583

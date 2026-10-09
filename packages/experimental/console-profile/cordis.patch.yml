@@ -448,10 +448,11 @@
 # content column or the sidebar. The place picked becomes a reference chip
 # above the composer, and before the step a message carrying it enters, the
 # row appends one logged message writing each point's key line and display
-# text, never a DataPage row's values. The row is a host-plane `agent/pre-step`
+# text, never a record's values. The row is a host-plane `agent/pre-step`
 # listener, so `console` and its `standard` twin both get it, and has no config.
 # Only this layer inserts it: a second row in a deployment layer would draw two
-# buttons and append each point's message twice.
+# buttons, though the notice is still appended once, since each row skips a
+# message the step already holds a notice for.
 - insert:
     - id: content-point
       name: '@deepseek-ai/dsh-experimental-content-point'
