@@ -104,6 +104,15 @@ describe('a view file\'s parameter references', () => {
     expect(refusal({ nodes: [{ props: { a: 'fine' } }, { props: { b: { $param: 'nope' } } }] }, {}).path)
       .toBe('spec.nodes[1].props.b')
   })
+
+  it('reads a reference only where the value carries the key itself', () => {
+    // Every key the walk copies is one the mapping carries, so an inherited
+    // reference is a mapping with nothing in it, and the judgement that follows
+    // refuses it for what it is.
+    const inherited: unknown = Object.create({ $param: 'open' })
+    expect(substituted({ props: { readOnly: inherited } }, { open: false })).toEqual({ props: { readOnly: {} } })
+    expect(substituted({ props: { buttons: [inherited] } }, { open: false })).toEqual({ props: { buttons: [{}] } })
+  })
 })
 
 describe('an alias in a view file', () => {

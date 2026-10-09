@@ -3373,10 +3373,10 @@ export const BINDING_HINT = 'node:<node id>.<output name>, optionally with [inde
  * rather than as a property of the wrong type, and a value carrying `$from`
  * where a binding is not accepted is refused for being there.
  * @param value - the property value, however malformed.
- * @returns true when the value is an object carrying `$from`.
+ * @returns true when the value is an object carrying `$from` itself; one it only inherits is not written.
  */
 export function isBindingValue(value: unknown): value is Readonly<Record<string, unknown>> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) && BINDING_KEY in value
+  return value !== null && typeof value === 'object' && !Array.isArray(value) && Object.hasOwn(value, BINDING_KEY)
 }
 
 /**

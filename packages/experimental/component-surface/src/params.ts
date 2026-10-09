@@ -43,9 +43,9 @@ function isMapping(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** Whether one value carries the reference key, whatever else is wrong with it. */
-function isReference(value: unknown): boolean {
-  return isMapping(value) && PARAM_KEY in value
+/** Whether one value carries the reference key itself, whatever else is wrong with it; one it only inherits is not written. */
+function isReference(value: unknown): value is Record<string, unknown> {
+  return isMapping(value) && Object.hasOwn(value, PARAM_KEY)
 }
 
 /** Refuse the value at one path. */
@@ -170,7 +170,7 @@ function substituteMapping(
     return refuse(`${path}.${PROTO_KEY}`, `is a key named ${PROTO_KEY}, which no mapping of a view may carry: copied by assignment, `
       + 'the value under it becomes the mapping\'s prototype instead of a key, so two readers of one file would disagree on what it holds')
   }
-  if (PARAM_KEY in mapping) return resolve(mapping, params, path)
+  if (isReference(mapping)) return resolve(mapping, params, path)
   const entries: [string, unknown][] = []
   for (const [key, own] of Object.entries(mapping)) {
     const done = substitute(own, params, `${path}.${key}`, open)

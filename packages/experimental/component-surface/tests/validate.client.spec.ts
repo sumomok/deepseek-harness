@@ -583,6 +583,16 @@ describe('a value an object only inherits', () => {
     expect(refusal(call(spec))).toEqual({ path, text: `show_component: ${path} — ${message}`, oversize: false })
   })
 
+  it('reads no binding where the property only inherits its reference', () => {
+    // Read as a binding, the property would be accepted and the spec handed on
+    // would carry a reference of its own that the call never wrote.
+    const dataList = Object.assign(inheriting({ $from: 'node:t.selectionDetail' }), { x: 1 })
+    const table = { id: 't', component: TABLE_ID, props: { selectMode: 'radio', tableConfig: { gridItems: [{ relatedMetaAttr: 'a' }] }, displayValueList: [{ a: 1 }] } }
+    const failure = refusal(call({ nodes: [table, { id: 'd', component: RECORD_DETAIL_ID, props: { dataList } }] }))
+    expect(failure.path).toBe('spec.nodes[1].props.dataList')
+    expect(failure.text).toBe('show_component: spec.nodes[1].props.dataList — must be an array.')
+  })
+
   it.each([['constructor'], ['toString'], ['__proto__']])('declares no property named %s, even one written as a binding', (key) => {
     // Every object inherits a member of that name, the component's property
     // table included; looked up there, it would be judged as a declaration.

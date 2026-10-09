@@ -510,6 +510,15 @@ describe('reading one bound property', () => {
     expect(readBinding({ [BINDING_KEY]: 'selection' })).toBeUndefined()
     expect(readBinding([{ label: 'a', display: 'b' }])).toBeUndefined()
   })
+
+  it('reads a reference only where the value carries it itself', () => {
+    // Validation reads every other property only where its object carries it,
+    // so a reference an object inherits would be one nobody wrote.
+    const inherited: unknown = Object.create({ [BINDING_KEY]: 'node:t.selectionDetail' })
+    expect(isBindingValue(inherited)).toBe(false)
+    expect(readBinding(inherited)).toBeUndefined()
+    expect(isBindingValue(Object.assign(Object.create({ [BINDING_KEY]: 'node:t.selectionDetail' }) as object, { x: 1 }))).toBe(false)
+  })
 })
 
 describe('reading one call argument value', () => {
