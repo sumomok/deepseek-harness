@@ -34,6 +34,7 @@ import {
 import { MAX_SPEC_BYTES, SHOW_COMPONENT_TOOL_NAME } from '../src/component-call.ts'
 import {
   APPROVAL_PROMISE,
+  normalizeRow,
   readDataSourceBlocks,
   resolveDataSourceTargets,
   type DataSourceBlock,
@@ -1196,6 +1197,17 @@ describe('a read that drew', () => {
     expect(text(result)).toContain('into block "rows", ')
     expect(text(result)).toContain('into block "more", ')
     expect(resolvedEvents(session)[0]?.data.fetched.map(entry => entry.meta)).toEqual(['SpaceLayer', 'ThemeMap'])
+  })
+})
+
+describe('one row as the backend answered it', () => {
+  it('keeps a cell keyed __proto__ as one more cell, leaving the row\'s prototype alone', () => {
+    // The backend's JSON carries the key as an ordinary one. Copied by
+    // assignment, the cell would be dropped without a word, unlike every other
+    // cell the read declared a column for.
+    const row = normalizeRow(JSON.parse('{"zh_label":"东风站","__proto__":"内部"}'), new Set(['zh_label', '__proto__']))
+    expect(JSON.stringify(row)).toBe('{"zh_label":"东风站","__proto__":"内部"}')
+    expect(Object.getPrototypeOf(row)).toBe(Object.prototype)
   })
 })
 

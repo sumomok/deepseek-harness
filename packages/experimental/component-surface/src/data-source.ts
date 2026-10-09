@@ -714,14 +714,16 @@ export function resolveDataSourceTargets(blocks: readonly DataSourceBlock[], spe
  */
 export function normalizeRow(row: unknown, asked: ReadonlySet<string>): Readonly<Record<string, unknown>> {
   if (row === null || typeof row !== 'object' || Array.isArray(row)) return {}
-  const kept: Record<string, unknown> = {}
+  const kept: [string, unknown][] = []
   for (const [key, value] of Object.entries(row)) {
     if (!asked.has(key)) continue
     const drawable = typeof value === 'string' || typeof value === 'boolean'
       || (typeof value === 'number' && Number.isFinite(value))
-    if (drawable) kept[key] = value
+    if (drawable) kept.push([key, value])
   }
-  return kept
+  // Built from entries rather than by assignment, which would drop a cell keyed
+  // `__proto__` instead of keeping it.
+  return Object.fromEntries(kept)
 }
 
 /**
