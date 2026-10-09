@@ -190,7 +190,7 @@ async function waitFor(entry: DrawnEntry, step: ActComponentStep & { action: 'wa
 async function runStep(entry: DrawnEntry, step: ActComponentStep): Promise<void> {
   if (step.action === 'wait') {
     if (!await waitFor(entry, step)) {
-      throw new Error(missingTargetReason(`"${step.node ?? step.key ?? ''}" did not appear in time`))
+      throw new Error(missingTargetReason(`"${step.node ?? step.key}" did not appear in time`))
     }
     return
   }
@@ -198,8 +198,10 @@ async function runStep(entry: DrawnEntry, step: ActComponentStep): Promise<void>
   // container or an element inside it: what the console draws beside the entry
   // is not reachable from here at all, so a control only it declares is a step
   // that names nothing rather than one that presses the wrong thing.
+  // A scope that is missing is therefore always a named block the entry does
+  // not draw: a step naming none searches the entry's own container.
   const scope = scopeOf(entry, step.node)
-  if (scope === undefined) throw new Error(missingTargetReason(`block "${step.node ?? ''}"`))
+  if (scope === undefined) throw new Error(missingTargetReason(`block "${String(step.node)}"`))
   if (step.action === 'click') {
     const target = clickTarget(scope, step.key)
     if (target === undefined) throw new Error(missingTargetReason(`control "${step.key}"`))

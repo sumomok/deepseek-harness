@@ -26,7 +26,7 @@
 export const COMPONENT_KIND = 'component'
 
 /** The selected entry's switcher button, which carries that entry's `<kind> <entryId>` key. */
-const SELECTED_TAB = '[data-content-surface-entry][data-content-surface-selected]'
+const SELECTED_TAB = '[data-content-surface-selected]'
 
 /** The wrapper the column mounts one kind's seat in, marked active for the kind in front. */
 const ACTIVE_SEAT = `[data-content-surface-seat="${COMPONENT_KIND}"][data-content-surface-active]`
@@ -58,13 +58,15 @@ export interface DrawnEntry {
  */
 export function drawnEntry(root: ParentNode): DrawnEntry | undefined {
   const tab = root.querySelector(SELECTED_TAB)
-  const key = tab?.getAttribute('data-content-surface-entry')
-  if (key === undefined || key === null) return undefined
+  if (tab === null) return undefined
+  const key = tab.getAttribute('data-content-surface-entry')
+  if (key === null) return undefined
   // `<kind> <entryId>`: the kind is a token, so the first space ends it and
   // everything after it is the id, spaces and all.
   const at = key.indexOf(' ')
   if (at === -1 || key.slice(0, at) !== COMPONENT_KIND) return undefined
   const container = root.querySelector(`${ACTIVE_SEAT} ${ENTRY_ROOT}`)
   if (container === null) return undefined
-  return { entryId: key.slice(at + 1), title: (tab?.textContent ?? '').trim(), container }
+  /* v8 ignore next -- an element's textContent is null only for a document node, and a switcher button is an element */
+  return { entryId: key.slice(at + 1), title: (tab.textContent ?? '').trim(), container }
 }
