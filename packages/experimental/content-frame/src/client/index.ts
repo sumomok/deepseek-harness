@@ -38,6 +38,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import type {} from '../types.ts'
 import { CONTENT_SETTINGS_ROUTE, type ContentFrameAccessSettings } from '../route.ts'
 import { ContentFrame, type ContentFrameFace } from './ContentFrame.tsx'
+import { PAGE_CHANNEL } from './access/executor.ts'
 import { ContentReadRow } from './access/ContentReadRow.tsx'
 import { reportNavigation } from './perception/navigated.ts'
 import { HiddenCommandRow } from './HiddenCommandRow.tsx'
@@ -117,11 +118,13 @@ function readAccess(served: unknown): ContentFrameAccessSettings | undefined {
  * @param onNavigated - the seat's navigation reporter, which is a client-side
  * capability rather than a served value and rides the same face.
  * @returns the two bounds the node half configured, the navigation callback,
- * and the reader's settings when the deployment configured page access.
+ * and the reader's settings when the deployment configured page access. The
+ * channel is the caller's to add: it is this tab's, not the node half's, and
+ * one instance answers every domain in the page.
  * @throws {Error} when the route is unreachable, answers non-200, or answers a
  * document without a usable bound.
  */
-async function readSettings(onNavigated: ContentFrameFace['onNavigated']): Promise<ContentFrameFace> {
+async function readSettings(onNavigated: ContentFrameFace['onNavigated']): Promise<Omit<ContentFrameFace, 'channel'>> {
   // CONTENT_SETTINGS_ROUTE is the path the node half registers; the page
   // resolves it against its deployment base, which a reverse proxy strips
   // again. The diagnostics name the resolved URL, which is what separates a
@@ -154,6 +157,21 @@ async function readSettings(onNavigated: ContentFrameFace['onNavigated']): Promi
 export async function apply(ctx: ClientContext): Promise<void> {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'content-frame: dictionaries')
   ctx.effect(() => installHiddenCommandRowStyle(), 'content-frame: hide empty command row')
+  // The one channel this page answers content calls through, provided as a
+  // service so a domain in another package can join it without importing this
+  // row's values. It is withdrawn with this row's fiber like every other effect,
+  // and its name is this face's because the host half owns `contentChannel`.
+  //
+  // The instance is `PAGE_CHANNEL`, the page-load channel the page seat falls
+  // back to when it is mounted without one: the tab id a claim is made under and
+  // the one its report carries have to be the same, and two instances would give
+  // the same page two identities. A row applied twice on one context — a second
+  // apply of the same body, which is how a settings failure is rehearsed — finds
+  // the channel already there and keeps it.
+  const channel = ctx.get('contentTabChannel') ?? PAGE_CHANNEL
+  if (ctx.get('contentTabChannel') === undefined) {
+    ctx.effect(() => ctx.provide('contentTabChannel', channel), 'content-frame: the content call channel')
+  }
   const settings = await readSettings((sessionId, page, url, title) => {
     void reportNavigation(ctx, sessionId, page, url, title)
   })
@@ -166,7 +184,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
     locale: NS,
     // Configuration is settled in the apply world and handed over as plain
     // data; the component reads none of its own.
-    inject: () => settings,
+    inject: () => ({ ...settings, channel }),
   }, ContentFrame))
   ctx.slots.inject('conversation.chat.commandview', () => ctx.slots.register({
     name: 'conversation.chat.commandview',

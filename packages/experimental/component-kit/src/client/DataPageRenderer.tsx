@@ -158,6 +158,7 @@ import {
 } from './data-page-read.ts'
 import { useBasePathState, useContainedComponent } from './crud-box.ts'
 import { useAbilities } from './use-abilities.ts'
+import { keepMarked, markDataPage } from './marks.ts'
 import type { DataPageAbilityTable } from '../route.ts'
 import type { VueEventHandlers } from './vue2-bridge.tsx'
 import css from './DataPageRenderer.module.css'
@@ -440,6 +441,14 @@ function DataPageBlock({ props, vueProps, onAction, onOutput }: DataPageProps) {
     },
   }), [])
   const { box, host } = useContainedComponent({ component: DataPage, props: vueProps, on })
+  // Every control the page draws is marked with the action or key it carries,
+  // and every field input with the column its own label names. Kept on the
+  // contained box through a MutationObserver rather than one pass per commit,
+  // because the page draws on state of its own: a cell after a query and a
+  // dialog after a press are drawn afresh and have to be marked again.
+  useEffect(() => keepMarked(box.current as HTMLDivElement, (root) => {
+    markDataPage(root, { custom: (vueProps.customOperations ?? []).map(operation => operation.name) })
+  }), [])
   return (
     <div ref={box} className={css.box}>
       <div ref={host} className={css.host} />

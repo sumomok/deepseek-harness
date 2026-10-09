@@ -16,7 +16,7 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, GenericResultView, ToolDefinition } from '@deepseek-ai/dsh-tools'
-import type { CallTimeouts, PendingCalls } from './pending.ts'
+import type { CallTable, CallTimeouts } from './pending.ts'
 import {
   AFTER_DESCRIPTION, AFTER_REFUSAL, CONTENT_READ_DESCRIPTION, failureRefusal,
   FIND_DESCRIPTION, FIND_REFUSAL, MISREPORTED_REFUSAL, MODE_DESCRIPTION,
@@ -123,7 +123,7 @@ function callSummary(args: ReadArgs): string {
  * @returns the definition to hand to `ctx.tools.register`.
  */
 export function contentReadTool(
-  pending: PendingCalls,
+  pending: CallTable,
   timeouts: CallTimeouts,
   front: FrontEntryLookup,
 ): ToolDefinition {

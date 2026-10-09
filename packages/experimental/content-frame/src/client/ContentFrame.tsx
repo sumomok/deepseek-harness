@@ -40,7 +40,8 @@ import type { ContentFrameAccessSettings } from '../route.ts'
 import type { ContentPageView, ContentAccessRequest, ContentAccessView } from '../types.ts'
 import { foldFrames, framesFor, NO_FRAMES, type CachedFrame, type FrameCache } from './frame-cache.ts'
 import { RefTable } from './access/refs.ts'
-import { TAB_ID, useContentRead, type SeatSession } from './access/executor.ts'
+import { useContentRead, type SeatSession } from './access/executor.ts'
+import type { ContentChannel } from './access/channel.ts'
 import { exportPixels } from './access/export-pixels.ts'
 import { watchFrame, type FrameAddress, type FrameWatch } from './perception/navigation.ts'
 import css from './ContentFrame.module.css'
@@ -63,6 +64,13 @@ export interface ContentFrameFace {
    * seat renders depends on it, and the log is what the agent reads.
    */
   onNavigated: (sessionId: string, page: string, url: string, title: string) => void
+  /**
+   * The page load's call channel, provided by this row as `ctx.contentTabChannel`
+   * and shared with every other domain that answers content calls in this tab.
+   * The seat takes its tab identity from this instance rather than minting one,
+   * so a claim and the report settling it travel under the same tab id.
+   */
+  channel: ContentChannel
 }
 
 /** Composed props: the kind-seat runtime share, the injected face, and the locale seat. */
@@ -242,7 +250,7 @@ interface FrameHandlers {
  * @returns every cached frame, plus a notice when the selected page is gone.
  */
 export function ContentFrame(props: ContentFrameProps) {
-  const { sessionId, entry, cacheSize, navigationPollMs, pageAccess, useSessions, t } = props
+  const { sessionId, entry, cacheSize, navigationPollMs, pageAccess, channel, useSessions, t } = props
   const active = activeFrame(sessionId, entry)
 
   // Derived state, not a subscription: the cache is a fold over the entries the
@@ -291,9 +299,9 @@ export function ContentFrame(props: ContentFrameProps) {
     frames,
     tables,
     access: pageAccess,
-    tabId: TAB_ID,
+    tabId: channel.tabId,
     draw: exportPixels,
-  })
+  }, channel)
 
   const activeUrl = active?.url
   const page = entry?.entryId

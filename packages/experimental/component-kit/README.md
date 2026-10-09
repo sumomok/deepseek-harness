@@ -15,6 +15,7 @@ The component row behind the content panel's `component` kind: eight components,
 
 - [What this row registers](#what-this-row-registers)
 - [What a renderer receives](#what-a-renderer-receives)
+- [What a block marks for the acting tool](#marks)
 - [Copy](#copy)
 - [Components](#components)
 - [The data page](#the-data-page)
@@ -53,6 +54,15 @@ That is the whole contract. A renderer holds no ctx, subscribes to nothing, keep
 `state` is one value for the whole block, so which of a component's gestures moves it is the placement package's decision rather than this row's. The console's placement moves it for the gesture a block was placed to receive and for no other, which is what lets a table keep taking ticks and sorts while an `operation` is still travelling, and a filter bar keep its submit button alive while the user types. A renderer that gates every one of its controls on `state` would be gating them on whatever that placement decided.
 
 Properties arrive typed as `Record<string, unknown>` because one table type serves every component, so each renderer narrows the properties it declared. The narrowing is not a defense against the caller: the block was already checked against the catalog schema that admitted it.
+
+<a id="marks"></a>
+## What a block marks for the acting tool
+
+`act_component` addresses a control by the block's own declaration rather than by a DOM reference the call carries, and this row is the side that writes those declarations into the DOM. Three attributes carry them: `data-component-action` names the action a control performs, `data-component-key` names a control's own key where one action is performed by several controls — a confirmation bar's buttons, a table row's operation links, a data page's toolbar buttons — and `data-component-field` names the column or property a field writes. The placement package matches a step's key against the first two and a step's name against the third, which is what makes `click{key:"ok"}` press a confirmation bar's own button and `click{key:"press"}` its first one.
+
+The controls a renderer draws itself are marked in its own markup: the confirmation bar's buttons and the filter bar's submit button. Everything inside a vendored Vue component is drawn after the React commit and drawn again whenever that component renders on state of its own, so [`src/client/marks.ts`](src/client/marks.ts) marks those from the DOM — a pass when the block mounts and another after every change below it — which is what puts the marks on a table's cells when its rows arrive and on a write dialog's save button when the dialog opens. The selectors are the tarballs' own markup (`@sumomok/toy-surface-kit` 0.3.1 and `@sumomok/toy-crud-kit` 0.5.0): a rebuilt tarball has to keep the classes they name, and the marker tests fail on one that does not rather than letting a mark land on the wrong element. A table that draws a fixed column in a layer of its own draws each of those controls twice — the body wrapper's copy is el-table's hidden placeholder and the fixed layer's is the one a person sees — so the marks follow the drawn copy, and a control `act_component` addresses is one a person could click. A data page's fields are named from the columns the page has reported — a field item draws the column's user-facing name and nothing of the column's own name — and a row whose attribute the user has not picked carries no field name at all.
+
+Which declared actions no control performs is part of the same record. A data page's `load`, `denied` and `auth-failed` are reported when the page has drawn, when the deployment judged this account on this table, and when the request layer refused the stored sign-in; `card-open` comes from the row interaction already marked as `cell-click` and `card-close` is drawn inside the vendored card, which this row identifies by no stable class; a filter bar's `change` is reported when a condition changes rather than by a press, and the value controls those edits come from carry `data-component-field`. `tests/action-markers.client.spec.tsx` is the gate over all of it: it holds one disposition per declared action and fails when the catalog gains one nobody has ruled on, or when a disposition outlives an action the catalog no longer declares.
 
 <a id="copy"></a>
 ## Copy

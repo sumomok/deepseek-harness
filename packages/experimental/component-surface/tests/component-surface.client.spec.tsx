@@ -118,6 +118,8 @@ function mount(seat: Seat): Mounted {
         onAction,
         components,
         pending,
+        offerCalls: () => {},
+        parkCalls: () => {},
         t,
       } as unknown as ComponentSurfaceProps} />
     )

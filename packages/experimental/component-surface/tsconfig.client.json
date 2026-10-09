@@ -67,6 +67,9 @@
       "path": "../content-column"
     },
     {
+      "path": "../content-frame"
+    },
+    {
       "path": "../content-surface"
     }
   ]

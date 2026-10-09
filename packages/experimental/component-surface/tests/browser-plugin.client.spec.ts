@@ -17,6 +17,7 @@ import { NS } from '../src/client/locales.ts'
 // Type-only: pulls the content column's `content.surface.kind` SlotMap declaration this bench declares.
 import type {} from '@deepseek-ai/dsh-experimental-content-column/client'
 import { apply, inject } from '../src/client/index.ts'
+import type { ActComponentCall } from '../src/act-component-call.ts'
 import { ComponentSurface, type ComponentSurfaceInjected } from '../src/client/ComponentSurface.tsx'
 import { ActionCommandRow } from '../src/client/ActionCommandRow.tsx'
 import { ViewCommandRow } from '../src/client/ViewCommandRow.tsx'
@@ -48,7 +49,7 @@ function declareColumn(ctx: Context): void {
 }
 
 /** Boot the browser half over a real slot tree that declares the column. */
-async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugin']>; execute: ReturnType<typeof vi.fn> }> {
+async function bench(channel?: unknown): Promise<{ ctx: Context; fiber: ReturnType<Context['plugin']>; execute: ReturnType<typeof vi.fn> }> {
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
   declareColumn(ctx)
@@ -59,10 +60,34 @@ async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugi
   ctx.provide('remote', { commands: { execute }, $on: () => () => {} } as never)
   ctx.provide('remote.commands', { execute } as never)
   ctx.provide('configForms', { developerTools: { enabled: createSnapshotStore(true) }, get: () => stubConfigForm().scope } as never)
+  if (channel !== undefined) ctx.provide('contentTabChannel' as never, channel as never)
   await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   return { ctx, fiber, execute }
+}
+
+/** The channel another row would provide, keeping what its seat is offered and when it parks. */
+interface StoodChannel {
+  channel: unknown
+  offers: unknown[]
+  parked: () => number
+}
+
+/** Stand in the content channel, joining every domain to one spy-backed seat. */
+function stoodChannel(): StoodChannel {
+  const offers: unknown[] = []
+  let parked = 0
+  return {
+    channel: {
+      join: () => ({
+        offer: (demand: unknown) => { offers.push(demand) },
+        park: () => { parked += 1 },
+      }),
+    },
+    offers,
+    parked: () => parked,
+  }
 }
 
 describe('show-component browser half', () => {
@@ -179,5 +204,38 @@ describe('show-component browser half', () => {
     const second = entry?.inject?.() as unknown as ComponentSurfaceInjected
     expect(first.pending).toBe(second.pending)
     expect(first.pending.size).toBe(0)
+  })
+
+  it('answers nothing while no channel row is composed, rather than failing to mount', async () => {
+    const { ctx } = await bench()
+    const [entry] = ctx.slots.entries('content.surface.kind')
+    const injected = entry?.inject?.() as unknown as ComponentSurfaceInjected
+    // A page with no channel row has no tab-side answerer for the host to
+    // reach, which the host reads the same way and offers no tool for.
+    expect(() => { injected.offerCalls('session-a', []) }).not.toThrow()
+    expect(() => { injected.parkCalls() }).not.toThrow()
+  })
+
+  it('offers the seat\'s open act_component calls through the channel row, and parks with the seat and the fiber', async () => {
+    const stood = stoodChannel()
+    const { ctx, fiber } = await bench(stood.channel)
+    const [entry] = ctx.slots.entries('content.surface.kind')
+    const injected = entry?.inject?.() as unknown as ComponentSurfaceInjected
+    const request: ActComponentCall = {
+      callId: 'call_1',
+      tool: 'act_component',
+      args: { entry: 'demo', steps: [{ action: 'click', key: 'add' }] },
+    }
+    injected.offerCalls('session-a', [request])
+    expect(stood.offers).toEqual([{
+      calls: [{ callId: 'call_1', sessionId: 'session-a', request }],
+      openCalls: ['call_1'],
+    }])
+    injected.parkCalls()
+    expect(stood.parked()).toBe(1)
+    // The domain leaves with this row's fiber, which is what stops the seat
+    // bidding for calls after the row is gone.
+    await fiber.dispose()
+    expect(stood.parked()).toBe(2)
   })
 })

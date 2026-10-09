@@ -53,6 +53,9 @@
       "path": "../biz-backend"
     },
     {
+      "path": "../content-frame"
+    },
+    {
       "path": "../content-surface"
     }
   ]

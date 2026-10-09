@@ -26,6 +26,7 @@ English | [中文](README.zh.md)
 - [What one block reads from another](#what-one-block-reads-from-another)
 - [One entry, several calls](#one-entry-several-calls)
 - [What comes back](#what-comes-back)
+- [Acting inside the entry on display](#acting-inside-the-entry-on-display)
 - [Trust](#trust)
 - [The seat](#the-seat)
 - [Model Experience](#model-experience)
@@ -51,10 +52,12 @@ The row activates in three independent pieces, all of them behind the catalog. T
 
 Every one of those is rebuilt when the catalog moves: a component plugin loaded later widens the description, the judgement and the fold together, and one disposed narrows them the same way. The changed description reaches the log the way every description does — the request header records the assembled tool schemas verbatim, so a re-registration is a header the next request is reconstructable from and this row still appends no session event of its own.
 
+The opposite direction is `act_component`, the tool that runs steps inside the entry already on display. It is offered only where the shared content channel is composed: a host cannot address a browser, so the call reaches the tab over the claim and report routes [content-frame](../content-frame/README.md#the-channel) provides — `ctx.contentChannel` on the host and `ctx.contentTabChannel` on the browser. A composition carrying this row with no content-frame therefore offers `show_component` and no `act_component` at all, which is what the model sees as the tool simply not existing. The channel lives in that row rather than in a package of its own today, and moving it out is deferred work recorded in [Known Limitations](#known-limitations-and-deferred-work).
+
 <a id="configuration"></a>
 ## Configuration
 
-Six fields. `views` and `homeView` are about blocks a person wrote rather than about anything the model does, and the next section is their whole documentation. `dataSource` and `dataDefaultPageSize` are about rows the model asks this deployment for rather than writes out, and the section after that is theirs. `dataPage` and `dataPageLoadTimeoutMs` are about the deployment's own page being opened in the panel instead, together with the two blocks a view places beside it, and the section after *that* is theirs. Everything else is fixed.
+Eight fields. `views` and `homeView` are about blocks a person wrote rather than about anything the model does, and the next section is their whole documentation. `dataSource` and `dataDefaultPageSize` are about rows the model asks this deployment for rather than writes out, and the section after that is theirs. `dataPage` and `dataPageLoadTimeoutMs` are about the deployment's own page being opened in the panel instead, together with the two blocks a view places beside it, and the section after *that* is theirs. `actClaimTimeoutMs` and `actTimeoutMs` are the two deadlines an `act_component` call waits with, and [Acting inside the entry on display](#acting-inside-the-entry-on-display) is theirs. Everything else is fixed.
 
 The numbers a deployment might want to move — the spec byte ceiling, the node ceiling, the nesting ceiling, the action byte ceiling — are enforced twice: here, and again by the browser seat over the value that arrives on the wire. The seat receives no Cordis configuration, so a per-deployment ceiling would be a ceiling the two halves disagree on: a block silently missing from the column rather than a refusal the model can act on. They are protocol constants in [`src/component-call.ts`](src/component-call.ts) until the seat can read a deployment's settings, at which point the ceilings and the route that serves them arrive together. The nesting ceiling is not written down even there: it is measured off the catalog, so a component declaring a nested property widens it by exactly what that property needs and no legal document is refused as malformed.
 
@@ -465,6 +468,25 @@ Three turns per agent. A user drumming on a button would otherwise be an unbound
 
 Not here. This row places no write tool and requests no approval of its own — a command handler can run with no turn open, and an approval request throws there. The gate is the deployment's own `tools/pre-execute` policy over whatever write tool the model reaches for in the turn a press opened, and that is what the composition test pins: an existing write tool the policy asks about does not run.
 
+<a id="acting-inside-the-entry-on-display"></a>
+## Acting inside the entry on display
+
+`act_component` is the agent's other direction into the column: one call names one entry and carries between 1 and 8 steps, run in order, stopping at the first that fails. A step is one of three — `click` presses the control a block declares under an action key, `set` writes the field the entry names for one column or property, `wait` waits until a block or a declared control is drawn — and every one of them addresses the components' own language rather than a DOM reference: `entry` is the id `show_component` placed, `node` is a block id the placement wrote, `key` is an action the component declares for a control, and `name` is the column or property a field is named by. A written value is at most 4096 characters, a name at most 64 characters of letters, digits, underscores and hyphens, and a `wait` at most ten seconds.
+
+**One call acts inside one entry and nowhere else.** The console finds the entry's container from the column's own two markers — the selected switcher button's key and the active kind wrapper's entry root — re-reads both after the claim, and refuses unless the entry it finds is the one the call named. Every search a step makes is bounded by that container: what the console draws beside the entry — its own sidebar, the chat input, another entry, a stale seat of the same kind — is unreachable rather than merely unchecked, and a step whose target the entry does not declare is refused with one sentence. That sentence is the same whether the target is nowhere or outside the entry, because from the call's side they are the same fact: the entry this call is confined to does not hold what the step named.
+
+**What is not inside the entry is out of reach, overlays included.** A dropdown, a date panel or a cascade the component library teleports to `document.body` is outside the container, so a two-step action that opens one and then picks an item is refused at the pick. The rule is deliberate: admitting what a call opened in this document would need a way to tell a popup this call caused from everything else the page drew, which is a window this row does not cut. A component that wants such a step draws the overlay inside its entry — [`component-kit`](../component-kit/README.md)'s dialogs already do — and the consequence is recorded in [Known Limitations](#known-limitations-and-deferred-work).
+
+**A step is performed by a control the block marks, and refused where a person could not reach it.** A press names a control by the action the component declares (`data-component-action`) or by the control's own key where one action is performed by several controls — a confirmation bar's buttons, a table row's operation links, a data page's toolbar buttons (`data-component-key`); [`component-kit`](../component-kit/README.md#marks) records which of its controls carry which. Both are read off the entry's own markup and never off a DOM reference the call carried. Where the control is disabled, or the document's own hit test finds something else drawn over the point the control occupies, the press is refused instead of reported as one that ran: the click a step dispatches reaches the block's handler whether or not a person could reach the control, so a step reported as done would say somebody could have done what they could not. A table that draws a fixed column in a layer of its own draws that control twice, and the second drawing standing over the one a step found is that control reached again rather than something covering it: the two copies carry the block's own declaration, in the same block. `set` reads one name the same way, because a page keeps the write dialog it closed in the document under the field names its query panel asks with: the copy inside an open dialog is the one written when there is one, and where no dialog is open a name two drawn copies carry is refused with the ambiguity named, rather than written at one of them. The entry itself is read again before every step, and the run stops where it no longer matches the one the call was claimed against — the same switcher key and the same container element, with the reason saying which entry is in front instead. The column replaces what it draws without telling this seat, and one kind's entries share the element they are drawn in, so the steps after a switch would otherwise land in whatever entry took the place of the one the call named while the report still named the original.
+
+**What comes back is the document a set of page steps answers with.** A call that ran reports the entry it acted on, one result per requested step in order — `ok`, or the one that stopped the call with its sentence, or `skipped` for the steps behind it — and one text naming each step and its ending. Three endings reject instead: no entry in front at all, another entry in front, and a component that threw while a step ran. A claimed call that never reports answers `unverified` rather than failing, because its steps may have run in part; a call no console claimed within `actClaimTimeoutMs` rejects naming that deadline, and a claimed call that goes quiet is answered against `actTimeoutMs`.
+
+**One call of this tool runs at a time.** Two calls acting on one entry would interleave their steps in a document neither of them read, so the definition declares itself unsafe to run beside another call and the runtime serializes it.
+
+**The review gate judges every call.** `act_component` drives what the user is looking at, so it is not a read-only tool and must not join `@haoran/dsh-llm-permission-gateway`'s `readOnlyTools` list. The classification file this repository ships, [`content-frame`'s gate overlay](../content-frame/overlay/permission-gateway.patch.yml), names the five page reads and `content_show` and leaves this tool out; a deployment composing this row writes its own list and keeps it out too. `tests/act-component-gate.client.spec.ts` holds the shipped file to that.
+
+**A pick and a call do not exclude each other yet.** The content-point picker reads the user's own pointer while a point is in progress, and this tool synthesizes clicks and input events inside the entry; nothing today stops one from happening during the other, because the picker's state belongs to another package's browser half and no service reports it. The exclusion needs a seam there — a client service saying a pick is active, which this tool would refuse against — and is recorded in [Known Limitations](#known-limitations-and-deferred-work).
+
 <a id="trust"></a>
 ## Trust
 
@@ -527,7 +549,39 @@ One short line per call. A refusal naming an unknown component is longer by the 
 
 Append-only; results follow the reusable request prefix and invalidate nothing already cached.
 
+### The `act_component` offer
+
+#### What the model sees
+
+One tool, `act_component`, with a required `entry` string and a required `steps` array of 1 to 8 objects. Each step carries a required `action` of `click`, `set` or `wait`, and the fields that action takes: `key` for a press, `name` and `value` for a write, `node` throughout as the block within the entry, and `timeoutMs` for a wait. The description states the confine in its own words — nothing outside the named entry, and it must be the entry in front — then the addressing vocabulary, one line per action, and one sentence saying the answer reports which steps ran, which one stopped the call, and what the entry's controls said. There is no catalog in it: what a component declares is a runtime fact of the catalog, while which key or field a call may name is something the entry's own markup answers at the moment the step runs.
+
+#### Token effect
+
+One fixed description plus the parameter schema, on every request where the tool is visible. It carries no catalog and no per-component lines, so it does not grow with the component plugins a deployment composes.
+
+#### KV Cache effect
+
+The description depends on nothing but this row's own text, so the tool block is byte-identical across a deployment's requests and the prefix holds. The tool is registered only where the shared channel is composed; a row that gains or loses that service mid-session re-registers it and writes a new request header.
+
+### The result of a set of steps on an entry
+
+#### What the model sees
+
+A call that ran answers `status` (`done` or `failed`), the entry it acted on as `{id, title}`, one `steps` entry per requested step — `{index, status}` and, for the step that stopped the call, its `message` — and one `text` naming the entry and every step's ending: `Acted on the component entry "Demo" (demo).` followed by one line per step, `- click on "add": done`, `- set "title" in grid: …`, `- wait for grid: done`, or `not run` for the steps behind a failure. A step that named a control the entry does not declare reads as `control "console-add" is not part of the entry on display.` — one sentence for both a target that is nowhere and one the console draws outside the entry, because from the call's side they are the same fact. A call no console claimed rejects with `No console showing this session claimed the call within <claimTimeoutMs>ms, so no step ran.`; a call answered by nothing — no entry in front, another entry in front, a component that threw — rejects with that console's own sentence prefixed by `act_component did not run: `. A claimed call that never reported answers `status: "unverified"` with no entry and no steps, and a text saying the steps may have run in full, in part, or not at all.
+
+#### Token effect
+
+One line per step, and the sentences the console wrote for the ones that failed. A refusal is one sentence: the tool never prints the console's document, so a call that named the wrong control costs its own step line rather than a listing.
+
+#### KV Cache effect
+
+Append-only; results follow the reusable request prefix and invalidate nothing already cached.
+
 ## Known Limitations and Deferred Work
+
+- **A step cannot reach an overlay the entry draws outside itself** — a dropdown, a date panel or a cascade the component library teleports to `document.body` is outside the entry's container, so the click that opens it succeeds and the step that picks an item is refused as not part of the entry. That is the v1 rule rather than a defect in the search: admitting what a call opened would need a way to tell a popup this call caused from everything else the page drew. A component that wants such a step draws the overlay inside its entry, which [`component-kit`](../component-kit/README.md)'s dialogs do; the trigger for revisiting it is the first component plugin whose picker cannot be moved into the entry.
+- **A content-point pick and an `act_component` call are not mutually excluded** — the picker reads the user's own pointer while a point is in progress, and this tool synthesizes clicks and input events inside the entry; nothing today stops the two from overlapping, because the picker's state lives in another package's browser half and no service reports it. The fix is a seam there — `content-point`'s client half providing whether a pick is active, which this tool's browser half injects and refuses against — and it belongs with that package rather than here. The trigger is the first report of a point taken on a control a call was pressing.
+- **The tool exists only where the shared content channel is composed, and that channel lives in `content-frame`** — a deployment composing this row without [content-frame](../content-frame/README.md) is offered `show_component` and no `act_component`, which is the tool not existing rather than one that always times out. The narrower arrangement would be the channel in a package of its own, or on the `content-surface` layer both domains already share; both are pure moves and neither is scheduled, so the composition prerequisite is what stands today.
 
 - **Row-level trimming is the backend's, and this row cannot prove it happens** — the deployment's own frontend has a row and column permission pass, but with no signed-in profile it returns early and opens the data up rather than closing it down, so it is not a boundary. If the backend does not trim rows against the token it was handed, one read can draw rows a person was not meant to see onto that person's screen and write them into that person's session log — and signing out does not clean a log already written. Closing it needs an answer from whoever owns that backend, not code here.
 - **The identifier line is drawn where it is written** — the approval panel draws the reason's line breaks rather than collapsing them, so `数据表：SpaceLayer` stands on its own line beneath the sentence, at the sentence's own size. It is the one part of the card no word the model wrote can reach, and the web scenario reads it back out of the panel's rendered text so the written form and the drawn form cannot change apart.

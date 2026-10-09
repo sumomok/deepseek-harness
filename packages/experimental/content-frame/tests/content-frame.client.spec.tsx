@@ -15,6 +15,8 @@ import { cleanup, render } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import { ContentFrame, type ContentFrameProps } from '../src/client/ContentFrame.tsx'
+import { ContentChannel } from '../src/client/access/channel.ts'
+import { PAGE_CHANNEL, TAB_ID } from '../src/client/access/executor.ts'
 import { zh } from '../src/client/locales.ts'
 import { CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, type ReadOutcome } from '../src/access/wire.ts'
 import { NAVIGATION_SETTLE_MS } from '../src/client/perception/navigation.ts'
@@ -71,13 +73,23 @@ let navigated: { sessionId: string; page: string; url: string; title: string }[]
 /** How often the seat asks the frame in front where it is, in these cases. */
 const POLL_MS = 50
 
-/** Render the seat for one selection, reusing an existing tree when given one. */
+/**
+ * Render the seat for one selection, reusing an existing tree when given one.
+ * @param sessionId - the session the column shows, absent while none is.
+ * @param entry - the entry in front of that session.
+ * @param cacheSize - how many frames the seat keeps alive.
+ * @param view - the tree to re-render, for a case that mounts twice.
+ * @param pageAccess - the reader's settings, absent for a deployment that configured none.
+ * @param channel - the page load's own channel, defaulting to the one this module provides.
+ * @returns the rendered tree.
+ */
 function mount(
   sessionId: string | undefined,
   entry: ContentFrameProps['entry'],
   cacheSize = 3,
   view?: ReturnType<typeof render>,
   pageAccess?: { outlineChars: number; claimTimeoutMs: number; readTimeoutMs: number; settleQuietMs: number },
+  channel: ContentChannel = PAGE_CHANNEL,
 ): ReturnType<typeof render> {
   const props = {
     sessionId,
@@ -89,6 +101,7 @@ function mount(
     },
     useSessions,
     t: makeTranslate(zh),
+    channel,
     ...pageAccess === undefined ? {} : { pageAccess },
   } as unknown as ContentFrameProps
   const element = <ContentFrame {...props} />
@@ -320,6 +333,9 @@ describe('the page seat as the reader\'s seat', () => {
    */
   const BLANK: ContentPageView = { state: 'shown', page: 'reports', url: 'about:blank', title: 'Weekly reports' }
 
+  /** The reader's own bounds: small enough that a case settles rather than waits. */
+  const ACCESS = { outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 500, settleQuietMs: 5 }
+
   /** The one page entry the reader answers about. */
   const ENTRY: ContentSurfaceEntry = {
     kind: 'page', entryId: 'reports', seq: 1, title: 'Weekly reports', payload: BLANK,
@@ -357,7 +373,7 @@ describe('the page seat as the reader\'s seat', () => {
 
   it('reads the document of the frame it holds, for the page it has in front', async () => {
     published = { a: { entries: [ENTRY], pending: [{ callId: 'call_1', tool: 'content_read', args: {} }] } }
-    const view = mount('a', ENTRY, 3, undefined, { outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 500, settleQuietMs: 5 })
+    const view = mount('a', ENTRY, 3, undefined, ACCESS)
     fill(view, '<main><button>Refresh</button></main>')
     await settled(1)
     const outcome = outcomes()[0]
@@ -368,7 +384,7 @@ describe('the page seat as the reader\'s seat', () => {
 
   it('retires a frame\'s numbering when the page inside it navigates', async () => {
     published = { a: { entries: [ENTRY], pending: [{ callId: 'call_1', tool: 'content_read', args: {} }] } }
-    const view = mount('a', ENTRY, 3, undefined, { outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 500, settleQuietMs: 5 })
+    const view = mount('a', ENTRY, 3, undefined, ACCESS)
     const frame = fill(view, '<main><button>Refresh</button></main>')
     await settled(1)
     const before = outcomes()[0]
@@ -377,7 +393,7 @@ describe('the page seat as the reader\'s seat', () => {
     // model still holds names an element of the document that just left.
     frame.dispatchEvent(new Event('load'))
     published = { a: { entries: [ENTRY], pending: [{ callId: 'call_2', tool: 'content_read', args: {} }] } }
-    mount('a', ENTRY, 3, view, { outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 500, settleQuietMs: 5 })
+    mount('a', ENTRY, 3, view, ACCESS)
     await settled(2)
     const after = outcomes()[1]
 
@@ -385,6 +401,21 @@ describe('the page seat as the reader\'s seat', () => {
     // Numbers are never reused, reset included, so the same button comes back
     // under a ref the earlier listing never mentioned.
     expect(after.snapshot.text).not.toBe(before.snapshot.text)
+  })
+
+  it('claims and reports under the tab the page load provides, not one of its own', async () => {
+    published = { a: { entries: [ENTRY], pending: [{ callId: 'call_1', tool: 'content_read', args: {} }] } }
+    // A channel of this page load's own: the tab id the host pins a session's
+    // calls to is the one instance the row provides, and the seat reads its
+    // identity off that instance rather than minting one of its own.
+    const channel = new ContentChannel()
+    expect(channel.tabId).not.toBe(TAB_ID)
+    const view = mount('a', ENTRY, 3, undefined, ACCESS, channel)
+    fill(view, '<main><button>Refresh</button></main>')
+    await settled(1)
+    // One claim and one report, and both carry that identity: a report posted
+    // under any other tab is one the host refuses.
+    expect(posted.map(entry => entry.body.tabId)).toEqual([channel.tabId, channel.tabId])
   })
 
   it('installs no reader at all where the deployment configured no page access', async () => {

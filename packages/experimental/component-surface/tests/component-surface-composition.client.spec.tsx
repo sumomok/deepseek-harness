@@ -85,6 +85,8 @@ async function mount(nodes: readonly unknown[]): Promise<Mounted> {
       onAction,
       pending: new Map(),
       components,
+      offerCalls: () => {},
+      parkCalls: () => {},
       t,
     } as unknown as ComponentSurfaceProps} />
   )

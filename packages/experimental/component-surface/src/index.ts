@@ -66,6 +66,10 @@ import { MAX_TABLE_ROWS, type ComponentCatalog } from './component-call.ts'
 import { ComponentViewRegistry } from './component-views.ts'
 import { installComponentAction } from './command.ts'
 import { PendingLoads } from './data-page.ts'
+import { actComponentProjection } from './act-component-projection.ts'
+import { ACT_COMPONENT_TOOL_NAME, MAX_ACT_COMPONENT_STEPS, parseActComponentReport } from './act-component-call.ts'
+import { actComponentTool } from './act-component-tool.ts'
+import type { CallTimeouts } from '@deepseek-ai/dsh-experimental-content-frame/src/access/pending.ts'
 import { viewCatalogRoute, type ComponentViewsDocument } from './route.ts'
 import { componentExtractor } from './surface.ts'
 import { offeredEntries, showComponentTool, withheldComponents, type ShowComponentOptions } from './tool.ts'
@@ -206,6 +210,17 @@ export interface Config {
    * pays the whole deadline.
    */
   dataPageLoadTimeoutMs?: number
+  /**
+   * How long an `act_component` call waits for the tab showing this session to
+   * claim it before the model is told no console answered, in milliseconds.
+   */
+  actClaimTimeoutMs?: number
+  /**
+   * How long a claimed `act_component` call waits for that tab to report what
+   * the steps did, in milliseconds. It is the call's whole deadline: the steps
+   * and the trip back are paid out of it.
+   */
+  actTimeoutMs?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -219,6 +234,8 @@ export const Config: z<Config> = z.object({
   dataDefaultPageSize: z.natural().default(200),
   dataPage: z.boolean().default(false),
   dataPageLoadTimeoutMs: z.natural().default(10_000),
+  actClaimTimeoutMs: z.natural().default(5_000),
+  actTimeoutMs: z.natural().default(15_000),
 })
 
 /**
@@ -232,6 +249,8 @@ type ResolvedConfig = Config & {
   readonly dataDefaultPageSize: number
   readonly dataPage: boolean
   readonly dataPageLoadTimeoutMs: number
+  readonly actClaimTimeoutMs: number
+  readonly actTimeoutMs: number
 }
 
 /**
@@ -416,6 +435,47 @@ function installViews(ctx: Context, config: ResolvedConfig, options: ShowCompone
   })
 }
 
+/** How long the tab that last answered a component call stays this session's preferred reader. */
+const ACT_TAB_PIN_MS = 30_000
+
+/**
+ * Claim `act_component`, its pending list, and this domain's place in the shared
+ * content channel.
+ *
+ * The three are one registration because they are one feature: the tool opens
+ * the wait, the projection is what a browser sees to claim it, and the channel
+ * member is what reads the report that settles it. A composition carrying only
+ * some of them would offer a tool nothing could answer.
+ * @param ctx - plugin context carrying the tool runtime, the channel and the projection registry.
+ * @param config - the deployment's validated configuration, with its defaults applied.
+ */
+function installActComponent(ctx: Context, config: ResolvedConfig): void {
+  const timeouts: CallTimeouts = {
+    claimTimeoutMs: config.actClaimTimeoutMs,
+    answerTimeoutMs: config.actTimeoutMs,
+    // How long the tab that answered stays this session's preferred reader:
+    // an ordering heuristic rather than a deadline, so it is the same for every
+    // deployment rather than a configurable one.
+    pinMs: ACT_TAB_PIN_MS,
+  }
+  const membership = ctx.contentChannel.register({
+    name: ACT_COMPONENT_TOOL_NAME,
+    // The widest report this domain posts: one step result per step, one
+    // sentence, and the entry's own title.
+    reportBytes: 64 * 1024,
+    parseReport: (value) => {
+      const report = parseActComponentReport(value)
+      return report === undefined ? undefined : { callId: report.callId, tabId: report.tabId, outcome: report.outcome }
+    },
+  })
+  // The member leaves with the child that joined it: a composition that drops
+  // one of the services this child waits for keeps the row alive, and a member
+  // left behind would read reports for a domain that is no longer offered.
+  ctx.effect(() => () => { membership.release() }, 'show-component: this row\'s channel member')
+  ctx.tools.register(actComponentTool(membership.calls, timeouts, MAX_ACT_COMPONENT_STEPS))
+  ctx.sessionProjections.register(actComponentProjection(ctx.logger('component-surface')))
+}
+
 /**
  * Install the catalog registry, then claim the tool, the content kind and its
  * return channel wherever a column is composed, and — where the deployment
@@ -461,6 +521,13 @@ export function apply(ctx: Context, config: Config): void {
     // command is absent rather than answering every gesture with a refusal.
     catalogCtx.inject(['commands', 'contentSurface', 'sessionProjections'], (actionCtx) => {
       installComponentAction(actionCtx, pending)
+    })
+    // Acting inside a drawn entry needs the shared content channel, which the
+    // row serving the content column provides. Without it there is no way for a
+    // call to reach the tab showing this session, so the tool is absent rather
+    // than offered and always unanswered.
+    catalogCtx.inject(['tools', 'contentChannel', 'sessionProjections'], (actCtx) => {
+      installActComponent(actCtx, resolved)
     })
     installViews(catalogCtx, resolved, options, config.homeView)
   })

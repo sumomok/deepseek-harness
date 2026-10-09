@@ -66,6 +66,7 @@ import type { PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-cl
 // Type-only: the useSessions seat's own merge, and the branded id its rows are keyed by.
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { answersBlock, type ComponentAction, type ComponentNode } from '../component-call.ts'
+import type { ActComponentCall } from '../act-component-call.ts'
 import type {
   ComponentActionHandler,
   ComponentActionState,
@@ -125,6 +126,15 @@ export interface ComponentSurfaceInjected {
    * and translate each accepted block is drawn with.
    */
   components: ComponentRendererTable
+  /**
+   * Tell the content channel what this seat can answer now: one session's open
+   * `act_component` calls, as that session's projection published them. The
+   * seat is what knows an entry is on display, so it is what the channel is
+   * told from; the calls themselves are answered by the seat that claimed them.
+   */
+  offerCalls: (sessionId: string | undefined, pending: readonly ActComponentCall[]) => void
+  /** Stop answering: this seat is gone, and a bid it started outlives nothing. */
+  parkCalls: () => void
 }
 
 /** Composed props: the kind-seat runtime share, this registration's injected face, and the component row's locale seat. */
@@ -151,6 +161,9 @@ interface OutputState {
 
 /** Nothing published, by nobody. */
 const NO_OUTPUT_STATE: OutputState = { owner: '', values: NO_OUTPUTS }
+
+/** The empty call list, shared so a session with no open call does not re-offer a fresh one. */
+const NO_CALLS: readonly ActComponentCall[] = []
 
 /** The blocks the previous reading of one payload produced, so an unchanged block keeps its object. */
 interface HeldBlocks {
@@ -304,7 +317,9 @@ function ComponentBlock({ components, entryId, seq, node, report, pending, pendi
  * @param props - the column's selection, the session feed, the action sink, and the locale seat.
  * @returns the caption and the blocks, or nothing while another kind is selected.
  */
-export function ComponentSurface({ sessionId, entry, useSessions, onAction, pending, components, t }: ComponentSurfaceProps) {
+export function ComponentSurface({
+  sessionId, entry, useSessions, onAction, pending, components, offerCalls, parkCalls, t,
+}: ComponentSurfaceProps) {
   const payload = entry?.payload
   // The entry and the call that placed it, which is what the published values
   // belong to: a later call under the same id starts with nothing published.
@@ -340,6 +355,19 @@ export function ComponentSurface({ sessionId, entry, useSessions, onAction, pend
     // erased crossing the kind slot's plain-data owner share (`action.ts`
     // restores it the same way for the command it dispatches).
     sessionId === undefined ? undefined : state.byId[sessionId as SessionId]?.projectionValues?.componentActions))
+  // The open `act_component` calls of this session, read where the column reads
+  // its own entries. The seat is what knows a component entry is on display, so
+  // it is what tells the channel what it can answer; the calls are answered by
+  // the channel's own domain, which looks the entry up again when one is
+  // claimed.
+  const calls: readonly ActComponentCall[] = useSessions(state => (
+    sessionId === undefined
+      ? NO_CALLS
+      : state.byId[sessionId as SessionId]?.projectionValues?.componentAccess?.pending)) ?? NO_CALLS
+  useEffect(() => { offerCalls(sessionId, calls) }, [offerCalls, sessionId, calls])
+  // Parking is an unmount's business rather than a re-render's: a bid outlives
+  // nothing, but the next render of the same seat still owns the call.
+  useEffect(() => () => { parkCalls() }, [parkCalls])
   // One sink per session, memoized for the same reason the nodes are: it is a
   // dependency of every block's props identity.
   const report = useMemo<SeatReport>(
