@@ -51,6 +51,7 @@ kind: "package-group"
 | [`console-profile`](console-profile/README.zh.md) | 客户控制台：叠在 Web profile 上的一个 bundle 层，外加一份叠在 profile 补丁之上的权限锁 | — |
 | [`content-column`](content-column/README.zh.md) | content surface 的浏览器半边：认领外壳的 content 栏，列出该会话的 entry，并按 kind 派发选中的那一条 | — |
 | [`content-frame`](content-frame/README.zh.md) | 托管一份由部署方配置的静态 web 应用，并把它作为 content 栏的 `page` 类型贡献进去 | — |
+| [`content-point`](content-point/README.zh.md) | 「指一下」：输入框「+」右侧的按钮，指内容栏或侧栏里的一处作为引用，并追加一条写明该处键行的消息给模型 | — |
 | [`content-surface`](content-surface/README.zh.md) | content surface 的宿主半边：extractor 把已记录事件折叠成每会话一条按类型分列的内容 entry 流 | `ctx.contentSurface` |
 | [`inspector`](inspector/README.zh.md) | 用于 Host 调试、Client Runtime 检查、网络采集与 Cordis 树的跨 realm CDP hub | `ctx.inspector` |
 | [`session-inspector`](session-inspector/README.zh.md) | 展示原始 Session 日志与 Chat 节点的 Sidebar 表格 | — |

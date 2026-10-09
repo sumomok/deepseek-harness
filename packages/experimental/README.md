@@ -51,6 +51,7 @@ Experimental prototypes may change their contracts and carry no support promise.
 | [`console-profile`](console-profile/README.md) | The customer console as one bundle layer over the Web profile, plus the permission lock applied above the profile patch | — |
 | [`content-column`](content-column/README.md) | Browser half of the content surface: claims the shell's content column, lists the session's entries, and dispatches the selected one by kind | — |
 | [`content-frame`](content-frame/README.md) | Serves one operator-configured static web application and contributes it as the content column's `page` kind | — |
+| [`content-point`](content-point/README.md) | 「指一下」: a button to the right of the composer's 「+」 that points at a place in the content column or the sidebar as a reference, and appends one message writing the place's key line to the model | — |
 | [`content-surface`](content-surface/README.md) | Host half of the content surface: extractors fold logged events into a per-session stream of typed content entries | `ctx.contentSurface` |
 | [`inspector`](inspector/README.md) | Cross-realm CDP hub for Host debugging, Client Runtime inspection, network capture, and Cordis trees | `ctx.inspector` |
 | [`session-inspector`](session-inspector/README.md) | Sidebar tables for raw Session logs and Chat nodes | — |
