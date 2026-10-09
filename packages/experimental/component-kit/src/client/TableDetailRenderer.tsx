@@ -169,18 +169,24 @@ interface TableEventContext {
 
 /**
  * Read one row.
+ *
+ * The row has no prototype. The component reads a cell as `row[column]`, so on
+ * an ordinary object a column named after a member every object inherits, such
+ * as `constructor` or `toString`, would draw that member where the row carries
+ * no cell; with none, it draws nothing, as for any other column the row leaves
+ * out. Assigning a cell keyed `__proto__` to it adds the cell, since there is no
+ * inherited setter of that name to take it.
  * @param value - one item of the `displayValueList` or `rawValueList` property.
  * @returns the row with the values the component can draw, or `undefined` when the item is not a record.
  */
 function readRow(value: unknown): TableRow | undefined {
   const record = readRecord(value)
   if (record === undefined) return undefined
-  const row: [string, ScalarValue][] = []
+  const row = Object.create(null) as Record<string, ScalarValue>
   for (const [key, cell] of Object.entries(record)) {
-    if (typeof cell === 'string' || typeof cell === 'number' || typeof cell === 'boolean') row.push([key, cell])
+    if (typeof cell === 'string' || typeof cell === 'number' || typeof cell === 'boolean') row[key] = cell
   }
-  // From entries, so a cell keyed `__proto__` stays one; assigning it would drop it.
-  return Object.fromEntries(row)
+  return row
 }
 
 /**
@@ -260,6 +266,7 @@ function detailRows(columns: readonly TableColumn[], row: TableRow | undefined):
   const rows: DetailRow[] = []
   for (const column of columns) {
     if (column.isShow === '0') continue
+    // A row {@link readRow} built has no prototype, so this is a cell the row carries or nothing.
     const cell = row[column.relatedMetaAttr]
     if (cell === undefined) continue
     rows.push({ label: column.alias ?? column.relatedMetaAttr, display: String(cell) })

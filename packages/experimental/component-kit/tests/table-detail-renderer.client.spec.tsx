@@ -163,6 +163,49 @@ describe('toy.table', () => {
     ])
   })
 
+  describe('a column named after a member every object inherits, over rows without that cell', () => {
+    /** One column per such member, after the name column. */
+    const INHERITED = ['constructor', 'toString', 'hasOwnProperty', '__proto__'].map(attr => ({ relatedMetaAttr: attr, alias: attr }))
+
+    it('draws no such column where no row carries the cell, as for any other column', async () => {
+      // The table leaves out a column no row has a value for. Read off an
+      // ordinary object, every row would have one: the inherited member, drawn
+      // as the text of a native function, or as an empty object for __proto__.
+      const { view } = await draw({ tableConfig: { gridItems: [COLUMNS[0], ...INHERITED, { relatedMetaAttr: 'owner' }] }, displayValueList: ROWS })
+      expect(headings(view.container)).toEqual(['名称'])
+      expect(cells(view.container, 0)).toEqual(['一号站点'])
+    })
+
+    it('leaves it out of what the ticked row publishes', async () => {
+      const { view, onOutput } = await draw({
+        tableConfig: { gridItems: [COLUMNS[0], ...INHERITED] },
+        displayValueList: ROWS,
+        selectMode: 'checkbox',
+      })
+      fireEvent.click(view.container.querySelectorAll('.el-table__body-wrapper .el-checkbox__original')[0] as HTMLElement)
+      await flush()
+      expect(onOutput).toHaveBeenCalledWith('selectionDetail', [{ label: '名称', display: '一号站点' }])
+    })
+
+    it('draws and publishes the cell where the row does carry it, and leaves it empty in a row that does not', async () => {
+      const row: unknown = JSON.parse('{"zh_label":"一号站点","constructor":"红","__proto__":"P-1"}')
+      const { view, onOutput } = await draw({
+        tableConfig: { gridItems: [COLUMNS[0], INHERITED[0], INHERITED[3]] },
+        displayValueList: [row, ROWS[1]],
+        selectMode: 'checkbox',
+      })
+      expect(cells(view.container, 0)).toEqual(['', '一号站点', '红', 'P-1'])
+      expect(cells(view.container, 1)).toEqual(['', '二号站点', '', ''])
+      fireEvent.click(view.container.querySelectorAll('.el-table__body-wrapper .el-checkbox__original')[0] as HTMLElement)
+      await flush()
+      expect(onOutput).toHaveBeenCalledWith('selectionDetail', [
+        { label: '名称', display: '一号站点' },
+        { label: 'constructor', display: '红' },
+        { label: '__proto__', display: 'P-1' },
+      ])
+    })
+  })
+
   it('names a published column by its own field where the block gave it no heading', async () => {
     const { view, onOutput } = await draw({
       tableConfig: { gridItems: [{ relatedMetaAttr: 'status' }] },
