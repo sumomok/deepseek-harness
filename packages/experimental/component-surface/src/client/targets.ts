@@ -78,6 +78,15 @@ export const SELECT_OPTION = '.el-select-dropdown__item'
 /** The input element-ui draws one select's own text in. */
 export const SELECT_INPUT = 'input.el-input__inner'
 
+/** The element-ui autocomplete one field control is drawn inside, which is what makes the field a suggestion field. */
+export const AUTOCOMPLETE = '.el-autocomplete'
+
+/**
+ * One autocomplete's drawn suggestions, children of the autocomplete itself
+ * since this row contains its panel.
+ */
+export const AUTOCOMPLETE_OPTION = '.el-autocomplete-suggestion__list > li'
+
 /**
  * One element's own attribute value, compared exactly.
  * @param el - the element.
@@ -358,6 +367,38 @@ export function selectOf(control: Element, within: Element): Element | undefined
  */
 export function selectOptions(select: Element, within: Element): Element[] {
   return [...select.querySelectorAll(SELECT_OPTION)].filter(option => isDrawn(option, within))
+}
+
+/**
+ * The autocomplete one field control belongs to, when that control is an
+ * autocomplete's own.
+ *
+ * The same confine the select's own resolution states applies: an autocomplete
+ * wrapping the entry from outside would hold suggestions this call may not
+ * reach, so it counts only while it stands inside the entry.
+ * @param control - the field's control.
+ * @param within - the entry's own container, past which nothing is asked.
+ * @returns the autocomplete element, or undefined when the control is not an autocomplete's.
+ */
+export function autocompleteOf(control: Element, within: Element): Element | undefined {
+  const autocomplete = control.closest(AUTOCOMPLETE)
+  return autocomplete === null || !within.contains(autocomplete) ? undefined : autocomplete
+}
+
+/**
+ * Every suggestion one autocomplete draws, in document order.
+ *
+ * The panel holds the block's answer while it stands; the row the component
+ * draws while it is still asking — the one carrying the loading icon — is not
+ * a suggestion, and counting it would end a step's wait on a list that holds
+ * no choice yet.
+ * @param autocomplete - the autocomplete element.
+ * @param within - the entry's own container, past which nothing is asked.
+ * @returns the drawn suggestion elements.
+ */
+export function autocompleteOptions(autocomplete: Element, within: Element): Element[] {
+  return [...autocomplete.querySelectorAll(AUTOCOMPLETE_OPTION)]
+    .filter(option => isDrawn(option, within) && option.querySelector('.el-icon-loading') === null)
 }
 
 /**

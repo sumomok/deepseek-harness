@@ -23,7 +23,7 @@ export const ACT_COMPONENT_DESCRIPTION = [
   'Steps address the components\' own language, never a DOM reference:',
   '- `click` presses the control a block declares under an action key (a toolbar button\'s `add`, a bar\'s submit).',
   '- `set` writes a value into the field the entry names for one column or property (a filter value on `zh_label`);',
-  '  a field drawn as a select is set by choosing the option whose label is the value.',
+  '  a field drawn as a select or a suggestion field is set by choosing the option whose label is the value.',
   '- `wait` waits until a block or a declared control is drawn, for a call that acts on what it just asked for.',
   '`node` names the block within the entry (the id the placement wrote); omit it to search the whole entry.',
   '',
@@ -50,7 +50,7 @@ export const KEY_DESCRIPTION = 'The action key the component declares for the co
 export const NAME_DESCRIPTION = 'The column or property the field is named by, as the component labels it.'
 
 /** What `value` is. */
-export const VALUE_DESCRIPTION = 'What to write into the field; for a select, the label of the option to choose.'
+export const VALUE_DESCRIPTION = 'What to write into the field; for a select or a suggestion field, the label of the option to choose.'
 
 /** What `timeoutMs` is. */
 export const TIMEOUT_DESCRIPTION = 'How long the wait may last, in milliseconds. Omit for the default; the ceiling is enforced.'
@@ -257,8 +257,8 @@ export function readOnlyFieldReason(name: string): string {
 }
 
 /**
- * The sentence a console posts for a select field with no drawn option the
- * value names.
+ * The sentence a console posts for a field whose value is chosen — a select,
+ * or an autocomplete's suggestions — with no drawn option the value names.
  * @param name - the column or property the step named.
  * @param value - the option label the step named.
  * @returns the model-facing sentence.
@@ -268,8 +268,8 @@ export function noOptionReason(name: string, value: string): string {
 }
 
 /**
- * The sentence a console posts for a select field drawing the value more than
- * once.
+ * The sentence a console posts for a field whose value is chosen drawing the
+ * value more than once.
  *
  * Two drawn options may show the same label, and which one a call means is not
  * something the call says; refusing names the ambiguity rather than choosing
@@ -283,12 +283,12 @@ export function ambiguousOptionReason(name: string, value: string): string {
 }
 
 /**
- * The sentence a console posts for a select that did not show the chosen
- * option afterwards.
+ * The sentence a console posts for a choice the component did not take.
  *
- * The choice is confirmed by what the select itself displays, so this is the
+ * The choice is confirmed by the component itself — a select by displaying the
+ * chosen option, an autocomplete by closing its panel on it — so this is the
  * sentence for a click the component took and drew nothing for: the step fails
- * rather than reporting a write the select never made.
+ * rather than reporting a write the component never made.
  * @param name - the column or property the step named.
  * @param value - the option label the step named.
  * @returns the model-facing sentence.

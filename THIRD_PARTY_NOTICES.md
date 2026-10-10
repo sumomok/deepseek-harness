@@ -202,6 +202,7 @@ The vendored payloads in the last column compile these npm libraries into the ar
 | [`side-channel-map`](https://github.com/ljharb/side-channel-map) | 1.0.1 | MIT | `@sumomok/toy-crud-kit` |
 | [`side-channel-weakmap`](https://github.com/ljharb/side-channel-weakmap) | 1.0.2 | MIT | `@sumomok/toy-crud-kit` |
 | [`simple-swizzle`](https://github.com/qix-/node-simple-swizzle) | 0.2.4 | MIT | `@sumomok/toy-crud-kit` |
+| [`splitpanes`](https://github.com/antoniandre/splitpanes) | 2.4.1 | MIT | `@sumomok/toy-crud-kit` |
 | [`ua-parser-js`](https://github.com/faisalman/ua-parser-js) | 1.0.41 | MIT | `@sumomok/toy-crud-kit` |
 
 ## Chrome DevTools frontend

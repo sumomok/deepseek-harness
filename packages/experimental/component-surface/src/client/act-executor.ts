@@ -15,7 +15,9 @@
  * dispatches `input` and `change`, which is what a React-controlled or Vue
  * component sees as a person typing. A select field is filled the way a person
  * chooses instead: the list is opened, one option whose label is the value is
- * clicked, and the step is done only once the select displays it. What a press
+ * clicked, and the step is done only once the select displays it. A suggestion
+ * field is filled as the person makes it: click into the field, type the
+ * value, and choose from the suggestions the block answers with. What a press
  * checks before it dispatches is whether the control is one a person could
  * reach: a disabled control, one something else is drawn over, and one the
  * block does not draw each stop the call, because the click would otherwise
@@ -49,8 +51,9 @@ import {
 } from '../act-component-text.ts'
 import type { DrawnEntry } from './entry-container.ts'
 import {
-  clickTarget, FIELD_KEY, isCovered, isDisabled, isDrawn, marked, namedControls, openDialog, optionLabel,
-  scopeOf, selectOf, selectOptions, selectShows, undrawnTarget, withAttribute,
+  autocompleteOf, autocompleteOptions, clickTarget, FIELD_KEY, isCovered, isDisabled, isDrawn, marked,
+  namedControls, openDialog, optionLabel, scopeOf, selectOf, selectOptions, selectShows, undrawnTarget,
+  withAttribute,
 } from './targets.ts'
 
 /** How often a `wait` step looks again. */
@@ -64,6 +67,17 @@ const WAIT_POLL_MS = 50
  * is a ceiling on a Vue turn and not on a request.
  */
 const SELECT_SETTLE_MS = 1000
+
+/**
+ * How long an autocomplete's suggestions may take to arrive after the step's
+ * own typing.
+ *
+ * The suggestions are the block's answer to a query it asks the deployment's
+ * own endpoint — element-ui debounces the ask and the answer crosses the
+ * network — so this is a ceiling on a request and the render after it, unlike
+ * {@link SELECT_SETTLE_MS}, which bounds the component's own re-renders.
+ */
+const SUGGESTION_SETTLE_MS = 5000
 
 /**
  * The field one `set` step writes into.
@@ -193,13 +207,65 @@ async function fillSelect(entry: DrawnEntry, select: Element, trigger: Element, 
 }
 
 /**
+ * Fill one suggestion field the way a person chooses a suggestion.
+ *
+ * element-ui's autocomplete keeps its value in the component the way a select
+ * does, and only a chosen suggestion carries the block's own record of it —
+ * the text typed into the field is a value nothing behind it wrote down — so a
+ * write through the input would be reported as a write the component never
+ * took. The step performs the gesture instead: click into the field, clear it
+ * so the suggestions that come are the block's answer to this step's own
+ * typing rather than a list an earlier step left standing, type the value,
+ * choose the one drawn suggestion whose label is the value, and report done
+ * only once the panel closed on the choice. Every way that can fail is a
+ * refusal naming the part that failed rather than a step reported as one that
+ * ran, and a refusal leaves the field the way the step found it — the typing
+ * was the step's own.
+ * @param entry - the drawn entry.
+ * @param autocomplete - the autocomplete the field's control belongs to.
+ * @param trigger - the control the field was found by.
+ * @param name - the column or property the step named, for the refusals.
+ * @param value - the suggestion label the step named.
+ * @throws {Error} with the model-facing reason when the value cannot be chosen.
+ */
+async function fillAutocomplete(entry: DrawnEntry, autocomplete: Element, trigger: Element, name: string, value: string): Promise<void> {
+  // The click is the person's own first move, and it is what focuses the field
+  // element-ui draws the panel for.
+  clickOn(trigger)
+  // The clear is the field's own gesture: an emptied field drops the
+  // suggestions with it, so what the step matches below answers its own typing.
+  writeValue(trigger, name, '')
+  await settles(() => autocompleteOptions(autocomplete, entry.container).length === 0, SELECT_SETTLE_MS)
+  writeValue(trigger, name, value)
+  await settles(() => autocompleteOptions(autocomplete, entry.container).length > 0, SUGGESTION_SETTLE_MS)
+  const matches = autocompleteOptions(autocomplete, entry.container).filter(option => optionLabel(option) === value)
+  if (matches.length > 1) {
+    writeValue(trigger, name, '')
+    throw new Error(ambiguousOptionReason(name, value))
+  }
+  const option = matches[0]
+  if (option === undefined) {
+    writeValue(trigger, name, '')
+    throw new Error(noOptionReason(name, value))
+  }
+  clickOn(option)
+  // The component empties the panel on the choice itself, so a panel still
+  // holding suggestions is a click the component did not take.
+  const taken = await settles(() => autocompleteOptions(autocomplete, entry.container).length === 0, SELECT_SETTLE_MS)
+  if (!taken) {
+    writeValue(trigger, name, '')
+    throw new Error(optionNotTakenReason(name, value))
+  }
+}
+
+/**
  * Write one value into the field one `set` step named.
  *
- * A text control is written the way a person typing writes it, and a select is
- * filled by choosing an option; the difference is where the component's value
- * lives, not what the step promises. What both share is the refusal: a disabled
- * or read-only control, and a value the control did not take, end the step
- * rather than report a write that never happened.
+ * A text control is written the way a person typing writes it, and a select or
+ * a suggestion field is filled by choosing an option; the difference is where
+ * the component's value lives, not what the step promises. What both share is
+ * the refusal: a disabled or read-only control, and a value the control did not
+ * take, end the step rather than report a write that never happened.
  * @param entry - the drawn entry.
  * @param target - the control the field was found by.
  * @param name - the column or property the step named.
@@ -211,6 +277,11 @@ async function setField(entry: DrawnEntry, target: Element, name: string, value:
   const select = selectOf(target, entry.container)
   if (select !== undefined) {
     await fillSelect(entry, select, target, name, value)
+    return
+  }
+  const autocomplete = autocompleteOf(target, entry.container)
+  if (autocomplete !== undefined) {
+    await fillAutocomplete(entry, autocomplete, target, name, value)
     return
   }
   if (isReadOnly(target)) throw new Error(readOnlyFieldReason(name))

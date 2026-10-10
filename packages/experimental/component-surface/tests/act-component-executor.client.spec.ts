@@ -604,6 +604,159 @@ describe('a field the entry draws as a select', () => {
   })
 })
 
+/**
+ * Draw one autocomplete the way element-ui draws one, with the behaviour a
+ * case needs from the component behind it: the panel is a child of the
+ * autocomplete, in the document from the start and hidden, the block answers a
+ * typed query with its suggestions, an emptied field drops them, and a chosen
+ * suggestion is what fills the input.
+ * @param options - the labels the block answers with, in order.
+ * @param behavior - how the fixture's own component answers: a block still
+ *   loading, so the panel first holds the asking row and the suggestions land
+ *   a turn later, or a component that takes nothing on a click.
+ * @returns the drawn entry, and the autocomplete with the parts a case asserts on.
+ */
+function drawAutocomplete(
+  options: readonly string[],
+  behavior: { readonly ignores?: boolean; readonly loading?: boolean } = {},
+): { drawn: DrawnEntry; autocomplete: HTMLElement; input: HTMLInputElement; panel: HTMLElement; list: HTMLElement } {
+  const items = options.map(label => `<li role="option">${label}</li>`).join('')
+  const drawn = drawEntry(`
+    <div class="el-autocomplete">
+      <input class="el-input__inner" data-component-field="topic">
+      <div class="el-autocomplete-suggestion">
+        <div class="el-autocomplete-suggestion__wrap">
+          <ul class="el-autocomplete-suggestion__list">${items}</ul>
+        </div>
+      </div>
+    </div>
+  `)
+  const autocomplete = drawn.container.querySelector('.el-autocomplete') as HTMLElement
+  const input = autocomplete.querySelector('input.el-input__inner') as HTMLInputElement
+  const panel = autocomplete.querySelector('.el-autocomplete-suggestion') as HTMLElement
+  const list = autocomplete.querySelector('.el-autocomplete-suggestion__list') as HTMLElement
+  panel.style.display = 'none'
+  input.addEventListener('input', () => {
+    // element-ui drops the suggestions with an emptied field and shows the
+    // block's answer over a typed one; this fixture's block answers every
+    // query with the same suggestions.
+    if (input.value === '') {
+      panel.style.display = 'none'
+      list.innerHTML = ''
+      return
+    }
+    panel.style.display = ''
+    list.innerHTML = behavior.loading === true ? '<li><i class="el-icon-loading"></i></li>' : items
+    if (behavior.loading === true) setTimeout(() => { list.innerHTML = items }, 20)
+  })
+  // The suggestions are re-rendered per query, so the choice is heard where
+  // it does not unmount: element-ui's own rows carry the click per row.
+  list.addEventListener('click', (event) => {
+    const option = (event.target as Element | null)?.closest('li')
+    if (option === null || option === undefined) return
+    if (option.querySelector('.el-icon-loading') !== null) return
+    if (behavior.ignores === true) return
+    input.value = (option.textContent ?? '').trim()
+    // element-ui empties the suggestions on the choice itself.
+    list.innerHTML = ''
+  })
+  return { drawn, autocomplete, input, panel, list }
+}
+
+describe('a field the entry draws as an autocomplete', () => {
+  it('types the value, chooses the suggestion it names, and reports done once the panel closed on the choice', async () => {
+    const { drawn, input } = drawAutocomplete(['森林防火一张图', '林地一张图'])
+    expect(await run(args([{ action: 'set', name: 'topic', value: '森林防火一张图' }]), drawn)).toEqual({
+      status: 'done',
+      steps: [{ index: 1, status: 'ok' }],
+      text: 'Acted on the component entry "Demo" (demo).\n- set "topic": done',
+    })
+    expect(input.value).toBe('森林防火一张图')
+  })
+
+  it('does not count the row the block draws while it is still asking as a suggestion', async () => {
+    // A wait that settled on the loading row would match against a list that
+    // holds no choice yet and report no option before any arrived.
+    const { drawn, input } = drawAutocomplete(['接入'], { loading: true })
+    expect((await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)).status).toBe('done')
+    expect(input.value).toBe('接入')
+  })
+
+  it('refuses a value no drawn suggestion carries, naming it, and leaves the field as it found it', async () => {
+    // The typing is the step's own: leaving it standing on a refusal would be
+    // text the entry now holds and the block never took.
+    const { drawn, input } = drawAutocomplete(['核心'])
+    expect(await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)).toEqual({
+      status: 'failed',
+      steps: [{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }],
+      text: 'Acted on the component entry "Demo" (demo).\n- set "topic": The field for "topic" has no option "接入".',
+    })
+    expect(input.value).toBe('')
+  })
+
+  it('refuses a value two drawn suggestions carry rather than choosing one of them', async () => {
+    const { drawn, input } = drawAutocomplete(['重复', '重复'])
+    expect(await run(args([{ action: 'set', name: 'topic', value: '重复' }]), drawn)).toEqual({
+      status: 'failed',
+      steps: [{
+        index: 1,
+        status: 'failed',
+        message: 'The field for "topic" draws more than one option "重复", so this call cannot tell which to choose.',
+      }],
+      text: 'Acted on the component entry "Demo" (demo).'
+        + '\n- set "topic": The field for "topic" draws more than one option "重复", so this call cannot tell which to choose.',
+    })
+    expect(input.value).toBe('')
+  })
+
+  it('fails where the panel stayed open on the click, rather than reporting the choice', async () => {
+    // A component that takes nothing on the click: nothing about the panel
+    // will ever close on the value, so the step fails instead of reporting it.
+    const { drawn, input } = drawAutocomplete(['接入'], { ignores: true })
+    expect(await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)).toEqual({
+      status: 'failed',
+      steps: [{ index: 1, status: 'failed', message: 'The field for "topic" did not take the option "接入".' }],
+      text: 'Acted on the component entry "Demo" (demo).\n- set "topic": The field for "topic" did not take the option "接入".',
+    })
+    expect(input.value).toBe('')
+  })
+
+  it('refuses a disabled suggestion field', async () => {
+    const { drawn, input } = drawAutocomplete(['接入'])
+    input.setAttribute('disabled', '')
+    expect(await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)).toEqual({
+      status: 'failed',
+      steps: [{ index: 1, status: 'failed', message: 'The field for "topic" is disabled, so this call cannot write it.' }],
+      text: 'Acted on the component entry "Demo" (demo).\n- set "topic": The field for "topic" is disabled, so this call cannot write it.',
+    })
+    expect(input.value).toBe('')
+  })
+
+  it('writes a control whose autocomplete holds the entry from outside as plain text', async () => {
+    // The confine is the entry: an autocomplete wrapping it from outside would
+    // hold suggestions this call may not reach, so the field counts as a
+    // suggestion field only where the autocomplete itself stands inside it —
+    // and the control inside is then what it is, a writable input.
+    document.body.innerHTML = `
+      <nav data-content-surface-switcher>
+        <button data-content-surface-entry="component ${ENTRY}" data-content-surface-selected>Demo</button>
+      </nav>
+      <div data-content-surface-seat="component" data-content-surface-active>
+        <div class="el-autocomplete">
+          <div data-component-surface>
+            <input class="el-input__inner" data-component-field="topic">
+          </div>
+        </div>
+      </div>
+    `
+    const drawn = drawnEntry(document)
+    if (drawn === undefined) throw new Error('the case drew no entry')
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)
+    expect(report.status).toBe('done')
+    expect((document.querySelector('input') as HTMLInputElement).value).toBe('接入')
+  })
+})
+
 describe('a control that is not an HTMLElement', () => {
   it('is pressed with a click event, so a drawn SVG control still runs its handler', async () => {
     const drawn = drawEntry('<svg><circle data-component-action="pick"></circle></svg>')

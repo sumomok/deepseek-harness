@@ -2,9 +2,9 @@
 /**
  * The row's one installation of element-ui: that it lands on the Vue runtime
  * this package shares rather than a copy of its own, that it carries the two
- * values written dead here, that the select it registers keeps its dropdown
- * inside the select — and so inside the block and the component entry — rather
- * than on the document body, and that a second call changes nothing.
+ * values written dead here, that the select and the autocomplete it registers
+ * keep their lists inside the block — and so inside the component entry —
+ * rather than on the document body, and that a second call changes nothing.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { Vue as SuppliedVue } from '@deepseek-ai/dsh-experimental-vue2-echarts-poc/client'
@@ -61,6 +61,38 @@ describe('installElementUI', () => {
       expect(select.contains(dropdown)).toBe(true)
       expect((dropdown as Element).parentElement === document.body).toBe(false)
       expect(select.querySelectorAll('.el-select-dropdown__item').length).toBe(2)
+    } finally {
+      vm.$destroy()
+      vm.$el.remove()
+    }
+  })
+
+  it('draws an autocomplete\'s suggestions inside the autocomplete, not on the document body', async () => {
+    installElementUI()
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const vm = new Vue({
+      render: create => create('el-autocomplete', {
+        props: { fetchSuggestions: (_query: string, done: (suggestions: { value: string }[]) => void) => { done([{ value: '接入' }]) } },
+      }),
+    })
+    vm.$mount(host)
+    try {
+      const autocomplete = vm.$el as HTMLElement
+      const input = autocomplete.querySelector('input.el-input__inner') as HTMLInputElement
+      // element-ui shows the panel while the field has focus and the block has
+      // answered: focus, then the typed query the debounce waits out.
+      input.dispatchEvent(new FocusEvent('focus'))
+      input.value = '接入'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      await new Promise((resolve) => { setTimeout(resolve, 350) })
+      const panel = autocomplete.querySelector('.el-autocomplete-suggestion')
+      // Where the panel is drawn is what the acting tool's confine is about: a
+      // suggestion on `document.body` is outside the block that owns the field.
+      expect(panel).not.toBeNull()
+      expect(autocomplete.contains(panel)).toBe(true)
+      expect((panel as Element).parentElement === document.body).toBe(false)
+      expect(autocomplete.querySelectorAll('.el-autocomplete-suggestion__list li').length).toBe(1)
     } finally {
       vm.$destroy()
       vm.$el.remove()

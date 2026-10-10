@@ -53,6 +53,12 @@ const ELEMENT_Z_INDEX = 300
 const SELECT_ASSET = 'ElSelect'
 
 /**
+ * The name element-ui registers its autocomplete component under, which is
+ * also what every block's compiled markup resolves its `el-autocomplete` tag to.
+ */
+const AUTOCOMPLETE_ASSET = 'ElAutocomplete'
+
+/**
  * The select whose dropdown is drawn inside the block that owns it.
  *
  * element-ui's select renders its dropdown as a child of the select and then,
@@ -87,6 +93,34 @@ function registerContainedSelect(): void {
   }))
 }
 
+/**
+ * The autocomplete whose suggestions are drawn inside the block that owns it.
+ *
+ * The select's own registration above spells the reasoning out in full — a
+ * popper the 2.15.14 mixin hands to `document.body` at the default is outside
+ * the component entry `act_component` is confined to — and element-ui's
+ * autocomplete draws its suggestion panel the same way, through the same
+ * `popperAppendToBody` prop. A panel on the body would leave a `set` step able
+ * to type into a suggestion field and reach none of its suggestions. The
+ * subclass flips that default and registers over element-ui's own name, so
+ * every `el-autocomplete` a kit draws keeps its panel inside the block
+ * without any compiled markup changing.
+ * @returns nothing; the effect is on the shared runtime's global component table.
+ */
+function registerContainedAutocomplete(): void {
+  const base = Vue.component(AUTOCOMPLETE_ASSET)
+  Vue.component(AUTOCOMPLETE_ASSET, Vue.extend({
+    name: AUTOCOMPLETE_ASSET,
+    extends: base,
+    props: {
+      popperAppendToBody: {
+        type: Boolean,
+        default: false,
+      },
+    },
+  }))
+}
+
 /** Whether {@link installElementUI} has already run against the shared runtime. */
 let installed = false
 
@@ -102,4 +136,5 @@ export function installElementUI(): void {
   installed = true
   Vue.use(ElementUI, { size: ELEMENT_SIZE, zIndex: ELEMENT_Z_INDEX })
   registerContainedSelect()
+  registerContainedAutocomplete()
 }

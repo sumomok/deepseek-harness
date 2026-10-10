@@ -144,7 +144,7 @@ node 半边还提供一条路由。它送的是浏览器半边自己算不出来
 
 **element-ui 只装一次，层级 300。** 全仓唯一的那句 `Vue.use(ElementUI)` 在 `installElementUI()` 里，这一行的客户端插件启动时调它。`Vue.use` 没有反操作，所以它是一个模块作用域的开关而不是 effect：把这一行拆掉，组件仍然注册在那份 Vue 上。两个选项都写死——`size: 'small'`；`zIndex: 300` 是因为 element-ui 自己的默认值 2000 会让下拉盖住 1100 的外壳和 1000 的审批弹窗，也就是让一个展开的下拉挡住正在请用户同意的那扇窗。浏览器半边收不到 cordis config，而这一行没有 host 半边，所以要把哪个选项做成配置，做法是让落位包读到它再传进来。
 
-**下拉列表画进 select 自己里面。** 同一次安装还在 element-ui 的名字上注册了一个本行自己的 select，唯一的不同是列表画在哪里。element-ui 把 select 的列表画成 select 的子元素，然后——`popperAppendToBody` 在 2.15.14 里默认 `true`——在列表第一次打开时把这个子元素交给 `document.body`，于是人展开的下拉画在拥有它的那块内容之外。挂在 body 上的列表落在 `act_component` 被限定的那条组件条目之外，工具会点得开一个 select 却够不着它任何一个选项；注册的这个子类只把这一个默认值翻成 `false`，于是每块内容画的 `el-select`——写对话框的字段、查询面板的、条件渲染器的——都把列表留在 select 所在处，也就是条目里面。让一处注册够用是 tgz 的功劳：它们只写 `el-*` 标签、靠这次注册解析，并不自己 import 这些组件。列表仍由 popper.js 对着自己的触发器定位，变的只是它待在哪个子树里；代价记在 [Known Limitations](#known-limitations-and-deferred-work)。
+**下拉列表画进 select 与 autocomplete 自己里面。** 同一次安装还在 element-ui 的名字上注册了本行自己的 select 和一个 autocomplete，唯一的不同是它们的列表画在哪里。element-ui 把 select 的列表、autocomplete 的建议面板都画成组件的子元素，然后——`popperAppendToBody` 在 2.15.14 里默认 `true`——在列表第一次打开时把这个子元素交给 `document.body`，于是人展开的下拉画在拥有它的那块内容之外。挂在 body 上的列表落在 `act_component` 被限定的那条组件条目之外，工具会点得开一个 select、或往一个建议框里打了字，却够不着它任何一个选项；注册的子类只把这一个默认值翻成 `false`，于是每块内容画的 `el-select` 与 `el-autocomplete`——写对话框的字段、查询面板的、条件渲染器的——都把列表留在组件所在处，也就是条目里面。让一处注册够用是 tgz 的功劳：它们只写 `el-*` 标签、靠这次注册解析，并不自己 import 这些组件。列表仍由 popper.js 对着自己的触发器定位，变的只是它待在哪个子树里；代价记在 [Known Limitations](#known-limitations-and-deferred-work)。
 
 `src/client/element-ui.css` 是 element-ui 的 `theme-chalk/index.css` 的物理拷贝，只改了一处：图标的 `@font-face` 把 woff 内联成 `data:` URI，并且不再提供 truetype 备选——客户端产物是把这张表当 `<style>` 标签注入的，相对字体路径会去页面根下解析。升级版本后按同样的方式重新生成。
 
@@ -213,7 +213,7 @@ None; this package neither assembles nor sends a provider request.
 - **信息卡宽 360 像素，不管列有多宽** —— `SmallCard` 固定了自己的宽度与最小宽度，所以更窄的列里，卡片在自己的盒子里横向滚动，而不是重新排版。
 - **摆在页面旁边的表单与信息卡各占自己的地方** —— 页面自己的对话框与侧边信息卡是盖在表格上画的；视图把它们关掉、摆上这两块，就要给每一块分一份版面，分多少由视图的 `layout` 决定，这里不做任何调整。
 - **块装不下的下拉仍然画在块外面——select 的下拉除外** —— `containCrud` 只在盒子装得下整段时才把 body 上的浮层收进来，因为收进一个会裁切的盒子会少掉一截，留在 body 上至少是全的。select 的列表已经不在其列：它画在 select 里面，所以盒子装不装得下它都在块里，而会裁切的祖先——会滚动的对话框正文、盒子本身——会把高过字段下方空间的列表裁掉。日期面板与下拉菜单仍按上面那条「装得下才收」的规则走，分页器那张七行的「每页条数」列表（这份 tgz 自己仓库里的浏览器探针量到它是 110×252）现在是被裁，而不是画在块底下那片东西的上面。
-- **下拉列表画在 select 里面，祖先元素裁多少就少多少** —— element-ui 只对着自己的触发器定位，不知道祖先的 `overflow`；某一个 select 想要旧行为，给它传 `popper-append-to-body`（prop 还在，变的只是默认值），重新考虑这个默认值的触发点是第一个选项在字段下方放不下的字段。
+- **下拉列表与建议面板都画在块里面，祖先元素裁多少就少多少** —— element-ui 只对着自己的触发器定位，不知道祖先的 `overflow`；某一个 select 想要旧行为，给它传 `popper-append-to-body`（prop 还在，变的只是默认值），重新考虑这个默认值的触发点是第一个选项在字段下方放不下的字段。
 - **数据页那份 tgz 的类型是手写的** —— 里面的 `types/index.d.ts` 是对着一份 JavaScript 构建手写的，跟前一份一样，所以构建出来的组件自身属性一旦漂移，这边照样编译通过，等画这块内容时才炸。
 - **没有装配快照覆盖** —— 浏览器侧的证据是针对真实组合的 Playwright 场景；快照泳道回放的是发行组合，其中不含任何 experimental 行。
 - **「只有一份 Vue」这条对产物的断言在 CI 上不执行** —— `tests/client-bundle-vue.client.spec.ts` 读的是 `lib/client.js`；在 pull request 上，唯一会对这个包跑 `vitest` 的作业是覆盖率作业，它不构建，于是在那里跳过。master 的 `linux-primary` 泳道串行执行它的门禁，build 排在覆盖率门禁之后，所以那里产物同样不存在。本地、以及任何先构建的泳道里它照常执行。仓库里没有任何门禁去读一个已构建客户端产物的正文——同类的另外两个 spec，在 `client/ui-trajectory` 与 `session/session-persistence-sqlite`，在 CI 上因同一原因跳过。CI 覆盖到的是后果：Playwright 场景对着发行产物画出那个 vendored 组件。把这三条一起挂上门禁的触发器，是第一个去读已构建客户端产物的门禁出现。
