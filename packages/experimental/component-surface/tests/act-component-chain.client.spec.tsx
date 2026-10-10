@@ -454,10 +454,14 @@ describe('the read_component chain', () => {
       text: [
         `Read the component entry "${ENTRY}" (${ENTRY}).`,
         'Blocks: toolbar.',
-        'Controls:',
-        '- "add" (in toolbar): button "Add"',
-        'Fields:',
-        '- "zh_label": textbox = "层名"',
+        '  - "toolbar"',
+        '    Controls:',
+        '      - "add": button "Add"',
+        '    Fields: none.',
+        'Outside every block:',
+        '  Controls: none.',
+        '  Fields:',
+        '    - "zh_label": textbox = "层名"',
         'No dialog is open.',
       ].join('\n'),
     })

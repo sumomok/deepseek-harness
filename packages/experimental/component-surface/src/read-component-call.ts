@@ -31,9 +31,11 @@ export const READ_COMPONENT_TOOL_NAME = 'read_component'
  * Most lines one reading may carry, the truncation note included.
  *
  * A protocol ceiling rather than a deployment choice: a reading is bounded so a
- * table of hundreds of rows cannot fill a request with the model's own panel,
- * and the note a cut reading ends with says how much was left out. A model that
- * needs more narrows the reading to one block.
+ * table of hundreds of rows cannot fill a request with the model's own panel.
+ * What makes one answer that large is row detail, so a reading larger than one
+ * answer may carry gives up row detail before anything else and says what it
+ * gave up; the note a reading cut even past that ends with says how many lines
+ * were left out. A model that needs more narrows the reading to one block.
  */
 export const MAX_READING_LINES = 200
 
@@ -49,6 +51,17 @@ export const MAX_READING_CHARS = 10_000
  * to, with an ellipsis where it was longer.
  */
 export const MAX_READING_TEXT_CHARS = 120
+
+/**
+ * Most drawn rows one reading names.
+ *
+ * The rows themselves are what a table draws for the user, and a name per row
+ * is what lets a model say whether the record it means is on screen. Beyond
+ * this many the rest are counted rather than named, so the row section stays a
+ * small, predictable part of every answer whatever the page draws: a block
+ * drawing a thousand rows costs this line and no more.
+ */
+export const MAX_ROW_NAMES = 20
 
 /**
  * What one `read_component` call asks of the entry it names.
@@ -85,10 +98,6 @@ export interface ComponentReadControl {
   readonly words: string
   /** How a step naming it would find it. */
   readonly state: ComponentTargetState
-  /** The block that drew it; absent for a control drawn outside every block. */
-  readonly node?: string
-  /** The open dialog it is drawn inside; absent when it is drawn outside one. */
-  readonly dialog?: string
 }
 
 /** One field the reading found drawn, with what it currently holds. */
@@ -105,26 +114,94 @@ export interface ComponentReadField {
   readonly secret?: boolean
   /** How a step naming it would find it. */
   readonly state: ComponentTargetState
-  /** The block that drew it; absent for a field drawn outside every block. */
-  readonly node?: string
-  /** The open dialog it is drawn inside; absent when it is drawn outside one. */
-  readonly dialog?: string
 }
 
-/** What one reading found inside the entry, before the text module writes it out. */
+/**
+ * One kind of target a drawn row holds, counted rather than listed.
+ *
+ * Two controls of a row are one kind of thing when a step naming either would
+ * address the same key — the same action and own key, of the same kind — and a
+ * row of a table draws its cells as one such set repeated per column. What
+ * differs between them is the data they draw, which is what the row's name
+ * stands for rather than something a reading lists per cell.
+ */
+export interface ComponentReadRowDraw {
+  /** The action key the row declares for these controls; absent for ones carrying only their own key. */
+  readonly action?: string
+  /** The controls' own key, where the row declares one for them. */
+  readonly ownKey?: string
+  /** What the control is, in the platform's own word for it. */
+  readonly kind: string
+  /** How many of them the row draws. */
+  readonly count: number
+}
+
+/** One drawn row, as much of it as a reading reports. */
+export interface ComponentReadRow {
+  /** What the row is called: the words of its first drawn target that draws any; empty where none does. */
+  readonly name: string
+  /** The kinds of target the row draws, in the order the row draws them. */
+  readonly draws: readonly ComponentReadRowDraw[]
+}
+
+/** The rows one scope draws, folded: how many, what each draws, and the first few named. */
+export interface ComponentReadRows {
+  /** How many rows the scope draws. */
+  readonly drawn: number
+  /** The page's own words for how many records its query matched, where the scope draws a count of its own. */
+  readonly total?: string
+  /** The first {@link MAX_ROW_NAMES} drawn rows, in the order drawn. */
+  readonly named: readonly ComponentReadRow[]
+}
+
+/**
+ * What one scope draws itself — a block, an open dialog, or the entry outside
+ * every block — with the children read as a tree rather than as a flat list:
+ * the scope is where a target is drawn, and nothing states the placement twice.
+ */
+export interface ComponentReadScope {
+  /** The controls the scope draws itself, outside its rows and outside any dialog of its own. */
+  readonly controls: readonly ComponentReadControl[]
+  /** The fields the scope draws itself, with what each is drawn with. */
+  readonly fields: readonly ComponentReadField[]
+  /** The rows the scope draws, present only where it draws any. */
+  readonly rows?: ComponentReadRows
+}
+
+/** One open dialog a reading found, with what it draws. */
+export interface ComponentReadDialog extends ComponentReadScope {
+  /** The name the dialog draws for itself; empty where it declares none. */
+  readonly name: string
+  /** The block the dialog is drawn in; absent for one drawn outside every block. */
+  readonly node?: string
+}
+
+/** One block the entry draws, with what it draws and the dialogs open inside it. */
+export interface ComponentReadBlock extends ComponentReadScope {
+  /** The id the placement wrote for the block. */
+  readonly node: string
+  /** The dialogs open inside the block, outermost first. */
+  readonly dialogs: readonly ComponentReadDialog[]
+}
+
+/** What the entry draws outside every block: its own targets, and the dialogs open there. */
+export interface ComponentReadOutside extends ComponentReadScope {
+  /** The dialogs open outside every block, outermost first. */
+  readonly dialogs: readonly ComponentReadDialog[]
+}
+
+/** What one reading found inside the entry, as the tree the text module writes out. */
 export interface ComponentReading {
   /** The entry the column had in front. */
   readonly entry: { readonly id: string; readonly title: string }
-  /** The node ids of the blocks drawn, in document order. */
-  readonly blocks: readonly string[]
+  /** The node ids of the blocks drawn, in document order, whether or not the reading describes them. */
+  readonly blockIds: readonly string[]
+  /** The blocks the reading describes, in document order, each with what it draws. */
+  readonly blocks: readonly ComponentReadBlock[]
+  /** What the entry draws outside every block. */
+  readonly outside: ComponentReadOutside
   /** The node the call narrowed the reading to, present only when the entry does not draw it. */
   readonly missingNode?: string
-  /** The controls drawn, in document order. */
-  readonly controls: readonly ComponentReadControl[]
-  /** The fields the entry names, with what each is drawn with, in document order. */
-  readonly fields: readonly ComponentReadField[]
-  /** The names the open dialogs draw for themselves, outermost first, empty-valued where one draws none. */
-  readonly dialogs: readonly string[]
 }
 
 /** One open `read_component` call, as the projection publishes it to a browser. */

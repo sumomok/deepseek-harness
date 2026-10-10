@@ -194,7 +194,7 @@ describe('the component domain', () => {
           'Read the component entry "Demo" (demo).',
           'Blocks: none.',
           'Controls:',
-          '- "add": button "Add"',
+          '  - "add": button "Add"',
           'Fields: none.',
           'No dialog is open.',
         ].join('\n'),
