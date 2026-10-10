@@ -17,13 +17,17 @@
  * chooses instead: the list is opened, one option whose label is the value is
  * clicked, and the step is done only once the select displays it. What a press
  * checks before it dispatches is whether the control is one a person could
- * reach: a disabled control and one something else is drawn over each stop the
- * call, because the click would otherwise reach a handler no real press could.
+ * reach: a disabled control, one something else is drawn over, and one the
+ * block does not draw each stop the call, because the click would otherwise
+ * reach a handler no real press could — a block keeps closed controls in the
+ * document, and those hidden copies are what a search meets first.
  *
- * The entry itself is read again before every step and the run stops where it
- * no longer matches the one the call was claimed against — the column replaces
- * what it draws without telling this seat, and the steps after a switch would
- * otherwise land in whatever entry took this one's place.
+ * The document is left its own turn before every step reads it, so the step
+ * after a press resolves what that press drew rather than what stood there
+ * before the block rendered. The entry itself is read again after that and the
+ * run stops where it no longer matches the one the call was claimed against —
+ * the column replaces what it draws without telling this seat, and the steps
+ * after a switch would otherwise land in whatever entry took this one's place.
  *
  * Nothing here is copied from the page domain: a component entry has no ref
  * table, no frames and no cross-origin question, and no step of this tool ever
@@ -40,12 +44,13 @@ import {
 import {
   actComponentReportText, ambiguousFieldReason, ambiguousOptionReason, anotherEntryInFront, coveredReason,
   disabledFieldReason, disabledReason, ENTRY_REDRAWN_REASON, missingTargetReason, noOptionReason,
-  NO_ENTRY_IN_FRONT, notWritableReason, optionNotTakenReason, readOnlyFieldReason, waitTimeoutReason,
+  NO_ENTRY_IN_FRONT, notWritableReason, notDrawnReason, optionNotTakenReason, readOnlyFieldReason,
+  waitTimeoutReason,
 } from '../act-component-text.ts'
 import type { DrawnEntry } from './entry-container.ts'
 import {
   clickTarget, FIELD_KEY, isCovered, isDisabled, isDrawn, marked, namedControls, openDialog, optionLabel,
-  scopeOf, selectOf, selectOptions, selectShows, withAttribute,
+  scopeOf, selectOf, selectOptions, selectShows, undrawnTarget, withAttribute,
 } from './targets.ts'
 
 /** How often a `wait` step looks again. */
@@ -68,14 +73,19 @@ const SELECT_SETTLE_MS = 1000
  * or property the step named is the one a person would type into, so it is the
  * one this writes.
  *
- * A block may draw one name more than once — a page keeps the write dialog it
- * closed in the document, under the same field names its query panel asks with
- * — and the field is then picked among the copies the way the person using the
- * page would: a copy inside an open dialog is the one asking for the value now
- * and wins over every other, and where no dialog is open the drawn copies are
- * the candidates. One drawn candidate is the field; several name one column or
- * property twice with nothing to say which is meant, and a step that guesses
- * would write where nobody asked.
+ * A block may draw one name more than once — a data page draws its open write
+ * dialog's fields under the same names its query panel asks with, and a page
+ * may keep a form it closed in the document as well — and the field is then
+ * picked among the copies the way the person using the page would: the
+ * candidates are the copies the block draws, a drawn copy inside an open dialog
+ * is the one asking for the value now and wins over every other, and where no
+ * dialog is open the drawn copies stand as they are.
+ * One drawn candidate is the field; several name one column or property twice
+ * with nothing to say which is meant, and a step that guesses would write
+ * where nobody asked. Where not one copy is drawn the candidates stand
+ * unranked: a page that keeps a form in the document while it is closed still
+ * takes the value, and a step that refused here would refuse a write a person
+ * can make by opening the form.
  * @param scope - the subtree the step is confined to.
  * @param name - the column or property the step named.
  * @param within - the entry's own container, which bounds what may name a field.
@@ -85,8 +95,9 @@ const SELECT_SETTLE_MS = 1000
 function setTarget(scope: Element, name: string, within: Element): Element | undefined {
   const declared = withAttribute(scope, FIELD_KEY).filter(el => marked(el, FIELD_KEY, name))
   const candidates = declared.length > 0 ? declared : namedControls(scope, name, within)
-  const inDialog = candidates.filter(el => openDialog(el, within) !== undefined)
-  const chosen = inDialog.length > 0 ? inDialog : candidates.filter(el => isDrawn(el, within))
+  const drawn = candidates.filter(el => isDrawn(el, within))
+  const inDialog = drawn.filter(el => openDialog(el, within) !== undefined)
+  const chosen = inDialog.length > 0 ? inDialog : drawn
   if (chosen.length > 1) throw new Error(ambiguousFieldReason(name))
   return chosen[0] ?? candidates[0]
 }
@@ -222,7 +233,7 @@ async function waitFor(entry: DrawnEntry, step: ActComponentStep & { action: 'wa
   const until = Date.now() + timeoutMs
   for (;;) {
     const scope = scopeOf(entry, step.node)
-    if (scope !== undefined && (step.key === undefined || clickTarget(scope, step.key) !== undefined)) return true
+    if (scope !== undefined && (step.key === undefined || clickTarget(scope, step.key, entry.container) !== undefined)) return true
     if (Date.now() >= until) return false
     await delay(Math.min(WAIT_POLL_MS, Math.max(until - Date.now(), 1)))
   }
@@ -253,8 +264,12 @@ async function runStep(entry: DrawnEntry, step: ActComponentStep): Promise<void>
   const scope = scopeOf(entry, step.node)
   if (scope === undefined) throw new Error(missingTargetReason(`block "${String(step.node)}"`))
   if (step.action === 'click') {
-    const target = clickTarget(scope, step.key)
-    if (target === undefined) throw new Error(missingTargetReason(`control "${step.key}"`))
+    const target = clickTarget(scope, step.key, entry.container)
+    if (target === undefined) {
+      throw new Error(undrawnTarget(scope, step.key, entry.container)
+        ? notDrawnReason(step.key)
+        : missingTargetReason(`control "${step.key}"`))
+    }
     press(target, step.key)
     return
   }
@@ -309,6 +324,25 @@ export interface ActComponentRun {
 }
 
 /**
+ * Let the document settle before the next step reads it.
+ *
+ * A step's press tells the block to change what it draws, and a block draws on
+ * its own turn — Vue and React both queue the render for a later task — so a
+ * step resolved immediately after a press would search the document from
+ * before it. The step after a press that opens a write dialog must find the
+ * dialog's fields; read too early it finds whatever the press left standing
+ * instead, which is how a write meant for the dialog lands in the query panel
+ * behind it and is reported done while the dialog stays empty. One task of
+ * waiting covers the queue the press enqueued, the flush and the frame it
+ * draws in, which is what a person does before typing into what their click
+ * opened.
+ * @returns after the document has had its turn.
+ */
+function settled(): Promise<void> {
+  return delay(0)
+}
+
+/**
  * Why the entry one step was about to run on is no longer the one in front.
  *
  * The column replaces what it draws without telling the seat, and one kind's
@@ -355,6 +389,7 @@ export async function runActComponent(
       continue
     }
     try {
+      await settled()
       const displaced = displacedReason(entry, locate)
       if (displaced !== undefined) throw new Error(displaced)
       await runStep(entry, step)

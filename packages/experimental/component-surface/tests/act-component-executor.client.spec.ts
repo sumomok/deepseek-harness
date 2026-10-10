@@ -383,6 +383,21 @@ describe('a field the entry draws more than once', () => {
     expect((document.querySelector('#closed') as HTMLInputElement).value).toBe('X')
   })
 
+  it('writes the drawn copy when the open dialog holds the name only hidden', async () => {
+    // The dialog is what is asking, but its own copy of the column is hidden:
+    // a person would type into the drawn copy outside it, and the step writes
+    // where the person could rather than into a control nobody can reach.
+    const drawn = drawEntry(`
+      <input data-component-field="zh_label" id="query">
+      <div class="el-dialog__wrapper"><div role="dialog" aria-modal="true" class="el-dialog">
+        <div hidden><input data-component-field="zh_label" id="dialog-hidden"></div>
+      </div></div>
+    `)
+    expect((await run(args([{ action: 'set', name: 'zh_label', value: 'X' }]), drawn)).status).toBe('done')
+    expect((document.querySelector('#query') as HTMLInputElement).value).toBe('X')
+    expect((document.querySelector('#dialog-hidden') as HTMLInputElement).value).toBe('')
+  })
+
   it('refuses a name two drawn controls carry rather than picking one of them', async () => {
     const drawn = drawEntry(`
       <input data-component-field="zh_label" id="first">
@@ -631,6 +646,23 @@ describe('a wait step', () => {
     if (drawn === undefined) throw new Error('the case drew no entry')
     const report = await run(args([{ action: 'wait', key: 'add' }]), drawn)
     expect(report.status).toBe('done')
+  })
+
+  it('waits for a control to be drawn, not merely to exist in the document', async () => {
+    // The waiter asks the same question a press does: a control kept in the
+    // document while closed is not one the wait may call appeared.
+    const drawn = drawEntry('<div hidden id="sheet"><button data-component-action="save">Save</button></div>')
+    setTimeout(() => { document.querySelector('#sheet')?.removeAttribute('hidden') }, 80)
+    expect((await run(args([{ action: 'wait', key: 'save', timeoutMs: 1000 }]), drawn)).status).toBe('done')
+  })
+
+  it('fails rather than letting a hidden control satisfy the wait', async () => {
+    const drawn = drawEntry('<div hidden><button data-component-action="save">Save</button></div>')
+    expect(await run(args([{ action: 'wait', key: 'save', timeoutMs: 60 }]), drawn)).toEqual({
+      status: 'failed',
+      steps: [{ index: 1, status: 'failed', message: '"save" did not appear within 60ms.' }],
+      text: 'Acted on the component entry "Demo" (demo).\n- wait for save: "save" did not appear within 60ms.',
+    })
   })
 
   it('fails with the target it waited for and the time it waited, not with a sentence about the entry', async () => {
@@ -1018,6 +1050,93 @@ describe('a press the control itself refuses', () => {
     } finally {
       Reflect.deleteProperty(document, 'elementFromPoint')
     }
+  })
+})
+
+describe('a control the block keeps in the document while it is closed', () => {
+  it('presses the drawn copy of a key, not the hidden copy the search meets first', async () => {
+    // A page keeps each row's confirmation bubble in the document while it is
+    // closed, and those hidden copies come before the one bubble a person
+    // opened: a press taking the first match would press the element nobody
+    // sees while the control the user is looking at is never pressed.
+    const drawn = drawEntry(`
+      <div hidden><button data-component-action="deleted">Confirm</button></div>
+      <button data-component-action="deleted">Confirm</button>
+    `)
+    const [hidden, shown] = [...document.querySelectorAll('[data-component-action="deleted"]')] as HTMLElement[]
+    const pressedHidden = vi.fn()
+    const pressedShown = vi.fn()
+    hidden?.addEventListener('click', pressedHidden)
+    shown?.addEventListener('click', pressedShown)
+    expect((await run(args([{ action: 'click', key: 'deleted' }]), drawn)).status).toBe('done')
+    expect(pressedShown).toHaveBeenCalledTimes(1)
+    expect(pressedHidden).not.toHaveBeenCalled()
+  })
+
+  it('refuses a key every control carrying it is undrawn, naming what stopped it', async () => {
+    const drawn = drawEntry('<div style="display: none"><button data-component-action="deleted">Confirm</button></div>')
+    const pressed = vi.fn()
+    document.querySelector('[data-component-action="deleted"]')?.addEventListener('click', pressed)
+    expect(await run(args([{ action: 'click', key: 'deleted' }]), drawn)).toEqual({
+      status: 'failed',
+      steps: [{
+        index: 1,
+        status: 'failed',
+        message: 'control "deleted" is not drawn, so this call cannot press it.',
+      }],
+      text: 'Acted on the component entry "Demo" (demo).'
+        + '\n- click on "deleted": control "deleted" is not drawn, so this call cannot press it.',
+    })
+    expect(pressed).not.toHaveBeenCalled()
+  })
+
+  it('carries the same refusal for a key only an undrawn control of its own declares', async () => {
+    const drawn = drawEntry('<div hidden><a data-component-key="keep" href="#">Keep</a></div>')
+    expect(await run(args([{ action: 'click', key: 'keep' }]), drawn)).toEqual({
+      status: 'failed',
+      steps: [{
+        index: 1,
+        status: 'failed',
+        message: 'control "keep" is not drawn, so this call cannot press it.',
+      }],
+      text: 'Acted on the component entry "Demo" (demo).'
+        + '\n- click on "keep": control "keep" is not drawn, so this call cannot press it.',
+    })
+  })
+})
+
+describe('the step after a press', () => {
+  it('resolves what the press drew rather than the copy that stood there before the block rendered', async () => {
+    // The block draws on its own turn — React and Vue alike arrange a render
+    // for after the handler returns — so the write a call places right after
+    // the press that opened a dialog must be resolved once that render landed.
+    // Resolved earlier it finds the same-named control standing outside the
+    // dialog, writes that, and reports a write the dialog never took.
+    const drawn = drawEntry(`
+      <input data-component-field="zh_label" id="query">
+      <button data-component-action="add">Add</button>
+    `)
+    document.querySelector('[data-component-action="add"]')?.addEventListener('click', () => {
+      setTimeout(() => {
+        const dialog = document.createElement('div')
+        dialog.className = 'el-dialog__wrapper'
+        const inside = document.createElement('div')
+        inside.setAttribute('role', 'dialog')
+        const input = document.createElement('input')
+        input.setAttribute('data-component-field', 'zh_label')
+        input.id = 'dialog-input'
+        inside.append(input)
+        dialog.append(inside)
+        document.querySelector('[data-component-surface]')?.append(dialog)
+      }, 0)
+    })
+    const report = await run(args([
+      { action: 'click', key: 'add' },
+      { action: 'set', name: 'zh_label', value: 'X' },
+    ]), drawn)
+    expect(report.status).toBe('done')
+    expect((document.querySelector('#dialog-input') as HTMLInputElement).value).toBe('X')
+    expect((document.querySelector('#query') as HTMLInputElement).value).toBe('')
   })
 })
 

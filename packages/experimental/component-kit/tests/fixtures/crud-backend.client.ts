@@ -23,6 +23,13 @@ export interface StubTable {
   readonly gridItems: readonly Readonly<Record<string, unknown>>[]
   /** The items of the table's query, add and modify forms alike. */
   readonly formItems: readonly Readonly<Record<string, unknown>>[]
+  /**
+   * The items of the table's add form alone, where a case needs the add form to
+   * differ from the query and modify ones — a deployment requires a column in
+   * the add form that its query panel merely filters by, and the required flag
+   * is what the block validates a save against.
+   */
+  readonly addFormItems?: readonly Readonly<Record<string, unknown>>[]
   /** The rows every query is answered with. */
   readonly rows: readonly Readonly<Record<string, unknown>>[]
 }
@@ -63,6 +70,7 @@ export const seen: Seen[] = []
  * @returns the row.
  */
 function schemeRow(meta: string, table: StubTable, schemaType: number): Record<string, unknown> {
+  const formItems = schemaType === 2 ? table.addFormItems ?? table.formItems : table.formItems
   return {
     schemaType,
     isDefault: 1,
@@ -70,7 +78,7 @@ function schemeRow(meta: string, table: StubTable, schemaType: number): Record<s
     metaAlias: '演示设备',
     metaEnName: meta,
     contentType: 'normal',
-    form: [{ formType: 'normal', labelWidth: '100px', formItems: table.formItems }],
+    form: [{ formType: 'normal', labelWidth: '100px', formItems }],
     grid: { gridItems: table.gridItems },
   }
 }
