@@ -44,7 +44,7 @@
   "license": "MIT",
   "dependencies": {
     "@deepseek-ai/schemastery": "workspace:~",
-    "@sumomok/toy-crud-kit": "file:./vendor/sumomok-toy-crud-kit-0.5.0.tgz",
+    "@sumomok/toy-crud-kit": "file:./vendor/sumomok-toy-crud-kit-0.6.1.tgz",
     "@sumomok/toy-surface-kit": "file:./vendor/sumomok-toy-surface-kit-0.3.1.tgz",
     "element-ui": "2.15.14",
     "vue": "^2.7.16"

@@ -201,9 +201,13 @@ async function loaded(onAction: ReturnType<typeof vi.fn>): Promise<void> {
   await flush()
 }
 
-/** The `DataPage` instance under one drawn block: where its events are raised, and its two save handlers. */
+/** The `DataPage` instance under one drawn block: where its events are raised, and its save handlers. */
 type PageInstance = VueInstance & {
   $props: Record<string, unknown>
+  /** The delete window's write check, which a real delete reaches before it reports. */
+  guardDeleteSave(): Promise<false | undefined>
+  /** The batch edit's write check, which a real batch edit reaches before it reports. */
+  guardBatchModifySave(): Promise<false | undefined>
   /** The page's own handler for a delete that removed at least one record. */
   handleDeleteSuccess(finished: readonly unknown[]): void
   /** The page's own handler for a batch edit that changed every record. */
@@ -853,8 +857,13 @@ describe('a column the table\'s scheme masks', () => {
     expect(onAction).toHaveBeenLastCalledWith('modified', { record: { zh_label: '', city: '北京' } })
     // The page's own handlers trim a deleted or changed record before raising
     // it; the record is named by its first unmasked cell that shows anything.
+    // Each write reaches its handler through the check its window runs before
+    // writing, and that check is what records the table a report is computed
+    // against — without it the report would name no record.
+    await page.guardDeleteSave()
     page.handleDeleteSuccess([{ type: 'success', rawValue: MASKED_ROW }])
     expect(onAction).toHaveBeenLastCalledWith('deleted', { succeeded: 1, failed: 0, names: ['北京'] })
+    await page.guardBatchModifySave()
     page.handleModifyBatchSuccess([{ type: 'success', rawValue: MASKED_ROW }], { checkedAttr: [{ name: 'city' }] })
     expect(onAction).toHaveBeenLastCalledWith('batch-modified', { succeeded: 1, failed: 0, names: ['北京'], fields: ['city'] })
     // The page registered its own columns before raising the load; the

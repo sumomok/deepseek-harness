@@ -102,11 +102,17 @@ function draw(props: Record<string, unknown>, onAction = vi.fn<ComponentActionHa
   return { view, onAction, redraw: (next: Record<string, unknown>) => { view.rerender(element(next)) } }
 }
 
-/** The kit's form under one drawn block, with the two members a save goes through. */
+/** The kit's form under one drawn block, with the members a save goes through. */
 type FormInstance = VueInstance & {
   $props: Record<string, unknown>
   /** What the form is doing: `idle`, `pending`, `ready`, or why it did not open. */
   state: string
+  /** The mode the form opened in (`add` or `modify`), which its write check records. */
+  mode: string
+  /** The key of the request the form is under, which a report settles against. */
+  requestKey: string
+  /** The schemes loaded for the form, where its write check reads its items from. */
+  schemas: Record<string, { readonly formConfig?: { readonly formItems?: readonly unknown[] } } | undefined>
   /** The write the form's last check let through, which a save reports from. */
   pendingWrite: unknown
   /** The form's own handler for a save the backend accepted. */
@@ -135,6 +141,28 @@ async function opened(container: HTMLElement): Promise<FormInstance> {
   await vi.waitFor(() => { expect(container.querySelector('[data-toy-crud-box]')).not.toBeNull() })
   await vi.waitFor(() => { expect(formOf(container).state).toBe('ready') }, { timeout: 5000, interval: 20 })
   return formOf(container)
+}
+
+/**
+ * The write the form's own check would have recorded for a completed save.
+ *
+ * A save reports from the flight its check let through rather than from the
+ * props a redraw may have changed: the mode it was opened in, the table it
+ * was opened against, the request key it was under, the scheme's own items
+ * (whose masked marks the report drops), and the value the save answered
+ * with.
+ * @param form - the form instance the write went through.
+ * @param displayValue - the value the save answered with.
+ * @returns the flight to inject in place of a completed save.
+ */
+function writeOf(form: FormInstance, displayValue: Record<string, unknown>) {
+  return {
+    mode: form.mode,
+    meta: form.$props['relatedMeta'],
+    requestKey: form.requestKey,
+    formItems: form.schemas[form.mode]?.formConfig?.formItems ?? [],
+    displayValue,
+  }
 }
 
 describe('toy.form-page', () => {
@@ -229,13 +257,13 @@ describe('toy.form-page', () => {
     noteReportedColumns(meta, ['code', 'zh_label', 'city'])
     const { view, onAction, redraw } = draw(Object.freeze({ relatedMeta: meta, request: { mode: 'add', type: meta } }))
     const added = await opened(view.container)
-    added.pendingWrite = { displayValue: { code: 'C-9', zh_label: '乙', city: '上海', note: '不在表格列里' } }
+    added.pendingWrite = writeOf(added, { code: 'C-9', zh_label: '乙', city: '上海', note: '不在表格列里' })
     added.handleSaved()
     expect(onAction).toHaveBeenLastCalledWith('added', { record: { zh_label: '乙', city: '上海' } })
     redraw(Object.freeze({ relatedMeta: meta, request: { mode: 'modify', type: meta, id: '1', name: '甲' } }))
     await vi.waitFor(() => { expect(formOf(view.container).$props['request']).toMatchObject({ mode: 'modify' }) })
     const modified = await opened(view.container)
-    modified.pendingWrite = { displayValue: { code: 'C-1', zh_label: '甲', city: '济南' } }
+    modified.pendingWrite = writeOf(modified, { code: 'C-1', zh_label: '甲', city: '济南' })
     modified.handleSaved()
     expect(onAction).toHaveBeenLastCalledWith('modified', { record: { zh_label: '甲', city: '济南' } })
   })
