@@ -660,8 +660,8 @@ describe('a wait step', () => {
     const drawn = drawEntry('<div hidden><button data-component-action="save">Save</button></div>')
     expect(await run(args([{ action: 'wait', key: 'save', timeoutMs: 60 }]), drawn)).toEqual({
       status: 'failed',
-      steps: [{ index: 1, status: 'failed', message: '"save" did not appear within 60ms.' }],
-      text: 'Acted on the component entry "Demo" (demo).\n- wait for save: "save" did not appear within 60ms.',
+      steps: [{ index: 1, status: 'failed', message: 'control "save" did not appear within 60ms.' }],
+      text: 'Acted on the component entry "Demo" (demo).\n- wait for save: control "save" did not appear within 60ms.',
     })
   })
 
@@ -671,7 +671,10 @@ describe('a wait step', () => {
     if (drawn === undefined) throw new Error('the case drew no entry')
     const cases: [ActComponentArgs['steps'][number], string][] = [
       [{ action: 'wait', node: 'ghost', timeoutMs: 50 }, '"ghost" did not appear within 50ms.'],
-      [{ action: 'wait', key: 'ghost', timeoutMs: 50 }, '"ghost" did not appear within 50ms.'],
+      [{ action: 'wait', key: 'ghost', timeoutMs: 50 }, 'control "ghost" did not appear within 50ms.'],
+      // A step that named both waited for a key inside the block, and the
+      // sentence says which key it was rather than only where it looked.
+      [{ action: 'wait', node: 'ghost', key: 'save', timeoutMs: 50 }, 'control "save" in "ghost" did not appear within 50ms.'],
     ]
     for (const [step, message] of cases) {
       const report = await run(args([step]), drawn)
