@@ -251,7 +251,13 @@ async function runStep(entry: DrawnEntry, step: ActComponentStep): Promise<void>
     // step reads it once and the number the model is told is the one it waited.
     const timeoutMs = step.timeoutMs ?? DEFAULT_WAIT_MS
     if (!await waitFor(entry, step, timeoutMs)) {
-      throw new Error(waitTimeoutReason(`"${step.node ?? step.key}"`, timeoutMs))
+      // The sentence names what the step waited for: the key where the step
+      // named one — what did not appear is the control, and a model reading the
+      // failure has to know which key it was — and the block otherwise.
+      const target = step.key === undefined
+        ? `"${String(step.node)}"`
+        : `control "${step.key}"${step.node === undefined ? '' : ` in "${step.node}"`}`
+      throw new Error(waitTimeoutReason(target, timeoutMs))
     }
     return
   }

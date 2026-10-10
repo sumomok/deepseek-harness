@@ -599,11 +599,11 @@ schema 说不出的是一个字符串**意味着**什么。把某个字符串读
 
 #### What the model sees
 
-一个工具 `read_component`，必填的 `entry` 字符串，外加可选的 `node` 字符串，指名把读取缩小到哪个块。描述说清这份读取答的是什么——画出来的块、每个控件应答的键、每个控件是什么以及它是禁用还是被盖住、条目点名的字段和它们此刻持有的值、以及是否有写对话框开着——然后说明一次调用怎么寻址条目：用的就是动手调用那一套名字，而且必须是在前的那一条。描述里没有目录，理由与动手工具相同：一次调用能点哪个键、写哪个字段，是条目的标记在被读的那一刻回答的。
+一个工具 `read_component`，必填的 `entry` 字符串，外加可选的 `node` 字符串，指名把读取缩小到哪个块。描述说清这份读取答的是什么——画出来的块、每个块画的控件和每个控件应答的键、它是禁用还是被盖住、条目点名的字段和它们此刻持有的值、画出来的表格的行折叠后的条数、一行按计数画着什么种类以及前几行各自的叫法、以及每个开着的写对话框的完整内容——然后说明一次调用怎么寻址条目：用的就是动手调用那一套名字，而且必须是在前的那一条。描述里没有目录，理由与动手工具相同：一次调用能点哪个键、写哪个字段，是条目的标记在被读的那一刻回答的。
 
 #### Token effect
 
-每次请求一份固定描述加参数 schema，只要工具可见就有。描述不带目录也不带逐组件的行，而一次调用产生的读取本身有界（200 行、10000 字符，含 markup），所以再宽的表格也填不满一次请求。
+每次请求一份固定描述加参数 schema，只要工具可见就有。描述不带目录也不带逐组件的行，而一次调用产生的读取本身有界（200 行、10000 字符，含 markup），所以再宽的表格也填不满一次请求：行是被折叠而不是逐格列出的，读取超过这两条上限时先让出的是行细节——先让行的名字，再让行画着什么——然后才轮到别的。
 
 #### KV Cache effect
 
@@ -613,7 +613,7 @@ schema 说不出的是一个字符串**意味着**什么。把某个字符串读
 
 #### What the model sees
 
-读到的调用答 `status`（`"done"`）、它读的条目 `{id, title}`，以及一段 `text`：先是 `Read the component entry "<title>" (<id>).`，然后 `Blocks:` 列出 node id，再是 `Controls:` 每个控件一行——`- "press" (in the dialog "编辑图层"): button "保存", own key "ok"`——再是 `Fields:` 每个字段一行连同它持有的值，最后是开着的对话框，或者 `No dialog is open.`。禁用或被盖住的控件会在自己那行说明；`node` 指了条目不画的块时，报的就是动手步骤被拒时那句话；被截到上限的读取以 `(Truncated: <n> more lines were not shown.)` 结束。没有任何控制台认领的调用带着 `No console showing this session claimed the call within <claimTimeoutMs>ms, so nothing was read.` 拒绝；被控制台拒的调用用控制台自己那句话拒绝，前面加上 `read_component did not read: `；认领之后始终不上报的调用答 `status: "unverified"`，配一句说这份读取始终没到。
+读到的调用答 `status`（`"done"`）、它读的条目 `{id, title}`，以及一段 `text`：一棵树，开头是 `Read the component entry "<title>" (<id>).` 和 `Blocks:` 列出 node id，然后每个块一个嵌套节点——`- "<node>"`，下面挂着它的 `Controls:`（每个控件一行，`- "press": button "保存", own key "ok"`，禁用或被盖住的控件在自己那行说明）和它的 `Fields:`（每个字段一行连同它持有的值）——画出来的表格的行是折叠的：`Rows: <n> drawn.`、`Each row draws:` 一行按计数说一种一行画着的目标、再是前几行各自的叫法，多出来的只计条数。块里开着的对话框是自己一个节点，说清对话框的名字和它所在的那个块——`Dialog "编辑图层" (in "grid"):`——它的控件和字段完整列出；没有对话框开着时整段以 `No dialog is open.` 结束。读取大于一次答案能载的量时让出的是行细节——先让行的名字，再让行画着什么——让出的位置留下一句说明让掉了什么；对话框、块、块的工具条和字段永远不让出，只有连块和对话框本身都大过一次答案的读取才会被截，以 `(Truncated: <n> more lines were not shown.)` 结束。`node` 指了条目不画的块时，报的就是动手步骤被拒时那句话。没有任何控制台认领的调用带着 `No console showing this session claimed the call within <claimTimeoutMs>ms, so nothing was read.` 拒绝；被控制台拒的调用用控制台自己那句话拒绝，前面加上 `read_component did not read: `；认领之后始终不上报的调用答 `status: "unverified"`，配一句说这份读取始终没到。
 
 #### Token effect
 

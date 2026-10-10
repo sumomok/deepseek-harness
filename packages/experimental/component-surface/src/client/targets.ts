@@ -56,6 +56,19 @@ export const FIELD_KEY = 'data-component-field'
 /** The roles a block draws a dialog or an overlay with, as the platform names them. */
 export const OVERLAY = '[role="dialog"], [aria-modal="true"]'
 
+/** The elements a drawn table draws one row of records in, as the platform names them. */
+export const ROW = 'tr, [role="row"]'
+
+/**
+ * The vendored page's own element holding the words for how many records its
+ * query matched.
+ *
+ * The words are reported rather than the number parsed out of them: they are
+ * the page's own sentence in the deployment's language, and which of its words
+ * is the count is the page's to say.
+ */
+export const PAGER_TOTAL = '.el-pagination__total'
+
 /** The element-ui select one field control is drawn inside, which is what makes the field a select. */
 export const SELECT = '.el-select'
 
@@ -221,6 +234,78 @@ export function openDialog(el: Element, within: Element): Element | undefined {
     if (node.matches(OVERLAY) && isDrawn(node, within)) return node
   }
   return undefined
+}
+
+/**
+ * The drawn row one element is inside, when it is drawn inside one.
+ *
+ * A row is what the platform says a row is: a `tr`, or anything carrying the
+ * row role. What stands outside every row — a toolbar, a query panel, a
+ * dialog's footer — is the scope's own and is reported as such, which is the
+ * difference between the controls a reading lists once and the ones it folds
+ * into what a row draws.
+ * @param el - the element.
+ * @param within - the scope's own element, past which nothing is asked.
+ * @returns the row, or undefined when the element is not drawn inside one.
+ */
+export function rowOf(el: Element, within: Element): Element | undefined {
+  for (let node: Element | null = el; node !== null && node !== within; node = node.parentElement) {
+    if (node.matches(ROW)) return node
+  }
+  return undefined
+}
+
+/**
+ * The drawn rows one list of rows holds, merged by the position each is drawn at.
+ *
+ * A table with fixed columns draws every row more than once — the scrolling
+ * body and each fixed layer hold a copy of it — and the copies are one record
+ * as the person reading the page sees it: the same position in each wrapper,
+ * holding the columns that wrapper draws. Merging them by position is what makes
+ * the reading count records rather than elements, and it is the same pairing a
+ * step's own search makes when it passes over a second drawing of a control: the
+ * first copy in document order is the one a person's click reaches.
+ *
+ * The pairing assumes the copies are drawn in one order, which is what puts the
+ * same position in every wrapper on the same record; two genuinely different
+ * tables drawing the same number of rows under one block would pair their rows,
+ * and no block of this row does that.
+ * @param rows - the drawn row elements, in document order.
+ * @returns one entry per record, each holding that record's copies, first drawn first.
+ */
+export function rowCopies(rows: readonly Element[]): Element[][] {
+  const byContainer = new Map<Element | null, Element[]>()
+  for (const row of rows) {
+    const container = row.parentElement
+    const held = byContainer.get(container)
+    if (held === undefined) byContainer.set(container, [row])
+    else held.push(row)
+  }
+  const merged: Element[][] = []
+  for (const held of byContainer.values()) {
+    for (const [at, row] of held.entries()) {
+      const copies = merged[at]
+      if (copies === undefined) merged[at] = [row]
+      else copies.push(row)
+    }
+  }
+  return merged
+}
+
+/**
+ * The page's own words for how many records its query matched, where it draws them.
+ *
+ * Read where the page draws its pager, which is a part of the page rather than
+ * a target any step addresses: what the reading says about it is what the page
+ * says, without narrowing it to the drawn rows or interpreting its language.
+ * @param within - the scope's own element, past which nothing is asked.
+ * @returns the words, or undefined where no drawn pager total is there to read.
+ */
+export function pagerTotal(within: Element): string | undefined {
+  const total = [...within.querySelectorAll(PAGER_TOTAL)].find(el => isDrawn(el, within))
+  /* v8 ignore next -- an element's textContent is null only for a document node, and this is an element */
+  const words = (total?.textContent ?? '').replace(/\s+/g, ' ').trim()
+  return words === '' ? undefined : words
 }
 
 /**
