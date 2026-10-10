@@ -113,16 +113,44 @@ export function scopeOf(entry: DrawnEntry, node: string | undefined): Element | 
  * that each carry a key of their own — that key ({@link OWN_KEY}). The action
  * key is looked for first, so a step naming an action the block declares
  * presses its first control whatever the controls call themselves.
+ *
+ * The control resolved is one the block draws ({@link isDrawn}): a block keeps
+ * controls in the document while they are closed — a row's confirmation bubble,
+ * a dialog that was closed — and the copies a search meets first are those
+ * kept ones. A press must land where a person's could, so an undrawn candidate
+ * is passed over for a drawn one, and a key only undrawn controls carry is a
+ * step that names nothing this call may press rather than a press of an
+ * element nobody sees. This is the rule a reading of the same key goes through
+ * too, so the control a reading describes is one a step naming it would reach.
  * @param scope - the subtree the step is confined to.
  * @param key - the action key, or the control's own key, the step names.
- * @returns the element, or undefined when nothing in the subtree declares it.
+ * @param within - the entry's own container, past which nothing is asked.
+ * @returns the drawn element, or undefined when the subtree draws none for the key.
  */
-export function clickTarget(scope: Element, key: string): Element | undefined {
+export function clickTarget(scope: Element, key: string, within: Element): Element | undefined {
   for (const attribute of [ACTION_KEY, OWN_KEY]) {
-    const found = withAttribute(scope, attribute).find(el => marked(el, attribute, key))
+    const found = withAttribute(scope, attribute).find(el => marked(el, attribute, key) && isDrawn(el, within))
     if (found !== undefined) return found
   }
   return undefined
+}
+
+/**
+ * Whether one subtree holds the key on a control it does not draw.
+ *
+ * Asked only after {@link clickTarget} found nothing: the key exists somewhere
+ * in the block and every control carrying it is undrawn, which is the refusal
+ * that says so rather than one claiming the entry does not hold the key.
+ * @param scope - the subtree the step is confined to.
+ * @param key - the action key, or the control's own key, the step names.
+ * @param within - the entry's own container, past which nothing is asked.
+ * @returns whether an undrawn control carries the key.
+ */
+export function undrawnTarget(scope: Element, key: string, within: Element): boolean {
+  for (const attribute of [ACTION_KEY, OWN_KEY]) {
+    if (withAttribute(scope, attribute).some(el => marked(el, attribute, key) && !isDrawn(el, within))) return true
+  }
+  return false
 }
 
 /**

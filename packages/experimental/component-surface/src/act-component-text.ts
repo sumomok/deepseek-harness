@@ -157,6 +157,23 @@ export function coveredReason(key: string): string {
 }
 
 /**
+ * The sentence a console posts for a control the entry holds but does not draw.
+ *
+ * A block that keeps a control in the document while it is closed — a row's
+ * confirmation bubble, a dialog that was closed — leaves an element a step can
+ * resolve and no person can press, and a press of it would report a step that
+ * ran while nothing the user sees changed. Its own sentence rather than
+ * {@link missingTargetReason}'s: the entry does hold the key, and saying it is
+ * not part of the entry would tell the model something false about its own
+ * addressing.
+ * @param key - the action key the step named.
+ * @returns the model-facing sentence.
+ */
+export function notDrawnReason(key: string): string {
+  return `control "${key}" is not drawn, so this call cannot press it.`
+}
+
+/**
  * The sentence a console posts for a step whose target the entry does not
  * declare.
  *
