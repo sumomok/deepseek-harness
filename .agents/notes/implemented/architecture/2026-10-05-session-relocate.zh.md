@@ -40,6 +40,8 @@ POSIX 锁指向 inode 而非路径，因此删除活会话的锁文件就失去�
 
 投影缓存按会话的生命周期身份为每条记录定键，其中包含 cwd。不改键时，每个搬过的会话都无法命中缓存，而会话列表冷行的标题来自该缓存，于是在各会话被打开一次之前都没有标题。因此缓存的监听器对 `createdAt`、`cwd` 与 `isSeeded` 都与搬迁前 header 一致的记录（当前格式代或前代）改写其 cwd。搬迁不改变任何事件，而投影单元的 `apply` 从不接收 header，所以一行仍然有效，当且仅当该单元的 `init` 对搬迁前后两个 header 返回相同的值；监听器经注册表求出两组初值，删除其余各行，包括搬迁时没有注册的单元的行。工作目录单元以 header cwd 为初值，所以它的行被删除，被搬会话的有效目录从日志重新折叠；保留这一行会让对被搬会话的观察（例如 follow 快照与冷态技能列表）报告旧目录，而日志已不记录它。每个已注册的 `init` 都只读 header 与 inherited cut，这是单元约定的要求；两次调用值不同的 `init` 会让它的行被删除，代价是重新折叠一次。
 
+working-directory 服务的投影以 header cwd 为初值，并应用 `working-directory/change`。搬迁不追加任何事件，所以事件记录与 seq 逐字节不变；持久化层没有 Agent 去投递目录变更附带的模型可见通知，也不写领域事件。没有目录变更事件的会话，搬迁后报告新的 cwd；有变更事件的会话保留记录下的目录，只有那个目录不存在时，服务才把它换成新的 cwd 并发出通知。要把有效目录一起搬时，由调用方恢复会话后调用 `ctx.workingDirectory.set`。
+
 ## 考虑过的替代方案
 
 **用旁注记录新 cwd，而不改写 header。** 搬走目录并在日志旁记录新 cwd，会留下 cwd 指向另一目录的 header；不含本补丁的构建（补丁退役后的上游或降级后的旧版）在 `assertStoredIdentity` 处抛普通 `Error`，`listArtifacts` 不捕获它，于是整个根目录的 `list()` 失败（JSONL spec 以 "list rejects a header whose cwd does not identify its physical log" 固定了这一行为）。目录不搬则会让这类构建悄悄回到旧 cwd。两种形式都让较旧的运行时读错日志，按 [`types.ts`](../../../../packages/core/session/src/types.ts) 的格式版本规则需要升 `SESSION_FORMAT_VERSION`，而 fork 不能占用版本号。它还会扩散到 `decodeStoredLog`、历史身份校验、迁移发布以及每一个 revision 调用点。
