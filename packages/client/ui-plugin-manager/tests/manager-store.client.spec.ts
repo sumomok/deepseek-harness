@@ -1836,7 +1836,7 @@ it('reports a successful install with only documented result fields', async () =
 
 const CATALOG: BundleInfo = {
   name: '@deepseek-ai/dsh-subagent-codex', official: true, availability: 'missing', installed: false, optional: false,
-  enabled: false, removable: false, rows: [], overrides: [],
+  shipped: false, enabled: false, removable: false, rows: [], overrides: [],
   installTarget: { spec: '@deepseek-ai/dsh-subagent-codex@2.0.0', version: '2.0.0' },
 }
 

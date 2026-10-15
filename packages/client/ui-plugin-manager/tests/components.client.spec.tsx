@@ -703,8 +703,9 @@ describe('PluginManagerPage', () => {
   it('lists the bundles the launching application ships among the installed ones, tagged built-in, on or off', () => {
     const { actions } = renderTab({
       packages: [
-        pkg({ name: '@haoran/dsh-screenshot', version: '0.6.0', installed: false, shipped: true, removable: false }),
-        pkg({ name: '@sumomok/dsh-balance', version: '0.6.1', installed: false, shipped: true, removable: false, enabled: false }),
+        // The Host reports a bundle the launcher links beside the profile as profile-provided.
+        pkg({ name: '@haoran/dsh-screenshot', version: '0.6.0', installed: false, availability: 'profile', shipped: true, removable: false }),
+        pkg({ name: '@sumomok/dsh-balance', version: '0.6.1', installed: false, availability: 'profile', shipped: true, removable: false, enabled: false }),
         // A selected layer the launcher does not name as shipped stays off the page, as before.
         pkg({ name: '@acme/dsh-composition', installed: false }),
         pkg({ name: 'dsh-better-sidebar' }),
@@ -2383,7 +2384,7 @@ describe('on-demand Official bundles', () => {
   const name = '@deepseek-ai/dsh-subagent-codex'
   const title = 'Codex subagent'
   const catalog = (): PackageView => ({ name, meta: { title }, official: true, availability: 'missing', installed: false,
-    optional: false, removable: false, enabled: false, rows: [],
+    optional: false, shipped: false, removable: false, enabled: false, rows: [],
     installTarget: { spec: `${name}@2.0.0`, version: '2.0.0' },
   })
 
