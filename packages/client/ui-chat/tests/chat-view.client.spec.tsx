@@ -27,6 +27,7 @@ import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controlle
 import { SessionSeq, type SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { KeyedSnapshotSelectorHook, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import type { MarkdownProseReferents, MarkdownProseSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { allowAllAccess, bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { createSnapshotStore, type ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import { EMPTY_CONVERSATION_SNAPSHOT } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -738,6 +739,24 @@ describe('Chat node rendering', () => {
     fireEvent.click(mention)
     // The vocabulary was built from the closing message's own owner currency.
     expect(h.openFile).toHaveBeenCalledWith('for-seq-4/site/report.html')
+  })
+
+  it('threads the injected prose referents into assistant prose through the flow', () => {
+    const h = makeHarness({
+      nodes: [user(1, 'where is it'), assistant(2, 'See notes.md for details.', 1)],
+      turnEnds: new Map([[1, 2]]),
+    })
+    const opened: MarkdownProseSpan[] = []
+    const referents: MarkdownProseReferents = {
+      scan: (text) => {
+        const start = text.indexOf('notes.md')
+        return start === -1 ? [] : [{ start, end: start + 'notes.md'.length }]
+      },
+      open: (span) => { opened.push(span) },
+    }
+    const view = render(<h.ChatView {...h.props} referents={referents} />)
+    fireEvent.click(view.getByRole('button', { name: 'notes.md' }))
+    expect(opened).toEqual([{ start: 4, end: 12 }])
   })
 
   it('formatRunDuration localizes units and floors partial seconds', () => {
