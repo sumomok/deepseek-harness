@@ -1,4 +1,4 @@
-/** Workspace dependency ranges, package publication, and private-app constraints. */
+/** Workspace dependency ranges and package publication constraints. */
 
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -16,7 +16,6 @@ import {
   checkExperimentalDependencyIsolation,
   checkExperimentalManifest,
   checkExperimentalNameExceptions,
-  checkPrivateAppManifest,
   expectedDshPackageFiles,
   readWorkspaceManifests,
   type WorkspaceManifest,
@@ -473,61 +472,4 @@ it('requires the standalone shortcut protocol and rejects unrelated runtime file
     expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files } }))
       .toEqual([expect.stringContaining('package.json files must be')])
   }
-})
-
-const privateApp: WorkspaceManifest = {
-  dir: 'apps/shell',
-  manifest: { name: '@deepseek-ai/dsh-shell-app', private: true },
-}
-
-describe('private app workspace constraints', () => {
-  it('accepts an app that ships inside a client build', () => {
-    expect(checkPrivateAppManifest(privateApp)).toEqual([])
-  })
-
-  it('ignores published apps and private packages outside apps/', () => {
-    expect(checkPrivateAppManifest({
-      ...privateApp,
-      manifest: { name: '@deepseek-ai/dsh', publishConfig: { access: 'public' } },
-    })).toEqual([])
-    expect(checkPrivateAppManifest({
-      dir: 'packages/core/agent',
-      manifest: { name: '@deepseek-ai/dsh-agent', private: true, publishConfig: { access: 'public' } },
-    })).toEqual([])
-  })
-
-  it('rejects publication metadata a private app can never use', () => {
-    expect(checkPrivateAppManifest({
-      ...privateApp,
-      manifest: { ...privateApp.manifest, publishConfig: { access: 'public' } },
-    })).toEqual([
-      '@deepseek-ai/dsh-shell-app: private app must omit publishConfig',
-    ])
-  })
-
-  it('rejects a published app that turned itself private', () => {
-    expect(checkPrivateAppManifest({
-      dir: 'apps/cli',
-      manifest: { name: '@deepseek-ai/dsh', private: true },
-    })).toEqual([
-      '@deepseek-ai/dsh: private app must not hold a publication files policy',
-    ])
-  })
-
-  it('leaves a private app on its own product version', () => {
-    expect(checkWorkspaceManifest({
-      ...privateApp,
-      manifest: { ...privateApp.manifest, version: '0.1.0-rc.30' },
-    })).toEqual([])
-  })
-
-  it('still holds a published app to the shared dsh family version', () => {
-    const { version: rootVersion } = JSON.parse(
-      readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
-    ) as { version: string }
-    expect(checkWorkspaceManifest({
-      dir: 'apps/cli',
-      manifest: { name: '@deepseek-ai/dsh', version: '0.1.0-rc.30' },
-    })).toContain(`apps/cli/package.json: @deepseek-ai/dsh: package.json version must match root version ${rootVersion}`)
-  })
 })

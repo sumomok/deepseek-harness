@@ -69,8 +69,6 @@ const standardReleaseMemberDirectory = new RegExp(
 )
 /** Installable application assembled by electron-builder rather than published to npm. */
 const desktopApplicationDirectory = 'apps/desktop'
-/** Product assemblies: each either publishes to npm or ships inside a client build. */
-const appDirectory = /^apps\/[^/]+$/
 const localArtifactDirs = new Set(['node_modules'])
 const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh': ['lib/*.js', 'lib/types/*.d.ts'],
@@ -429,59 +427,14 @@ export function checkDshFamilyVersion(manifest: PackageManifest, expected: strin
 }
 
 /**
- * Whether an app ships inside another artifact instead of publishing to npm.
- *
- * `apps/*` holds both kinds. `private` is the discriminator because it is also
- * what stops `npm publish` from ever uploading the package, so a manifest
- * cannot claim in-tree status here and still reach a registry.
- * @param entry - one workspace directory and its manifest.
- * @returns true for an `apps/*` package that declares `"private": true`.
- */
-function isPrivateApp({ dir, manifest }: WorkspaceManifest): boolean {
-  return appDirectory.test(dir) && manifest.private === true
-}
-
-/**
- * Private-app manifest requirements enforced in place of release metadata.
- *
- * The second rule keeps {@link appPackageFiles} authoritative over which apps
- * publish: without it, adding `"private": true` to a release member would
- * silently drop that member out of the release instead of failing here. It asks
- * this only of a directory {@link isReleaseMemberDirectory} still admits, so a
- * directory the release-member expression itself names as never published keeps
- * whatever files policy packs it into a client build.
- * @param entry - one workspace directory and its manifest.
- * @returns One error for each publication claim a never-published app makes.
- */
-export function checkPrivateAppManifest(entry: WorkspaceManifest): string[] {
-  if (!isPrivateApp(entry)) return []
-  const { dir, manifest } = entry
-  const label = manifest.name ?? dir
-  const errors: string[] = []
-  if (manifest.publishConfig !== undefined) errors.push(`${label}: private app must omit publishConfig`)
-  if (isReleaseMemberDirectory(dir) && manifest.name !== undefined && appPackageFiles[manifest.name] !== undefined) {
-    errors.push(`${label}: private app must not hold a publication files policy`)
-  }
-  return errors
-}
-
-/**
  * Check one workspace manifest against publication and dsh-package policy.
  * @param workspace - package directory and parsed manifest.
  * @returns path-qualified policy violations.
  */
 export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): string[] {
-  const privateApp = isPrivateApp({ dir, manifest })
-  const errors = [
-    ...checkExperimentalManifest({ dir, manifest }),
-    ...checkPrivateAppManifest({ dir, manifest }),
-  ]
+  const errors = checkExperimentalManifest({ dir, manifest })
   const label = manifest.name ?? dir
-  // A private app is outside the dsh release sequence and may carry its own
-  // product version instead: a packaged desktop shell publishes the version its
-  // update feed serves and an installed client compares against, so the shared
-  // family version cannot own it.
-  const familyVersionError = privateApp ? undefined : checkDshFamilyVersion(manifest, repositoryVersion)
+  const familyVersionError = checkDshFamilyVersion(manifest, repositoryVersion)
   if (familyVersionError !== undefined) errors.push(familyVersionError)
   const isNativePackageDir = dir.startsWith('native/system/packages/')
   const isPublicNativePackage = isNativePackageDir
@@ -501,7 +454,7 @@ export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): st
       || manifest.repository.directory !== expectedDirectory) {
       errors.push(`${label}: published Landlock package repository must use ${publishedRepositoryUrl} with directory ${expectedDirectory}`)
     }
-  } else if (isReleaseMemberDirectory(dir) && !privateApp) {
+  } else if (isReleaseMemberDirectory(dir)) {
     // Release members state that they are publishable: npm refuses a private
     // package, and the repository field is how a consumer finds the source of
     // the package it installed.
@@ -539,8 +492,7 @@ export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): st
     }
   }
 
-  if (dir.startsWith('apps/') && dir !== desktopApplicationDirectory && dir !== pluginMarketGeneratorDirectory && !privateApp
-    && manifest.name?.startsWith('@deepseek-ai/')) {
+  if (dir.startsWith('apps/') && dir !== desktopApplicationDirectory && dir !== pluginMarketGeneratorDirectory && manifest.name?.startsWith('@deepseek-ai/')) {
     const expectedFiles = appPackageFiles[manifest.name]
     if (expectedFiles === undefined) {
       errors.push(`${label}: app package has no publication files policy`)
