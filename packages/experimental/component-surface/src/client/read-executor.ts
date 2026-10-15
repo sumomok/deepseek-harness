@@ -36,7 +36,7 @@ import { readComponentReportText } from '../read-component-text.ts'
 import type { DrawnEntry } from './entry-container.ts'
 import {
   ACTION_KEY, FIELD_KEY, NODE_KEY, OVERLAY, OWN_KEY, WRITABLE,
-  isCovered, isDisabled, isDrawn, openDialog, ownName, pagerTotal, rowCopies, rowOf, scopeOf, withAttribute,
+  isCovered, isDisabled, isDrawn, openDialog, optionLabel, ownName, pagerTotal, rowCopies, rowOf, scopeOf, withAttribute,
 } from './targets.ts'
 
 /** The kind each element is reported as, where the platform has no role to ask for one. */
@@ -260,8 +260,9 @@ function controlsOf(scope: Element, within: Element): DrawnTarget<ComponentReadC
  * A secret is reported as such rather than printed, because a reading is text
  * that reaches a model request and a password field's value is the user's. A
  * tick box holds a state rather than a value, and is reported as the platform
- * draws it. Everything else is its own `value`, which is what a `set` step
- * would replace.
+ * draws it. A native select holds the label of each option it has selected,
+ * which is what a `set` step chooses by. Everything else is its own `value`,
+ * which is what a `set` step would replace.
  * @param el - the field's control.
  * @returns the value, tick or secret it carries, none of them where it carries none.
  */
@@ -271,7 +272,8 @@ function heldBy(el: Element): Pick<ComponentReadField, 'value' | 'checked' | 'se
     if (el.type === 'checkbox' || el.type === 'radio') return { checked: el.checked }
     return { value: el.value }
   }
-  if (el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement) return { value: el.value }
+  if (el instanceof HTMLSelectElement) return { value: [...el.selectedOptions].map(option => optionLabel(option)).join(', ') }
+  if (el instanceof HTMLTextAreaElement) return { value: el.value }
   return {}
 }
 

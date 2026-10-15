@@ -15,7 +15,8 @@
  * dispatches `input` and `change`, which is what a React-controlled or Vue
  * component sees as a person typing. A select field is filled the way a person
  * chooses instead: the list is opened, one option whose label is the value is
- * clicked, and the step is done only once the select displays it. A suggestion
+ * clicked, and the step is done only once the select displays it; a native
+ * select has the one option whose label is the value selected. A suggestion
  * field is filled as the person makes it: click into the field, type the
  * value, and choose from the suggestions the block answers with. What a press
  * checks before it dispatches is whether the control is one a person could
@@ -117,6 +118,15 @@ function setTarget(scope: Element, name: string, within: Element): Element | und
 }
 
 /**
+ * Tell the block one control changed, the way a person's own edit does.
+ * @param el - the control that changed.
+ */
+function announce(el: Element): void {
+  el.dispatchEvent(new Event('input', { bubbles: true }))
+  el.dispatchEvent(new Event('change', { bubbles: true }))
+}
+
+/**
  * Write one value into a form control the way a person typing would.
  *
  * The value is set through the prototype's own setter rather than by assigning
@@ -129,9 +139,7 @@ function setTarget(scope: Element, name: string, within: Element): Element | und
  * @throws {Error} when the control did not take the value.
  */
 function writeValue(el: Element, name: string, value: string): void {
-  if (el instanceof HTMLSelectElement) {
-    el.value = value
-  } else if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
     const prototype = el instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype
     const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set
     if (setter === undefined) el.value = value
@@ -141,8 +149,28 @@ function writeValue(el: Element, name: string, value: string): void {
   // input and text it cannot hold — leaves this step failing instead of
   // reporting a write that never happened.
   if ((el as HTMLInputElement).value !== value) throw new Error(notWritableReason(name))
-  el.dispatchEvent(new Event('input', { bubbles: true }))
-  el.dispatchEvent(new Event('change', { bubbles: true }))
+  announce(el)
+}
+
+/**
+ * Choose one option of a native select by the label it shows.
+ *
+ * The label is what a person reads in the list and what the step names, the
+ * same reading a drawn select's options are matched by; an option's `value`
+ * attribute is the form's own encoding, which nothing on screen shows, so a
+ * step naming it names no option.
+ * @param select - the select.
+ * @param name - the column or property the step named, for the refusals.
+ * @param label - the option label the step named.
+ * @throws {Error} when no option, or more than one, shows the label.
+ */
+function chooseOption(select: HTMLSelectElement, name: string, label: string): void {
+  const matches = [...select.options].filter(option => optionLabel(option) === label)
+  if (matches.length > 1) throw new Error(ambiguousOptionReason(name, label))
+  const option = matches[0]
+  if (option === undefined) throw new Error(noOptionReason(name, label))
+  option.selected = true
+  announce(select)
 }
 
 /**
@@ -261,8 +289,9 @@ async function fillAutocomplete(entry: DrawnEntry, autocomplete: Element, trigge
 /**
  * Write one value into the field one `set` step named.
  *
- * A text control is written the way a person typing writes it, and a select or
- * a suggestion field is filled by choosing an option; the difference is where
+ * A text control is written the way a person typing writes it, and a select —
+ * drawn or native — or a suggestion field is filled by choosing an option by
+ * its label; the difference is where
  * the component's value lives, not what the step promises. What both share is
  * the refusal: a disabled or read-only control, and a value the control did not
  * take, end the step rather than report a write that never happened.
@@ -282,6 +311,10 @@ async function setField(entry: DrawnEntry, target: Element, name: string, value:
   const autocomplete = autocompleteOf(target, entry.container)
   if (autocomplete !== undefined) {
     await fillAutocomplete(entry, autocomplete, target, name, value)
+    return
+  }
+  if (target instanceof HTMLSelectElement) {
+    chooseOption(target, name, value)
     return
   }
   if (isReadOnly(target)) throw new Error(readOnlyFieldReason(name))

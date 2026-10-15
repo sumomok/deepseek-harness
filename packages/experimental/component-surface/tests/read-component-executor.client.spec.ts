@@ -402,7 +402,7 @@ describe('where a step would reach each target', () => {
       <input data-component-field="locked" value="L-1" disabled>
       <input data-component-field="remember" type="checkbox" checked>
       <input data-component-field="secret" type="password" value="hunter2">
-      <select data-component-field="kind"><option value="a">a</option><option value="b" selected>b</option></select>
+      <select data-component-field="kind"><option value="a">Alpha</option><option value="b" selected>Beta</option></select>
     `)
     expect(read(drawn)).toBe([
       'Read the component entry "Demo" (demo).',
@@ -412,7 +412,7 @@ describe('where a step would reach each target', () => {
       '  - "locked": textbox = "L-1" (disabled)',
       '  - "remember": checkbox [x]',
       '  - "secret": textbox = (hidden)',
-      '  - "kind": combobox = "b"',
+      '  - "kind": combobox = "Beta"',
       'No dialog is open.',
     ].join('\n'))
   })

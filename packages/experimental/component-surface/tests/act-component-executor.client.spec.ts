@@ -255,16 +255,36 @@ describe('the field a step writes', () => {
 
   it('writes a select and a textarea the way a person would', async () => {
     const drawn = drawEntry(`
-      <select data-component-field="kind"><option value="a">a</option><option value="b">b</option></select>
+      <select data-component-field="kind"><option value="a">Alpha</option><option value="b">Beta</option></select>
       <textarea data-component-field="note"></textarea>
     `)
+    const changed = vi.fn()
+    document.querySelector('select')?.addEventListener('change', changed)
     const report = await run(args([
-      { action: 'set', name: 'kind', value: 'b' },
+      { action: 'set', name: 'kind', value: 'Beta' },
       { action: 'set', name: 'note', value: 'hello' },
     ]), drawn)
     expect(report.status).toBe('done')
     expect(document.querySelector('select')?.value).toBe('b')
+    expect(changed).toHaveBeenCalledTimes(1)
     expect(document.querySelector('textarea')?.value).toBe('hello')
+  })
+
+  it('chooses a native select\'s option by the label it shows, never by its value', async () => {
+    const drawn = drawEntry(`
+      <select data-component-field="kind">
+        <option value="a">Alpha</option><option value="b">Beta</option><option value="c">Twin</option><option value="d">Twin</option>
+      </select>
+    `)
+    const report = await run(args([{ action: 'set', name: 'kind', value: 'b' }]), drawn)
+    expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "kind" has no option "b".' }])
+    const twice = await run(args([{ action: 'set', name: 'kind', value: 'Twin' }]), drawn)
+    expect(twice.steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'The field for "kind" draws more than one option "Twin", so this call cannot tell which to choose.',
+    }])
+    expect(document.querySelector('select')?.value).toBe('a')
   })
 
   it('writes through the element itself when its prototype declares no value accessor', async () => {
