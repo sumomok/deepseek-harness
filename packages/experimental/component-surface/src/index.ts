@@ -431,7 +431,10 @@ function installViews(ctx: Context, config: ResolvedConfig, options: ShowCompone
   })
 }
 
-/** How long the tab that last answered a component call stays this session's preferred reader. */
+/**
+ * How long the tab that last answered a component call stays this session's
+ * preferred reader: an ordering preference among tabs, not a deadline.
+ */
 const ACT_TAB_PIN_MS = 30_000
 
 /**
@@ -449,9 +452,6 @@ function installComponentAccess(ctx: Context, config: ResolvedConfig): void {
   const timeouts: CallTimeouts = {
     claimTimeoutMs: config.actClaimTimeoutMs,
     answerTimeoutMs: config.actTimeoutMs,
-    // How long the tab that answered stays this session's preferred reader:
-    // an ordering heuristic rather than a deadline, so it is the same for every
-    // deployment rather than a configurable one.
     pinMs: ACT_TAB_PIN_MS,
   }
   const membership = ctx.contentChannel.register({
