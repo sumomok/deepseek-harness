@@ -17,7 +17,7 @@
  * chooses instead: the list is opened, one option whose label is the value is
  * clicked, and the step is done only once the select displays it; a native
  * select has the one option whose label is the value selected. A suggestion
- * field is filled as the person makes it: click into the field, type the
+ * field is filled as the person makes it: focus the field, type the
  * value, and choose from the suggestions the block answers with. What a press
  * checks before it dispatches is whether the control is one a person could
  * reach: a disabled control, one something else is drawn over, and one the
@@ -241,7 +241,7 @@ async function fillSelect(entry: DrawnEntry, select: Element, trigger: Element, 
  * does, and only a chosen suggestion carries the block's own record of it —
  * the text typed into the field is a value nothing behind it wrote down — so a
  * write through the input would be reported as a write the component never
- * took. The step performs the gesture instead: click into the field, clear it
+ * took. The step performs the gesture instead: focus the field, clear it
  * so the suggestions that come are the block's answer to this step's own
  * typing rather than a list an earlier step left standing, type the value,
  * choose the one drawn suggestion whose label is the value, and report done
@@ -288,9 +288,10 @@ async function chooseSuggestion(
   name: string,
   value: string,
 ): Promise<void> {
-  // The click is the person's own first move, and it is what focuses the field
-  // element-ui draws the panel for.
-  clickOn(trigger)
+  // A person's click into the field focuses it, and element-ui draws the
+  // suggestion panel only for a field it saw focused; a script's click()
+  // moves no focus, so the field is focused outright.
+  trigger.focus()
   // The clear is the field's own gesture: an emptied field drops the
   // suggestions with it, so what the step matches below answers its own typing.
   writeValue(trigger, name, '')

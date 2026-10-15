@@ -633,12 +633,14 @@ describe('a field the entry draws as a select', () => {
  * @param options - the labels the block answers with, in order.
  * @param behavior - how the fixture's own component answers: a block still
  *   loading, so the panel first holds the asking row and the suggestions land
- *   a turn later, or a component that takes nothing on a click.
+ *   a turn later; a component that takes nothing on a click; or one that draws
+ *   its panel only once the field was focused, which is element-ui's own rule
+ *   for a block that does not open the panel itself.
  * @returns the drawn entry, and the autocomplete with the parts a case asserts on.
  */
 function drawAutocomplete(
   options: readonly string[],
-  behavior: { readonly ignores?: boolean; readonly loading?: boolean } = {},
+  behavior: { readonly ignores?: boolean; readonly loading?: boolean; readonly opensOnFocus?: boolean } = {},
 ): { drawn: DrawnEntry; autocomplete: HTMLElement; input: HTMLInputElement; panel: HTMLElement; list: HTMLElement } {
   const items = options.map(label => `<li role="option">${label}</li>`).join('')
   const drawn = drawEntry(`
@@ -656,6 +658,8 @@ function drawAutocomplete(
   const panel = autocomplete.querySelector('.el-autocomplete-suggestion') as HTMLElement
   const list = autocomplete.querySelector('.el-autocomplete-suggestion__list') as HTMLElement
   panel.style.display = 'none'
+  let activated = behavior.opensOnFocus !== true
+  input.addEventListener('focus', () => { activated = true })
   input.addEventListener('input', () => {
     // element-ui drops the suggestions with an emptied field and shows the
     // block's answer over a typed one; this fixture's block answers every
@@ -665,7 +669,7 @@ function drawAutocomplete(
       list.innerHTML = ''
       return
     }
-    panel.style.display = ''
+    panel.style.display = activated ? '' : 'none'
     list.innerHTML = behavior.loading === true ? '<li><i class="el-icon-loading"></i></li>' : items
     if (behavior.loading === true) setTimeout(() => { list.innerHTML = items }, 20)
   })
@@ -692,6 +696,12 @@ describe('a field the entry draws as an autocomplete', () => {
       text: 'Acted on the component entry "Demo" (demo).\n- set "topic": done',
     })
     expect(input.value).toBe('森林防火一张图')
+  })
+
+  it('focuses the field, which is what opens the panel of a block that does not open it itself', async () => {
+    const { drawn, input } = drawAutocomplete(['接入'], { opensOnFocus: true })
+    expect((await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)).status).toBe('done')
+    expect(input.value).toBe('接入')
   })
 
   it('does not count the row the block draws while it is still asking as a suggestion', async () => {
