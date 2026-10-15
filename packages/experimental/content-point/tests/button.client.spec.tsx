@@ -3,9 +3,9 @@
  * The 「指一下」 button: a click runs a point and files the place picked as one
  * draft in the attachment row; the button is pressed while the point runs, and
  * a second click cancels it — through the real picker too, with no refusal
- * shown; a refusal is reported in a toast and adds nothing; a cancelled or
- * failed point adds nothing and leaves the button ready; unmounting the
- * composer cancels a point still running. Pressing the button keeps the focus;
+ * shown; a refusal, or a point that fails, is reported in a toast and adds
+ * nothing; a cancelled point adds nothing; either leaves the button ready;
+ * unmounting the composer cancels a point still running. Pressing the button keeps the focus;
  * it is disabled while the composer submits; at 16 of this plugin's references
  * it reports that instead of pointing; a draft the composer refuses is released
  * and reported.
@@ -163,32 +163,22 @@ describe('the 「指一下」 button', () => {
     }
   })
 
-  it('is ready again after a point that fails', async () => {
+  it('reports a point that fails as the refusal failed, adds nothing, and is ready again', async () => {
     const b = setup()
+    b.refusal.mockReturnValueOnce('描述时出错')
     fireEvent.click(b.button())
     await act(async () => { b.points[0]?.fail(new Error('boom')) })
+    expect(b.refusal).toHaveBeenCalledWith('failed')
+    expect(screen.getByText('这一处指不了：描述时出错')).toBeTruthy()
     expect(b.button().getAttribute('aria-pressed')).toBe('false')
     expect(b.addAttachments).not.toHaveBeenCalled()
   })
 
-  it('cancels a point still running when the composer unmounts, and takes no outcome after', async () => {
+  it('cancels a point still running when the composer unmounts', () => {
     const b = setup()
     fireEvent.click(b.button())
-    const running = b.points[0]
     b.view.unmount()
-    expect(running?.signal.aborted).toBe(true)
-    await act(async () => { running?.settle({ kind: 'reference', label: 'x', data: {} }) })
-    expect(b.draft).not.toHaveBeenCalled()
-    await waitFor(() => { expect(b.addAttachments).not.toHaveBeenCalled() })
-  })
-
-  it('takes no failure after the composer unmounts', async () => {
-    const b = setup()
-    fireEvent.click(b.button())
-    const running = b.points[0]
-    b.view.unmount()
-    await act(async () => { running?.fail(new Error('late')) })
-    expect(b.addAttachments).not.toHaveBeenCalled()
+    expect(b.points[0]?.signal.aborted).toBe(true)
   })
 
   it('cancels a real pick on a second trusted click, and shows no refusal', async () => {

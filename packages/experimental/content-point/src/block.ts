@@ -133,8 +133,7 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
  * @returns the answer.
  */
 function isShownValue(value: unknown): value is string {
-  return typeof value === 'string' && value !== '' && Array.from(value).length <= BLOCK_SHOWN_CODE_POINTS
-    && sanitizeLabel(value, BLOCK_SHOWN_CODE_POINTS) === value
+  return typeof value === 'string' && value !== '' && sanitizeLabel(value, BLOCK_SHOWN_CODE_POINTS) === value
 }
 
 /**

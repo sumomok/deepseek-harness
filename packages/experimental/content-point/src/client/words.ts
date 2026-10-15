@@ -7,23 +7,33 @@
 
 import { DATA_PAGE_REGIONS, DESCRIBE_REFUSALS, ZH_LABEL_WORDS } from '@haoran/dsh-point-anchor'
 import type { DescribeRefusal, LabelWords } from '@haoran/dsh-point-anchor'
+import { zh } from './locales.ts'
 import type { ContentPointKey } from './locales.ts'
 import { WHOLE_BLOCK_REASONS } from './pick.ts'
 import type { PointNames } from './pick.ts'
 
-/** Component ids whose display name the locale holds. */
-const NAMED_COMPONENTS: ReadonlySet<string> = new Set([
-  'toy.data-page', 'toy.form-page', 'toy.info-card', 'toy.table', 'toy.record', 'el.metric', 'el.filter-bar', 'el.confirm-bar',
-])
-
-/** Seat kinds whose display name the locale holds. */
-const NAMED_SEATS: ReadonlySet<string> = new Set(['component', 'page', 'office'])
-
-/** Roles whose name the locale holds: describe format 1's. */
-const NAMED_ROLES: ReadonlySet<string> = new Set(Object.keys(ZH_LABEL_WORDS.roles))
-
 /** A locale lookup in this package's namespace. */
 export type Translate = (key: ContentPointKey, params?: Record<string, unknown>) => string
+
+/**
+ * Whether a key is one of this package's dictionary.
+ * @param key - the candidate.
+ * @returns the answer.
+ */
+function isKey(key: string): key is ContentPointKey {
+  return Object.hasOwn(zh, key)
+}
+
+/**
+ * The words of a key the dictionary may hold, else of a general key.
+ * @param t - the lookup.
+ * @param key - the key, built from a component id, a seat kind or a role.
+ * @param otherwise - the key looked up when the dictionary holds no `key`.
+ * @returns the words.
+ */
+function named(t: Translate, key: string, otherwise: ContentPointKey): string {
+  return t(isKey(key) ? key : otherwise)
+}
 
 /**
  * The words a place is labelled in, in the locale.
@@ -33,7 +43,7 @@ export type Translate = (key: ContentPointKey, params?: Record<string, unknown>)
 export function labelWords(t: Translate): LabelWords {
   return {
     regions: Object.fromEntries(DATA_PAGE_REGIONS.map(region => [region, t(`label.region.${region}`)])) as LabelWords['regions'],
-    roles: Object.fromEntries([...NAMED_ROLES].map(name => [name, t(`label.role.${name}` as ContentPointKey)])),
+    roles: Object.fromEntries(Object.keys(ZH_LABEL_WORDS.roles).map(name => [name, named(t, `label.role.${name}`, 'label.role')])),
     role: t('label.role'),
     header: name => t('label.header', { name }),
     cell: column => t('label.cell', { column }),
@@ -68,11 +78,9 @@ export function refusalWords(t: Translate): Record<DescribeRefusal, string> {
  */
 export function pointNames(t: Translate): PointNames {
   return {
-    component: component => (component !== undefined && NAMED_COMPONENTS.has(component)
-      ? t(`block.${component}` as ContentPointKey)
-      : t('block.component')),
-    seat: seat => t(NAMED_SEATS.has(seat) ? `seat.${seat}` as ContentPointKey : 'seat.other'),
-    role: name => (NAMED_ROLES.has(name) ? t(`label.role.${name}` as ContentPointKey) : t('label.role')),
+    component: component => (component === undefined ? t('block.component') : named(t, `block.${component}`, 'block.component')),
+    seat: seat => named(t, `seat.${seat}`, 'seat.other'),
+    role: name => named(t, `label.role.${name}`, 'label.role'),
     cellControl: (column, role) => t('label.cellControl', { column, role }),
     tableItem: role => t('label.tableItem', { role }),
   }

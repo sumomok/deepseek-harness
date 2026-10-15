@@ -52,16 +52,22 @@ export const WHOLE_BLOCK_REASONS: ReadonlySet<DescribeRefusal> = new Set([...BLO
 export type ReferenceData = PromptReference['data']
 
 /**
- * A point-anchor description or a block reference as a reference payload. Both
- * are JSON objects of strings, numbers and nested such objects, which is what
- * the payload type spells out; they are declared as interfaces, which carry no
- * index signature, so the type is stated here once.
+ * A type with every object type in it restated as a mapped object type, and
+ * every function type kept as it is. An interface carries no implicit index
+ * signature, so a point-anchor description or a block reference is not
+ * assignable to the payload type as declared; the same fields as mapped object
+ * types are, each checked against the payload's JSON values, and a function
+ * anywhere in them is not.
+ */
+type JsonFields<T> = T extends (...args: never) => unknown ? T : T extends object ? { readonly [K in keyof T]: JsonFields<T[K]> } : T
+
+/**
+ * A point-anchor description or a block reference as a reference payload.
  * @param value - the description or block reference.
  * @returns the same object as a payload.
  */
-function asReferenceData(value: PointDescription | BlockData): ReferenceData {
-  const plain: object = value
-  return plain as ReferenceData
+function asReferenceData(value: JsonFields<PointDescription | BlockData>): ReferenceData {
+  return value
 }
 
 /** How one point ended. */
@@ -134,19 +140,13 @@ function seatOf(el: Element): Element | null {
 }
 
 /**
- * The elements under a point of the console document's viewport, topmost first.
- * @param doc - the console document.
- * @param x - the point's x.
- * @param y - the point's y.
- * @returns the elements, none where the document cannot say.
+ * An attribute's value, empty where the element or the attribute is absent.
+ * @param el - the element, if any.
+ * @param name - the attribute.
+ * @returns the value.
  */
-function elementsAt(doc: Document, x: number, y: number): readonly Element[] {
-  try {
-    return doc.elementsFromPoint(x, y)
-  } catch (_error) {
-    // A document without layout (jsdom) answers nothing here; the click then places nothing.
-    return []
-  }
+function attributeOf(el: Element | null, name: string): string {
+  return el?.getAttribute(name) ?? ''
 }
 
 /**
@@ -155,7 +155,7 @@ function elementsAt(doc: Document, x: number, y: number): readonly Element[] {
  * @returns the page id, or undefined outside every page frame.
  */
 function framePageId(el: Element): string | undefined {
-  const key = el.closest(`[${DOM_CONTRACT.frameAttr}]`)?.getAttribute(DOM_CONTRACT.frameIdAttr) ?? ''
+  const key = attributeOf(el.closest(`[${DOM_CONTRACT.frameAttr}]`), DOM_CONTRACT.frameIdAttr)
   const prefix = `${DOM_CONTRACT.pageKind} `
   return key.startsWith(prefix) ? key.slice(prefix.length) : undefined
 }
@@ -168,8 +168,8 @@ function framePageId(el: Element): string | undefined {
  */
 export function blockAt(el: Element, names: PointNames): BlockData | undefined {
   const seat = seatOf(el)
-  const kind = seat?.getAttribute(DOM_CONTRACT.surfaceSeatAttr)
-  if (seat === null || kind === null || kind === undefined) return undefined
+  if (seat === null) return undefined
+  const kind = attributeOf(seat, DOM_CONTRACT.surfaceSeatAttr)
   const doc = seat.ownerDocument
   const block = el.closest(`[${NODE_ATTR}]`)
   const inSeat = block !== null && seat.contains(block) ? block : undefined
@@ -194,8 +194,10 @@ export function blockAt(el: Element, names: PointNames): BlockData | undefined {
 
 /**
  * The block reference for the click a refused pick was taken on: the element's
- * own seat, through the frames around it; else, for a click on a cross-origin
- * frame's shield, the seat of what lies under the pointer.
+ * own seat, through the frames around it; else, for a click in the console
+ * document itself, such as on a cross-origin frame's shield, the seat of what
+ * lies under the pointer. A click's coordinates are in its own document's
+ * viewport, so a click inside a frame is not placed by them.
  * @param clicked - the click.
  * @param names - the display names.
  * @returns the reference, or undefined outside every seat.
@@ -204,7 +206,8 @@ function blockFor(clicked: Clicked, names: PointNames): BlockData | undefined {
   const el = consoleElement(clicked.element)
   const block = blockAt(el, names)
   if (block !== undefined || clicked.x === undefined || clicked.y === undefined) return block
-  const under = elementsAt(el.ownerDocument, clicked.x, clicked.y).find(item => seatOf(item) !== null)
+  if (clicked.element.ownerDocument !== el.ownerDocument) return undefined
+  const under = el.ownerDocument.elementsFromPoint(clicked.x, clicked.y).find(item => seatOf(item) !== null)
   return under === undefined ? undefined : blockAt(under, names)
 }
 

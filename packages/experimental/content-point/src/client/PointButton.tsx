@@ -2,7 +2,8 @@
  * The 「指一下」 button in the composer's tool row. A click starts a point; the
  * place picked becomes a reference draft in the attachment row. A second click
  * while the point runs cancels it, as Escape does. A place that cannot be
- * pointed at reports why in a toast over the composer and adds nothing.
+ * pointed at reports why in a toast over the composer and adds nothing; a
+ * point that fails is reported the same way, as the refusal `failed`.
  *
  * Pressing the button keeps the focus where it was, as the row's 「+」 does, so
  * the composer still holds it after a point and Enter sends. The button is
@@ -91,11 +92,6 @@ export function PointButton({ inputActions, useInput, point, draft, drafted, rel
   const latest = useRef(attachmentIds)
   latest.current = attachmentIds
   const button = useRef<HTMLButtonElement | null>(null)
-  const alive = useRef(true)
-  useEffect(() => {
-    alive.current = true
-    return () => { alive.current = false }
-  }, [])
   // Unmounting the composer ends a point still running.
   useEffect(() => () => running?.abort(), [running])
 
@@ -128,12 +124,12 @@ export function PointButton({ inputActions, useInput, point, draft, drafted, rel
     const controller = new AbortController()
     setRunning(controller)
     void point(controller.signal).then((outcome) => {
-      if (!alive.current) return
       setRunning(null)
       if (outcome.kind === 'reference') file(outcome)
       else if (outcome.kind === 'refused') notify(t('refused.text', { reason: refusal(outcome.reason) }))
     }, () => {
-      if (alive.current) setRunning(null)
+      setRunning(null)
+      notify(t('refused.text', { reason: refusal('failed') }))
     })
   }, [file, full, notify, point, refusal, running, t])
 

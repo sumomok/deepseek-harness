@@ -56,7 +56,7 @@ A click on the button starts a pick over the whole console document; Escape, or 
 | An original-system page where nothing is named, a cell no column can be told for, or a page of another origin | a block reference | `block seat=page page=orders` |
 | A seat holding no block | a block reference | `block seat=office` |
 
-A place point-anchor refuses for any other reason — a popup, a point outside the content column — is reported in a toast over the composer, and nothing is filed. Every refusal that becomes a block reference is stated as 「指这一整块」 while hovering.
+A place point-anchor refuses for any other reason — a popup, a point outside the content column — is reported in a toast over the composer, and nothing is filed; a point that fails is reported the same way, as 「描述时出错」. Every refusal that becomes a block reference is stated as 「指这一整块」 while hovering.
 
 -----
 

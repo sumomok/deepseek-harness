@@ -23,7 +23,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: the slot registry's Context merge (ctx.slots).
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-import type { DraftAttachmentId, IConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ConversationController, DraftAttachmentId, IConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { writePageMarker } from '@haoran/dsh-point-anchor/page'
 import { POINT_SOURCE } from '../text.ts'
 import { en, NS, zh } from './locales.ts'
@@ -51,13 +51,12 @@ export const inject = ['slots', 'locale', 'conversation']
 const ENTRY_ID = '@deepseek-ai/dsh-experimental-content-point'
 
 /**
- * The conversation service's release of one draft attachment. The public face
- * offers no release for a draft that never entered a row; the service's own
- * method is called where it is present.
+ * The conversation service with its release of one draft attachment. The
+ * service `conversation` is ui-conversation's `ConversationController`, which
+ * declares the release; `IConversation` offers none for a draft that never
+ * entered a row.
  */
-interface DraftRelease {
-  readonly releaseDraftAttachment?: (id: DraftAttachmentId) => void
-}
+type ConversationWithRelease = IConversation & Pick<ConversationController, 'releaseDraftAttachment'>
 
 /**
  * Put the button in the composer's tool row and the marker on the document.
@@ -67,7 +66,7 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'content-point: dictionaries')
   ctx.effect(() => writePageMarker(document), 'content-point: page marker')
   const t: Translate = ctx.locale.bind(NS)
-  const conversation: IConversation & DraftRelease = ctx.conversation
+  const conversation = ctx.conversation as ConversationWithRelease
   // The drafts this entry filed; one leaves the row when it is sent or removed and never returns to it.
   const drafts = new Set<DraftAttachmentId>()
   const injected: PointButtonInjected = {
@@ -80,7 +79,7 @@ export function apply(ctx: ClientContext): void {
     drafted: ids => ids.filter(id => drafts.has(id)).length,
     release: (id) => {
       drafts.delete(id)
-      conversation.releaseDraftAttachment?.(id)
+      conversation.releaseDraftAttachment(id)
     },
     refusal: reason => t(`refusal.${reason}`),
   }

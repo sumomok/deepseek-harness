@@ -63,7 +63,6 @@ export function withPointNotices(messages: readonly UserMessage[]): UserMessage[
       content: [{ type: 'text', text: notice.text }],
       source: { kind: POINT_MESSAGE_KIND, message: message.id, form: 'notice', summary: boundContextSummary(`指着：${notice.labels.join('、')}`) },
     }))
-    answered.add(message.id)
     appended = true
   }
   return appended ? result : [...messages]

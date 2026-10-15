@@ -19,6 +19,8 @@ import type { PickOutcome } from '@haoran/dsh-point-anchor/page'
 import { blockAt, BLOCK_REASONS, FRAME_BLOCK_REASONS, point, pointOutcome } from '../src/client/pick.ts'
 import type { PointNames, PointOutcome } from '../src/client/pick.ts'
 import { withPointNotices } from '../src/notice.ts'
+import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { clickTrusted, corpusPage, mountConsole, probe, showFramePage } from './console-fixture.client.ts'
 
@@ -132,7 +134,10 @@ describe('an original-system page\'s table, described for a reference', () => {
     const logged: unknown[] = []
     for (let at = 0; at < filed.length; at += 16) {
       const references = filed.slice(at, at + 16).map(outcome => ({ source: 'content-point', label: outcome.label, data: outcome.data }))
-      const message = createUserMessage({ content: [{ type: 'text', text: '这些是什么' }], source: { kind: 'user', references } as never })
+      const message = createUserMessage({
+        content: [{ type: 'text', text: '这些是什么' }],
+        source: { kind: 'user', rpcId: brandString<SessionRequestId>(`rpc-${String(at)}`), references },
+      })
       logged.push(...withPointNotices([message]))
     }
     expect(logged.length).toBe(2 * Math.ceil(filed.length / 16))
@@ -179,11 +184,16 @@ describe('a place point-anchor refuses', () => {
     Reflect.deleteProperty(document, 'elementsFromPoint')
   })
 
-  it('on a shield in a document that places nothing stays refused', () => {
+  it('inside a frame outside every seat stays refused, whatever lies under its coordinates in the console', () => {
     mountConsole(document)
-    const shield = document.createElement('div')
-    document.body.append(shield)
-    expect(pointOutcome(refused('unreadable-frame'), { element: shield, x: 1, y: 1 }, NAMES)).toEqual({ kind: 'refused', reason: 'unreadable-frame' })
+    showFramePage(document, '')
+    const loose = document.createElement('iframe')
+    document.body.append(loose)
+    const inner = loose.contentDocument as Document
+    inner.body.innerHTML = '<p>x</p>'
+    Object.defineProperty(document, 'elementsFromPoint', { value: () => [probe(document, 'frame')], configurable: true })
+    expect(pointOutcome(refused('nameless'), { element: inner.querySelector('p') as Element, x: 40, y: 50 }, NAMES)).toEqual({ kind: 'refused', reason: 'nameless' })
+    Reflect.deleteProperty(document, 'elementsFromPoint')
   })
 
   it('inside a seat but outside every block becomes the seat', () => {
