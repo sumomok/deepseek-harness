@@ -111,9 +111,10 @@ defineTable(MASKED_META, {
 
 /**
  * A table masking one of its drawn columns, the way {@link MASKED_META} does,
- * whose profile grants the visitor its city: the batch dialog draws the masked
- * code read-only and takes a value in the city field, so a write through the
- * page's own controls reaches the backend with a masked column among its
+ * whose profile grants the visitor its city. The batch dialog draws the masked
+ * code as a read-only 敏感数据 box whatever the profile grants, and takes a
+ * value in the city field because the profile grants it, so a write through
+ * the page's own controls reaches the backend with a masked column among its
  * ticked ones.
  */
 const MASKED_WRITE_META = 'probe_masked_write'
@@ -1059,8 +1060,9 @@ describe('a delete and a batch edit a person performs on the page', () => {
       if (found === null) throw new Error('the batch dialog did not open')
       return found
     }, { timeout: 5000, interval: 20 })
-    // A field takes a value once its 改变 box is ticked and the profile lets
-    // the visitor change its column: the masked code stays read-only.
+    // Ticking a field's 改变 box opens it to a value only where the profile
+    // grants its column and the scheme does not mask it: the masked code stays
+    // a read-only 敏感数据 box, and the city field takes a value.
     const code = fieldItem(dialog, '编码')
     const city = fieldItem(dialog, '城市')
     if (code === undefined || city === undefined) throw new Error('the batch dialog draws no code and city fields')
@@ -1079,8 +1081,9 @@ describe('a delete and a batch edit a person performs on the page', () => {
       expect(onAction).toHaveBeenCalledWith('batch-modified', { succeeded: 2, names: ['北京-核心-01', '济南-接入-07'], fields: ['city'] })
     }, { timeout: 5000, interval: 20 })
     // The value the person typed left with the write, and the write carried
-    // both ticked fields — the masked code among them. The report names the
-    // unmasked field alone and none of their values.
+    // both ticked fields: the kit writes a ticked field it holds no value for
+    // as an empty string, so the masked code goes out as ''. The report names
+    // the unmasked field alone and none of their values.
     const put = seen.find(request => request.method === 'PUT')
     if (put === undefined) throw new Error('the page sent no batch write')
     const body: unknown = JSON.parse(put.body)
