@@ -742,7 +742,8 @@ class JsonlSessionPersistence extends SessionPersistence {
   /**
    * Stat a session this relocation moved past its commit point. The move
    * stands even when the stat fails, so the snapshot then carries the moved
-   * header and a revision no stat returns, which a cache treats as a change.
+   * header, the current format a relocation always moves, and a revision no
+   * stat returns, which a cache treats as a change.
    */
   private async movedSnapshot(id: SessionId, header: SessionHeader): Promise<SessionPersistenceSnapshot> {
     let failure: unknown = 'no stored log found'
@@ -753,7 +754,7 @@ class JsonlSessionPersistence extends SessionPersistence {
       failure = error
     }
     this.ctx.logger.warn(`${this.name}: session "${id}" relocated, but its new location could not be read: ${String(failure)}`)
-    return { header, revision: SessionPersistenceRevision(`relocated:${this.name}:${randomUUID()}`) }
+    return { header, formatStatus: 'current', revision: SessionPersistenceRevision(`relocated:${this.name}:${randomUUID()}`) }
   }
 
   /**

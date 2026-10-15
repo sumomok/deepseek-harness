@@ -2117,6 +2117,8 @@ describe('a relocation past its commit point', () => {
     expect(snapshot.header).toEqual({ ...before.header, cwd: TARGET_CWD })
     expect(snapshot.revision).not.toBe(before.revision)
     expect(snapshot.revision).toMatch(/^relocated:/)
+    // A relocation moves only the current format.
+    expect(snapshot.formatStatus).toBe('current')
     expect(seen).toEqual([snapshot])
     expect(warn).toHaveBeenCalledWith(expect.stringContaining(`its new location could not be read: ${reason}`))
   })
