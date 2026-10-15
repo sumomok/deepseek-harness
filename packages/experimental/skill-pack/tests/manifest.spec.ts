@@ -68,6 +68,8 @@ describe('pack manifest', () => {
       field: 'metadata.requires.components.kit',
       reason: 'must be a semantic-version range',
     })
+    expect(parsePackManifest({ pack: { version: '1.0.0' }, requires: { components: { '': '>=1.0.0' } } }))
+      .toMatchObject({ ok: false, field: expect.stringMatching(/^metadata\.requires\.components/) as string })
     expect(parsePackManifest({ pack: { version: '1.0.0' }, requires: { parts: [''] } }))
       .toMatchObject({ ok: false, field: 'metadata.requires.parts.0' })
     expect(parsePackManifest({ pack: { version: '1.0.0' }, views: [7] }))
