@@ -1,23 +1,9 @@
 /**
  * @deepseek-ai/dsh-experimental-content-point — 「指一下」: the user points at a
- * place in the content column or the sidebar, and the model is told where.
- *
- * The browser half (`./client`) puts a button in the composer's tool row; a
- * click starts `@haoran/dsh-point-anchor`'s picker over the console document,
- * and the place clicked becomes a reference draft in the attachment row, filed
- * under {@link POINT_SOURCE}. Its `data` is point-anchor's description of the
- * place without the DataPage row, or, for a block point-anchor does not
- * describe, a block reference (`./block`). The send records the references on
- * the accepted user message's source; no provider request carries a source.
- *
- * This host half makes them model-visible. Before each step it reads the user
- * messages entering it and, after each one carrying references of
- * {@link POINT_SOURCE}, appends one logged user message whose text writes each
- * of them — at most `MAX_PROMPT_REFERENCES` — with its key line and display
- * text and no row value. The appended message's source is the
- * `content-point` kind this module declares, naming the message it answers, so
- * a step that already holds it appends nothing more. It appends no session
- * event and writes no `content-component/shown`.
+ * place in the content column or the sidebar, and the model is told where. The
+ * browser half (`./client`) files each point as a reference under
+ * {@link POINT_SOURCE}; before each step, this host half appends the logged
+ * message `./notice.ts` writes after each user message carrying them.
  * @module @deepseek-ai/dsh-experimental-content-point
  */
 
