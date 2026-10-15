@@ -4,17 +4,14 @@
  * registers, the rules a view file is judged by, and the rules a pack and its
  * delivery archive are read under.
  *
- * The components, every upper limit, list and key are read from the module
- * that enforces them: the components from `COMPONENT_KIT_ENTRIES`, the limits,
- * the reference keys and the data page's id from the component surface's
- * exports, the manifest key, the field lists, the file extensions and the
- * archive limits from the pack root's. Written here instead, because no module
- * exports them as values: the lower bounds of the node count, of a stack's
- * children and of `flex`, that `flex` is a whole number, the root kind of a
- * layout, the `otherKeys` words, and the `rules` sentences, which restate how
- * the two packages judge a view and a manifest. The tests pin each sentence's
- * text and check the judgement it states, apart from the clauses the README
- * names.
+ * The components, every limit, list and key are read from the module that
+ * enforces them: the components from `COMPONENT_KIT_ENTRIES`, the limits, the
+ * reference keys and the data page's id from the component surface's exports,
+ * the manifest key, the field lists, the file extensions and the archive
+ * limits from the pack root's. Written here instead, because no module exports
+ * them as values: that `flex` is a whole number, the root kind of a layout,
+ * the `otherKeys` words, and the `rules` sentences, which restate how the two
+ * packages judge a view and a manifest.
  *
  * The file is versioned by {@link COMPONENT_CATALOG_FORMAT} and carries the
  * versions of the two packages its components come from. It carries no commit
@@ -43,6 +40,9 @@ import {
   MAX_OUTPUT_ID_LENGTH,
   MAX_SPEC_BYTES,
   MAX_TITLE_LENGTH,
+  MIN_FLEX,
+  MIN_LAYOUT_CHILDREN,
+  MIN_NODES,
   NODE_KEYS,
   PARAM_KEY,
   SPEC_KEYS,
@@ -64,6 +64,7 @@ import {
   PACK_VIEW_FIELDS,
   PACK_VIEW_FORMATS,
 } from '@deepseek-ai/dsh-experimental-skill-pack'
+import { assertNever } from '@deepseek-ai/dsh-util-values'
 
 /**
  * The format of the file this module writes. A reader that does not know the
@@ -194,7 +195,7 @@ function schemaFacts(schema: PropsFieldSchema): CatalogObject {
     case 'scalar': return { kind: schema.kind, maxLength: schema.maxLength, maxItems: schema.maxItems }
     case 'enum': return {
       kind: schema.kind,
-      values: [...schema.values],
+      values: schema.values,
       ...schema.hint === undefined ? {} : { hint: schema.hint },
     }
     case 'object': return {
@@ -217,12 +218,9 @@ function schemaFacts(schema: PropsFieldSchema): CatalogObject {
       maxItems: schema.maxItems,
       ...schema.uniqueBy === undefined ? {} : { uniqueBy: schema.uniqueBy },
     }
-    /* v8 ignore start -- PropsFieldSchema is closed and every variant returns above. */
-    default: {
-      const unhandled: never = schema
-      throw new Error(`skill-pack-components: unhandled props schema ${JSON.stringify(unhandled)}`)
-    }
-    /* v8 ignore stop */
+    /* v8 ignore next 2 -- PropsFieldSchema is closed and every variant returns above. */
+    default:
+      return assertNever(schema, 'PropsFieldSchema.kind')
   }
 }
 
@@ -261,28 +259,38 @@ function propsFacts(entry: ComponentCatalogEntry): CatalogObject {
 }
 
 /**
- * State one component.
- * @param entry - the catalog entry the component kit registers.
- * @returns the component as the file states it.
+ * How the file states each key of a catalog entry, in the order the file
+ * writes them. Typed over the entry, so a key added to `ComponentCatalogEntry`
+ * fails the typecheck here until the file states it.
  */
-function componentFacts(entry: ComponentCatalogEntry): CatalogObject {
-  return {
-    id: entry.id,
-    label: entry.label,
-    purpose: entry.purpose,
-    // An entry that declares no placement is one a call may place.
-    placement: entry.placement ?? 'call',
-    deploymentSwitches: requiredSwitches(entry.id),
-    props: propsFacts(entry),
+const ENTRY_FACTS = {
+  id: entry => ({ id: entry.id }),
+  label: entry => ({ label: entry.label }),
+  purpose: entry => ({ purpose: entry.purpose }),
+  // An entry that declares no placement is one a call may place.
+  // `deploymentSwitches` is no key of the entry; it is stated under
+  // `placement` so the file writes it right after `placement`.
+  placement: entry => ({ placement: entry.placement ?? 'call', deploymentSwitches: requiredSwitches(entry.id) }),
+  propsSchema: entry => ({ props: propsFacts(entry) }),
+  outputs: entry => ({
     outputs: entry.outputs.map(output => ({
       id: output.id,
       ...output.readers === undefined ? {} : { readers: output.readers },
       summary: describeSchema(output.shape),
       shape: schemaFacts(output.shape),
     })),
-    actions: entry.actions.map(action => ({ id: action.id, report: action.report })),
-    ...entry.sanitize === undefined ? {} : { sanitize: { ...entry.sanitize } },
-  }
+  }),
+  actions: entry => ({ actions: entry.actions.map(action => ({ id: action.id, report: action.report })) }),
+  sanitize: entry => entry.sanitize === undefined ? {} : { sanitize: { ...entry.sanitize } },
+} satisfies Record<keyof ComponentCatalogEntry, (entry: ComponentCatalogEntry) => CatalogObject>
+
+/**
+ * State one component.
+ * @param entry - the catalog entry the component kit registers.
+ * @returns the component as the file states it.
+ */
+function componentFacts(entry: ComponentCatalogEntry): CatalogObject {
+  return Object.fromEntries(Object.values(ENTRY_FACTS).flatMap(state => Object.entries(state(entry))))
 }
 
 /**
@@ -296,9 +304,9 @@ function catalogRules(): CatalogObject {
       id: { maxLength: MAX_ENTRY_ID_LENGTH, charset: token },
       title: { maxLength: MAX_TITLE_LENGTH },
       maxSpecBytes: MAX_SPEC_BYTES,
-      specKeys: [...SPEC_KEYS],
-      nodeKeys: [...NODE_KEYS],
-      nodes: { min: 1, max: MAX_NODES, id: { maxLength: MAX_NODE_ID_LENGTH, charset: token } },
+      specKeys: SPEC_KEYS,
+      nodeKeys: NODE_KEYS,
+      nodes: { min: MIN_NODES, max: MAX_NODES, id: { maxLength: MAX_NODE_ID_LENGTH, charset: token } },
       rules: [
         'A spec carries nodes and may leave out layout; a spec without a layout stacks its blocks in one column, in the order nodes lists them.',
         'Every node carries id, component and props, and props is an object. No two nodes of a view share an id.',
@@ -308,13 +316,13 @@ function catalogRules(): CatalogObject {
     },
     layout: {
       root: 'stack',
-      directions: [...LAYOUT_DIRECTIONS],
-      gaps: [...LAYOUT_GAPS],
+      directions: LAYOUT_DIRECTIONS,
+      gaps: LAYOUT_GAPS,
       maxDepth: MAX_LAYOUT_DEPTH,
-      children: { min: 1, max: MAX_LAYOUT_CHILDREN },
-      flex: { min: 1, max: MAX_FLEX, integer: true },
-      stackKeys: [...STACK_KEYS],
-      blockKeys: [...BLOCK_KEYS],
+      children: { min: MIN_LAYOUT_CHILDREN, max: MAX_LAYOUT_CHILDREN },
+      flex: { min: MIN_FLEX, max: MAX_FLEX, integer: true },
+      stackKeys: STACK_KEYS,
+      blockKeys: BLOCK_KEYS,
       rules: [
         'A stack carries node "stack", dir and children, and may leave out gap, wrap and flex; the outermost stack carries no flex.',
         'A placed block carries node "component" and the id of a node, and may leave out flex.',
@@ -345,14 +353,14 @@ function catalogRules(): CatalogObject {
     viewFile: {
       fields: PACK_VIEW_FIELDS.map(field => ({ ...field })),
       otherKeys: 'ignored',
-      viewFormats: [...PACK_VIEW_FORMATS],
+      viewFormats: PACK_VIEW_FORMATS,
     },
     manifest: {
       key: PACK_MANIFEST_KEY,
       fields: PACK_MANIFEST_FIELDS.map(field => ({ ...field })),
       otherKeys: 'refused',
-      viewFormats: [...PACK_VIEW_FORMATS],
-      anchorFormats: [...PACK_ANCHOR_FORMATS],
+      viewFormats: PACK_VIEW_FORMATS,
+      anchorFormats: PACK_ANCHOR_FORMATS,
       rules: [
         'pack.viewFormat is required when views lists any file, and is one of viewFormats. A .dshpack delivery carrying a pack that lists views without it, or with another format, is refused whole; an organization set refuses that pack alone; a pack root withholds such a pack it already holds.',
         'pack.anchorFormat may be left out; when stated, it is one of anchorFormats. A .dshpack delivery carrying a pack that states another format is refused whole; an organization set refuses that pack alone; a pack root withholds such a pack it already holds.',

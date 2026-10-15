@@ -43,6 +43,8 @@ import {
   MAX_FLEX,
   MAX_LAYOUT_CHILDREN,
   MAX_LAYOUT_DEPTH,
+  MIN_FLEX,
+  MIN_LAYOUT_CHILDREN,
   STACK_KEYS,
   type LayoutDirection,
   type LayoutGap,
@@ -103,7 +105,7 @@ function readChoice<T extends string>(value: unknown, accepted: readonly T[], fa
  */
 function readFlex(value: unknown): { readonly flex?: number } | undefined {
   if (value === undefined) return {}
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > MAX_FLEX) return undefined
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < MIN_FLEX || value > MAX_FLEX) return undefined
   return { flex: value }
 }
 
@@ -134,7 +136,7 @@ function readStack<B>(
   const flex = readFlex(record['flex'])
   if (dir === undefined || gap === undefined || typeof wrap !== 'boolean' || flex === undefined) return undefined
   const declared = record['children']
-  if (!Array.isArray(declared) || declared.length === 0 || declared.length > MAX_LAYOUT_CHILDREN) return undefined
+  if (!Array.isArray(declared) || declared.length < MIN_LAYOUT_CHILDREN || declared.length > MAX_LAYOUT_CHILDREN) return undefined
   const children: BlockChild<B>[] = []
   for (const child of declared as readonly unknown[]) {
     const read = readChild(child, blocks, placed, depth)

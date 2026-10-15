@@ -7,7 +7,7 @@
     },
     "toyCrudKit": {
       "package": "@sumomok/toy-crud-kit",
-      "version": "0.5.0"
+      "version": "0.6.1"
     },
     "bodySha256": "295a84e374f134e83ff82d9b55c099221127cc4237873ae896c33ed4c9694c55",
     "exampleViewSha256": null

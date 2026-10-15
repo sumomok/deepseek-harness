@@ -189,7 +189,7 @@ Every withheld pack is also stated once in the process log, and again only when 
 <a id="replacing-a-pack-root"></a>
 ## Replacing a pack root
 
-`syncPackRoot(targetRoot, delivery)` makes a pack root hold exactly the delivered packs. A delivery is a source directory, the packs themselves, or [one archive file](#installing-from-a-packed-file); the three differ only in how the set is read. It is a replacement rather than a merge: a pack retired upstream is gone, and so is one somebody dropped into the root by hand, so the root always says what the delivery says. Running the same delivery twice writes nothing the second time — the call compares the root against the delivered set first and returns unchanged when every pack, path and byte already matches.
+`syncPackRoot(targetRoot, delivery)` makes a pack root hold exactly the delivered packs. A delivery is a source directory or the packs themselves; the two differ only in how the set is read, and [a packed file](#installing-from-a-packed-file) is read into packs before it is installed. It is a replacement rather than a merge: a pack retired upstream is gone, and so is one somebody dropped into the root by hand, so the root always says what the delivery says. Running the same delivery twice writes nothing the second time — the call compares the root against the delivered set first and returns unchanged when every pack, path and byte already matches.
 
 Nothing is written into the live root. The delivered set is staged into a sibling directory, verified there, and swapped in by rename, so a failure part-way through leaves the root exactly as it was. A root that does not exist is a first install, and so is a root that is a symbolic link to a path that does not exist; a call that writes replaces that link with a real directory. The row refuses such a link as its configured `root` at load, as [Mount and configure](#mount-and-configure) states, so a root reaches this case when it is handed to `syncPackRoot` directly or when its link target is removed after the row loads. A root that cannot be read for any other reason rejects the call with that error before anything is staged: what it holds is unknown, and replacing it as an empty root would retire every pack in it.
 
@@ -219,7 +219,7 @@ The component-catalog judgement is a parameter rather than an import. `syncPackR
 <a id="installing-from-a-packed-file"></a>
 ## Installing from a packed file
 
-A delivery console hands a deployment one file, and the deployment installs it with one action. `buildPackArchive(source, set)` writes that file from a source directory or from the packs themselves, and `syncPackRoot(root, { kind: 'archive', name, bytes, limits })` installs it.
+A delivery console hands a deployment one file, and the deployment installs it with one action. `buildPackArchive(source, set)` writes that file from a source directory or from the packs themselves, and a deployment installs it once it is copied into [the delivery directory](#the-directory-a-delivery-arrives-in).
 
 An archive is a ZIP named `*.dshpack`. It carries `pack-delivery.json` at its root and every pack file under `packs/<pack>/`, and the manifest is what it is read by.
 
@@ -281,7 +281,7 @@ The directory is read when the watch is armed and again on every event, and a fi
 | `result` | `installed` when the pack root now holds the set and did not before this read; `unchanged` when the root already held every pack, path and byte of it and nothing was written; `refused` when nothing was written for any other reason. |
 | `archives` | Every archive the directory held at that read, in name order: one, except on a read refused for holding more than one. |
 | `set` | The `id` and `version` the archive's manifest states, present once the archive verified against that manifest. A refusal before that point — for the archive's size, for a manifest the archive does not match, or for more than one archive — carries none. |
-| `reason` | On `refused` only: the line the process log carries for the refusal, naming the archive and what refused it. Where a path in it begins with the pack root, a directory above the pack root other than the file-system root, or the delivery directory, each as configured or as its real path, that much of the path is written `<pack root>`, `<pack root>/..`, `<pack root>/../..` and so on, or `<delivery directory>`, with the host's path separator. The process log keeps the paths in full. |
+| `reason` | On `refused` only: the line the process log carries for the refusal, naming the archive and what refused it, with the pack root, the directories above it and the delivery directory written by placeholder, as `DeliveryRecord.reason` in [`src/types.ts`](src/types.ts) states. |
 | `at` | When the read finished, as an ISO 8601 timestamp in UTC. |
 
 A read that finds no archive keeps the record, and so does an `unchanged` read of the archive the record installed or found unchanged, under the same name and set: every event in the directory reads it again, a note written beside the archive among them, and that read would otherwise report the install as unchanged. Every other read replaces the record. It is held in memory, so it is absent after a start until a read finds an archive, and absent where no delivery directory is configured.

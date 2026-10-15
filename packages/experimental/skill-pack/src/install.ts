@@ -7,10 +7,8 @@
  * the root always says what the delivery says and a deployment never has to be
  * told which of the two to believe.
  *
- * A delivery arrives as a directory, as the packs themselves, or as one
- * archive file; the three differ only in how the set is read. All of them pass
- * the same pack rules, and an archive is verified against its own manifest
- * before any of it is staged.
+ * A delivery arrives as a directory or as the packs themselves; the two
+ * differ only in how the set is read, and both pass the same pack rules.
  *
  * Nothing is written into the live root. The delivered set is staged into a
  * sibling directory, verified there, and then swapped in by rename, so a
@@ -33,13 +31,12 @@ import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promise
 import { randomUUID } from 'node:crypto'
 import { basename, dirname, join } from 'node:path'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
-import { readPackArchive } from './archive.ts'
 import { readSourceDirectory, validatePacks } from './delivery.ts'
 import { anchorFormatMissing, readsDeclaredViews, viewFormatMissing } from './manifest.ts'
 import { describeMissing, type PackObservation } from './reconcile.ts'
 import { PackInstallError } from './refusal.ts'
 import { PACK_ENTRY_FILE, readPackRoot } from './scan.ts'
-import type { DeliveredPack, PackArchiveDelivery, PackDelivery, PackSetIdentity } from './types.ts'
+import type { DeliveredPack, PackSetSource } from './types.ts'
 
 /** One pack of a delivered set, read out of the staged tree the way a pack root is read. */
 export interface StagedPack extends PackObservation {
@@ -80,31 +77,17 @@ export interface SyncPackRootResult {
   readonly packs: readonly string[]
   /** Every pack the root held and no longer does, in name order. */
   readonly retired: readonly string[]
-  /** Which set was delivered, for an archive delivery; a directory and packs in hand carry no identity. */
-  readonly set?: PackSetIdentity
 }
 
-/** What one archive install did. An archive states which set it is, so the result carries that identity. */
-export interface PackArchiveSyncResult extends SyncPackRootResult {
-  /** The set the archive's manifest stated. */
-  readonly set: PackSetIdentity
-}
-
-/**
- * Make a pack root hold exactly the packs one archive delivers.
- * @param targetRoot - absolute path of the pack root to replace.
- * @param delivery - the archive, the name a refusal reports it under, and the limits it is read under.
- * @param verify - how the delivered views are judged against a composed surface; absent where the caller composes none.
- * @returns what the root now holds, what was retired, and which set the archive delivered.
- * @throws {PackInstallError} when the archive is over a limit, is unreadable, disagrees with its own
- *   manifest, or carries a pack file a pack may not carry.
- * @throws the error reading the pack root failed with, for every failure other than the root not existing; nothing is written.
- */
-export function syncPackRoot(targetRoot: string, delivery: PackArchiveDelivery, verify?: VerifyStagedPacks): Promise<PackArchiveSyncResult>
 /**
  * Make a pack root hold exactly the delivered packs.
+ *
+ * Running the same delivery twice writes nothing the second time: the call
+ * compares the root against the delivered set first and returns unchanged when
+ * every pack, every path and every byte already matches. Nothing is verified
+ * on that path either, because nothing is being installed.
  * @param targetRoot - absolute path of the pack root to replace.
- * @param delivery - the packs to install, the directory holding them, or the archive carrying them.
+ * @param delivery - the packs to install, or the directory holding them.
  * @param verify - how the delivered views are judged against a composed surface; absent where the caller composes none.
  * @returns what the root now holds and what was retired.
  * @throws {PackInstallError} when a delivered entry is a symbolic link, leaves its pack directory,
@@ -112,22 +95,13 @@ export function syncPackRoot(targetRoot: string, delivery: PackArchiveDelivery, 
  *   a delivered pack's manifest, view format or view file is one this deployment will not read.
  * @throws the error reading the pack root failed with, for every failure other than the root not existing; nothing is written.
  */
-export function syncPackRoot(targetRoot: string, delivery: PackDelivery, verify?: VerifyStagedPacks): Promise<SyncPackRootResult>
-/**
- * Running the same delivery twice writes nothing the second time: the call
- * compares the root against the delivered set first and returns unchanged when
- * every pack, every path and every byte already matches. Nothing is verified
- * on that path either, because nothing is being installed.
- */
-export async function syncPackRoot(targetRoot: string, delivery: PackDelivery, verify?: VerifyStagedPacks): Promise<SyncPackRootResult> {
-  const read = await readDelivery(delivery)
-  const delivered = validatePacks(read.packs)
-  const identity = read.set === undefined ? {} : { set: read.set }
+export async function syncPackRoot(targetRoot: string, delivery: PackSetSource, verify?: VerifyStagedPacks): Promise<SyncPackRootResult> {
+  const delivered = validatePacks(await readDelivery(delivery))
   const present = await readInstalledPacks(targetRoot)
   const packs = delivered.map(pack => pack.name).sort()
   const retired = [...present.packs.keys()].filter(name => !packs.includes(name)).sort()
   if (matchesInstalled(delivered, present)) {
-    return { changed: false, packs, retired: [], ...identity }
+    return { changed: false, packs, retired: [] }
   }
   const staging = `${targetRoot}.staging-${randomUUID()}`
   try {
@@ -138,29 +112,19 @@ export async function syncPackRoot(targetRoot: string, delivery: PackDelivery, v
     await rm(staging, { recursive: true, force: true })
     throw error
   }
-  return { changed: true, packs, retired, ...identity }
+  return { changed: true, packs, retired }
 }
 
-/** The delivered set as the delivery carries it, before the pack rules have seen it. */
-interface ReadDelivery {
-  /** The packs the delivery names. */
-  readonly packs: readonly DeliveredPack[]
-  /** The set an archive says it is; absent for the other two deliveries. */
-  readonly set?: PackSetIdentity
-}
-
-/** Read the delivered set, walking a source directory or verifying an archive when the delivery is one. */
-async function readDelivery(delivery: PackDelivery): Promise<ReadDelivery> {
+/** Read the delivered set, walking the source directory when the delivery is one. */
+async function readDelivery(delivery: PackSetSource): Promise<readonly DeliveredPack[]> {
   switch (delivery.kind) {
     case 'packs':
-      return { packs: delivery.packs }
+      return delivery.packs
     case 'directory':
-      return { packs: await readSourceDirectory(delivery.path) }
-    case 'archive':
-      return readPackArchive(delivery.name, delivery.bytes, delivery.limits)
-    /* v8 ignore start -- PackDelivery is a closed union; a future member must fail compilation here. */
+      return readSourceDirectory(delivery.path)
+    /* v8 ignore start -- PackSetSource is a closed union; a future member must fail compilation here. */
     default:
-      return assertNever(delivery, 'PackDelivery.kind')
+      return assertNever(delivery, 'PackSetSource.kind')
     /* v8 ignore stop */
   }
 }

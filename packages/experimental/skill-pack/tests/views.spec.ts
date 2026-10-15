@@ -44,7 +44,9 @@ describe('pack view files', () => {
     expect(parsePackView('v.yml', '- a\n- b\n')).toEqual({ ok: false, path: 'v.yml', reason: 'is not a YAML mapping' })
     expect(parsePackView('v.yml', 'title: A\nspec: []\n')).toEqual({ ok: false, path: 'v.yml', reason: 'has no id' })
     expect(parsePackView('v.yml', 'id: ""\ntitle: A\nspec: []\n')).toEqual({ ok: false, path: 'v.yml', reason: 'has no id' })
+    expect(parsePackView('v.yml', 'id: 1\ntitle: A\nspec: []\n')).toEqual({ ok: false, path: 'v.yml', reason: 'has no id' })
     expect(parsePackView('v.yml', 'id: a\nspec: []\n')).toEqual({ ok: false, path: 'v.yml', reason: 'has no title' })
+    expect(parsePackView('v.yml', 'id: a\ntitle: ""\nspec: []\n')).toEqual({ ok: false, path: 'v.yml', reason: 'has no title' })
     expect(parsePackView('v.yml', 'id: a\ntitle: 7\nspec: []\n')).toEqual({ ok: false, path: 'v.yml', reason: 'has no title' })
     expect(parsePackView('v.yml', 'id: a\ntitle: A\n')).toEqual({ ok: false, path: 'v.yml', reason: 'has no spec' })
     expect(parsePackView('v.yml', 'id: a\ntitle: A\nspec: []\nparams: [1]\n'))
@@ -79,20 +81,13 @@ describe('the keys a view file is read for', () => {
     }
   })
 
-  it('states what each key\'s value must be, as the file is read', () => {
+  it('states what each key\'s value must be', () => {
     expect(PACK_VIEW_FIELDS.map(field => [field.path, field.summary])).toEqual([
       ['id', 'a non-empty string'],
       ['title', 'a non-empty string'],
       ['spec', 'any value, carried as written for the component catalog to judge'],
       ['params', 'a mapping from a parameter name to its value'],
     ])
-    const reading = (lines: Readonly<Record<string, string>>): ReturnType<typeof parsePackView> =>
-      parsePackView('v.yml', `${Object.values({ ...LINES, ...lines }).join('\n')}\n`)
-    expect(reading({ id: "id: ''" })).toMatchObject({ ok: false, reason: 'has no id' })
-    expect(reading({ id: 'id: 1' })).toMatchObject({ ok: false, reason: 'has no id' })
-    expect(reading({ title: "title: ''" })).toMatchObject({ ok: false, reason: 'has no title' })
-    expect(reading({ spec: 'spec: 3' })).toMatchObject({ ok: true, view: { spec: 3 } })
-    expect(reading({ params: 'params: [a]' })).toMatchObject({ ok: false, reason: 'has params that are not a mapping' })
   })
 
   it('ignores a key it does not list', () => {
