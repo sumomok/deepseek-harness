@@ -94,6 +94,9 @@ export const MAX_TITLE_LENGTH = 24
 /** Largest accepted `JSON.stringify(spec)`, in UTF-8 bytes. */
 export const MAX_SPEC_BYTES = 65536
 
+/** Smallest accepted `spec.nodes` length. */
+export const MIN_NODES = 1
+
 /**
  * Largest accepted `spec.nodes` length.
  *
@@ -113,6 +116,9 @@ export const MAX_NODES = 12
  */
 export const MAX_LAYOUT_DEPTH = 4
 
+/** Smallest accepted child count of one stack. */
+export const MIN_LAYOUT_CHILDREN = 1
+
 /**
  * Largest accepted child count of one stack.
  *
@@ -120,6 +126,9 @@ export const MAX_LAYOUT_DEPTH = 4
  * carrying nothing but stacks is bounded by the leaves below it.
  */
 export const MAX_LAYOUT_CHILDREN = MAX_NODES
+
+/** Smallest accepted `flex` of one placed block. */
+export const MIN_FLEX = 1
 
 /** Largest accepted `flex` of one placed block: the share of its stack it takes. */
 export const MAX_FLEX = 12
