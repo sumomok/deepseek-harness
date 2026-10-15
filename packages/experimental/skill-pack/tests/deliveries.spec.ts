@@ -202,6 +202,33 @@ describe('reading the delivery directory', () => {
     expect(await readdir(one.root)).toEqual(['a'])
   })
 
+  it('refuses an archive whose manifest declares a file a pack may not carry, or a path leaving its pack, before the pack root exists', async () => {
+    const refusals = [
+      ['a/setup.js', 'a pack carries only '],
+      ['a/../outside.md', 'a pack file path stays inside its pack'],
+    ] as const
+    for (const [path, refusal] of refusals) {
+      const one = await deployment()
+      const content = 'x'
+      await writeFile(join(one.delivery.directory, 'set.dshpack'), Buffer.from(zipSync({
+        [PACK_ARCHIVE_MANIFEST]: Buffer.from(JSON.stringify({
+          format: PACK_ARCHIVE_FORMAT,
+          set: SET,
+          files: [{ path, sha256: createHash('sha256').update(content).digest('hex') }],
+        })),
+        [`packs/${path}`]: Buffer.from(content),
+      })))
+
+      const record = await readAt(one)
+      expect(lineOf(one.reported), path)
+        .toContain(`skill-pack: set.dshpack was not installed: PackInstallError: skill-pack: refused ${path} — ${refusal}`)
+      // The archive verified against its manifest before the pack rules refused it, so the refusal names its set.
+      expect(record, path).toEqual({ result: 'refused', archives: ['set.dshpack'], set: SET, reason: lineOf(one.reported), at: '<at>' })
+      // Neither the pack root nor a staging directory beside it was created.
+      expect(await readdir(one.world), path).toEqual(['deliveries'])
+    }
+  })
+
   // Mode 000 denies a directory read only to a non-root owner on POSIX:
   // Windows has no directory permission bits for readdir, and root bypasses
   // them, so there the pack root stays readable and the archive installs.
