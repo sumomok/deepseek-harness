@@ -383,6 +383,14 @@ function stateNote(state: ComponentTargetState): string {
     case 'reachable': return ''
     case 'disabled': return ' (disabled)'
     case 'covered': return ' (covered where it is drawn)'
+    /* v8 ignore start -- ComponentTargetState is closed and every member returns above. */
+    default: {
+      // Not `assertNever` from dsh-llm, for the reason validate.ts states at its
+      // own exhaustiveness check: this module is loaded by the browser seat.
+      const unhandled: never = state
+      throw new Error(`component-surface: unhandled target state ${JSON.stringify(unhandled)}`)
+    }
+    /* v8 ignore stop */
   }
 }
 

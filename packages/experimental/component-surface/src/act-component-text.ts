@@ -298,5 +298,13 @@ function describeStep(step: ActComponentStep): string {
     case 'click': return `click ${step.node === undefined ? '' : `in ${step.node} `}on "${step.key}"`
     case 'set': return `set "${step.name}"${step.node === undefined ? '' : ` in ${step.node}`}`
     case 'wait': return `wait for ${step.node ?? step.key}`
+    /* v8 ignore start -- ActComponentStep is closed and every variant returns above. */
+    default: {
+      // Not `assertNever` from dsh-llm, for the reason validate.ts states at its
+      // own exhaustiveness check: this module is loaded by the browser seat.
+      const unhandled: never = step
+      throw new Error(`component-surface: unhandled step ${JSON.stringify(unhandled)}`)
+    }
+    /* v8 ignore stop */
   }
 }

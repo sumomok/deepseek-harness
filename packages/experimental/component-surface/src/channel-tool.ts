@@ -84,6 +84,14 @@ export async function settleChannelCall<Value>(
     case 'unclaimed': throw new Error(text.unclaimed(timeouts.claimTimeoutMs))
     case 'unanswered': return unanswered
     case 'aborted': throw new Error(text.cancelled)
+    /* v8 ignore start -- CallSettlement is closed and every variant returns or throws above. */
+    default: {
+      // Not `assertNever` from dsh-llm, for the reason tool.ts states at its
+      // own exhaustiveness check.
+      const unhandled: never = settlement
+      throw new Error(`component-surface: unhandled call settlement ${JSON.stringify(unhandled)}`)
+    }
+    /* v8 ignore stop */
   }
 }
 
