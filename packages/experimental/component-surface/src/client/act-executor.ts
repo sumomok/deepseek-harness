@@ -46,7 +46,8 @@ const WAIT_POLL_MS = 50
  * start of an autocomplete's query, and a query the field's earlier text left
  * out may take. The first four are the component's own re-render or debounce
  * rather than a network answer, so this bounds a Vue turn and not a request;
- * the fifth is an answer this step gives up on rather than waits for.
+ * the fifth is a network answer that this step waits for no longer than this
+ * before typing anyway.
  */
 const SELECT_SETTLE_MS = 1000
 
