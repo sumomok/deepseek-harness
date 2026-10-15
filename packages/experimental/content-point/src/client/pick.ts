@@ -134,12 +134,22 @@ function seatOf(el: Element): Element | null {
 }
 
 /**
+ * An attribute's value, empty where the element or the attribute is absent.
+ * @param el - the element, if any.
+ * @param name - the attribute.
+ * @returns the value.
+ */
+function attributeOf(el: Element | null, name: string): string {
+  return el?.getAttribute(name) ?? ''
+}
+
+/**
  * The content-frame page id of a frame element, from its `data-content-frame-id` key.
  * @param el - the element around the place.
  * @returns the page id, or undefined outside every page frame.
  */
 function framePageId(el: Element): string | undefined {
-  const key = el.closest(`[${DOM_CONTRACT.frameAttr}]`)?.getAttribute(DOM_CONTRACT.frameIdAttr) ?? ''
+  const key = attributeOf(el.closest(`[${DOM_CONTRACT.frameAttr}]`), DOM_CONTRACT.frameIdAttr)
   const prefix = `${DOM_CONTRACT.pageKind} `
   return key.startsWith(prefix) ? key.slice(prefix.length) : undefined
 }
@@ -152,8 +162,8 @@ function framePageId(el: Element): string | undefined {
  */
 export function blockAt(el: Element, names: PointNames): BlockData | undefined {
   const seat = seatOf(el)
-  const kind = seat?.getAttribute(DOM_CONTRACT.surfaceSeatAttr)
-  if (seat === null || kind === null || kind === undefined) return undefined
+  if (seat === null) return undefined
+  const kind = attributeOf(seat, DOM_CONTRACT.surfaceSeatAttr)
   const doc = seat.ownerDocument
   const block = el.closest(`[${NODE_ATTR}]`)
   const inSeat = block !== null && seat.contains(block) ? block : undefined
@@ -178,8 +188,10 @@ export function blockAt(el: Element, names: PointNames): BlockData | undefined {
 
 /**
  * The block reference for the click a refused pick was taken on: the element's
- * own seat, through the frames around it; else, for a click on a cross-origin
- * frame's shield, the seat of what lies under the pointer.
+ * own seat, through the frames around it; else, for a click in the console
+ * document itself, such as on a cross-origin frame's shield, the seat of what
+ * lies under the pointer. A click's coordinates are in its own document's
+ * viewport, so a click inside a frame is not placed by them.
  * @param clicked - the click.
  * @param names - the display names.
  * @returns the reference, or undefined outside every seat.
@@ -188,6 +200,7 @@ function blockFor(clicked: Clicked, names: PointNames): BlockData | undefined {
   const el = consoleElement(clicked.element)
   const block = blockAt(el, names)
   if (block !== undefined || clicked.x === undefined || clicked.y === undefined) return block
+  if (clicked.element.ownerDocument !== el.ownerDocument) return undefined
   const under = el.ownerDocument.elementsFromPoint(clicked.x, clicked.y).find(item => seatOf(item) !== null)
   return under === undefined ? undefined : blockAt(under, names)
 }

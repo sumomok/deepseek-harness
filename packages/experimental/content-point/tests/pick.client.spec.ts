@@ -179,6 +179,18 @@ describe('a place point-anchor refuses', () => {
     Reflect.deleteProperty(document, 'elementsFromPoint')
   })
 
+  it('inside a frame outside every seat stays refused, whatever lies under its coordinates in the console', () => {
+    mountConsole(document)
+    showFramePage(document, '')
+    const loose = document.createElement('iframe')
+    document.body.append(loose)
+    const inner = loose.contentDocument as Document
+    inner.body.innerHTML = '<p>x</p>'
+    Object.defineProperty(document, 'elementsFromPoint', { value: () => [probe(document, 'frame')], configurable: true })
+    expect(pointOutcome(refused('nameless'), { element: inner.querySelector('p') as Element, x: 40, y: 50 }, NAMES)).toEqual({ kind: 'refused', reason: 'nameless' })
+    Reflect.deleteProperty(document, 'elementsFromPoint')
+  })
+
   it('inside a seat but outside every block becomes the seat', () => {
     mountConsole(document)
     expect(blockAt(probe(document, 'seat-notice'), NAMES)).toEqual({ v: 1, kind: 'block', seat: 'component', shown: { page: '图层配置', target: '座:component' } })
