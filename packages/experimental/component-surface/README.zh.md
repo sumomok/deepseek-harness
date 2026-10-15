@@ -409,7 +409,7 @@ schema 说不出的是一个字符串**意味着**什么。把某个字符串读
 | `toy.data-page` `operation` | 被按的那项操作的 `opId`，以及那一 `row` 画出来的各格 | `context` |
 | `toy.data-page` `exported` | 页面提交的是工具栏上两个导出中的哪一个，记在 `mode` 里；这次按下选了文件类型时再带一个 `fileType`。导出是部署自己后端上的一个任务，文件要到那套部署自己的任务列表里取，所以它答复的那个任务号在这边谁也拿不到 | `context` |
 | `toy.data-page` `deleted` | 一次删除删掉了几条记在 `succeeded`、没删掉几条记在 `failed`，以及被删记录中至多五条的 `names`；从不带字段值 | `context` |
-| `toy.data-page` `batch-modified` | 与 `deleted` 同样的 `succeeded`、`failed`、`names`，外加一次批量修改改了哪些字段的 `fields`，只写属性名、从不写值 | `context` |
+| `toy.data-page` `batch-modified` | 与 `deleted` 同样的 `succeeded`、`names`，外加一次批量修改改了哪些字段的 `fields`，只写属性名、从不写值；页面只在每条记录都改成功时才报批量修改，所以不带 `failed` | `context` |
 | `toy.form-page` `added` / `modified` | 一条 `record`，至多八个存下的格，按表单自己的 `relatedMeta` 报；那张表还没有数据页报过列时是空记录 | `context` |
 | `toy.info-card` `card-open` / `card-close` | 卡片显示的那条记录的 `name` 和它所在的表 `type`；不再显示记录时不带载荷 | `context` |
 

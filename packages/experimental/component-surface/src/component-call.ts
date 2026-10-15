@@ -2491,10 +2491,10 @@ const DATA_PAGE_ACTIONS: readonly ComponentActionDefinition[] = [
     id: DATA_PAGE_BATCH_MODIFIED_ID,
     report: 'context',
     // Counts, names, and the names of the fields changed; the value written
-    // into those fields is not reported.
+    // into those fields is not reported. The page reports a batch edit only
+    // when every record changed, so there is no failed count.
     payloadSchema: {
       succeeded: { required: true, schema: DATA_PAGE_COUNT },
-      failed: { required: true, schema: DATA_PAGE_COUNT },
       names: { required: true, schema: DATA_PAGE_NAMED_RECORDS },
       fields: {
         required: true,
@@ -2503,21 +2503,13 @@ const DATA_PAGE_ACTIONS: readonly ComponentActionDefinition[] = [
     },
     describe: (context) => {
       const succeeded = context.payload['succeeded'] as number
-      const failed = context.payload['failed'] as number
-      if (succeeded + failed === 0) return undefined
+      if (succeeded === 0) return undefined
       const where = `of "${dataPageMeta(context.node)}" at once in ${place(context)}`
-      if (succeeded === 0) {
-        return {
-          text: `The user tried to change ${recordCount(failed)} ${where}, and none was changed.`,
-          summary: `用户在「${entryName(context)}」里批量修改没有成功（${failed} 条）`,
-        }
-      }
       const named = namedRecords(context.payload['names'] as readonly string[], succeeded)
       const fields = context.payload['fields'] as readonly string[]
       return {
         text: `The user changed ${recordCount(succeeded)} ${where}${named.agent}`
-          + `${fields.length === 0 ? '' : `; fields changed: ${fields.join(', ')}`}.`
-          + (failed === 0 ? '' : ` ${failed} could not be changed.`),
+          + `${fields.length === 0 ? '' : `; fields changed: ${fields.join(', ')}`}.`,
         summary: `用户在「${entryName(context)}」里批量修改了 ${succeeded} 条`,
       }
     },

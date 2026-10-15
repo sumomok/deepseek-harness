@@ -832,7 +832,6 @@ describe('toy.data-page', () => {
     })
     expect(onAction).toHaveBeenLastCalledWith('batch-modified', {
       succeeded: 2,
-      failed: 0,
       names: ['北京-核心-01', '济南-接入-07'],
       fields: ['state'],
     })

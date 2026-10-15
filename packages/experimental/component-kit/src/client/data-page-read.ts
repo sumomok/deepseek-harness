@@ -24,17 +24,11 @@
  */
 
 import type {
-  CrudQuerySuccessPayload,
   CrudTableCellClickPayload,
   DataPageAccessDeniedPayload,
   DataPageAuthFailedPayload,
-  DataPageBatchModifySavedPayload,
-  DataPageDeleteSavedPayload,
   DataPageExportTaskPayload,
-  DataPageFormOpenPayload,
   DataPageLoadPayload,
-  FormPageSavedPayload,
-  InfoCardRecord,
   ToyRow,
 } from '@sumomok/toy-crud-kit'
 import { MAX_RECORD_ID_LENGTH } from '@deepseek-ai/dsh-experimental-component-surface/client'
@@ -164,7 +158,7 @@ export type InfoCardVueProps = {
  */
 export type EditingRecord = {
   /** Whether the button pressed was the add button or a row's modify button. */
-  readonly mode: 'add' | 'modify'
+  readonly mode: SaveMode
   /** The table the record belongs to. */
   readonly type: string
   /** The row's id, as text; present for a modify and absent for an add. */
@@ -266,10 +260,8 @@ export type DeleteReport = {
  * them.
  */
 export type BatchModifyReport = {
-  /** Records changed. */
+  /** Records changed; the page reports a batch edit only when every record changed. */
   readonly succeeded: number
-  /** Records that could not be changed; the page reports a batch edit only when every record changed. */
-  readonly failed: number
   /** The first {@link MAX_NAMED_ROWS} changed records, each named by its first readable reported cell. */
   readonly names: readonly string[]
   /** The fields the user changed, at most {@link MAX_SAVED_FIELDS} of them. */
@@ -280,6 +272,26 @@ export type BatchModifyReport = {
 export type SaveReport = {
   /** The saved row's drawn cells, at most {@link MAX_SAVED_FIELDS} of them, read exactly as a clicked row's are. */
   readonly record: Readonly<Record<string, ScalarValue>>
+}
+
+/** The two modes a form saves in: a new record, or an edit of one. */
+export type SaveMode = 'add' | 'modify'
+
+/** One record the form page saved: the mode it was saved in, which decides the action, and its report. */
+export interface FormSaved {
+  /** The mode the form was saved in. */
+  readonly mode: SaveMode
+  /** What the save reports. */
+  readonly report: SaveReport
+}
+
+/**
+ * Read the mode a form request or a save names.
+ * @param value - the mode, as a property or an event carries it.
+ * @returns the mode, or `undefined` where it names neither of the two.
+ */
+export function readSaveMode(value: unknown): SaveMode | undefined {
+  return value === 'add' || value === 'modify' ? value : undefined
 }
 
 /**
@@ -638,8 +650,8 @@ export function readValueColumns(payload: DataPageLoadPayload, columns: readonly
  * @returns the granted keys, at most {@link MAX_REPORTED_RIGHTS} of them and none longer than
  * {@link MAX_RIGHT_LENGTH}, in the record's own order.
  */
-export function readGrantedRights(payload: DataPageLoadPayload): readonly string[] {
-  const rights = readRecord(payload.authButton)
+export function readGrantedRights(payload: unknown): readonly string[] {
+  const rights = readRecord(readRecord(payload)?.['authButton'])
   if (rights === undefined) return []
   const granted: string[] = []
   for (const [key, value] of Object.entries(rights)) {
@@ -682,15 +694,14 @@ function readCount(value: unknown): number | undefined {
  * @param payload - the `query-success` event's payload.
  * @returns the report, or `undefined` when the answer carries no counts a report may state.
  */
-export function readQuery(payload: CrudQuerySuccessPayload): QueryReport | undefined {
-  // Read through the record reader rather than off the declared type: the
-  // page's declarations are hand-written against a JavaScript build, so what
-  // arrives here can be narrower than they say.
-  const counts = readRecord(payload.page)
+export function readQuery(payload: unknown): QueryReport | undefined {
+  const answer = readRecord(payload)
+  const counts = readRecord(answer?.['page'])
   const total = readCount(counts?.['total'])
   const page = readCount(counts?.['currentPage'])
-  if (total === undefined || page === undefined || page < 1 || !Array.isArray(payload.displayValue)) return undefined
-  return { total, rows: payload.displayValue.length, page }
+  const rows = answer?.['displayValue']
+  if (total === undefined || page === undefined || page < 1 || !Array.isArray(rows)) return undefined
+  return { total, rows: rows.length, page }
 }
 
 /**
@@ -816,7 +827,7 @@ function readRecordName(value: unknown): string | undefined {
  * @param payload - the `info-card-open` event's payload.
  * @returns the report, or `undefined` when the record names no table a report may carry, or neither a name nor an id.
  */
-export function readCardOpen(payload: InfoCardRecord): CardOpenReport | undefined {
+export function readCardOpen(payload: unknown): CardOpenReport | undefined {
   const record = readRecord(payload)
   const type = readAttribute(record?.['type'])
   const name = readText(record?.['name']) ?? spellId(record?.['id'])
@@ -836,7 +847,7 @@ export function readCardOpen(payload: InfoCardRecord): CardOpenReport | undefine
  * @param payload - the `info-card-open` event's payload.
  * @returns the record, or `undefined` when it is not one the output may carry.
  */
-export function readOpened(payload: InfoCardRecord): OpenedRecord | undefined {
+export function readOpened(payload: unknown): OpenedRecord | undefined {
   const record = readRecord(payload)
   const id = readRecordId(record?.['id'])
   const type = readAttribute(record?.['type'])
@@ -856,11 +867,11 @@ export function readOpened(payload: InfoCardRecord): OpenedRecord | undefined {
  * @param payload - the `form-open` event's payload.
  * @returns the value, or `undefined` when it is not one the output may carry.
  */
-export function readEditing(payload: DataPageFormOpenPayload): EditingRecord | undefined {
+export function readEditing(payload: unknown): EditingRecord | undefined {
   const record = readRecord(payload)
-  const mode = record?.['mode']
+  const mode = readSaveMode(record?.['mode'])
   const type = readAttribute(record?.['type'])
-  if ((mode !== 'add' && mode !== 'modify') || type === undefined) return undefined
+  if (mode === undefined || type === undefined) return undefined
   if (mode === 'add') return { mode, type }
   const id = readRecordId(record?.['id'])
   if (id === undefined) return undefined
@@ -900,12 +911,13 @@ export function readSaved(answer: unknown, columns: readonly ReportedColumn[]): 
  * at most {@link MAX_SAVED_FIELDS} of them in the order the form page gave —
  * and a record with nothing left still reports the save.
  * @param payload - the `form-saved` event's payload.
- * @returns the report, or `undefined` when the save names neither of the form's two modes.
+ * @returns the mode the record was saved in and the report, or `undefined` when the save names neither of the form's
+ * two modes.
  */
-export function readFormSaved(payload: FormPageSavedPayload): SaveReport | undefined {
+export function readFormSaved(payload: unknown): FormSaved | undefined {
   const saved = readRecord(payload)
-  const mode = saved?.['mode']
-  if (mode !== 'add' && mode !== 'modify') return undefined
+  const mode = readSaveMode(saved?.['mode'])
+  if (mode === undefined) return undefined
   const fields = readRecord(saved?.['record'])
   const record: Record<string, ScalarValue> = {}
   for (const [key, value] of Object.entries(fields ?? {})) {
@@ -915,7 +927,7 @@ export function readFormSaved(payload: FormPageSavedPayload): SaveReport | undef
     record[attr] = cell
     if (Object.keys(record).length === MAX_SAVED_FIELDS) break
   }
-  return { record }
+  return { mode, report: { record } }
 }
 
 /**
@@ -931,7 +943,7 @@ export function readFormSaved(payload: FormPageSavedPayload): SaveReport | undef
  * @param columns - the columns whose values a report may carry.
  * @returns the report, or `undefined` when the payload states no count a report may carry.
  */
-export function readDeleted(payload: DataPageDeleteSavedPayload, columns: readonly ReportedColumn[]): DeleteReport | undefined {
+export function readDeleted(payload: unknown, columns: readonly ReportedColumn[]): DeleteReport | undefined {
   const record = readRecord(payload)
   const deleted = record?.['deleted']
   const failed = readCount(record?.['failed'])
@@ -945,7 +957,7 @@ export function readDeleted(payload: DataPageDeleteSavedPayload, columns: readon
  * @param payload - the `delete-save-success` event's payload.
  * @returns the ids, as text; empty when the payload carries none.
  */
-export function readDeletedIds(payload: DataPageDeleteSavedPayload): readonly string[] {
+export function readDeletedIds(payload: unknown): readonly string[] {
   return readList(readRecord(payload)?.['ids'], readText)
 }
 
@@ -964,17 +976,14 @@ export function readDeletedIds(payload: DataPageDeleteSavedPayload): readonly st
  * @param columns - the columns whose values a report may carry.
  * @returns the report, or `undefined` when the payload carries no list of changed records.
  */
-export function readBatchModified(
-  payload: DataPageBatchModifySavedPayload,
-  columns: readonly ReportedColumn[],
-): BatchModifyReport | undefined {
+export function readBatchModified(payload: unknown, columns: readonly ReportedColumn[]): BatchModifyReport | undefined {
   const record = readRecord(payload)
   const modified = record?.['modified']
   if (!Array.isArray(modified)) return undefined
   const reported = new Set(columns.map(column => column.attr))
   const ticked = readList(record?.['attrs'], readAttribute).filter(attr => reported.has(attr))
   const fields = [...new Set(ticked)].slice(0, MAX_SAVED_FIELDS)
-  return { succeeded: modified.length, failed: 0, names: nameRows(modified, columns), fields }
+  return { succeeded: modified.length, names: nameRows(modified, columns), fields }
 }
 
 /**

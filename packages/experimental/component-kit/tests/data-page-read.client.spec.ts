@@ -287,7 +287,7 @@ describe('an answered query', () => {
     ['no row list', { displayValue: null, page: { total: 3, currentPage: 1 } }],
     ['a total wider than a report carries', { displayValue: [], page: { total: DATA_PAGE_REPORT_LIMITS.number + 1, currentPage: 1 } }],
   ])('is not reported for %s', (_case, payload) => {
-    expect(readQuery({ rawValue: [], ref: [], ...payload } as never)).toBeUndefined()
+    expect(readQuery({ rawValue: [], ref: [], ...payload })).toBeUndefined()
   })
 })
 
@@ -348,7 +348,7 @@ describe('the rights a load reports', () => {
   })
 
   it('names nothing where the page reported no rights at all', () => {
-    expect(readGrantedRights({ schemaConfig: {}, authButton: null as never })).toEqual([])
+    expect(readGrantedRights({ schemaConfig: {}, authButton: null })).toEqual([])
   })
 })
 
@@ -397,7 +397,7 @@ describe('an opened card', () => {
     expect(readCardOpen({ id: '', name: '', type: '' })).toBeUndefined()
     expect(readCardOpen({ id: '41', name: 'A', type: '1st' })).toBeUndefined()
     expect(readCardOpen({ id: Number.NaN, type: 'device' })).toBeUndefined()
-    expect(readCardOpen(undefined as never)).toBeUndefined()
+    expect(readCardOpen(undefined)).toBeUndefined()
   })
 })
 
@@ -612,7 +612,7 @@ describe('what the add and modify buttons opened', () => {
     ['a mode that is neither', { mode: 'copy', type: 'device' }],
     ['no payload at all', undefined],
   ])('is not one the output may carry for %s', (_case, payload) => {
-    expect(readEditing(payload as never)).toBeUndefined()
+    expect(readEditing(payload)).toBeUndefined()
   })
 })
 
@@ -630,32 +630,32 @@ describe('what a name or a relation link opened', () => {
     ['a table the catalog would refuse', { id: '41', type: 'a b' }],
     ['no payload at all', undefined],
   ])('is not one the output may carry for %s', (_case, payload) => {
-    expect(readOpened(payload as never)).toBeUndefined()
+    expect(readOpened(payload)).toBeUndefined()
   })
 })
 
 describe('a record the form page saved', () => {
   it('keeps the fields the form page handed over, in its order, held to what a report carries', () => {
     expect(readFormSaved({ mode: 'add', meta: 'device', record: { zh_label: '新建-01', '1st': 'x', city: '北京', n: Number.NaN } }))
-      .toEqual({ record: { zh_label: '新建-01', city: '北京' } })
+      .toEqual({ mode: 'add', report: { record: { zh_label: '新建-01', city: '北京' } } })
     const long = 'x'.repeat(DATA_PAGE_REPORT_LIMITS.cellLength + 1)
     expect(readFormSaved({ mode: 'modify', meta: 'device', record: { zh_label: long } }))
-      .toEqual({ record: { zh_label: `${'x'.repeat(DATA_PAGE_REPORT_LIMITS.cellLength - 1)}…` } })
+      .toEqual({ mode: 'modify', report: { record: { zh_label: `${'x'.repeat(DATA_PAGE_REPORT_LIMITS.cellLength - 1)}…` } } })
   })
 
   it('stops at the ceiling', () => {
     const record = Object.fromEntries(Array.from({ length: DATA_PAGE_REPORT_LIMITS.savedFields + 2 }, (_unused, index) => [`f${index}`, index]))
-    expect(Object.keys(readFormSaved({ mode: 'add', meta: 'device', record })?.record ?? {})).toHaveLength(DATA_PAGE_REPORT_LIMITS.savedFields)
+    expect(Object.keys(readFormSaved({ mode: 'add', meta: 'device', record })?.report.record ?? {})).toHaveLength(DATA_PAGE_REPORT_LIMITS.savedFields)
   })
 
   it('still reports a save whose record carries nothing, which is what a table no data page reported is', () => {
-    expect(readFormSaved({ mode: 'add', meta: 'device', record: {} })).toEqual({ record: {} })
-    expect(readFormSaved({ mode: 'modify', meta: 'device', record: null as never })).toEqual({ record: {} })
+    expect(readFormSaved({ mode: 'add', meta: 'device', record: {} })).toEqual({ mode: 'add', report: { record: {} } })
+    expect(readFormSaved({ mode: 'modify', meta: 'device', record: null })).toEqual({ mode: 'modify', report: { record: {} } })
   })
 
   it('is not reported for a save naming neither of the form\'s two modes', () => {
-    expect(readFormSaved({ mode: 'copy' as never, meta: 'device', record: { zh_label: 'A' } })).toBeUndefined()
-    expect(readFormSaved(undefined as never)).toBeUndefined()
+    expect(readFormSaved({ mode: 'copy', meta: 'device', record: { zh_label: 'A' } })).toBeUndefined()
+    expect(readFormSaved(undefined)).toBeUndefined()
   })
 })
 
@@ -670,19 +670,19 @@ describe('a delete', () => {
     expect(readDeleted({ meta: 'device', ids: ['1', '2'], deleted: [{}, { city: '济南' }], failed: 0 }, COLUMNS))
       .toEqual({ succeeded: 2, failed: 0, names: ['济南'] })
     // An item that is not a record is counted and names nothing.
-    expect(readDeleted({ meta: 'device', ids: ['1', '2'], deleted: [null as never, { city: '济南' }], failed: 0 }, COLUMNS))
+    expect(readDeleted({ meta: 'device', ids: ['1', '2'], deleted: [null, { city: '济南' }], failed: 0 }, COLUMNS))
       .toEqual({ succeeded: 2, failed: 0, names: ['济南'] })
   })
 
   it('is not reported where the payload states no count a report may carry', () => {
     expect(readDeleted({ meta: 'device', ids: [], deleted: [], failed: -1 }, COLUMNS)).toBeUndefined()
-    expect(readDeleted({ meta: 'device', ids: [], deleted: null as never, failed: 0 }, COLUMNS)).toBeUndefined()
-    expect(readDeleted(undefined as never, COLUMNS)).toBeUndefined()
+    expect(readDeleted({ meta: 'device', ids: [], deleted: null, failed: 0 }, COLUMNS)).toBeUndefined()
+    expect(readDeleted(undefined, COLUMNS)).toBeUndefined()
   })
 
   it('names the records it removed by their ids as text, and nothing where it names none', () => {
-    expect(readDeletedIds({ meta: 'device', ids: ['41', '', 7 as never], deleted: [], failed: 0 })).toEqual(['41'])
-    expect(readDeletedIds(undefined as never)).toEqual([])
+    expect(readDeletedIds({ meta: 'device', ids: ['41', '', 7], deleted: [], failed: 0 })).toEqual(['41'])
+    expect(readDeletedIds(undefined)).toEqual([])
   })
 })
 
@@ -695,11 +695,10 @@ describe('a batch edit', () => {
     const attrs = ['state', 'state', '1st', ...MANY]
     const report = readBatchModified({ meta: 'device', modified, attrs }, COLUMNS)
     expect(report?.succeeded).toBe(6)
-    expect(report?.failed).toBe(0)
     expect(report?.names).toEqual(['B-0', 'B-1', 'B-2', 'B-3', 'B-4'])
     expect(report?.fields).toHaveLength(DATA_PAGE_REPORT_LIMITS.savedFields)
     expect(report?.fields.slice(0, 2)).toEqual(['state', 'f0'])
-    expect(readBatchModified({ meta: 'device', modified: [], attrs: null as never }, COLUMNS)?.fields).toEqual([])
+    expect(readBatchModified({ meta: 'device', modified: [], attrs: null }, COLUMNS)?.fields).toEqual([])
   })
 
   it('names only the fields among the columns a report may carry', () => {
@@ -710,8 +709,8 @@ describe('a batch edit', () => {
   })
 
   it('is not reported where the payload carries no list of changed records', () => {
-    expect(readBatchModified({ meta: 'device', modified: 'all' as never, attrs: [] }, COLUMNS)).toBeUndefined()
-    expect(readBatchModified(undefined as never, COLUMNS)).toBeUndefined()
+    expect(readBatchModified({ meta: 'device', modified: 'all', attrs: [] }, COLUMNS)).toBeUndefined()
+    expect(readBatchModified(undefined, COLUMNS)).toBeUndefined()
   })
 })
 
@@ -745,7 +744,7 @@ describe('a column the scheme masks', () => {
     expect(readSaved(ROW, values)).toEqual({ record: { zh_label: '', city: '北京' } })
     expect(readDeleted({ meta: 'device', ids: ['1'], deleted: [ROW], failed: 0 }, values)?.names).toEqual(['北京'])
     expect(readBatchModified({ meta: 'device', modified: [ROW], attrs: ['code', 'city'] }, values))
-      .toEqual({ succeeded: 1, failed: 0, names: ['北京'], fields: ['city'] })
+      .toEqual({ succeeded: 1, names: ['北京'], fields: ['city'] })
   })
 
   it('reaches no clicked, ticked or pressed row', () => {

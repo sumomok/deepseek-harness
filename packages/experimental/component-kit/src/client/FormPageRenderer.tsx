@@ -37,8 +37,8 @@
  * calls `installElementUI()` first.
  */
 import { useEffect, useMemo, useRef } from 'react'
-import { FormPage, type FormPageSavedPayload } from '@sumomok/toy-crud-kit'
-import { readFormPage, readFormSaved, type FormPageVueProps } from './data-page-read.ts'
+import { FormPage } from '@sumomok/toy-crud-kit'
+import { readFormPage, readFormSaved, readSaveMode, type FormPageVueProps, type SaveMode } from './data-page-read.ts'
 import { useBasePathState, useContainedComponent } from './crud-box.ts'
 import { useAbilities } from './use-abilities.ts'
 import { keepMarked, markFormPage } from './marks.ts'
@@ -63,8 +63,8 @@ type FormPageMountProps = FormPageVueProps & {
   readonly abilities: DataPageAbilityTable
 }
 
-/** The action a save reports, by the mode of the request the form is open on. */
-const SAVE_ACTION: Readonly<Record<string, string>> = {
+/** The action a save reports, by the mode it saves in. */
+const SAVE_ACTION: Readonly<Record<SaveMode, string>> = {
   add: ADDED_ACTION_ID,
   modify: MODIFIED_ACTION_ID,
 }
@@ -75,8 +75,8 @@ const SAVE_ACTION: Readonly<Record<string, string>> = {
  * @returns the mode's action, or `undefined` for a form no request opened.
  */
 function saveAction(vueProps: FormPageMountProps): string | undefined {
-  const mode = vueProps.request?.['mode']
-  return typeof mode === 'string' ? SAVE_ACTION[mode] : undefined
+  const mode = readSaveMode(vueProps.request?.['mode'])
+  return mode === undefined ? undefined : SAVE_ACTION[mode]
 }
 
 /** What one drawn form needs. */
@@ -92,9 +92,9 @@ function FormPageBlock({ vueProps, onAction }: FormPageBlockProps) {
   const report = useRef(onAction)
   useEffect(() => { report.current = onAction })
   const on = useMemo<VueEventHandlers>(() => ({
-    'form-saved': (payload: FormPageSavedPayload) => {
+    'form-saved': (payload: unknown) => {
       const saved = readFormSaved(payload)
-      if (saved !== undefined) report.current(payload.mode === 'add' ? ADDED_ACTION_ID : MODIFIED_ACTION_ID, saved)
+      if (saved !== undefined) report.current(SAVE_ACTION[saved.mode], saved.report)
     },
   }), [])
   const { box, host } = useContainedComponent({ component: FormPage, props: vueProps, on })
