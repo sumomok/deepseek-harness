@@ -687,7 +687,7 @@ describe('Gateway forwarded events for non-owner Peers', () => {
     expect(ctx.typertGateway.hasLiveClient()).toBe(false)
   })
 
-  it('delivers only allowed broadcasts and no answerable waterfall to a non-owner, and refuses its results', async () => {
+  it('delivers only allowed broadcasts to a non-owner, and no waterfall while no agent resource kind is declared', async () => {
     const { ctx, hold } = await setup({ connection: true })
     hold(shelf('s1'))
     const decide = vi.spyOn(RemoteAccessService.prototype, 'decide')
@@ -717,7 +717,8 @@ describe('Gateway forwarded events for non-owner Peers', () => {
     push({ event: 'fixture/notice', args: ['hello'] })
     push({ event: 'fixture/shelf', args: ['s2'], resources })
     push({ event: 'fixture/shelf', args: ['s1'], resources })
-    await expect(ownerEvents.next()).resolves.toMatchObject({ value: { type: 'waterfall', event: 'fixture/ask' } })
+    const asked = await ownerEvents.next()
+    expect(asked).toMatchObject({ value: { type: 'waterfall', event: 'fixture/ask' } })
     await expect(ownerEvents.next()).resolves.toMatchObject({ value: { type: 'emit', event: 'fixture/notice' } })
     await expect(ownerEvents.next()).resolves.toMatchObject({ value: { type: 'emit', event: 'fixture/shelf', args: ['s2'] } })
     await expect(ownerEvents.next()).resolves.toMatchObject({ value: { type: 'emit', event: 'fixture/shelf', args: ['s1'] } })
@@ -729,21 +730,22 @@ describe('Gateway forwarded events for non-owner Peers', () => {
       { principal: GUEST, action: 'event:fixture/shelf', resources: [shelf('s1')] },
     ])
 
+    // A result for a waterfall the guest never received changes nothing; the owner still holds it.
     const clientId: unknown = Reflect.get(guestReady.value as object, 'clientId')
+    const eventId: unknown = Reflect.get(asked.value as object, 'eventId')
     const shared = ctx.connection.createSharedFetchHandler('/api')
-    const refused = await shared.fetch(new Request('http://host/api/$events/result', {
+    const ignored = await shared.fetch(new Request('http://host/api/$events/result', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         type: 'client-request',
         rpcId: 'rpc-result',
         method: '$events/result',
-        payload: { args: { clientId, eventId: 'any', outcome: { kind: 'next' } } },
+        payload: { args: { clientId, eventId, outcome: { kind: 'result', value: 'guest' } } },
       }),
     }), guest)
-    expect(await refused.json()).toMatchObject({
-      result: { ok: false, error: { code: 'gateway/invocation-unavailable', details: { endpoint: '$events/result' } } },
-    })
+    expect(await ignored.json()).toMatchObject({ result: { ok: true } })
+    expect(settled).not.toHaveBeenCalled()
     abort.abort()
     await guestEvents.return?.()
     await ownerEvents.return?.()

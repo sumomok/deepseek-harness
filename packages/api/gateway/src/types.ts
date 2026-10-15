@@ -150,7 +150,7 @@ export interface TypertGateway {
   readonly wireStream: TypertGatewayWireStream
 
   /**
-   * Check for an active owner Client event stream, the only kind that can answer forwarded waterfalls.
+   * Check for an active owner Client event stream, the only kind that receives every forwarded waterfall.
    * @returns whether an owner stream is open and has not been cancelled.
    */
   hasLiveClient(): boolean

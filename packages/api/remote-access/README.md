@@ -81,7 +81,7 @@ No direct effect.
 - Resource readers and automatic resolution must cover every resource a method touches; a resource the call does not name is not checked, so a principal granted on the named resources reaches it.
 - Default resource resolution matches wire field names; adding a field with a registered kind's name to a method adds that kind's resource to the call.
 - Exact Connection Fetch routes do not pass through the Gateway; the shared Fetch handler refuses them to every non-owner Peer with 403 until each route declares its own access rule.
-- Interaction participation (answering forwarded waterfalls) is owner-only: non-owner `$events` streams receive only the broadcast frames whose `event:<name>` action the policy allows on the event's resources.
+- A non-owner `$events` stream receives a forwarded waterfall, and may answer it, only when the policy allows its `event:<name>` action on the resource the waterfall's Agent identity names; the Gateway decides when the waterfall is first delivered and when a stream connects while it is pending, so a policy change reaches an open stream only after it reconnects.
 - `api-session/added` carries the whole `SessionSummary`, so a non-owner allowed to receive it also learns its `parentSessionId`.
 - A granted Session's cwd and tool paths already contain the owner's absolute paths, so the `$events` ready frame gives a non-owner the full `host`, including `home`; the Gateway does not hide `home` separately.
 - `workspace/follow` notices a Workspace whose visibility a policy revoked only when that Workspace or the Workspace order next changes, and then replaces the non-owner's baseline; an access change alone sends no frame.

@@ -81,7 +81,7 @@ Client 入口同步读取 index 注入在 `REMOTE_ACCESS_SNAPSHOT_KEY` 下的 ba
 - 资源读取函数与自动解析必须覆盖方法访问的全部资源；调用未指明的资源不受检查，持有已指明资源授权的 principal 可以访问它。
 - 默认资源解析按 wire 字段名匹配；给方法新增与已登记种类同名的字段，会让调用多访问该种类的资源。
 - exact Connection Fetch route 不经过 Gateway；在各路由声明自己的访问规则之前，共享 Fetch handler 对所有非 owner Peer 返回 403。
-- 交互参与（回答转发的 waterfall）仅限 owner：非 owner 的 `$events` 流只收到 policy 在事件资源上放行其 `event:<name>` action 的广播帧。
+- 非 owner 的 `$events` 流只有在 policy 对 waterfall 的 Agent 身份所指的资源放行其 `event:<name>` action 时，才收到并可回答该转发 waterfall；Gateway 在 waterfall 首次投递时、以及事件流在它挂起期间连上时判定，因此 policy 变化要等已打开的流重连后才生效。
 - `api-session/added` 携带完整的 `SessionSummary`，因此被允许接收它的非 owner 也会得知其 `parentSessionId`。
 - 被授权 Session 的 cwd 与工具路径本就包含 owner 的绝对路径，因此 `$events` ready 帧向非 owner 提供完整的 `host`（含 `home`）；Gateway 不单独隐藏 `home`。
 - policy 撤销某个 Workspace 的可见性后，`workspace/follow` 只在该 Workspace 或 Workspace 顺序下一次变化时察觉并重推非 owner 的 baseline；仅访问变化不会发送帧。
