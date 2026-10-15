@@ -1,7 +1,8 @@
 /**
  * A stand-in for this deployment's backend, answering the vendored crud kit's
  * request layer under jsdom: the visitor's profile, each table's schemes and
- * dictionary, and every query's rows, per table.
+ * dictionary, every query's rows, per table, and the batch write each table's
+ * own controls make.
  *
  * It replaces `XMLHttpRequest`, which is what that layer uses under jsdom, so a
  * spec installs {@link StubRequest} with `vi.stubGlobal` and defines the tables
@@ -57,6 +58,8 @@ export interface Seen {
   readonly url: string
   /** The `Authorization` header it carried. */
   readonly authorization: string | undefined
+  /** The body the request carried as JSON text, empty where it carried none. */
+  readonly body: string
 }
 
 /** Every request the stub answered, in order; a spec resets it per case. */
@@ -87,9 +90,10 @@ function schemeRow(meta: string, table: StubTable, schemaType: number): Record<s
  * Answer one request the way the deployment's backend does.
  * @param method - the request method.
  * @param url - the request URL, query included.
+ * @param body - the body the request carried as JSON text.
  * @returns the status and the body.
  */
-function route(method: string, url: string): [number, unknown] {
+function route(method: string, url: string, body: string): [number, unknown] {
   const [path = '', query = ''] = url.split('?')
   const params = new URLSearchParams(query)
   if (path.endsWith('/nrms-auth/api/auth/userinfo')) {
@@ -120,6 +124,15 @@ function route(method: string, url: string): [number, unknown] {
     const rows = tables.get(search[1] ?? '')?.rows ?? []
     const page = { total: rows.length, currentPage: 1, pageSize: 20 }
     return [200, { code: 0, data: { rawValue: rows, displayValue: rows, ref: [], page } }]
+  }
+  const batchWrite = /\/nrms-datamanagement\/api\/batchresources\/(?:delete\/)?[^/?]+$/.exec(path)
+  if (batchWrite !== null) {
+    // The kit writes one item per record and names each written record from the
+    // `rawValue` its own answer carries back, so the stub answers the request's
+    // own items. A row's delete and a batch edit both write this way.
+    const sent = JSON.parse(body) as { readonly resObjList?: readonly { readonly rawValue?: unknown }[] }
+    const resObjList = (sent.resObjList ?? []).map(item => ({ rawValue: item.rawValue }))
+    return [200, { code: 0, data: { resObjList, globalFailedInfo: null } }]
   }
   return [200, { code: 0, data: null }]
 }
@@ -163,13 +176,13 @@ export class StubRequest {
 
   abort(): void {}
 
-  send(): void {
-    seen.push({ method: this.method, url: this.url, authorization: this.headers['authorization'] })
-    const [status, body] = route(this.method, this.url)
+  send(body = ''): void {
+    seen.push({ method: this.method, url: this.url, authorization: this.headers['authorization'], body })
+    const [status, answer] = route(this.method, this.url, body)
     setTimeout(() => {
       this.readyState = 4
       this.status = status
-      this.responseText = JSON.stringify(body)
+      this.responseText = JSON.stringify(answer)
       this.response = this.responseText
       this.onreadystatechange?.()
       this.onload?.()

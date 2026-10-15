@@ -10,11 +10,14 @@
  * redrawn, a card only where the page draws it, and no value of a column the
  * table's scheme masks. And that it publishes what its add and modify buttons
  * and its names opened, withdrawing each value that names a record a delete
- * removed.
+ * removed, and that a delete and a batch edit a person performs through the
+ * page's own controls are reported by the counts, names and changed fields the
+ * kit's own events carry.
  *
  * The backend is the shared stub on `XMLHttpRequest`, which is what the page's
  * own request layer uses under jsdom, serving the smallest scheme the page
- * accepts and its rows. Nothing here reaches a network.
+ * accepts, its rows, and the two batch writes the page's own controls make.
+ * Nothing here reaches a network.
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
@@ -85,6 +88,9 @@ const MASKED_META = 'probe_masked'
 /** One row of {@link MASKED_META} whose first unmasked cell is empty, so a name read through the mask would be its code. */
 const MASKED_ROW = { int_id: '1', code: 'C-1', zh_label: '', city: '北京' }
 
+/** Another row of {@link MASKED_META}, named by a cell the scheme does not mask. */
+const MASKED_NAMED_ROW = { int_id: '2', code: 'C-2', zh_label: '乙设备', city: '上海' }
+
 defineTable(MASKED_META, {
   gridItems: [
     { relatedMetaAttr: 'code', alias: '编码', isShow: '1', showAsPass: 1 },
@@ -96,7 +102,7 @@ defineTable(MASKED_META, {
     { relatedMetaAttr: 'zh_label', alias: '名称', isShow: 1, isEditable: 1, isRequired: 0, relatedComponent: 'edit_input', op: 'LIKE' },
     { relatedMetaAttr: 'city', alias: '城市', isShow: 1, isEditable: 1, isRequired: 0, relatedComponent: 'edit_input', op: 'EQ' },
   ],
-  rows: [MASKED_ROW],
+  rows: [MASKED_ROW, MASKED_NAMED_ROW],
 })
 
 /** Every node appended straight under the document body, by id, while a case ran. */
@@ -226,6 +232,71 @@ function pageOf(container: HTMLElement): PageInstance {
 function buttons(container: HTMLElement): { text: string; cls: string }[] {
   return [...container.querySelectorAll('button')]
     .map(button => ({ text: button.textContent?.trim() ?? '', cls: button.getAttribute('class') ?? '' }))
+}
+
+/**
+ * The button a person finds by the text it shows.
+ * @param scope - where to look.
+ * @param text - the button's text.
+ * @returns the button, or `undefined` where none shows that text.
+ */
+function buttonNamed(scope: ParentNode | null, text: string): Element | undefined {
+  return [...scope?.querySelectorAll('button') ?? []].find(button => button.textContent?.trim() === text)
+}
+
+/**
+ * The open dialog a person finds by its title.
+ * @param container - the drawn block.
+ * @param title - the dialog's title.
+ * @returns the dialog, or `null` where none is drawn under that title.
+ */
+function dialogTitled(container: HTMLElement, title: string): Element | null {
+  return container.querySelector(`[role="dialog"][aria-label="${title}"]`)
+}
+
+/**
+ * One control a person finds in the row showing a name. el-table draws a row
+ * once per wrapper and leaves the copies under a fixed column as `is-hidden`
+ * placeholders, so the row is every wrapper's row at the same index, and only
+ * its drawn cells are looked in.
+ * @param container - the drawn block.
+ * @param name - the row's name cell.
+ * @param selector - the control, as it is drawn.
+ * @param text - the text it shows, where several controls match the selector.
+ * @returns the control, or `undefined` where the row draws none.
+ */
+function inRow(container: HTMLElement, name: string, selector: string, text?: string): Element | undefined {
+  const cell = [...container.querySelectorAll('td:not(.is-hidden)')].find(td => td.textContent?.trim() === name)
+  const row = cell?.closest('tr')
+  if (row == null) throw new Error(`the table drew no row named "${name}"`)
+  const index = [...row.parentElement?.children ?? []].indexOf(row)
+  const controls = [...container.querySelectorAll('tbody')]
+    .flatMap(body => [...body.children[index]?.querySelectorAll(`td:not(.is-hidden) ${selector}`) ?? []])
+  return text === undefined ? controls[0] : controls.find(control => control.textContent?.trim() === text)
+}
+
+/**
+ * The field input a person finds by its label, among the fields drawn now.
+ * @param container - the drawn block.
+ * @param label - the label the field shows.
+ * @returns the column the input is marked with, `null` where it carries none.
+ */
+function fieldLabelled(container: HTMLElement, label: string): string | null | undefined {
+  const item = [...container.querySelectorAll('.el-form-item')]
+    .find(candidate => candidate.querySelector('label')?.textContent?.trim() === label)
+  return item?.querySelector('input')?.getAttribute('data-component-field')
+}
+
+/**
+ * One field of one open write dialog, as a person finds it by the label beside
+ * it: the batch dialog's own item whose label reads `label`.
+ * @param scope - where to look.
+ * @param label - the label the field shows.
+ * @returns the item, or `undefined` where no field shows that label.
+ */
+function fieldItem(scope: ParentNode, label: string): Element | undefined {
+  return [...scope.querySelectorAll('.form-edit-item')]
+    .find(candidate => candidate.querySelector('.el-form-item__label')?.textContent?.trim() === label)
 }
 
 describe('toy.data-page', () => {
@@ -870,6 +941,85 @@ describe('a column the table\'s scheme masks', () => {
   })
 })
 
+describe('a delete and a batch edit a person performs on the page', () => {
+  it('reports a row deleted through the row\'s own bubble by its count and unmasked name, and no masked value', async () => {
+    const { view, onAction } = draw(Object.freeze({
+      relatedMeta: MASKED_META,
+      metaLabel: '脱敏表',
+      readOnly: false,
+      toolbarButtons: ['search', 'clear'],
+      rowOperations: ['delete'],
+      selectMode: 'checkbox',
+    }))
+    await loaded(onAction)
+    const remove = await vi.waitFor(() => {
+      const found = inRow(view.container, '乙设备', 'i.el-icon-delete')
+      if (found === undefined) throw new Error('the row drew no delete control')
+      return found
+    })
+    fireEvent.click(remove)
+    const answered = await vi.waitFor(() => {
+      const found = inRow(view.container, '乙设备', 'button', '确定')
+      if (found === undefined) throw new Error('the row drew no confirmation bubble')
+      return found
+    })
+    onAction.mockClear()
+    fireEvent.click(answered)
+    await vi.waitFor(() => {
+      expect(onAction).toHaveBeenCalledWith('deleted', { succeeded: 1, failed: 0, names: ['乙设备'] })
+    }, { timeout: 5000, interval: 20 })
+    // The scheme masks the row's code, and nothing the block reports carries it.
+    expect(JSON.stringify(onAction.mock.calls)).not.toContain('C-2')
+  }, 20_000)
+
+  it('reports a batch edit saved through the batch dialog by its count, names and changed fields, and no value', async () => {
+    const { view, onAction } = draw(Object.freeze({
+      relatedMeta: META,
+      metaLabel: '演示设备',
+      readOnly: false,
+      toolbarButtons: ['batch', 'search', 'clear'],
+      rowOperations: ['modify'],
+      selectMode: 'checkbox',
+    }))
+    await loaded(onAction)
+    for (const name of ['北京-核心-01', '济南-接入-07']) {
+      const tick = await vi.waitFor(() => {
+        const found = inRow(view.container, name, 'input[type="checkbox"]')
+        if (found === undefined) throw new Error(`the table drew no tick beside "${name}"`)
+        return found
+      })
+      fireEvent.click(tick)
+      await flush()
+    }
+    fireEvent.click(view.container.querySelector('button[aria-haspopup="list"]') as HTMLElement)
+    await flush()
+    const batchEdit = [...view.container.querySelectorAll('li')].find(item => item.textContent?.trim() === '批量修改')
+    fireEvent.click(batchEdit as HTMLElement)
+    const dialog = await vi.waitFor(() => {
+      const found = dialogTitled(view.container, '【演示设备】批量修改（2条）')
+      if (found === null) throw new Error('the batch dialog did not open')
+      return found
+    })
+    const city = fieldItem(dialog, '城市')
+    fireEvent.click(city?.querySelector('.checkbox-div input[type="checkbox"]') as HTMLElement)
+    await flush()
+    const value = city?.querySelector('input.el-input__inner') as HTMLInputElement
+    value.value = '上海'
+    value.dispatchEvent(new Event('input', { bubbles: true }))
+    value.dispatchEvent(new Event('change', { bubbles: true }))
+    await flush()
+    onAction.mockClear()
+    fireEvent.click(buttonNamed(dialog, '确 定') as HTMLElement)
+    await vi.waitFor(() => {
+      expect(onAction).toHaveBeenCalledWith('batch-modified', { succeeded: 2, names: ['北京-核心-01', '济南-接入-07'], fields: ['city'] })
+    }, { timeout: 5000, interval: 20 })
+    // The value the person typed left with the write; the report names the
+    // field it changed and carries none of its value.
+    expect(seen.find(request => request.method === 'PUT')?.body).toContain('"city":"上海"')
+    expect(JSON.stringify(onAction.mock.calls)).not.toContain('上海')
+  }, 20_000)
+})
+
 describe('the controls one data page marks for the act tool', () => {
   /**
    * The arrangement every case here draws: every toolbar button, one custom
@@ -897,59 +1047,6 @@ describe('the controls one data page marks for the act tool', () => {
    */
   function marksOn(el: Element | null | undefined): { action: string | null; key: string | null } | null {
     return el == null ? null : { action: el.getAttribute('data-component-action'), key: el.getAttribute('data-component-key') }
-  }
-
-  /**
-   * The button a person finds by the text it shows.
-   * @param scope - where to look.
-   * @param text - the button's text.
-   * @returns the button, or `undefined` where none shows that text.
-   */
-  function buttonNamed(scope: ParentNode | null, text: string): Element | undefined {
-    return [...scope?.querySelectorAll('button') ?? []].find(button => button.textContent?.trim() === text)
-  }
-
-  /**
-   * The open dialog a person finds by its title.
-   * @param container - the drawn block.
-   * @param title - the dialog's title.
-   * @returns the dialog, or `null` where none is drawn under that title.
-   */
-  function dialogTitled(container: HTMLElement, title: string): Element | null {
-    return container.querySelector(`[role="dialog"][aria-label="${title}"]`)
-  }
-
-  /**
-   * One control a person finds in the row showing a name. el-table draws a row
-   * once per wrapper and leaves the copies under a fixed column as `is-hidden`
-   * placeholders, so the row is every wrapper's row at the same index, and only
-   * its drawn cells are looked in.
-   * @param container - the drawn block.
-   * @param name - the row's name cell.
-   * @param selector - the control, as it is drawn.
-   * @param text - the text it shows, where several controls match the selector.
-   * @returns the control, or `undefined` where the row draws none.
-   */
-  function inRow(container: HTMLElement, name: string, selector: string, text?: string): Element | undefined {
-    const cell = [...container.querySelectorAll('td:not(.is-hidden)')].find(td => td.textContent?.trim() === name)
-    const row = cell?.closest('tr')
-    if (row == null) throw new Error(`the table drew no row named "${name}"`)
-    const index = [...row.parentElement?.children ?? []].indexOf(row)
-    const controls = [...container.querySelectorAll('tbody')]
-      .flatMap(body => [...body.children[index]?.querySelectorAll(`td:not(.is-hidden) ${selector}`) ?? []])
-    return text === undefined ? controls[0] : controls.find(control => control.textContent?.trim() === text)
-  }
-
-  /**
-   * The field input a person finds by its label, among the fields drawn now.
-   * @param container - the drawn block.
-   * @param label - the label the field shows.
-   * @returns the column the input is marked with, `null` where it carries none.
-   */
-  function fieldLabelled(container: HTMLElement, label: string): string | null | undefined {
-    const item = [...container.querySelectorAll('.el-form-item')]
-      .find(candidate => candidate.querySelector('label')?.textContent?.trim() === label)
-    return item?.querySelector('input')?.getAttribute('data-component-field')
   }
 
   it('marks the toolbar, the table and its fields with the actions and keys the catalog declares', async () => {
