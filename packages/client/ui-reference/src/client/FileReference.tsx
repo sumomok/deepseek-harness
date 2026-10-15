@@ -20,7 +20,7 @@ export interface FileReferenceInjected {
 type FileReferenceProps = UserTextNodeProps<'file'> & InjectFace<FileReferenceInjected> & PropsLocale<typeof NS>
 
 /**
- * Render a file chip and contain synchronous navigation failures without hiding the reference.
+ * Render a file chip and contain navigation failures, thrown or rejected, without hiding the reference.
  * @param props - JSON node, interaction policy, Session-authorized navigation, and locale seat.
  * @returns an inline chip and, after a navigation failure, its body-portaled dialog.
  */

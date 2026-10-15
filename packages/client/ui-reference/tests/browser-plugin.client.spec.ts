@@ -694,6 +694,14 @@ describe('reference preview', () => {
     ])
   })
 
+  it('rejects the returned open when the Sidebar default throws', async () => {
+    const { ctx } = await bench()
+    const entry = ctx.slots.entries('conversation.user.text.node').find(candidate => candidate.options.key === 'file')!
+    const factory = entry.inject as NonNullable<typeof entry.inject> & ((id: SessionId) => FileReferenceInjected)
+    vi.spyOn(ctx.sidebarRight, 'openResource').mockImplementation(() => { throw new Error('no sidebar') })
+    await expect(factory(sid('in-project')).openFile('x.md')).rejects.toThrow('no sidebar')
+  })
+
   it('dispatches each inline file action through referent/open before the Sidebar default', async () => {
     const { ctx, sessions } = await bench()
     await sessions.add({ id: 'in-project', summary: { cwd: '/proj' } })
