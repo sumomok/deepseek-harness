@@ -942,32 +942,46 @@ describe('a column the table\'s scheme masks', () => {
 })
 
 describe('a delete and a batch edit a person performs on the page', () => {
-  it('reports a row deleted through the row\'s own bubble by its count and unmasked name, and no masked value', async () => {
-    const { view, onAction } = draw(Object.freeze({
+  it('reports a row deleted through the row\'s own bubble by its count and names, and withdraws the value naming it', async () => {
+    const { view, onAction, onOutput } = draw(Object.freeze({
       relatedMeta: MASKED_META,
       metaLabel: '脱敏表',
       readOnly: false,
       toolbarButtons: ['search', 'clear'],
-      rowOperations: ['delete'],
+      rowOperations: ['modify', 'delete'],
       selectMode: 'checkbox',
     }))
     await loaded(onAction)
+    // The row's delete control and the button answering its bubble are taken
+    // before the modify dialog opens, which draws over the row they belong to.
     const remove = await vi.waitFor(() => {
       const found = inRow(view.container, '乙设备', 'i.el-icon-delete')
       if (found === undefined) throw new Error('the row drew no delete control')
       return found
     })
-    fireEvent.click(remove)
     const answered = await vi.waitFor(() => {
       const found = inRow(view.container, '乙设备', 'button', '确定')
       if (found === undefined) throw new Error('the row drew no confirmation bubble')
       return found
     })
+    const edit = await vi.waitFor(() => {
+      const found = inRow(view.container, '乙设备', 'i.el-icon-edit')
+      if (found === undefined) throw new Error('the row drew no modify control')
+      return found
+    })
+    fireEvent.click(edit)
+    await vi.waitFor(() => {
+      expect(onOutput).toHaveBeenLastCalledWith('editing', { mode: 'modify', type: MASKED_META, id: '2', name: '乙设备' })
+    }, { timeout: 5000, interval: 20 })
     onAction.mockClear()
+    fireEvent.click(remove)
     fireEvent.click(answered)
     await vi.waitFor(() => {
       expect(onAction).toHaveBeenCalledWith('deleted', { succeeded: 1, failed: 0, names: ['乙设备'] })
     }, { timeout: 5000, interval: 20 })
+    // The deleted record is the one the modify dialog was opened on, so the
+    // value standing is withdrawn rather than left naming a record now gone.
+    expect(onOutput).toHaveBeenLastCalledWith('editing', undefined)
     // The scheme masks the row's code, and nothing the block reports carries it.
     expect(JSON.stringify(onAction.mock.calls)).not.toContain('C-2')
   }, 20_000)
@@ -999,7 +1013,7 @@ describe('a delete and a batch edit a person performs on the page', () => {
       const found = dialogTitled(view.container, '【演示设备】批量修改（2条）')
       if (found === null) throw new Error('the batch dialog did not open')
       return found
-    })
+    }, { timeout: 5000, interval: 20 })
     const city = fieldItem(dialog, '城市')
     fireEvent.click(city?.querySelector('.checkbox-div input[type="checkbox"]') as HTMLElement)
     await flush()

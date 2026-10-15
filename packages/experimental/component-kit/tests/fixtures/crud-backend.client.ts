@@ -1,7 +1,7 @@
 /**
  * A stand-in for this deployment's backend, answering the vendored crud kit's
  * request layer under jsdom: the visitor's profile, each table's schemes and
- * dictionary, every query's rows, per table, and the batch write each table's
+ * dictionary, every query's rows, per table, and the batch writes each table's
  * own controls make.
  *
  * It replaces `XMLHttpRequest`, which is what that layer uses under jsdom, so a
@@ -125,13 +125,20 @@ function route(method: string, url: string, body: string): [number, unknown] {
     const page = { total: rows.length, currentPage: 1, pageSize: 20 }
     return [200, { code: 0, data: { rawValue: rows, displayValue: rows, ref: [], page } }]
   }
-  const batchWrite = /\/nrms-datamanagement\/api\/batchresources\/(?:delete\/)?[^/?]+$/.exec(path)
-  if (batchWrite !== null) {
-    // The kit writes one item per record and names each written record from the
-    // `rawValue` its own answer carries back, so the stub answers the request's
-    // own items. A row's delete and a batch edit both write this way.
-    const sent = JSON.parse(body) as { readonly resObjList?: readonly { readonly rawValue?: unknown }[] }
-    const resObjList = (sent.resObjList ?? []).map(item => ({ rawValue: item.rawValue }))
+  const deleteWrite = /\/nrms-datamanagement\/api\/batchresources\/delete\/[^/?]+$/.exec(path)
+  if (method === 'POST' && deleteWrite !== null) {
+    // A row's own delete writes one item per record and names each deleted
+    // record from the `rawValue` its own answer carries back.
+    const sent = JSON.parse(body) as { readonly resObjList: readonly { readonly rawValue: unknown }[] }
+    const resObjList = sent.resObjList.map(item => ({ rawValue: item.rawValue }))
+    return [200, { code: 0, data: { resObjList, globalFailedInfo: null } }]
+  }
+  const editWrite = /\/nrms-datamanagement\/api\/batchresources\/[^/?]+$/.exec(path)
+  if (method === 'PUT' && editWrite !== null) {
+    // A batch edit writes one item per record and names each changed record
+    // from the `rawValue` its own answer carries back.
+    const sent = JSON.parse(body) as { readonly resObjList: readonly { readonly rawValue: unknown }[] }
+    const resObjList = sent.resObjList.map(item => ({ rawValue: item.rawValue }))
     return [200, { code: 0, data: { resObjList, globalFailedInfo: null } }]
   }
   return [200, { code: 0, data: null }]
@@ -176,9 +183,10 @@ export class StubRequest {
 
   abort(): void {}
 
-  send(body = ''): void {
-    seen.push({ method: this.method, url: this.url, authorization: this.headers['authorization'], body })
-    const [status, answer] = route(this.method, this.url, body)
+  send(body: string | null = null): void {
+    const text = body ?? ''
+    seen.push({ method: this.method, url: this.url, authorization: this.headers['authorization'], body: text })
+    const [status, answer] = route(this.method, this.url, text)
     setTimeout(() => {
       this.readyState = 4
       this.status = status
