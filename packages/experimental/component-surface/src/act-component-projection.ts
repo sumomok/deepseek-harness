@@ -46,9 +46,12 @@ const UNREADABLE_ARGS = 'not a set of arguments this tool takes'
  * The host's deadline starts when it grants the claim, and the seat's run
  * starts once the grant has come back to it; steps that spent the whole
  * deadline would be answered as a console that went quiet while the console
- * was still acting. The same share the page domain's steps get
- * (`ACT_RUN_SHARE` in content-frame's `access/wire.ts`), written here because
- * this module may carry no other plugin's values.
+ * was still acting. The share is a fraction of that deadline rather than a
+ * time of its own, so the deployment tunes `actTimeoutMs` and the steps follow
+ * it. It is written here rather than imported from `content-frame` because
+ * that package is a peer dependency and the host bundle inlines anything that
+ * is not a production dependency, which would ship a second copy of the
+ * channel's wire layer inside this package's artifact.
  */
 const ACT_RUN_SHARE = 0.75
 
