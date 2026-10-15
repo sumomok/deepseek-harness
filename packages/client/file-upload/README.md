@@ -46,6 +46,8 @@ The Client plugin provides `ctx.fileUpload`. Its `upload()` method receives the 
 
 The Host plugin provides `ctx.fileUploads`. It owns the authenticated streaming route, encoded Remote fallback, command receipt resolver, and staged-receipt lifecycle; encoded admission, attachment-error recognition, and byte storage stay behind `ctx.attachments`. Host callers supply an Agent with its runtime-owned context; receipt tables use that Agent's exact Session object as their key. The Session Controller registers the resolver that can resume a cold ordinary Agent and consumes receipts during prompt admission. Prompt delivery holds each receipt binding in a disposable transaction: disposal restores the previous binding until successful delivery commits it, and queue or history observation then retires the committed receipt.
 
+The streaming route `/api/session/uploadFileBinary` serves a non-owner Peer, such as a console member, through its own [Connection](../connection/README.md) access rule: the request must name a `sessionId` on which [remote access](../../api/remote-access/README.md) allows the action `/api/session/uploadFileBinary`. A missing `sessionId`, a Host without remote access, or a denial answers 403 before the body is read or the Session's Agent is resolved. The owner's uploads are unchanged.
+
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Host streaming route, attachment-service admission, and Session-owned receipt lifecycle |
