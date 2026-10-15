@@ -714,6 +714,38 @@ describe('a field the entry draws as an autocomplete', () => {
     expect(input.value).toBe('')
   })
 
+  it('puts back what the field held before the step typed, and tells the block it did', async () => {
+    // A field that already holds a choice — a related record the person picked
+    // — keeps it through a refusal: the step's own typing is what is undone.
+    const { drawn, input } = drawAutocomplete(['核心'])
+    input.value = '林地一张图'
+    const heard: string[] = []
+    input.addEventListener('change', () => { heard.push(input.value) })
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)
+    expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
+    expect(input.value).toBe('林地一张图')
+    expect(heard).toEqual(['', '接入', '林地一张图'])
+  })
+
+  it('writes nothing back where the step left the field holding what it held', async () => {
+    const { drawn, input } = drawAutocomplete(['核心'])
+    input.value = '接入'
+    const heard: string[] = []
+    input.addEventListener('change', () => { heard.push(input.value) })
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)
+    expect(report.status).toBe('failed')
+    expect(heard).toEqual(['', '接入'])
+  })
+
+  it('refuses a suggestion field whose control takes no typing', async () => {
+    const drawn = drawEntry('<div class="el-autocomplete"><span data-component-field="topic">接入</span></div>')
+    expect((await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'The field for "topic" is not one this call may write.',
+    }])
+  })
+
   it('refuses a value two drawn suggestions carry rather than choosing one of them', async () => {
     const { drawn, input } = drawAutocomplete(['重复', '重复'])
     expect(await run(args([{ action: 'set', name: 'topic', value: '重复' }]), drawn)).toEqual({

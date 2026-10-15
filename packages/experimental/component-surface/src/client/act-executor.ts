@@ -247,8 +247,9 @@ async function fillSelect(entry: DrawnEntry, select: Element, trigger: Element, 
  * choose the one drawn suggestion whose label is the value, and report done
  * only once the panel closed on the choice. Every way that can fail is a
  * refusal naming the part that failed rather than a step reported as one that
- * ran, and a refusal leaves the field the way the step found it — the typing
- * was the step's own.
+ * ran, and a refusal leaves the field holding what the step found in it — the
+ * typing was the step's own, and what the field held before it may be a
+ * record the person chose.
  * @param entry - the drawn entry.
  * @param autocomplete - the autocomplete the field's control belongs to.
  * @param trigger - the control the field was found by.
@@ -257,6 +258,36 @@ async function fillSelect(entry: DrawnEntry, select: Element, trigger: Element, 
  * @throws {Error} with the model-facing reason when the value cannot be chosen.
  */
 async function fillAutocomplete(entry: DrawnEntry, autocomplete: Element, trigger: Element, name: string, value: string): Promise<void> {
+  // The field is typed into, so a control that takes no typing is one this
+  // step cannot write.
+  if (!(trigger instanceof HTMLInputElement || trigger instanceof HTMLTextAreaElement)) throw new Error(notWritableReason(name))
+  const before = trigger.value
+  try {
+    await chooseSuggestion(entry, autocomplete, trigger, name, value)
+  } catch (refusal) {
+    // Written back only where the step's typing changed it, so a field the
+    // step left as it was sees no edit at all.
+    if (trigger.value !== before) writeValue(trigger, name, before)
+    throw refusal
+  }
+}
+
+/**
+ * The gesture {@link fillAutocomplete} performs, which throws where it stops.
+ * @param entry - the drawn entry.
+ * @param autocomplete - the autocomplete the field's control belongs to.
+ * @param trigger - the field's control.
+ * @param name - the column or property the step named, for the refusals.
+ * @param value - the suggestion label the step named.
+ * @throws {Error} with the model-facing reason when the value cannot be chosen.
+ */
+async function chooseSuggestion(
+  entry: DrawnEntry,
+  autocomplete: Element,
+  trigger: HTMLInputElement | HTMLTextAreaElement,
+  name: string,
+  value: string,
+): Promise<void> {
   // The click is the person's own first move, and it is what focuses the field
   // element-ui draws the panel for.
   clickOn(trigger)
@@ -267,23 +298,14 @@ async function fillAutocomplete(entry: DrawnEntry, autocomplete: Element, trigge
   writeValue(trigger, name, value)
   await settles(() => autocompleteOptions(autocomplete, entry.container).length > 0, SUGGESTION_SETTLE_MS)
   const matches = autocompleteOptions(autocomplete, entry.container).filter(option => optionLabel(option) === value)
-  if (matches.length > 1) {
-    writeValue(trigger, name, '')
-    throw new Error(ambiguousOptionReason(name, value))
-  }
+  if (matches.length > 1) throw new Error(ambiguousOptionReason(name, value))
   const option = matches[0]
-  if (option === undefined) {
-    writeValue(trigger, name, '')
-    throw new Error(noOptionReason(name, value))
-  }
+  if (option === undefined) throw new Error(noOptionReason(name, value))
   clickOn(option)
   // The component empties the panel on the choice itself, so a panel still
   // holding suggestions is a click the component did not take.
   const taken = await settles(() => autocompleteOptions(autocomplete, entry.container).length === 0, SELECT_SETTLE_MS)
-  if (!taken) {
-    writeValue(trigger, name, '')
-    throw new Error(optionNotTakenReason(name, value))
-  }
+  if (!taken) throw new Error(optionNotTakenReason(name, value))
 }
 
 /**
@@ -291,8 +313,8 @@ async function fillAutocomplete(entry: DrawnEntry, autocomplete: Element, trigge
  *
  * A text control is written the way a person typing writes it, and a select —
  * drawn or native — or a suggestion field is filled by choosing an option by
- * its label; the difference is where
- * the component's value lives, not what the step promises. What both share is
+ * its label; the difference is where the component's value lives, not what
+ * the step promises. What both share is
  * the refusal: a disabled or read-only control, and a value the control did not
  * take, end the step rather than report a write that never happened.
  * @param entry - the drawn entry.
