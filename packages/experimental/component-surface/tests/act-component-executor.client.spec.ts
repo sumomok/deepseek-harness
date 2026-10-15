@@ -939,6 +939,23 @@ describe('the entry a long call is running against', () => {
     expect((document.querySelector('[data-component-field="zh_label"]') as HTMLInputElement).value).toBe('')
   })
 
+  it('fails a wait the entry that took this one\'s place would have satisfied', async () => {
+    // One kind's entries share the element they are drawn in, so the entry
+    // the column switches to can draw the very control the step waits for.
+    document.body.innerHTML = COLUMN
+    const drawn = drawnEntry(document)
+    if (drawn === undefined) throw new Error('the case drew no entry')
+    setTimeout(() => {
+      document.querySelector('[data-content-surface-selected]')?.setAttribute('data-content-surface-entry', 'component other')
+      drawn.container.insertAdjacentHTML('beforeend', '<button data-component-action="later">Later</button>')
+    }, 60)
+    const report = await run(args([{ action: 'wait', key: 'later', timeoutMs: 1000 }, { action: 'click', key: 'later' }]), drawn)
+    expect(report.steps).toEqual([
+      { index: 1, status: 'failed', message: 'The entry in front is "other", not the one this call named.' },
+      { index: 2, status: 'skipped' },
+    ])
+  })
+
   it('stops the remaining steps where the same entry was redrawn into a new element', async () => {
     const drawn = drawAndSwitch(() => {
       const fresh = document.createElement('div')

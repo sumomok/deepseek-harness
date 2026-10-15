@@ -351,14 +351,28 @@ function delay(ms: number): Promise<void> {
 
 /**
  * Wait for one block or one declared control to be drawn.
+ *
+ * The entry is read again on every look, before the target is: the column
+ * replaces what it draws without telling this seat, and one kind's entries
+ * share the element they are drawn in, so the entry that took this one's place
+ * may draw the very block or control the step waits for.
  * @param entry - the drawn entry.
  * @param step - the wait step.
  * @param timeoutMs - how long the step may wait.
+ * @param locate - how the console reads the entry in front now.
  * @returns whether it was there in time.
+ * @throws {Error} with the reason the entry is no longer the one in front.
  */
-async function waitFor(entry: DrawnEntry, step: ActComponentStep & { action: 'wait' }, timeoutMs: number): Promise<boolean> {
+async function waitFor(
+  entry: DrawnEntry,
+  step: ActComponentStep & { action: 'wait' },
+  timeoutMs: number,
+  locate: () => DrawnEntry | undefined,
+): Promise<boolean> {
   const until = Date.now() + timeoutMs
   for (;;) {
+    const displaced = displacedReason(entry, locate)
+    if (displaced !== undefined) throw new Error(displaced)
     const scope = scopeOf(entry, step.node)
     if (scope !== undefined && (step.key === undefined || clickTarget(scope, step.key, entry.container) !== undefined)) return true
     if (Date.now() >= until) return false
@@ -370,14 +384,15 @@ async function waitFor(entry: DrawnEntry, step: ActComponentStep & { action: 'wa
  * Run one step inside the entry.
  * @param entry - the drawn entry.
  * @param step - the step to run.
+ * @param locate - how the console reads the entry in front now, for a step that waits.
  * @throws {Error} with the model-facing reason when the step cannot run.
  */
-async function runStep(entry: DrawnEntry, step: ActComponentStep): Promise<void> {
+async function runStep(entry: DrawnEntry, step: ActComponentStep, locate: () => DrawnEntry | undefined): Promise<void> {
   if (step.action === 'wait') {
     // The wait names its own duration in the sentence it fails with, so the
     // step reads it once and the number the model is told is the one it waited.
     const timeoutMs = step.timeoutMs ?? DEFAULT_WAIT_MS
-    if (!await waitFor(entry, step, timeoutMs)) {
+    if (!await waitFor(entry, step, timeoutMs, locate)) {
       // The sentence names what the step waited for: the key where the step
       // named one — what did not appear is the control, and a model reading the
       // failure has to know which key it was — and the block otherwise.
@@ -525,7 +540,7 @@ export async function runActComponent(
       await settled()
       const displaced = displacedReason(entry, locate)
       if (displaced !== undefined) throw new Error(displaced)
-      await runStep(entry, step)
+      await runStep(entry, step, locate)
       results.push({ index: at + 1, status: 'ok' })
     } catch (refusal) {
       failed = true
