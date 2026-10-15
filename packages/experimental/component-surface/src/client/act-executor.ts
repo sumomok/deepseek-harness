@@ -33,8 +33,8 @@ import {
 } from '../act-component-text.ts'
 import type { DrawnEntry } from './entry-container.ts'
 import {
-  autocompleteAsking, autocompleteOf, autocompleteOptions, clickTarget, FIELD_KEY, isCovered, isDisabled, isDrawn,
-  marked, namedControls, openDialog, optionLabel, scopeOf, selectOf, selectOptions, selectShows, undrawnTarget,
+  addedAskingRow, autocompleteAsking, autocompleteOf, autocompleteOptions, clickTarget, FIELD_KEY, isCovered, isDisabled,
+  isDrawn, marked, namedControls, openDialog, optionLabel, scopeOf, selectOf, selectOptions, selectShows, undrawnTarget,
   withAttribute,
 } from './targets.ts'
 
@@ -213,20 +213,45 @@ async function fillAutocomplete(run: StepRun, autocomplete: Element, trigger: El
 }
 
 /**
+ * Watch one suggestion field's panel for the row the block draws while a query
+ * is out.
+ *
+ * The row may be drawn and gone between two looks, so it is recorded from the
+ * panel's own mutations rather than looked for: an answer holding no suggestion
+ * takes the row away with nothing behind it, and a step that only looked would
+ * run on to the call's deadline and report a timeout for a value the block has
+ * no suggestion for.
+ * @param autocomplete - the autocomplete element.
+ * @returns whether the row was seen since the watching began, and the disposer
+ * that stops the watching.
+ */
+function watchAsking(autocomplete: Element): { seen: () => boolean; stop: () => void } {
+  let seen = false
+  const observer = new MutationObserver((records) => {
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (!addedAskingRow(node)) continue
+        seen = true
+        return
+      }
+    }
+  })
+  observer.observe(autocomplete, { childList: true, subtree: true })
+  return { seen: () => seen, stop: () => { observer.disconnect() } }
+}
+
+/**
  * A wait condition for the block's answer to a query: suggestions drawn, or the
- * row the block draws while asking having come and gone, which is an answer
- * holding none.
+ * asking row having come and gone, which is an answer holding none.
+ * @param seenAsking - whether the asking row was drawn since the watching began.
  * @param autocomplete - the autocomplete element.
  * @param within - the entry's own container.
- * @returns the condition, which remembers whether the block was seen asking.
+ * @returns the condition.
  */
-function answered(autocomplete: Element, within: Element): () => boolean {
-  let asked = false
+function answered(seenAsking: () => boolean, autocomplete: Element, within: Element): () => boolean {
   return () => {
     if (autocompleteOptions(autocomplete, within).length > 0) return true
-    const asking = autocompleteAsking(autocomplete, within)
-    asked ||= asking
-    return asked && !asking
+    return seenAsking() && !autocompleteAsking(autocomplete, within)
   }
 }
 
@@ -254,18 +279,23 @@ async function chooseSuggestion(
   trigger.focus()
   writeValue(trigger, name, '')
   await settles(run, () => autocompleteOptions(autocomplete, within).length === 0, SELECT_SETTLE_MS)
-  writeValue(trigger, name, value)
-  // The suggestions are an answer over the network, so only the call's
-  // deadline bounds this wait.
-  await settles(run, answered(autocomplete, within), Number.POSITIVE_INFINITY)
-  const matches = autocompleteOptions(autocomplete, within).filter(option => optionLabel(option) === value)
-  if (matches.length > 1) throw new Error(ambiguousOptionReason(name, value))
-  const option = matches[0]
-  if (option === undefined) throw new Error(noOptionReason(name, value))
-  clickOn(option)
-  // The component empties the panel on the choice itself.
-  const taken = await settles(run, () => autocompleteOptions(autocomplete, within).length === 0, SELECT_SETTLE_MS)
-  if (!taken) throw new Error(optionNotTakenReason(name, value))
+  const asking = watchAsking(autocomplete)
+  try {
+    writeValue(trigger, name, value)
+    // The suggestions are an answer over the network, so only the call's
+    // deadline bounds this wait.
+    await settles(run, answered(asking.seen, autocomplete, within), Number.POSITIVE_INFINITY)
+    const matches = autocompleteOptions(autocomplete, within).filter(option => optionLabel(option) === value)
+    if (matches.length > 1) throw new Error(ambiguousOptionReason(name, value))
+    const option = matches[0]
+    if (option === undefined) throw new Error(noOptionReason(name, value))
+    clickOn(option)
+    // The component empties the panel on the choice itself.
+    const taken = await settles(run, () => autocompleteOptions(autocomplete, within).length === 0, SELECT_SETTLE_MS)
+    if (!taken) throw new Error(optionNotTakenReason(name, value))
+  } finally {
+    asking.stop()
+  }
 }
 
 /**

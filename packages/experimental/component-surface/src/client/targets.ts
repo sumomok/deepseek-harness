@@ -67,6 +67,12 @@ export const AUTOCOMPLETE = '.el-autocomplete'
 export const AUTOCOMPLETE_OPTION = '.el-autocomplete-suggestion__list > li'
 
 /**
+ * The icon element-ui draws in an autocomplete's asking row while a query is
+ * out, which is what tells that row apart from a choice.
+ */
+const LOADING_ICON = '.el-icon-loading'
+
+/**
  * One element's own attribute value, compared exactly.
  * @param el - the element.
  * @param attribute - the attribute to read.
@@ -306,7 +312,7 @@ export function autocompleteOf(control: Element, within: Element): Element | und
  */
 export function autocompleteOptions(autocomplete: Element, within: Element): Element[] {
   return [...autocomplete.querySelectorAll(AUTOCOMPLETE_OPTION)]
-    .filter(option => isDrawn(option, within) && option.querySelector('.el-icon-loading') === null)
+    .filter(option => isDrawn(option, within) && option.querySelector(LOADING_ICON) === null)
 }
 
 /**
@@ -320,7 +326,19 @@ export function autocompleteOptions(autocomplete: Element, within: Element): Ele
  */
 export function autocompleteAsking(autocomplete: Element, within: Element): boolean {
   return [...autocomplete.querySelectorAll(AUTOCOMPLETE_OPTION)]
-    .some(option => isDrawn(option, within) && option.querySelector('.el-icon-loading') !== null)
+    .some(option => isDrawn(option, within) && option.querySelector(LOADING_ICON) !== null)
+}
+
+/**
+ * Whether one node a mutation added is an autocomplete's asking row, or holds
+ * one. Read off the node itself rather than by where it stands, because the
+ * mutation an observer hands over may carry a row the block already took away,
+ * and a detached element no longer matches a selector naming its parent.
+ * @param node - the node one mutation added.
+ * @returns whether it is that row, or holds one.
+ */
+export function addedAskingRow(node: Node): boolean {
+  return node instanceof Element && node.querySelector(LOADING_ICON) !== null
 }
 
 /**

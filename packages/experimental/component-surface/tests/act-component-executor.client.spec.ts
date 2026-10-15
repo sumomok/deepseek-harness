@@ -664,8 +664,11 @@ describe('a field the entry draws as a select', () => {
  *   for a block that does not open the panel itself. `answer` makes the block
  *   ask and then never answer, or answer with no suggestion, which closes the
  *   panel the way element-ui does. `opensOnAnswer` opens the panel when a late
- *   answer lands whether or not it was closed, as the vendored kit does. The
- *   Tab key closes the panel, as element-ui does.
+ *   answer lands whether or not it was closed, as the vendored kit does.
+ *   `queryDelayMs` is the block's own debounce, so the asking row is drawn
+ *   that long after the typing; `askingMs` is how long that row stands before
+ *   the answer lands, and 20ms by default. The Tab key closes the panel, as
+ *   element-ui does.
  * @returns the drawn entry, and the autocomplete with the parts a case asserts on.
  */
 function drawAutocomplete(
@@ -676,6 +679,8 @@ function drawAutocomplete(
     readonly opensOnFocus?: boolean
     readonly opensOnAnswer?: boolean
     readonly answer?: 'never' | 'none'
+    readonly queryDelayMs?: number
+    readonly askingMs?: number
   } = {},
 ): { drawn: DrawnEntry; autocomplete: HTMLElement; input: HTMLInputElement; panel: HTMLElement; list: HTMLElement } {
   const items = options.map(label => `<li role="option">${label}</li>`).join('')
@@ -712,21 +717,28 @@ function drawAutocomplete(
     }
     panel.style.display = activated ? '' : 'none'
     const asks = behavior.loading === true || behavior.answer !== undefined
-    list.innerHTML = asks ? '<li><i class="el-icon-loading"></i></li>' : items
-    if (behavior.answer === 'none') {
-      setTimeout(() => {
-        list.innerHTML = ''
-        panel.style.display = 'none'
-      }, 20)
-    } else if (behavior.loading === true) {
-      setTimeout(() => {
-        list.innerHTML = items
-        if (behavior.opensOnAnswer === true) {
-          activated = true
-          panel.style.display = ''
-        }
-      }, 20)
+    const askingMs = behavior.askingMs ?? 20
+    const startAsking = (): void => {
+      // The row carries the whitespace a rendered template leaves around it.
+      list.innerHTML = asks ? '\n<li><i class="el-icon-loading"></i></li>\n' : items
+      if (behavior.answer === 'none') {
+        setTimeout(() => {
+          list.innerHTML = ''
+          panel.style.display = 'none'
+        }, askingMs)
+      } else if (behavior.loading === true) {
+        setTimeout(() => {
+          list.innerHTML = items
+          if (behavior.opensOnAnswer === true) {
+            activated = true
+            panel.style.display = ''
+          }
+        }, askingMs)
+      }
     }
+    const queryDelayMs = behavior.queryDelayMs ?? 0
+    if (queryDelayMs === 0) startAsking()
+    else setTimeout(startAsking, queryDelayMs)
   })
   // The suggestions are re-rendered per query, so the choice is heard where
   // it does not unmount: element-ui's own rows carry the click per row.
@@ -783,6 +795,16 @@ describe('a field the entry draws as an autocomplete', () => {
     // The asking row came and went with nothing drawn: the block answered, and
     // the wait does not run on to the call's deadline to say so.
     const { drawn, input } = drawAutocomplete(['接入'], { answer: 'none' })
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn, 60_000)
+    expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
+    expect(input.value).toBe('')
+  })
+
+  it('refuses it the same way where the asking row is drawn and gone between two looks', { timeout: 3000 }, async () => {
+    // The regression this pins: the row is drawn and gone inside one poll
+    // interval, so looking for it at poll time could miss it entirely and leave
+    // the step waiting for a deadline that a refusal does not need.
+    const { drawn, input } = drawAutocomplete(['接入'], { answer: 'none', queryDelayMs: 15, askingMs: 10 })
     const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn, 60_000)
     expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
     expect(input.value).toBe('')
