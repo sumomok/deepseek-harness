@@ -129,9 +129,9 @@ export function actComponentTool(calls: CallTable, timeouts: CallTimeouts): Tool
       // Deliberately parallel to the page domain's `content_act` output schema
       // in `content-frame`: both answer "which step ran, which one stopped the
       // call", with each domain's own step vocabulary and bounds. The two
-      // cannot share a declaration for the reason the folds cannot — a value
-      // import across these packages is refused for the client bundle, and
-      // this package takes types only from `content-frame`.
+      // cannot share a declaration: this package takes only types from
+      // `content-frame`, for the reason the content channel Agent Note
+      // (2026-10-09-content-channel-seam-and-duplication) records.
       /* jscpd:ignore-start */
       schema: {
         type: 'object',
