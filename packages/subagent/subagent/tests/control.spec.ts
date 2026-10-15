@@ -216,12 +216,14 @@ describe('subagent prompt Remote', () => {
       } satisfies RemoteInvocation,
     }).subagents
 
-    await expect(as(GUEST).prompt(promptRequest(), signal)).resolves.toEqual({ messageId: 'm-guest' })
+    const references = [{ source: 'owner', label: 'Row 2', data: { entry: 'e1' } }]
+    await expect(as(GUEST).prompt({ ...promptRequest(), references }, signal)).resolves.toEqual({ messageId: 'm-guest' })
     await expect(as({ kind: 'owner' }).prompt(promptRequest(), signal)).resolves.toEqual({ messageId: 'm-guest' })
     expect(delivery.mock.calls.map(call => call[3])).toEqual([
-      { kind: 'user', rpcId: REQUEST_ID, principal: GUEST },
+      { kind: 'user', rpcId: REQUEST_ID, principal: GUEST, references },
       { kind: 'user', rpcId: REQUEST_ID },
     ])
+    expect(Object.keys(delivery.mock.calls[0]![3]!)).toEqual(['kind', 'rpcId', 'principal', 'references'])
   })
 
   it('passes steer delivery through the same admission operation', async () => {

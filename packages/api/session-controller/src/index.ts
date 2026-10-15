@@ -512,7 +512,7 @@ export class SessionController extends TypertRemoteService {
   /**
    * Admit one prompt after explicitly resuming its Session. Empty content and
    * out-of-bounds references are rejected with `gateway/bad-request`; accepted
-   * references are recorded on the message source only, after the caller.
+   * references are recorded on the message source only, after `principal`.
    * @param request - Session identity, prompt content, references, source metadata, and delivery mode.
    * @param signal - caller cancellation before prompt admission begins.
    * @returns acknowledgement that the Agent accepted the prompt.
