@@ -134,22 +134,6 @@ function seatOf(el: Element): Element | null {
 }
 
 /**
- * The elements under a point of the console document's viewport, topmost first.
- * @param doc - the console document.
- * @param x - the point's x.
- * @param y - the point's y.
- * @returns the elements, none where the document cannot say.
- */
-function elementsAt(doc: Document, x: number, y: number): readonly Element[] {
-  try {
-    return doc.elementsFromPoint(x, y)
-  } catch (_error) {
-    // A document without layout (jsdom) answers nothing here; the click then places nothing.
-    return []
-  }
-}
-
-/**
  * The content-frame page id of a frame element, from its `data-content-frame-id` key.
  * @param el - the element around the place.
  * @returns the page id, or undefined outside every page frame.
@@ -204,7 +188,7 @@ function blockFor(clicked: Clicked, names: PointNames): BlockData | undefined {
   const el = consoleElement(clicked.element)
   const block = blockAt(el, names)
   if (block !== undefined || clicked.x === undefined || clicked.y === undefined) return block
-  const under = elementsAt(el.ownerDocument, clicked.x, clicked.y).find(item => seatOf(item) !== null)
+  const under = el.ownerDocument.elementsFromPoint(clicked.x, clicked.y).find(item => seatOf(item) !== null)
   return under === undefined ? undefined : blockAt(under, names)
 }
 

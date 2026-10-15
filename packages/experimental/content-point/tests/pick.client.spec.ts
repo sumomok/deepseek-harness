@@ -179,13 +179,6 @@ describe('a place point-anchor refuses', () => {
     Reflect.deleteProperty(document, 'elementsFromPoint')
   })
 
-  it('on a shield in a document that places nothing stays refused', () => {
-    mountConsole(document)
-    const shield = document.createElement('div')
-    document.body.append(shield)
-    expect(pointOutcome(refused('unreadable-frame'), { element: shield, x: 1, y: 1 }, NAMES)).toEqual({ kind: 'refused', reason: 'unreadable-frame' })
-  })
-
   it('inside a seat but outside every block becomes the seat', () => {
     mountConsole(document)
     expect(blockAt(probe(document, 'seat-notice'), NAMES)).toEqual({ v: 1, kind: 'block', seat: 'component', shown: { page: '图层配置', target: '座:component' } })
