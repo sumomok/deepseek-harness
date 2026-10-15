@@ -33,9 +33,9 @@ import {
 } from '../act-component-text.ts'
 import type { DrawnEntry } from './entry-container.ts'
 import {
-  addedAskingRow, autocompleteAsking, autocompleteOf, autocompleteOptions, clickTarget, FIELD_KEY, isCovered, isDisabled,
-  isDrawn, marked, namedControls, openDialog, optionLabel, scopeOf, selectOf, selectOptions, selectShows, undrawnTarget,
-  withAttribute,
+  addedAskingRow, askingRowPresent, autocompleteAsking, autocompleteOf, autocompleteOptions, clickTarget, FIELD_KEY,
+  isCovered, isDisabled, isDrawn, marked, namedControls, openDialog, optionLabel, scopeOf, selectOf, selectOptions,
+  selectShows, undrawnTarget, withAttribute,
 } from './targets.ts'
 
 /** How often a wait looks again. */
@@ -213,14 +213,14 @@ async function fillAutocomplete(run: StepRun, autocomplete: Element, trigger: El
 }
 
 /**
- * Watch one suggestion field's panel for the row the block draws while a query
- * is out.
+ * Watch one suggestion field for the row the block draws while a query is out.
  *
- * The row may be drawn and gone between two looks, so it is recorded from the
- * panel's own mutations rather than looked for: an answer holding no suggestion
- * takes the row away with nothing behind it, and a step that only looked would
- * run on to the call's deadline and report a timeout for a value the block has
- * no suggestion for.
+ * The row may be drawn and gone between two looks, and the panel holding it may
+ * be hidden, so it is recorded from mutations anywhere in the autocomplete
+ * rather than looked for: an answer holding no suggestion takes the row away
+ * with nothing behind it, and a step that only looked would run on to the
+ * call's deadline and report a timeout for a value the block has no suggestion
+ * for.
  * @param autocomplete - the autocomplete element.
  * @returns whether the row was seen since the watching began, and the disposer
  * that stops the watching.
@@ -243,7 +243,7 @@ function watchAsking(autocomplete: Element): { seen: () => boolean; stop: () => 
 /**
  * A wait condition for the block's answer to a query: suggestions drawn, or the
  * asking row having come and gone, which is an answer holding none.
- * @param seenAsking - whether the asking row was drawn since the watching began.
+ * @param seenAsking - whether the asking row was seen since the watching began.
  * @param autocomplete - the autocomplete element.
  * @param within - the entry's own container.
  * @returns the condition.
@@ -251,7 +251,7 @@ function watchAsking(autocomplete: Element): { seen: () => boolean; stop: () => 
 function answered(seenAsking: () => boolean, autocomplete: Element, within: Element): () => boolean {
   return () => {
     if (autocompleteOptions(autocomplete, within).length > 0) return true
-    return seenAsking() && !autocompleteAsking(autocomplete, within)
+    return seenAsking() && !askingRowPresent(autocomplete)
   }
 }
 
@@ -279,6 +279,10 @@ async function chooseSuggestion(
   trigger.focus()
   writeValue(trigger, name, '')
   await settles(run, () => autocompleteOptions(autocomplete, within).length === 0, SELECT_SETTLE_MS)
+  // A query the field's earlier text started may still be out, and its answer
+  // would land as this step's own. The field is empty by now, so waiting for
+  // the row to go lets that answer pass with nothing to read.
+  await settles(run, () => !askingRowPresent(autocomplete), Number.POSITIVE_INFINITY)
   const asking = watchAsking(autocomplete)
   try {
     writeValue(trigger, name, value)

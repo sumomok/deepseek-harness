@@ -667,8 +667,11 @@ describe('a field the entry draws as a select', () => {
  *   answer lands whether or not it was closed, as the vendored kit does.
  *   `queryDelayMs` is the block's own debounce, so the asking row is drawn
  *   that long after the typing; `askingMs` is how long that row stands before
- *   the answer lands, and 20ms by default. The Tab key closes the panel, as
- *   element-ui does.
+ *   the answer lands, and 20ms by default. `inFlightMs` opens the case with a
+ *   query already out, as a field whose earlier text left one on the wire: its
+ *   row is drawn from the start and answers with no suggestion that long
+ *   after, element-ui keeping one loading flag that a cleared field does not
+ *   reset. The Tab key closes the panel, as element-ui does.
  * @returns the drawn entry, and the autocomplete with the parts a case asserts on.
  */
 function drawAutocomplete(
@@ -681,9 +684,11 @@ function drawAutocomplete(
     readonly answer?: 'never' | 'none'
     readonly queryDelayMs?: number
     readonly askingMs?: number
+    readonly inFlightMs?: number
   } = {},
 ): { drawn: DrawnEntry; autocomplete: HTMLElement; input: HTMLInputElement; panel: HTMLElement; list: HTMLElement } {
   const items = options.map(label => `<li role="option">${label}</li>`).join('')
+  const askingRow = '\n<li><i class="el-icon-loading"></i></li>\n'
   const drawn = drawEntry(`
     <div class="el-autocomplete">
       <input class="el-input__inner" data-component-field="topic">
@@ -700,41 +705,61 @@ function drawAutocomplete(
   const list = autocomplete.querySelector('.el-autocomplete-suggestion__list') as HTMLElement
   panel.style.display = 'none'
   let activated = behavior.opensOnFocus !== true
+  // element-ui draws whatever the one loading flag says, so a query that starts
+  // while another is still out finds the row already there and adds nothing,
+  // and a cleared field keeps the row a query still out drew.
+  let loading = behavior.inFlightMs !== undefined
+  let drawnOptions = items
+  let shown = items
+  const render = (): void => {
+    const asked = loading ? askingRow : drawnOptions
+    if (asked === shown) return
+    shown = asked
+    list.innerHTML = asked
+  }
+  const answer = (labels: string): void => {
+    loading = false
+    drawnOptions = labels
+    render()
+    if (labels === '') panel.style.display = 'none'
+    else if (behavior.opensOnAnswer === true) {
+      activated = true
+      panel.style.display = ''
+    }
+  }
   input.addEventListener('focus', () => { activated = true })
   input.addEventListener('keydown', (event) => {
     if (event.key !== 'Tab') return
     activated = false
     panel.style.display = 'none'
   })
+  if (behavior.inFlightMs !== undefined) {
+    render()
+    setTimeout(() => { answer('') }, behavior.inFlightMs)
+  }
   input.addEventListener('input', () => {
     // element-ui drops the suggestions with an emptied field and shows the
     // block's answer over a typed one; this fixture's block answers every
     // query with the same suggestions.
     if (input.value === '') {
       panel.style.display = 'none'
-      list.innerHTML = ''
+      drawnOptions = ''
+      render()
       return
     }
     panel.style.display = activated ? '' : 'none'
     const asks = behavior.loading === true || behavior.answer !== undefined
     const askingMs = behavior.askingMs ?? 20
     const startAsking = (): void => {
-      // The row carries the whitespace a rendered template leaves around it.
-      list.innerHTML = asks ? '\n<li><i class="el-icon-loading"></i></li>\n' : items
-      if (behavior.answer === 'none') {
-        setTimeout(() => {
-          list.innerHTML = ''
-          panel.style.display = 'none'
-        }, askingMs)
-      } else if (behavior.loading === true) {
-        setTimeout(() => {
-          list.innerHTML = items
-          if (behavior.opensOnAnswer === true) {
-            activated = true
-            panel.style.display = ''
-          }
-        }, askingMs)
+      if (asks) {
+        loading = true
+        render()
+      } else {
+        drawnOptions = items
+        render()
       }
+      if (behavior.answer === 'none') setTimeout(() => { answer('') }, askingMs)
+      else if (behavior.loading === true) setTimeout(() => { answer(items) }, askingMs)
     }
     const queryDelayMs = behavior.queryDelayMs ?? 0
     if (queryDelayMs === 0) startAsking()
@@ -749,7 +774,9 @@ function drawAutocomplete(
     if (behavior.ignores === true) return
     input.value = (option.textContent ?? '').trim()
     // element-ui empties the suggestions on the choice itself.
-    list.innerHTML = ''
+    loading = false
+    drawnOptions = ''
+    render()
   })
   return { drawn, autocomplete, input, panel, list }
 }
@@ -776,6 +803,19 @@ describe('a field the entry draws as an autocomplete', () => {
     // holds no choice yet and report no option before any arrived.
     const { drawn, input } = drawAutocomplete(['接入'], { loading: true })
     expect((await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)).status).toBe('done')
+    expect(input.value).toBe('接入')
+  })
+
+  it('finds the suggestion on a retry where the field kept its focus and a Tab left the panel closed', async () => {
+    // The regression this pins: a Tab closed the panel with the focus still in
+    // the field, so the row this query draws stands in a hidden panel. A step
+    // that read the row's presence off what is drawn would take the row for
+    // the block's answer and refuse a value still on its way.
+    const { drawn, input } = drawAutocomplete(['接入'], { opensOnFocus: true, loading: true, opensOnAnswer: true, askingMs: 200 })
+    input.focus()
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }))
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)
+    expect(report.steps).toEqual([{ index: 1, status: 'ok' }])
     expect(input.value).toBe('接入')
   })
 
@@ -806,6 +846,18 @@ describe('a field the entry draws as an autocomplete', () => {
     // the step waiting for a deadline that a refusal does not need.
     const { drawn, input } = drawAutocomplete(['接入'], { answer: 'none', queryDelayMs: 15, askingMs: 10 })
     const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn, 60_000)
+    expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
+    expect(input.value).toBe('')
+  })
+
+  it('refuses a value the block answers with no suggestion for even where a query was already out', { timeout: 4000 }, async () => {
+    // The regression this pins: the earlier query's row was already standing
+    // when the watching began, and element-ui's one loading flag means this
+    // step's query adds no row of its own — a step that only watched for an
+    // added row would run out the call's time over two answers that both came
+    // back empty.
+    const { drawn, input } = drawAutocomplete(['接入'], { answer: 'none', inFlightMs: 300 })
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn, 2000)
     expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
     expect(input.value).toBe('')
   })
