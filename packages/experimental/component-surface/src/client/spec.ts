@@ -30,6 +30,7 @@
 import {
   catalogEntry,
   MAX_NODES,
+  MIN_NODES,
   type ComponentCatalog,
   type ComponentNode,
   type ComponentSurfacePayload,
@@ -115,7 +116,7 @@ function readSpecDocument(payload: unknown): SpecDocument | undefined {
   const spec: unknown = (payload as Partial<ComponentSurfacePayload>).spec
   if (spec === null || typeof spec !== 'object' || Array.isArray(spec)) return undefined
   const { nodes, layout, ...rest } = spec as Record<string, unknown>
-  if (!Array.isArray(nodes) || nodes.length === 0 || nodes.length > MAX_NODES) return undefined
+  if (!Array.isArray(nodes) || nodes.length < MIN_NODES || nodes.length > MAX_NODES) return undefined
   const read: RawNode[] = []
   const ids = new Set<string>()
   for (const value of nodes as readonly unknown[]) {

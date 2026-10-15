@@ -55,6 +55,9 @@ import {
   MAX_NODES,
   MAX_SPEC_BYTES,
   MAX_TITLE_LENGTH,
+  MIN_FLEX,
+  MIN_LAYOUT_CHILDREN,
+  MIN_NODES,
   placedOnlyByViews,
   readBinding,
   readByViewsOnly,
@@ -855,8 +858,8 @@ function validateFlex(
   path: string,
 ): { readonly ok: true; readonly flex: number | undefined } | { readonly ok: false; readonly failure: ComponentCallFailure } {
   if (value === undefined) return { ok: true, flex: undefined }
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > MAX_FLEX) {
-    return { ok: false, failure: refuse(`${path}.flex`, `must be a whole number between 1 and ${MAX_FLEX}.`) }
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < MIN_FLEX || value > MAX_FLEX) {
+    return { ok: false, failure: refuse(`${path}.flex`, `must be a whole number between ${MIN_FLEX} and ${MAX_FLEX}.`) }
   }
   return { ok: true, flex: value }
 }
@@ -988,9 +991,9 @@ function validateLayoutStack(
   if (!Array.isArray(children)) {
     return { ok: false, failure: refuse(`${path}.children`, 'must be an array of blocks and stacks.') }
   }
-  const bounds = `lists ${children.length} children; between 1 and ${MAX_LAYOUT_CHILDREN} are accepted.`
+  const bounds = `lists ${children.length} children; between ${MIN_LAYOUT_CHILDREN} and ${MAX_LAYOUT_CHILDREN} are accepted.`
   if (children.length > MAX_LAYOUT_CHILDREN) return { ok: false, failure: refuseSize(`${path}.children`, bounds) }
-  if (children.length === 0) return { ok: false, failure: refuse(`${path}.children`, bounds) }
+  if (children.length < MIN_LAYOUT_CHILDREN) return { ok: false, failure: refuse(`${path}.children`, bounds) }
   const accepted: LayoutChild[] = []
   for (const [index, child] of children.entries()) {
     const result = validateLayoutChild(child, `${path}.children[${index}]`, placement, depth + 1)
@@ -1156,10 +1159,10 @@ export function validateComponentSpec(catalog: ComponentCatalog, value: unknown)
   }
   const nodes = (value as { nodes?: unknown }).nodes
   if (!Array.isArray(nodes)) return { ok: false, failure: refuse('spec.nodes', 'must be an array of nodes.') }
-  if (nodes.length === 0 || nodes.length > MAX_NODES) {
+  if (nodes.length < MIN_NODES || nodes.length > MAX_NODES) {
     return {
       ok: false,
-      failure: refuse('spec.nodes', `lists ${nodes.length} nodes; between 1 and ${MAX_NODES} are accepted.`),
+      failure: refuse('spec.nodes', `lists ${nodes.length} nodes; between ${MIN_NODES} and ${MAX_NODES} are accepted.`),
     }
   }
   const accepted: ComponentNode[] = []
