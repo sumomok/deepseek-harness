@@ -180,6 +180,7 @@ export class WorkspaceRegistry extends Service {
   private readonly entities = new Map<WorkspaceId, WorkspaceEntity>()
   private readonly headers = new Map<SessionId, SessionHeader>()
   private readonly sessionPaths = new Map<SessionId, string>()
+  private readonly missingSessionPaths = new Set<SessionId>()
   private readonly invalidSessionPaths = new Map<SessionId, string>()
   /** The header of each session's latest relocation event whose queued move has not run yet. */
   private readonly relocations = new Map<SessionId, SessionHeader>()
@@ -187,11 +188,12 @@ export class WorkspaceRegistry extends Service {
 
   private readonly host: WorkspaceEntityHost = {
     table: () => this.requireTable(),
-    sessionPath: id => this.sessionPaths.get(id),
+    candidateMatches: (id, path) => this.sessionPaths.get(id) === path || this.missingSessionPaths.has(id),
     readSessionHeader: id => this.readSessionHeader(id),
     indexesHeader: header => this.headers.get(header.id) === header,
     rememberSessionPath: (id, path) => {
       this.sessionPaths.set(id, path)
+      this.missingSessionPaths.delete(id)
       this.invalidSessionPaths.delete(id)
     },
     detachElsewhere: (id, keep) => this.detachElsewhere(id, keep),
@@ -972,6 +974,7 @@ export class WorkspaceRegistry extends Service {
   private async replaceHeaderIndex(headers: readonly SessionHeader[]): Promise<void> {
     this.headers.clear()
     this.sessionPaths.clear()
+    this.missingSessionPaths.clear()
     this.invalidSessionPaths.clear()
     await this.indexHeaders(headers)
   }
@@ -994,16 +997,20 @@ export class WorkspaceRegistry extends Service {
     if (pending !== undefined && pending !== header) return
     this.headers.set(header.id, header)
     this.sessionPaths.delete(header.id)
+    this.missingSessionPaths.delete(header.id)
     if (header.cwd === undefined) {
       this.invalidSessionPaths.set(header.id, 'header has no cwd')
       return
     }
     let path: string | undefined
     let invalid: string | undefined
+    let missing = false
     try {
       path = await realpathNormalize(header.cwd)
       if (!(await stat(path)).isDirectory()) invalid = `cwd '${header.cwd}' is not a directory`
-    } catch {
+    } catch (error) {
+      missing = fullyQualifiedWorkspacePath(header.cwd)
+        && error instanceof Error && 'code' in error && error.code === 'ENOENT'
       invalid = `cwd '${header.cwd}' does not resolve`
     }
     if (this.headers.get(header.id) !== header) return
@@ -1011,6 +1018,7 @@ export class WorkspaceRegistry extends Service {
       this.sessionPaths.set(header.id, path as string)
       this.invalidSessionPaths.delete(header.id)
     } else {
+      if (missing) this.missingSessionPaths.add(header.id)
       this.invalidSessionPaths.set(header.id, invalid)
     }
   }
@@ -1029,6 +1037,8 @@ export class WorkspaceRegistry extends Service {
   private relocated(id: SessionId, header: SessionHeader): void {
     this.headers.set(id, header)
     this.sessionPaths.delete(id)
+    // A missing-directory exemption left from the old cwd would keep the old workspace listing the session.
+    this.missingSessionPaths.delete(id)
     this.relocations.set(id, header)
     void this.enqueueOperation(() => this.moveRelocatedSession(header)).catch((error: unknown) => {
       // A slot rejected before the move ran leaves the entry, which would keep every later listing of the session unindexed.
@@ -1045,6 +1055,8 @@ export class WorkspaceRegistry extends Service {
     this.relocations.delete(header.id)
     const path = this.sessionPaths.get(header.id)
     if (path === undefined) {
+      // Until the detach below lands, a missing-directory exemption for the new cwd would keep the old workspace listing the session.
+      this.missingSessionPaths.delete(header.id)
       this.ctx.logger.warn(
         `workspace: relocated session '${header.id}' joins no workspace: ${this.invalidSessionPaths.get(header.id) as string}`,
       )
@@ -1086,8 +1098,8 @@ export class WorkspaceRegistry extends Service {
     for (const entity of this.entities.values()) {
       const record = this.requireTable().get(entity.id) as WorkspaceRecord
       for (const sessionId of record.sessionIds) {
+        if (this.host.candidateMatches(sessionId, record.path)) continue
         const path = this.sessionPaths.get(sessionId)
-        if (path === record.path) continue
         const reason = this.invalidSessionPaths.get(sessionId)
           ?? (this.headers.has(sessionId)
             ? `canonical cwd '${path}' differs from workspace path '${record.path}'`

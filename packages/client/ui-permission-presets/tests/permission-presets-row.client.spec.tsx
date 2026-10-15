@@ -3,7 +3,7 @@ import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { bindSnapshotSelector, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
+import { allowAllAccess, bindSnapshotSelector, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import type { PermissionCatalog } from '@deepseek-ai/dsh-permission-presets/client'
 import { PermissionRow, type PermissionRowProps } from '../src/client/PermissionRow.tsx'
@@ -69,6 +69,7 @@ const runtime = {
   useSessionStatus,
   usePanelInfo, useSessionRetainInfo: () => undefined, useResource,
   useWorkspaces: (() => { throw new Error('unused') }) as never,
+  ...allowAllAccess,
 }
 
 function mount(controller: PermissionPresetSettingsController) {

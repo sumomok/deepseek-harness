@@ -288,15 +288,6 @@ export class ConversationController extends Service implements IConversation {
         data: await reference.resolve(resolveSignal),
       })),
     )
-    const snapshot = session.getSnapshot()
-    if (snapshot.subagent !== null) {
-      const [uploaded, resolved] = await Promise.all([serializeAttachments(), resolveReferences()])
-      const content = [...uploaded, ...(text === '' ? [] : [{ type: 'text' as const, text }])]
-      const result = await session.prompt(content, mode, signal, undefined, resolved)
-      if (!result.ok) return { kind: 'error' }
-      this.releaseDraftAttachments(references)
-      return { kind: 'success' }
-    }
     let finishRetirement: ((retirement: PendingSubmissionRetirement) => void) | undefined
     const retirement = attachments.length === 0
       ? undefined

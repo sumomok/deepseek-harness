@@ -19,7 +19,7 @@ import z from '@deepseek-ai/schemastery'
 import type Schema from '@deepseek-ai/schemastery'
 import { parse as parseYaml } from 'yaml'
 import type { FileSystem, FsDirEntry, FsTarget } from '@deepseek-ai/dsh-fs'
-import { canonicalizeWatchPath, resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import { canonicalizeWatchPath, resolveAgentsHome, resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import {
   BUNDLED_SKILL_RANK,
   isSkillName,
@@ -175,7 +175,7 @@ export class FileSystemSkillProvider implements SkillProvider {
     this.name = config.providerName ?? 'filesystem'
     this.includeDefaultRoots = config.includeDefaultRoots ?? true
     this.dshHome = resolveDshHome(config.dshHome)
-    this.agentsHome = resolve(config.agentsHome ?? process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'))
+    this.agentsHome = resolveAgentsHome(config.agentsHome)
     this.claudeHome = resolve(config.claudeHome ?? process.env.DSH_CLAUDE_HOME ?? join(homedir(), '.claude'))
     this.customSkillDirs = (config.customSkillDirs ?? []).map(root => resolve(root))
     this.watchManager = new SkillWatchManager(ctx, control.invalidate, resolveWatchConfig(config))
@@ -580,19 +580,9 @@ class SkillWatchManager {
       usePolling: this.config.usePolling,
       interval: this.config.pollIntervalMs,
     })
-    const handle: WatchHandle = {
-      mode,
-      close: () => watcher.close(),
-    }
     let ready = false
     const readiness = Promise.withResolvers<undefined>()
     const signal = this.lifecycle.signal
-    if (signal.aborted) {
-      await this.closeWatcher(handle)
-      signal.throwIfAborted()
-    }
-    const onAbort = (): void => { readiness.reject(signal.reason) }
-    signal.addEventListener('abort', onAbort, { once: true })
     const onError = (error: unknown): void => {
       if (!ready) {
         readiness.reject(error)
@@ -600,6 +590,24 @@ class SkillWatchManager {
       }
       this.handleWatcherError(state, error)
     }
+    const handle: WatchHandle = {
+      mode,
+      close: () => {
+        // `close()` drops every listener but leaves a scheduled write-settle
+        // poll; its straggler stats a file this teardown is deleting, which
+        // Windows reports as EPERM, and an 'error' emission with no listener
+        // is rethrown as an uncaught exception. Re-attach across the close.
+        const closing = watcher.close()
+        watcher.on('error', onError)
+        return closing
+      },
+    }
+    if (signal.aborted) {
+      await this.closeWatcher(handle)
+      signal.throwIfAborted()
+    }
+    const onAbort = (): void => { readiness.reject(signal.reason) }
+    signal.addEventListener('abort', onAbort, { once: true })
     watcher.on('error', onError)
     watcher.once('ready', () => {
       ready = true

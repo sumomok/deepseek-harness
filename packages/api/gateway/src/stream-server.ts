@@ -2,9 +2,8 @@
 
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
-import type { Branded } from '@deepseek-ai/dsh-brand'
 import { Deque } from '@deepseek-ai/dsh-deque'
-import { RemoteError, remoteErrorOf, type PeerScope } from '@deepseek-ai/dsh-typert-protocol'
+import { RemoteError, remoteErrorOf, type PeerScope, type RemoteUplinkWindow } from '@deepseek-ai/dsh-typert-protocol'
 import WebSocket, { WebSocketServer, type RawData } from 'ws'
 import {
   parseRemoteStreamClientMessage,
@@ -17,7 +16,7 @@ import {
  * Open one validated Remote stream for a decoded wire request on behalf of one
  * Peer. `uplink` carries the Client's items; `control` cancels the logical
  * stream, and aborting it with a Remote failure as the reason delivers that
- * failure to the Client.
+ * failure to the Client. `window` describes this stream's complete-frame inbox budget.
  */
 export type RemoteStreamOpener = (
   endpoint: string,
@@ -25,6 +24,7 @@ export type RemoteStreamOpener = (
   uplink: AsyncIterable<unknown>,
   peer: PeerScope,
   control: AbortController,
+  window: RemoteUplinkWindow,
 ) => Promise<AsyncIterable<unknown>>
 
 /** The opener one socket uses: its Peer is fixed at upgrade time. */
@@ -33,35 +33,13 @@ type BoundStreamOpener = (
   payload: unknown,
   uplink: AsyncIterable<unknown>,
   control: AbortController,
+  window: RemoteUplinkWindow,
 ) => Promise<AsyncIterable<unknown>>
 
 /** Convert an invocation or carrier failure to a stable wire value. */
 export type RemoteStreamFailureMapper = (error: unknown) => RemoteStreamFailure
 
-/** Host-minted identity of one accepted Remote stream WebSocket; it never crosses the wire. */
-export type RemoteSocketId = Branded<'RemoteSocketId'>
-
-/** Receives each accepted socket's start and end of speaking for its Peer. */
-export interface RemoteSocketObserver {
-  /**
-   * The socket is bound to its Peer and begins serving logical streams.
-   * @param peer - Peer admitted at upgrade.
-   * @param socketId - identity repeated by the matching {@link closed} call.
-   */
-  opened(peer: PeerScope, socketId: RemoteSocketId): void
-
-  /**
-   * The socket has closed and every logical stream it carried has finished.
-   * @param peer - Peer admitted at upgrade.
-   * @param socketId - identity given to {@link opened}.
-   */
-  closed(peer: PeerScope, socketId: RemoteSocketId): void
-}
-
 const MAX_MISSED_HEARTBEATS = 2
-
-/** Process-wide count of accepted sockets, so socket ids stay distinct across mux instances. */
-let acceptedSockets = 0
 
 /** Own the no-server WebSocket acceptor and every active logical stream. */
 export class RemoteStreamMuxServer {
@@ -75,23 +53,18 @@ export class RemoteStreamMuxServer {
    * @param failure - Gateway error-to-wire mapper.
    * @param heartbeatIntervalMs - interval between WebSocket Ping control frames.
    * @param streamInboxBytes - buffered uplink frame bytes one logical stream may hold before it fails.
-   * @param sockets - optional observer of each accepted socket's binding to its Peer.
    */
   constructor(
     private readonly open: RemoteStreamOpener,
     private readonly failure: RemoteStreamFailureMapper,
     private readonly heartbeatIntervalMs: number,
     private readonly streamInboxBytes: number,
-    private readonly sockets?: RemoteSocketObserver,
   ) {}
 
   /**
    * Upgrade one admitted request and begin serving its logical streams. Every
    * stream the socket opens speaks for the Peer admitted at upgrade, and the
-   * socket closes with 1001 when that Peer's scope is disposed. The observer
-   * hears `opened` once the socket is bound to the Peer and `closed` after the
-   * socket and its streams have finished; a Peer already disposed at upgrade
-   * closes the socket without either call.
+   * socket closes when that Peer's scope is disposed.
    * @param req - authenticated HTTP upgrade request.
    * @param socket - carrier socket transferred to the WebSocket server.
    * @param head - bytes already read after the HTTP upgrade headers.
@@ -101,22 +74,19 @@ export class RemoteStreamMuxServer {
     this.server.handleUpgrade(req, socket, head, (websocket) => {
       const release = bindPeer(websocket, peer)
       if (release === undefined) return
-      acceptedSockets += 1
-      const socketId = `remote-socket-${String(acceptedSockets)}` as RemoteSocketId
-      this.sockets?.opened(peer, socketId)
-      this.missedHeartbeats.set(websocket, 0)
-      websocket.on('pong', () => { this.missedHeartbeats.set(websocket, 0) })
+      const alive = (): void => { this.missedHeartbeats.set(websocket, 0) }
+      alive()
       this.startHeartbeat()
-      const bound: BoundStreamOpener = (endpoint, payload, uplink, control) =>
-        this.open(endpoint, payload, uplink, peer, control)
-      const connection = new RemoteStreamMuxConnection(websocket, bound, this.failure, this.streamInboxBytes)
-      const done = connection.run()
-      this.connections.add(done)
-      void done.then(() => {
-        this.connections.delete(done)
-        void release()
-        this.sockets?.closed(peer, socketId)
+      const bound: BoundStreamOpener = (endpoint, payload, uplink, control, window) =>
+        this.open(endpoint, payload, uplink, peer, control, window)
+      const connection = new RemoteStreamMuxConnection(websocket, bound, this.failure, this.streamInboxBytes, alive)
+      const done = connection.run().catch((error: unknown) => {
+        console.error('[api-gateway] Remote stream connection failed:', error)
+      }).then(async () => { await release() }).catch((error: unknown) => {
+        console.error('[api-gateway] Remote stream scope cleanup failed:', error)
       })
+      this.connections.add(done)
+      void done.then(() => { this.connections.delete(done) })
     })
   }
 
@@ -174,13 +144,23 @@ class RemoteStreamMuxConnection {
     private readonly open: BoundStreamOpener,
     private readonly failure: RemoteStreamFailureMapper,
     private readonly streamInboxBytes: number,
+    private readonly alive: () => void,
   ) {}
 
+  /**
+   * Serve frames until the socket closes. A Pong, any received frame, and a
+   * downlink write that waited in the local send buffer and then completed
+   * count as peer activity, so a congested link that delays the Pong behind
+   * data keeps its socket. A write that completes at once proves nothing
+   * about the peer and does not count.
+   */
   async run(): Promise<void> {
     const closed = new Promise<void>((resolve) => {
       this.socket.once('close', resolve)
       this.socket.once('error', () => { this.socket.terminate() })
+      this.socket.on('pong', this.alive)
       this.socket.on('message', (data, isBinary) => {
+        this.alive()
         if (isBinary) {
           this.socket.close(1003, 'text messages required')
           return
@@ -263,7 +243,10 @@ class RemoteStreamMuxConnection {
   ): Promise<void> {
     let outcome: { readonly failed: false } | { readonly failed: true; readonly error: unknown }
     try {
-      const source = await this.open(endpoint, payload, active.inbox, active.abort)
+      const source = await this.open(endpoint, payload, active.inbox, active.abort, {
+        maxBytes: this.streamInboxBytes,
+        frameOverheadBytes: Buffer.byteLength(JSON.stringify({ type: 'item', streamId, value: null }), 'utf8') - 'null'.length,
+      })
       for await (const value of source) {
         await this.send({ type: 'item', streamId, value })
       }
@@ -316,10 +299,18 @@ class RemoteStreamMuxConnection {
         reject(new Error('api gateway: Remote stream socket is closed'))
         return
       }
+      let queued = false
       this.socket.send(text, (error) => {
-        if (error) reject(error)
-        else resolve()
+        if (error) {
+          reject(error)
+          return
+        }
+        if (queued) this.alive()
+        resolve()
       })
+      // Read after send(): bytes still buffered mean the local send buffer was
+      // full, so their completion requires the peer to acknowledge data.
+      queued = this.socket.bufferedAmount > 0
     }))
     this.writes = delivery.catch(() => undefined)
     return delivery
@@ -463,8 +454,8 @@ function rawText(data: RawData): string {
  * @param socket - carrier socket that receives the HTTP rejection.
  * @param status - authentication or browser-trust rejection status.
  */
-export function rejectRemoteStreamUpgrade(socket: Duplex, status: 401 | 403): void {
-  const reason = status === 401 ? 'Unauthorized' : 'Forbidden'
+export function rejectRemoteStreamUpgrade(socket: Duplex, status: 401 | 403 | 409): void {
+  const reason = status === 401 ? 'Unauthorized' : status === 403 ? 'Forbidden' : 'Conflict'
   const body = reason.toLowerCase()
   socket.end([
     `HTTP/1.1 ${String(status)} ${reason}`,
