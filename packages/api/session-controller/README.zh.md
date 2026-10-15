@@ -88,6 +88,8 @@ Client 的首次 `follow`、重连首屏与 `loadOlder()` 至少请求 50 条以
 
 当 `connection`、`fs` 与 `attachments` 均被组合时，`SessionMediaReferences` 在鉴权 `connection.fetch` 通道上挂载 `GET|HEAD /api/file?path=<绝对路径>`。它通过 `ctx.fs` 读取普通文件，包括已注册工作区之外的临时路径与远程提供方中的文件。目录包含关系与 MIME 类别均不限制访问；`mime-types` 提供响应类型，未知扩展名使用 `application/octet-stream`。GET 复用 `readBytes` 执行读取前及读取中的字节限制；HEAD 只读取元数据。所有文件均使用 `ctx.attachments.imageLimits.maxImageBytes`（通常为 20 MiB）；超过此上限返回 413。响应包含完整文件，忽略 Range，并携带 `private, no-store`、`nosniff` 与沙箱 CSP，使直接打开的 HTML/SVG 无法以 API 源身份执行脚本。客户端重写位于 `ui-chat`（`AssistantMarkdown`）；音视频文件响应已可用，Markdown 音视频播放器节点仍是独立工作。
 
+owner 按上文读取任意路径，路由对 owner 忽略 `sessionId`。非 owner Peer 只经该路由的 `serveNonOwner` 规则进入：请求在 `sessionId` 中指明一个会话，且 remote access 必须对该会话（`kind: 'session'`）允许动作 `/api/file`；否则（包括宿主未组合 remote access 时）路由在解析路径之前答 403。会话工作区取其 header 的 `cwd`，先读活会话，否则经 `sessionPersistence.stat` 读取，不激活 Agent；本宿主上没有该会话 header 时答 403。路由经 `ctx.fs.resolve` 解析工作区与请求路径，因此任一路径中的符号链接都按其真实目标计；除非 `ctx.fs.contains` 判定文件位于工作区内，否则在任何 `stat` 或读取之前答 403；读取使用同一个已解析目标。之后路径校验（400）、文件不存在（404）与字节上限（413）与 owner 相同。
+
 GUI 模型选择要求确切提供方／模型对出现在可用目录中；不可用的选择以 `session/model-unavailable` 拒绝。提示词准入保留已保存的路由，不按目录可用性阻断发送，由请求执行报告凭据缺失或模型不可用。`initializeDefaultModel()` 在账号登录后、其他提供方均未配置 API key 时，将第一个可用账号模型保存为默认模型；凭据检查使用已配置的引用，不依赖模型是否可用。提供方没有可用模型时，初始化以 `session/provider-models-unavailable` 拒绝。可用性变化不会替换模型或改写会话选择。
 
 `selectModel` 成功返回表示会话级模型选择已生效，不等待默认 profile 设置保存。默认设置在后台按提交顺序保存；保存失败会记录警告，并保留会话选择。新会话读取最近一次成功保存的默认值。
@@ -121,6 +123,7 @@ GUI 模型选择要求确切提供方／模型对出现在可用目录中；不�
 
 - 单个摘要、查询提供方自身的枚举、最终排序和响应序列化都可能超出列表时间片目标；它不是 Host 延迟的硬上限。
 - 图片字节上限不校验解码后的尺寸或像素数。
+- 非 owner 的 `/api/file` 读取先在已解析的真实路径上判定工作区包含关系，再打开该目标；若在判定与打开之间把工作区内一个已解析的祖先目录换成符号链接，读取会跟随新链接。利用它需要对会话工作区有写权限并赢得竞态。
 - follow 恢复失败会对调用方可见，而不会无限重试。
 - 浏览器原始字节上传使用一次不带断点续传偏移的流式 HTTP 请求；重试会从第零字节重新传输整个文件。
 - 文件引用补全使用共享 Agent lookup，因此可能恢复冷 Session；`skills/list` 目录是不激活 Agent 的 skill 元数据读取路径。
