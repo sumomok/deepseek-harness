@@ -777,6 +777,42 @@ describe('sendSession submission echo', () => {
     await b.runtime.dispose()
   })
 
+  it('keeps a subagent continuation reference after a failed echo and releases it on observation', async () => {
+    const b = await echoBench()
+    try {
+      const session = b.runtime.sessions.binding('s1')!.session
+      const snapshot = session.getSnapshot()
+      vi.spyOn(session, 'getSnapshot').mockReturnValue({
+        ...snapshot,
+        subagent: {
+          address: { parentSessionId: 'parent', childSessionId: 'child', mode: 'continuable' } as never,
+        },
+      })
+      const draft = b.root.createReferenceDraft({ source: 'owner', label: '行 2', resolve: () => Promise.resolve({ row: 2 }) })
+      const resolved = [{ source: 'owner', label: '行 2', data: { row: 2 } }]
+      const failed = b.root.sendSession(session, '继续', [draft.id], 'queue')
+      await vi.waitFor(() => { expect(b.prompt).toHaveBeenCalledOnce() })
+      expect(b.beginSubmission).toHaveBeenLastCalledWith(expect.objectContaining({
+        text: '继续', references: [{ source: 'owner', label: '行 2' }],
+      }))
+      expect(b.prompt).toHaveBeenLastCalledWith([{ type: 'text', text: '继续' }], 'queue', undefined, 'req-echo', resolved)
+      b.retire.onRetire?.({ reason: 'failed' })
+      await expect(failed).resolves.toEqual({ kind: 'error' })
+      expect(b.root.resolveDraftAttachments([draft.id])).toEqual([draft])
+
+      const sent = b.root.sendSession(session, '继续', [draft.id], 'queue')
+      await vi.waitFor(() => { expect(b.prompt).toHaveBeenCalledTimes(2) })
+      expect(b.prompt).toHaveBeenLastCalledWith([{ type: 'text', text: '继续' }], 'queue', undefined, 'req-echo', resolved)
+      expect(b.root.resolveDraftAttachments([draft.id])).toEqual([draft])
+      b.retire.onRetire?.({ reason: 'observed', attachments: [] })
+      await expect(sent).resolves.toEqual({ kind: 'success' })
+      expect(b.root.resolveDraftAttachments([draft.id])).toEqual([])
+    } finally {
+      b.restore()
+    }
+    await b.runtime.dispose()
+  })
+
   it('registers an owner draft whose chip action and resolver reach the owner', async () => {
     const b = await bench()
     const activate = vi.fn()
