@@ -269,10 +269,10 @@ export type DeliveryRecord =
      * The line the process log carries for the refusal, naming the archive and
      * what refused it. Where a path in it begins with the pack root, a
      * directory above the pack root other than the file-system root, or the
-     * delivery directory, each as configured or as its real path, that much of
-     * the path is written `<pack root>`, `<pack root>/..`, `<pack root>/../..`
-     * and so on, or `<delivery directory>`, with the host's path separator.
-     * The process log keeps the paths in full.
+     * delivery directory, each as configured, that much of the path is written
+     * `<pack root>`, `<pack root>/..`, `<pack root>/../..` and so on, or
+     * `<delivery directory>`, with the host's path separator. The process log
+     * keeps the paths in full.
      */
     readonly reason: string
     /** When the read finished, as an ISO 8601 timestamp in UTC. */

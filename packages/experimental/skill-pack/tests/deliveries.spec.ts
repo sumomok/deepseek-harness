@@ -9,7 +9,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { zipSync } from 'fflate'
@@ -48,20 +48,13 @@ interface DeploymentOptions {
   readonly deliveries?: string
   /** The pack root's path below the directory the deployment is in. */
   readonly root?: string
-  /** Configure both directories through a symbolic link to the directory they are in, so neither path is its real path. */
-  readonly linked?: boolean
 }
 
-async function deployment({ limits = LIMITS, create = true, deliveries = 'deliveries', root: below = 'packs', linked = false }: DeploymentOptions = {}): Promise<Deployment> {
+async function deployment({ limits = LIMITS, create = true, deliveries = 'deliveries', root: below = 'packs' }: DeploymentOptions = {}): Promise<Deployment> {
   const world = await mkdtemp(join(tmpdir(), 'dsh-skill-pack-deliveries-'))
   worlds.push(world)
-  let base = world
-  if (linked) {
-    base = join(world, 'via')
-    await symlink(world, base, process.platform === 'win32' ? 'junction' : 'dir')
-  }
-  const root = join(base, below)
-  const directory = join(base, deliveries)
+  const root = join(world, below)
+  const directory = join(world, deliveries)
   if (create) await mkdir(directory, { recursive: true })
   const reported: string[] = []
   const delivery = { directory, limits }
@@ -265,36 +258,6 @@ describe('reading the delivery directory', () => {
     })
     expect(JSON.stringify(record)).not.toContain(one.world)
     await expect(readdir(one.root)).rejects.toThrow()
-  })
-
-  it('names the pack root and the delivery directory by placeholder where a refusal spells them as their real paths', async () => {
-    const one = await deployment({ linked: true })
-    await drop(one.delivery, 'v1.dshpack', [pack('a', 'A.')])
-    expect((await one.read())?.result).toBe('installed')
-    await rm(join(one.delivery.directory, 'v1.dshpack'))
-    await drop(one.delivery, 'v2.dshpack', [pack('b', 'B.')])
-    one.reported.length = 0
-    const world = await realpath(one.world)
-    const realRoot = join(world, 'packs')
-    const realDirectory = join(world, 'deliveries')
-    expect(realRoot).not.toBe(one.root)
-
-    const record = await readAt(one, () => ({
-      pack: 'b',
-      file: 'SKILL.md',
-      reason: `staged from ${join(realDirectory, 'v2.dshpack')} beside ${realRoot}`,
-    }))
-    expect(lineOf(one.reported)).toBe('skill-pack: v2.dshpack was not installed: PackInstallError: skill-pack: refused '
-      + `b/SKILL.md — staged from ${join(realDirectory, 'v2.dshpack')} beside ${realRoot}`)
-    expect(record).toEqual({
-      result: 'refused',
-      archives: ['v2.dshpack'],
-      set: SET,
-      reason: 'skill-pack: v2.dshpack was not installed: PackInstallError: skill-pack: refused '
-        + `b/SKILL.md — staged from ${join('<delivery directory>', 'v2.dshpack')} beside <pack root>`,
-      at: '<at>',
-    })
-    expect(await readdir(one.root)).toEqual(['a'])
   })
 
   // Mode 555 denies creating an entry in a directory to a non-root owner on

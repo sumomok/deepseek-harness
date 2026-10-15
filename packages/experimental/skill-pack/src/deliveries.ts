@@ -18,7 +18,7 @@
  * @module @deepseek-ai/dsh-experimental-skill-pack/src/deliveries
  */
 
-import { readdir, readFile, realpath, stat } from 'node:fs/promises'
+import { readdir, readFile, stat } from 'node:fs/promises'
 import { dirname, join, sep } from 'node:path'
 import { PACK_ARCHIVE_EXTENSION, readPackArchive } from './archive.ts'
 import { syncPackRoot, type VerifyStagedPacks } from './install.ts'
@@ -62,7 +62,7 @@ export async function installDelivery(
   const names = await listArchives(delivery.directory)
   const [name] = names
   if (name === undefined) return undefined
-  const refused = (set: PackSetIdentity | undefined, line: string): Promise<DeliveryRecord> =>
+  const refused = (set: PackSetIdentity | undefined, line: string): DeliveryRecord =>
     recordRefusal(report, { root, directory: delivery.directory }, names, set, line)
   if (names.length > 1) {
     return refused(undefined, `skill-pack: the delivery directory holds ${String(names.length)} archives `
@@ -75,7 +75,7 @@ export async function installDelivery(
     // refused without this deployment holding its bytes.
     const { size } = await stat(path)
     if (size > delivery.limits.maxArchiveBytes) {
-      return await refused(undefined, `skill-pack: refused ${name} — is ${String(size)} bytes, `
+      return refused(undefined, `skill-pack: refused ${name} — is ${String(size)} bytes, `
         + `over the ${String(delivery.limits.maxArchiveBytes)} it is read under`)
     }
     const archive = readPackArchive(name, await readFile(path), delivery.limits)
@@ -98,9 +98,9 @@ interface HiddenDirectories {
   readonly directory: string
 }
 
-/** One way a file-system error can spell a hidden directory, and what the record writes in its place. */
+/** One directory a refusal record hides, and what the record writes in its place. */
 interface Spelling {
-  /** The directory's absolute path, as configured or as its real path. */
+  /** The directory's absolute path, as configured. */
   readonly path: string
   /** What the record writes where a path begins with this one. */
   readonly placeholder: string
@@ -123,15 +123,15 @@ const PATH_CHARACTER = /[\p{L}\p{N}_.~/\\-]/u
  * @param line - the whole line.
  * @returns the refusal record.
  */
-async function recordRefusal(
+function recordRefusal(
   report: DeliveryReport,
   hidden: HiddenDirectories,
   archives: readonly string[],
   set: PackSetIdentity | undefined,
   line: string,
-): Promise<DeliveryRecord> {
+): DeliveryRecord {
   report('error', line)
-  const reason = await hideDirectories(line, hidden)
+  const reason = hideDirectories(line, hidden)
   return { result: 'refused', archives, ...set === undefined ? {} : { set }, reason, at: new Date().toISOString() }
 }
 
@@ -146,12 +146,12 @@ async function recordRefusal(
  * @param hidden - the directories to replace.
  * @returns the line with each path that begins with one of those directories written from its placeholder on.
  */
-async function hideDirectories(line: string, hidden: HiddenDirectories): Promise<string> {
-  const spellings = (await Promise.all([
-    spellingsOf(hidden.root, '<pack root>'),
-    ...ancestorsOf(hidden.root).map(({ path, placeholder }) => spellingsOf(path, placeholder)),
-    spellingsOf(hidden.directory, '<delivery directory>'),
-  ])).flat()
+function hideDirectories(line: string, hidden: HiddenDirectories): string {
+  const spellings: Spelling[] = [
+    { path: hidden.root, placeholder: '<pack root>' },
+    ...ancestorsOf(hidden.root),
+    { path: hidden.directory, placeholder: '<delivery directory>' },
+  ]
   return writePlaceholders(line, spellings.sort((left, right) => right.path.length - left.path.length))
 }
 
@@ -170,25 +170,6 @@ function ancestorsOf(root: string): Spelling[] {
     ancestors.push({ path, placeholder })
   }
   return ancestors
-}
-
-/**
- * The paths one directory can be named by in a file-system error.
- * @param path - the directory's absolute path as configured.
- * @param placeholder - what the record writes in its place.
- * @returns the configured path, and its real path where it resolves.
- */
-async function spellingsOf(path: string, placeholder: string): Promise<Spelling[]> {
-  let real: string
-  try {
-    real = await realpath(path)
-  } catch (_unresolved) {
-    // A pack root not yet installed, a directory above it not yet created,
-    // or a directory removed since it was listed has no real path, so no
-    // error names one.
-    return [{ path, placeholder }]
-  }
-  return [{ path, placeholder }, { path: real, placeholder }]
 }
 
 /**
