@@ -25,7 +25,7 @@ Each in-tree adapter handles the field in a fixed way:
 - `llm-pi-ai` refuses it before any provider I/O. pi-ai owns the provider request body, and its common stream options choose only `auto` or `none`.
 - The replay adapter ignores it, because replay reads recorded responses and sends no request.
 
-The DeepSeek mapping applies at every reasoning effort, including the `off` effort a `session-title` request forces. It adds no thinking-mode check and never turns thinking off. On 2026-09-24, one offered tool with `tool_choice: {type: "any"}` returned `stop_reason: tool_use` with an object `input` in all six probe cases on `api.deepseek.com/anthropic`: thinking on and off, streaming and non-streaming, on `deepseek-flash` and `deepseek-v4-pro`. With thinking off, `deepseek-flash` answered with a text block before the `tool_use` block. A request without the field sends a byte-identical body.
+The DeepSeek mapping applies at every reasoning effort, including `off`. It adds no thinking-mode check and never turns thinking off. On 2026-09-24, one offered tool with `tool_choice: {type: "any"}` returned `stop_reason: tool_use` with an object `input` in all six probe cases on `api.deepseek.com/anthropic`: thinking on and off, streaming and non-streaming, on `deepseek-flash` and `deepseek-v4-pro`. With thinking off, `deepseek-flash` answered with a text block before the `tool_use` block. A request without the field sends a byte-identical body.
 
 ## Alternatives considered
 

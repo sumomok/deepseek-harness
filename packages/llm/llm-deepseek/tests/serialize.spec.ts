@@ -125,11 +125,6 @@ describe('Messages request conversion', () => {
       expect(request.tool_choice).toEqual({ type: 'any' })
       expect(request.thinking).toEqual({ type: effort === 'off' ? 'disabled' : 'enabled' })
     })
-
-    it('maps the same tool_choice for a session-title request', () => {
-      const request = body([user()], { tools: [verdict], toolChoice: { type: 'any' }, purpose: 'session-title' })
-      expect(request).toMatchObject({ thinking: { type: 'disabled' }, tool_choice: { type: 'any' } })
-    })
   })
 
   it('preserves the exact request with request-only text after durable tool results', () => {

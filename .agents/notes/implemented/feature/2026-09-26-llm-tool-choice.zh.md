@@ -25,7 +25,7 @@ Status: implemented
 - `llm-pi-ai` 在任何提供方 I/O 之前拒收它。提供方请求体归 pi-ai 所有，其通用流式选项只能选 `auto` 或 `none`。
 - 回放适配器忽略它，因为回放读取录制的响应，不发送请求。
 
-DeepSeek 映射在每个推理档位都生效，包括 `session-title` 请求强制的 `off` 档位。它不加思考模式检查，也从不关闭 thinking。2026-09-24 在 `api.deepseek.com/anthropic` 上，只提供一个工具并带 `tool_choice: {type: "any"}` 的全部六个探测用例都返回了 `stop_reason: tool_use` 且 `input` 是对象：覆盖 thinking 开与关、流式与非流式、`deepseek-flash` 与 `deepseek-v4-pro`。thinking 关闭时，`deepseek-flash` 在 `tool_use` 块之前先回答了一个 text 块。不带该字段的请求发送逐字节相同的请求体。
+DeepSeek 映射在每个推理档位都生效，包括 `off`。它不加思考模式检查，也从不关闭 thinking。2026-09-24 在 `api.deepseek.com/anthropic` 上，只提供一个工具并带 `tool_choice: {type: "any"}` 的全部六个探测用例都返回了 `stop_reason: tool_use` 且 `input` 是对象：覆盖 thinking 开与关、流式与非流式、`deepseek-flash` 与 `deepseek-v4-pro`。thinking 关闭时，`deepseek-flash` 在 `tool_use` 块之前先回答了一个 text 块。不带该字段的请求发送逐字节相同的请求体。
 
 ## Alternatives considered
 
