@@ -49,7 +49,7 @@ export const ChatFlow = memo(function ChatFlow({
     <PendingSubmissionBubble key={item.requestId} submission={item}
       loadImage={loadImage} renderFactorySlot={renderFactorySlot} t={t} />
   ) : (
-    <PendingSteeringBubble key={item.id} content={item.content}
+    <PendingSteeringBubble key={item.id} content={item.content} source={item.source}
       loadImage={loadImage} renderFactorySlot={renderFactorySlot} t={t} />
   ))
   const tail = entries.at(-1)

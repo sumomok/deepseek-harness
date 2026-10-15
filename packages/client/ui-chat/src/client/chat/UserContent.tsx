@@ -1,7 +1,7 @@
 /** Reusable user contents inside a caller-owned message row. */
 import { Fragment } from 'react'
 import type { FactoryComponentPropsOf } from '@deepseek-ai/dsh-client-ui-slots'
-import { fileExtension, FileTypeIcon, fileSizeText, JsonBlock } from '@deepseek-ai/dsh-client-ui-primitives'
+import { fileExtension, FileTypeIcon, fileSizeText, JsonBlock, PromptReferenceChip } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './MessageItem.module.css'
 
 const EMPTY_LABELS: readonly string[] = []
@@ -14,13 +14,13 @@ const EMPTY_LABELS: readonly string[] = []
  */
 export function UserContent({ content, loadImage, facts, interactive = false, ellipsis = false, renderSlot, renderFactorySlot, t }:
 FactoryComponentPropsOf<'conversation.chat.user.content'>) {
-  const { text, attachments, extraBlocks, referenceLabels = EMPTY_LABELS } = content
+  const { text, attachments, extraBlocks, referenceLabels = EMPTY_LABELS, promptReferenceLabels = EMPTY_LABELS } = content
   const compactImages = attachments.length > 1
   const truncated = (total: number): string => t('json.truncated', { total })
   const showBubble = text !== '' || extraBlocks.length > 0
   return (
     <div className={css.userStack}>
-      {attachments.length > 0 && (
+      {attachments.length + promptReferenceLabels.length > 0 && (
         <div className={css.attachmentRow} data-message-attachments>
           {attachments.map((attachment, index) => attachment.type === 'image'
             ? (
@@ -42,6 +42,7 @@ FactoryComponentPropsOf<'conversation.chat.user.content'>) {
                 </span>
               </span>
             ))}
+          {promptReferenceLabels.map((label, index) => <PromptReferenceChip key={`reference:${index}`} label={label} />)}
         </div>
       )}
       {showBubble && <div className={css.bubble}>
