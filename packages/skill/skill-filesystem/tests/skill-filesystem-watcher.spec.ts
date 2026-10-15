@@ -567,6 +567,7 @@ describe('skill-filesystem watcher failures', () => {
       provider = new SkillFileSystem.FileSystemSkillProvider(ctx, control, {
         dshHome: join(home, '.dsh'),
         agentsHome: join(home, '.agents'),
+        claudeHome: join(home, '.claude'),
         watch: true,
         watchPollIntervalMs: 10,
         watchStabilityThresholdMs: 20,
