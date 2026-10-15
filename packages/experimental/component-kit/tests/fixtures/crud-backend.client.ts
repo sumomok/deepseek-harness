@@ -33,6 +33,12 @@ export interface StubTable {
   readonly addFormItems?: readonly Readonly<Record<string, unknown>>[]
   /** The rows every query is answered with. */
   readonly rows: readonly Readonly<Record<string, unknown>>[]
+  /**
+   * The columns the profile this stub answers grants the table's modify forms,
+   * which is where the page reads what the visitor may change; every other
+   * field of those forms is drawn read-only. None where absent.
+   */
+  readonly modifiableColumns?: readonly string[]
 }
 
 /** Every table the stub serves, by name. */
@@ -111,9 +117,9 @@ function route(method: string, url: string, body: string): [number, unknown] {
   const params = new URLSearchParams(query)
   if (path.endsWith('/nrms-auth/api/auth/userinfo')) {
     if (answers.userInfo !== undefined) return answers.userInfo
-    const resclass = [...tables.keys()].map(meta => ({
+    const resclass = [...tables].map(([meta, table]) => ({
       resclassenname: meta, search: 1, add: 1, update: 1, delete: 1, imp: 1, exp: 1,
-      gridexp: 1, searchSetting: 1, advSearch: 1, showAsPass: 0, columns: [],
+      gridexp: 1, searchSetting: 1, advSearch: 1, showAsPass: 0, columns: table.modifiableColumns ?? [],
     }))
     return [200, { code: 0, data: { useraccount: 'probe', username: '探针用户', auth: { resclass } } }]
   }

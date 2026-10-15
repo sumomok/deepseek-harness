@@ -109,6 +109,33 @@ defineTable(MASKED_META, {
   rows: [MASKED_ROW, MASKED_NAMED_ROW],
 })
 
+/**
+ * A table masking one of its drawn columns, the way {@link MASKED_META} does,
+ * whose profile grants the visitor its city: the batch dialog draws the masked
+ * code read-only and takes a value in the city field, so a write through the
+ * page's own controls reaches the backend with a masked column among its
+ * ticked ones.
+ */
+const MASKED_WRITE_META = 'probe_masked_write'
+
+defineTable(MASKED_WRITE_META, {
+  gridItems: [
+    { relatedMetaAttr: 'code', alias: '编码', isShow: '1', showAsPass: 1 },
+    { relatedMetaAttr: 'zh_label', alias: '名称', isShow: '1' },
+    { relatedMetaAttr: 'city', alias: '城市', isShow: '1' },
+  ],
+  formItems: [
+    { relatedMetaAttr: 'code', alias: '编码', isShow: 1, isEditable: 1, isRequired: 0, relatedComponent: 'edit_input', op: 'EQ', showAsPass: 1 },
+    { relatedMetaAttr: 'zh_label', alias: '名称', isShow: 1, isEditable: 1, isRequired: 0, relatedComponent: 'edit_input', op: 'LIKE' },
+    { relatedMetaAttr: 'city', alias: '城市', isShow: 1, isEditable: 1, isRequired: 0, relatedComponent: 'edit_input', op: 'EQ' },
+  ],
+  rows: [
+    { int_id: '1', code: 'C-1', zh_label: '北京-核心-01', city: '北京' },
+    { int_id: '2', code: 'C-2', zh_label: '济南-接入-07', city: '济南' },
+  ],
+  modifiableColumns: ['city'],
+})
+
 /** Every node appended straight under the document body, by id, while a case ran. */
 const escaped: string[] = []
 
@@ -974,13 +1001,16 @@ describe('a delete and a batch edit a person performs on the page', () => {
       return found
     })
     fireEvent.click(remove)
-    const answered = await vi.waitFor(() => {
-      const found = inRow(view.container, '乙设备', 'button', '确定')
-      if (found === undefined) throw new Error('the row drew no confirmation bubble')
-      return found
-    })
+    // The bubble is drawn inside the row while it is closed and moves into the
+    // box when the icon opens it, so what is answered is the open one.
+    const bubble = await vi.waitFor(() => {
+      const open = [...view.container.querySelectorAll<HTMLElement>('.el-popover')].find(
+        popover => popover.style.display !== 'none' && buttonNamed(popover, '确定') !== undefined)
+      if (open === undefined) throw new Error('the row drew no open confirmation bubble')
+      return open
+    }, { timeout: 5000, interval: 20 })
     onAction.mockClear()
-    fireEvent.click(answered)
+    fireEvent.click(buttonNamed(bubble, '确定') as HTMLElement)
     await vi.waitFor(() => {
       expect(onAction).toHaveBeenCalledWith('deleted', { succeeded: 1, failed: 0, names: ['乙设备'] })
     }, { timeout: 5000, interval: 20 })
@@ -993,8 +1023,8 @@ describe('a delete and a batch edit a person performs on the page', () => {
 
   it('reports a batch edit saved through the batch dialog by its count, names and changed fields, and no value', async () => {
     const { view, onAction } = draw(Object.freeze({
-      relatedMeta: META,
-      metaLabel: '演示设备',
+      relatedMeta: MASKED_WRITE_META,
+      metaLabel: '脱敏表',
       readOnly: false,
       toolbarButtons: ['batch', 'search', 'clear'],
       rowOperations: ['modify'],
@@ -1010,31 +1040,57 @@ describe('a delete and a batch edit a person performs on the page', () => {
       fireEvent.click(tick)
       await flush()
     }
-    fireEvent.click(view.container.querySelector('button[aria-haspopup="list"]') as HTMLElement)
-    await flush()
-    const batchEdit = [...view.container.querySelectorAll('li')].find(item => item.textContent?.trim() === '批量修改')
-    fireEvent.click(batchEdit as HTMLElement)
+    // The batch menu opens on hover; its items are drawn hidden until it does.
+    const trigger = view.container.querySelector('button[aria-haspopup="list"]')
+    if (trigger === null) throw new Error('the toolbar drew no batch menu trigger')
+    fireEvent.mouseEnter(trigger)
+    const batchEdit = await vi.waitFor(() => {
+      const menu = [...view.container.querySelectorAll<HTMLElement>('.el-dropdown-menu')]
+        .find(candidate => candidate.style.display !== 'none')
+      const item = menu === undefined
+        ? undefined
+        : [...menu.querySelectorAll('li')].find(candidate => candidate.textContent?.trim() === '批量修改')
+      if (item === undefined) throw new Error('the batch menu is not open')
+      return item
+    }, { timeout: 5000, interval: 20 })
+    fireEvent.click(batchEdit)
     const dialog = await vi.waitFor(() => {
       const found = dialogTitled(view.container, '【演示设备】批量修改（2条）')
       if (found === null) throw new Error('the batch dialog did not open')
       return found
     }, { timeout: 5000, interval: 20 })
+    // A field takes a value once its 改变 box is ticked and the profile lets
+    // the visitor change its column: the masked code stays read-only.
+    const code = fieldItem(dialog, '编码')
     const city = fieldItem(dialog, '城市')
-    fireEvent.click(city?.querySelector('.checkbox-div input[type="checkbox"]') as HTMLElement)
-    await flush()
-    const value = city?.querySelector('input.el-input__inner') as HTMLInputElement
-    value.value = '上海'
-    value.dispatchEvent(new Event('input', { bubbles: true }))
-    value.dispatchEvent(new Event('change', { bubbles: true }))
+    if (code === undefined || city === undefined) throw new Error('the batch dialog draws no code and city fields')
+    fireEvent.click(code.querySelector('.checkbox-div input[type="checkbox"]') as HTMLElement)
+    fireEvent.click(city.querySelector('.checkbox-div input[type="checkbox"]') as HTMLElement)
+    const value = await vi.waitFor(() => {
+      const input = city.querySelector('input.el-input__inner')
+      if (!(input instanceof HTMLInputElement) || input.disabled) throw new Error('the city field takes no value')
+      return input
+    }, { timeout: 5000, interval: 20 })
+    fireEvent.input(value, { target: { value: '上海' } })
     await flush()
     onAction.mockClear()
     fireEvent.click(buttonNamed(dialog, '确 定') as HTMLElement)
     await vi.waitFor(() => {
       expect(onAction).toHaveBeenCalledWith('batch-modified', { succeeded: 2, names: ['北京-核心-01', '济南-接入-07'], fields: ['city'] })
     }, { timeout: 5000, interval: 20 })
-    // The value the person typed left with the write; the report names the
-    // field it changed and carries none of its value.
-    expect(seen.find(request => request.method === 'PUT')?.body).toContain('"city":"上海"')
+    // The value the person typed left with the write, and the write carried
+    // both ticked fields — the masked code among them. The report names the
+    // unmasked field alone and none of their values.
+    const put = seen.find(request => request.method === 'PUT')
+    if (put === undefined) throw new Error('the page sent no batch write')
+    const body: unknown = JSON.parse(put.body)
+    expect(body).toEqual({
+      resclassenname: MASKED_WRITE_META,
+      resObjList: [
+        { rawValue: { int_id: '1', zh_label: '北京-核心-01', code: '', city: '上海' } },
+        { rawValue: { int_id: '2', zh_label: '济南-接入-07', code: '', city: '上海' } },
+      ],
+    })
     expect(JSON.stringify(onAction.mock.calls)).not.toContain('上海')
   }, 20_000)
 })
