@@ -199,11 +199,20 @@ export interface ConnectionFetchRoute {
   /** Buffered requests obey the configured JSON cap; streaming requests arrive with backpressure and no aggregate cap. */
   readonly requestBody: ConnectionRequestBodyMode
   /**
-   * Handle one request after the physical carrier has applied its trust and
-   * authentication policy. Only owner Peers reach an exact route; the shared
-   * handler answers 403 for every other principal.
+   * Handle one request from an owner Peer after the physical carrier has
+   * applied its trust and authentication policy.
    */
   readonly fetch: (request: Request) => Promise<Response>
+  /**
+   * This route's own access rule for non-owner Peers. Without it the shared
+   * handler answers 403 to every non-owner principal. With it, a request from
+   * a live non-owner Peer is handed here instead of to {@link fetch}; a
+   * disposed Peer is answered 401 first. The rule decides before the route
+   * reads, writes, or opens anything, normally through `remoteAccess.decide()`
+   * with the route path as the action, answers 403 when it refuses, and serves
+   * the request itself when it allows.
+   */
+  readonly serveNonOwner?: (request: Request, peer: PeerScope) => Promise<Response>
 }
 
 /** Host registry for exact Fetch routes that cannot use JSON Remote invocation. */
@@ -333,7 +342,9 @@ export interface ConnectionFetchHandler {
    * Dispatch one already-authenticated request.
    * @param request - Fetch request below the shared channel.
    * @param peer - Peer to dispatch as; required, never defaulted.
-   * @returns the registered response, a 403 response for an exact route and a non-owner Peer, or a 404 response.
+   * @returns the registered response; for an exact route and a non-owner Peer, the route's own
+   * `serveNonOwner` response, 401 when that Peer is disposed, or 403 when the route declares none;
+   * or a 404 response.
    */
   fetch(request: Request, peer: PeerScope): Promise<Response>
 }

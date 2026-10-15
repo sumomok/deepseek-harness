@@ -30,7 +30,7 @@ kind: "package-reference"
 |---|---|
 | `registerPolicy(kind, policy)` | 为一种非 owner principal kind 注册 `RemoteAccessPolicy`；其 `bindings()` 与 `explain()` 收到的 principal 按该 kind 定型。同一 kind 再注册一个 policy 即抛错。登记是调用方 fiber 的 Cordis effect；注册与撤回都会重新计算已打开的快照。 |
 | `invalidate(principal?)` | 报告某个 principal（省略时为所有 principal）的 binding 或 condition 结论可能已变化。业务包在每次授权、撤权、模式切换与过期时调用。 |
-| `decide(request)` | 仅供 Gateway 使用。`request` 为 `{ principal, action, resources, args? }`：调用方或接收方、端点 `ns/method` 或 `event:<name>`、Gateway 解析出的合法资源，以及调用中按 Typert 编译类型校验后的参数（lookup 参数为 wire 身份）。返回 `{ kind: 'allow' }` 或 `{ kind: 'deny', reason }`；调用被拒时由 Gateway 抛出 details 为 `{ action, reason }` 的 `remote-access/denied`，事件被拒时由 Gateway 直接丢弃、不构造错误。owner 与 `remoteAccess/follow` 恒放行。 |
+| `decide(request)` | 由 Gateway 为调用与转发事件调用，也由 [Connection](../../client/connection/README.zh.md) 精确 Fetch 路由的 `serveNonOwner` 访问规则调用，后者以路由路径（如 `/api/file`）为 action。`request` 为 `{ principal, action, resources, args? }`：调用方或接收方、端点 `ns/method`、路由路径或 `event:<name>`、调用者解析出的合法资源，以及调用中按 Typert 编译类型校验后的参数（lookup 参数为 wire 身份）。返回 `{ kind: 'allow' }` 或 `{ kind: 'deny', reason }`；调用被拒时由 Gateway 抛出 details 为 `{ action, reason }` 的 `remote-access/denied`，事件被拒时由 Gateway 直接丢弃、不构造错误，路由被拒时答 403。owner 与 `remoteAccess/follow` 恒放行。 |
 | `allows(resource)` | 读访问本服务的 Context 上的 invocation，因此列表方法对每一项调用 `this.ctx.remoteAccess.allows(resource)`。不带参数判定该调用的端点 action 在该资源上是否被允许，每次判定都重新读取 binding。owner 与 Remote 调用之外恒为 true。 |
 | `snapshotFor(principal)` | 页面打开时的 baseline：owner 为 `{ type: 'baseline', owner: true }`，否则为该 principal 当前的 grant。 |
 | `follow(signal)` | Remote stream `remoteAccess/follow`：一个 `baseline`，之后是 `upsert` 与 `remove` 帧。owner 只收到 `{ type: 'baseline', owner: true }`。`signal` abort 或服务卸载时流结束，因此重载后的服务从新的 baseline 回答每个读者。 |
@@ -80,7 +80,7 @@ Client 入口同步读取 index 注入在 `REMOTE_ACCESS_SNAPSHOT_KEY` 下的 ba
 - 快照与列表过滤的判定不带调用参数，因此按 `args` 细化结论的 condition 可能拒绝快照显示为允许的调用。
 - 资源读取函数与自动解析必须覆盖方法访问的全部资源；调用未指明的资源不受检查，持有已指明资源授权的 principal 可以访问它。
 - 默认资源解析按 wire 字段名匹配；给方法新增与已登记种类同名的字段，会让调用多访问该种类的资源。
-- exact Connection Fetch route 不经过 Gateway；在各路由声明自己的访问规则之前，共享 Fetch handler 对所有非 owner Peer 返回 403。
+- exact Connection Fetch route 不经过 Gateway。未声明 `serveNonOwner` 访问规则的路由，共享 Fetch handler 对非 owner Peer 返回 403；声明了规则的路由自行解析资源，以自身路径为 action 调用 `decide()`，被拒时返回 403。
 - 非 owner 的 `$events` 流只有在 policy 对 waterfall 的 Agent 身份所指的资源放行其 `event:<name>` action 时，才收到并可回答该转发 waterfall；Gateway 在 waterfall 首次投递时、以及事件流在它挂起期间连上时判定，因此 policy 变化要等已打开的流重连后才生效。
 - `api-session/added` 携带完整的 `SessionSummary`，因此被允许接收它的非 owner 也会得知其 `parentSessionId`。
 - 被授权 Session 的 cwd 与工具路径本就包含 owner 的绝对路径，因此 `$events` ready 帧向非 owner 提供完整的 `host`（含 `home`）；Gateway 不单独隐藏 `home`。

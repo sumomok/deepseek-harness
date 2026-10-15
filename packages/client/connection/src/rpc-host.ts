@@ -53,6 +53,7 @@ interface RegisteredFetchRoute {
   readonly methods: ReadonlySet<string>
   readonly requestBody: ConnectionFetchRoute['requestBody']
   readonly fetch: ConnectionFetchRoute['fetch']
+  readonly serveNonOwner: ConnectionFetchRoute['serveNonOwner']
 }
 
 interface ConnectionServerResponse {
@@ -267,9 +268,9 @@ export class HostConnectionService extends Service implements HostConnectionHand
         const pathname = new URL(request.url).pathname
         const route = this.fetchRoutes.get(pathname)
         if (route?.methods.has(request.method) === true) {
-          // Exact routes bypass Gateway access checks, so only the owner reaches them.
+          // Exact routes bypass Gateway access checks, so only the owner reaches them unless the route declares its own rule.
           // oxlint-disable-next-line typescript/no-unnecessary-condition -- other packages merge non-owner kinds into PrincipalMap.
-          if (peer.principal.kind !== 'owner') return Promise.resolve(new Response('forbidden', { status: 403 }))
+          if (peer.principal.kind !== 'owner') return nonOwnerFetch(route, request, peer)
           return route.fetch(request)
         }
         const endpoint = endpointFromPath(channel, pathname)
@@ -291,6 +292,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
       methods: new Set(route.methods),
       requestBody: route.requestBody,
       fetch: route.fetch,
+      serveNonOwner: route.serveNonOwner,
     }
     return owner.effect(() => {
       if (this.fetchRoutes.has(route.path)) {
@@ -350,6 +352,14 @@ export class HostConnectionService extends Service implements HostConnectionHand
       }
     }, `client-connection: ${channel} rpc interceptor`)
   }
+}
+
+/** Hand a non-owner request to the route's own access rule; without one, refuse it. */
+function nonOwnerFetch(route: RegisteredFetchRoute, request: Request, peer: PeerScope): Promise<Response> {
+  if (route.serveNonOwner === undefined) return Promise.resolve(new Response('forbidden', { status: 403 }))
+  // The Peer may have been disposed while the bridge read the body or a connection/request listener awaited.
+  if (peer.signal.aborted) return Promise.resolve(new Response('unauthorized', { status: 401 }))
+  return route.serveNonOwner(request, peer)
 }
 
 function rpcFetchHandler(

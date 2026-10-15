@@ -22,7 +22,7 @@ export type {
 /** Canonical `<namespace>/<method>` Remote endpoint; its segments never contain `:`. */
 export type RemoteAccessEndpoint = `${string}/${string}`
 
-/** A Remote endpoint, or `event:<name>` for one forwarded event. */
+/** A Remote endpoint, an exact Connection Fetch route path such as `/api/file`, or `event:<name>` for one forwarded event. */
 export type RemoteAccessAction = RemoteAccessEndpoint | `event:${string}`
 
 /** A named action set over one resource kind; a plain value the business package owns. */
