@@ -181,6 +181,19 @@ describe('Chat apply wiring', () => {
     expect(() => b.runtime.factoryOf('conversation.chat.user.content')).toThrow('no definition')
   })
 
+  it('declares the user-actions seat on the shared flow', async () => {
+    const b = await bench()
+    onTestFinished(() => b.runtime.dispose())
+    b.runtime.renderRoot()
+    const view = b.runtime.slots.entries('conversation.view')[0]
+    const flow = b.runtime.slots.entries('conversation.chat.flow')[0]
+    expect(b.runtime.slots.spec('conversation.chat.user-actions')).toMatchObject({ kind: 'list', scope: 'session' })
+    expect(flow?.children?.['conversation.chat.user-actions']).toMatchObject({ kind: 'list', scope: 'session' })
+    expect(view?.children?.['conversation.chat.user-actions']).toBeUndefined()
+    await b.chat.dispose()
+    expect(b.runtime.slots.spec('conversation.chat.user-actions')).toBeUndefined()
+  })
+
   it('lets another registrant replace one composer stats pill by id', async () => {
     const b = await bench()
     onTestFinished(() => b.runtime.dispose())
