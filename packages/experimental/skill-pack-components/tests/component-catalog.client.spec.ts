@@ -1,7 +1,9 @@
 /**
  * The component catalog file under `tests/expected/` is the file this tree
  * generates, its header digests are the ones a reader recomputes from it, and
- * what the generator writes itself states the judgement it restates.
+ * what the generator writes in its own words — the layout's root kind, the
+ * whole-number flex, the `otherKeys` words and the `rules` sentences — agrees
+ * with how the component surface and the pack root judge what it describes.
  *
  * The `.client.` suffix names the typecheck aggregate this package belongs to,
  * not the face under test.

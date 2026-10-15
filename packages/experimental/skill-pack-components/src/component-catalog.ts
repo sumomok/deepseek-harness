@@ -268,6 +268,8 @@ const ENTRY_FACTS = {
   label: entry => ({ label: entry.label }),
   purpose: entry => ({ purpose: entry.purpose }),
   // An entry that declares no placement is one a call may place.
+  // `deploymentSwitches` is no key of the entry; it is stated under
+  // `placement` so the file writes it right after `placement`.
   placement: entry => ({ placement: entry.placement ?? 'call', deploymentSwitches: requiredSwitches(entry.id) }),
   propsSchema: entry => ({ props: propsFacts(entry) }),
   outputs: entry => ({
