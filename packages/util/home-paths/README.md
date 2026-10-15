@@ -51,6 +51,16 @@ agentsHomeDisplay(agents)            // ~/.agents, or $DSH_AGENTS_HOME for any c
 
 `resolveAgentsHome` applies the same precedence, blank-value handling, and tilde expansion as `resolveDshHome`. The root is deliberately outside `$DSH_HOME` because other agent tools share it; `dsh-agent-instructions` reads its user-global `AGENTS.md`, and `dsh-skill-filesystem` scans its `skills/` directory.
 
+### Resolving the Claude Code root
+
+```ts
+import { resolveClaudeHome } from '@deepseek-ai/dsh-home-paths'
+
+const claude = resolveClaudeHome()   // configured path, else $DSH_CLAUDE_HOME, else ~/.claude
+```
+
+`resolveClaudeHome` applies the same precedence, blank-value handling, and tilde expansion to the Claude Code configuration root, whose `skills/` directory `dsh-skill-filesystem` scans. It reads the harness's own `$DSH_CLAUDE_HOME`, not a Claude Code variable, so only the harness's environment moves the root.
+
 ### Displaying a home
 
 For user-facing paths, render a root symbolically rather than as a machine path: the default harness home displays as `~/.dsh`, any configured harness home as `$DSH_HOME`, the default shared agents root as `~/.agents`, and any configured shared agents root as `$DSH_AGENTS_HOME`. Neither display form leaks an absolute machine path.
@@ -71,7 +81,7 @@ For user-facing paths, render a root symbolically rather than as a machine path:
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The package is built on one principle: harness user data lives under one root, and the shared agent configuration root stays separate because other agent tools read it too. `resolveRoot` and `rootDisplay` own the precedence and display rules for both roots, so neither can drift from the other.
+The package is built on one principle: harness user data lives under one root, and the shared agent configuration root and the Claude Code configuration root stay separate because other agent tools read them too. `resolveRoot` owns the precedence rules for every root and `rootDisplay` the display rules, so no root can drift from another.
 
 ### Source map
 
@@ -81,7 +91,7 @@ The package is built on one principle: harness user data lives under one root, a
 
 ### Resolution rules
 
-`resolveDshHome` reads the explicit override, then `$DSH_HOME`, then falls back to the operating-system home joined with `.dsh`. `resolveAgentsHome` reads the same three levels for `$DSH_AGENTS_HOME` and `~/.agents`. The chosen value is tilde-expanded and normalized to an absolute path; `dshHomePath` joins child segments with Node's platform path rules. `dshHomeDisplay` and `agentsHomeDisplay` compare the resolved path against the default root and return the symbolic label, so a configured root never leaks its absolute path.
+`resolveDshHome` reads the explicit override, then `$DSH_HOME`, then falls back to the operating-system home joined with `.dsh`. `resolveAgentsHome` reads the same three levels for `$DSH_AGENTS_HOME` and `~/.agents`, and `resolveClaudeHome` for `$DSH_CLAUDE_HOME` and `~/.claude`. The chosen value is tilde-expanded and normalized to an absolute path; `dshHomePath` joins child segments with Node's platform path rules. `dshHomeDisplay` and `agentsHomeDisplay` compare the resolved path against the default root and return the symbolic label, so a configured root never leaks its absolute path.
 
 ### Canonicalization mechanics
 

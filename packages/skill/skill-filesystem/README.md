@@ -127,7 +127,7 @@ Read these pages when the package-level contract is not enough. They move from t
 - [Skill subsystem reference](../../../docs/subsystems/skills.md) — the registry contract and the local discovery priority table.
 - [skill package](../skill/README.md) — the registry this provider registers on.
 - [tool-skill package](../tool-skill/README.md) — how discovered skills reach the session catalog and the model.
-- [home-paths package](../../util/home-paths/README.md) — how `dshHome` and `agentsHome` resolve.
+- [home-paths package](../../util/home-paths/README.md) — how `dshHome`, `agentsHome`, and `claudeHome` resolve.
 
 -----
 

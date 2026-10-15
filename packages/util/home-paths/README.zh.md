@@ -51,6 +51,16 @@ agentsHomeDisplay(agents)            // ~/.agents, or $DSH_AGENTS_HOME for any c
 
 `resolveAgentsHome` 采用与 `resolveDshHome` 相同的优先级、空白值处理与波浪号展开。该根目录刻意位于 `$DSH_HOME` 之外，因为其他 agent 工具也会共享它：`dsh-agent-instructions` 读取其中的用户全局 `AGENTS.md`，`dsh-skill-filesystem` 扫描其中的 `skills/` 目录。
 
+### 解析 Claude Code 根目录
+
+```ts
+import { resolveClaudeHome } from '@deepseek-ai/dsh-home-paths'
+
+const claude = resolveClaudeHome()   // configured path, else $DSH_CLAUDE_HOME, else ~/.claude
+```
+
+`resolveClaudeHome` 对 Claude Code 配置根目录采用相同的优先级、空白值处理与波浪号展开，`dsh-skill-filesystem` 扫描其中的 `skills/` 目录。它读取 harness 自己的 `$DSH_CLAUDE_HOME`，而不是 Claude Code 的变量，因此只有 harness 自己的环境能移动该根目录。
+
 ### 展示主目录
 
 面向用户的路径请以符号形式渲染根目录，而不是机器路径：默认主目录显示为 `~/.dsh`，任何已配置的主目录显示为 `$DSH_HOME`，默认共享 agents 根目录显示为 `~/.agents`，任何已配置的共享 agents 根目录显示为 `$DSH_AGENTS_HOME`。两种展示形式都不会泄露机器的绝对路径。
@@ -71,7 +81,7 @@ agentsHomeDisplay(agents)            // ~/.agents, or $DSH_AGENTS_HOME for any c
 <details>
 <summary>实现细节——点击展开</summary>
 
-本包建立在一个原则上：harness 的用户数据位于同一个根目录下，而共享 agent 配置根目录保持独立，因为其他 agent 工具也会读取它。`resolveRoot` 与 `rootDisplay` 负责两个根目录的优先级与展示规则，因此两者不会彼此漂移。
+本包建立在一个原则上：harness 的用户数据位于同一个根目录下，而共享 agent 配置根目录与 Claude Code 配置根目录保持独立，因为其他 agent 工具也会读取它们。`resolveRoot` 负责每个根目录的优先级规则，`rootDisplay` 负责展示规则，因此各根目录不会彼此漂移。
 
 ### 源码地图
 
@@ -81,7 +91,7 @@ agentsHomeDisplay(agents)            // ~/.agents, or $DSH_AGENTS_HOME for any c
 
 ### 解析规则
 
-`resolveDshHome` 先读显式覆盖值，然后读 `$DSH_HOME`，最后回退到操作系统主目录拼接 `.dsh`。`resolveAgentsHome` 对 `$DSH_AGENTS_HOME` 与 `~/.agents` 读取同样的三层值。选中的值经过波浪号展开并规范化为绝对路径；`dshHomePath` 用 Node 的平台路径规则拼接子路径段。`dshHomeDisplay` 与 `agentsHomeDisplay` 把解析出的路径与默认根目录比较并返回符号标签，因此已配置的根目录绝不泄露其绝对路径。
+`resolveDshHome` 先读显式覆盖值，然后读 `$DSH_HOME`，最后回退到操作系统主目录拼接 `.dsh`。`resolveAgentsHome` 对 `$DSH_AGENTS_HOME` 与 `~/.agents` 读取同样的三层值，`resolveClaudeHome` 对 `$DSH_CLAUDE_HOME` 与 `~/.claude` 同样如此。选中的值经过波浪号展开并规范化为绝对路径；`dshHomePath` 用 Node 的平台路径规则拼接子路径段。`dshHomeDisplay` 与 `agentsHomeDisplay` 把解析出的路径与默认根目录比较并返回符号标签，因此已配置的根目录绝不泄露其绝对路径。
 
 ### 规范化机制
 
