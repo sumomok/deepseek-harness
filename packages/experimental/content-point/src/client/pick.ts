@@ -52,16 +52,22 @@ export const WHOLE_BLOCK_REASONS: ReadonlySet<DescribeRefusal> = new Set([...BLO
 export type ReferenceData = PromptReference['data']
 
 /**
- * A point-anchor description or a block reference as a reference payload. Both
- * are JSON objects of strings, numbers and nested such objects, which is what
- * the payload type spells out; they are declared as interfaces, which carry no
- * index signature, so the type is stated here once.
+ * A type with every object type in it restated as a mapped object type, and
+ * every function type kept as it is. An interface carries no implicit index
+ * signature, so a point-anchor description or a block reference is not
+ * assignable to the payload type as declared; the same fields as mapped object
+ * types are, each checked against the payload's JSON values, and a function
+ * anywhere in them is not.
+ */
+type JsonFields<T> = T extends (...args: never) => unknown ? T : T extends object ? { readonly [K in keyof T]: JsonFields<T[K]> } : T
+
+/**
+ * A point-anchor description or a block reference as a reference payload.
  * @param value - the description or block reference.
  * @returns the same object as a payload.
  */
-function asReferenceData(value: PointDescription | BlockData): ReferenceData {
-  const plain: object = value
-  return plain as ReferenceData
+function asReferenceData(value: JsonFields<PointDescription | BlockData>): ReferenceData {
+  return value
 }
 
 /** How one point ended. */
