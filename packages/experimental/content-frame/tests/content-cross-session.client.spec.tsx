@@ -12,13 +12,13 @@
  * frame pointed at a real path stays forever loading with no document at all.
  * The real route through a real frame belongs to the browser lane.
  */
-import { useRef } from 'react'
+import { useRef, type ComponentProps } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
-import { ContentFrame, type ContentFrameProps } from '../src/client/ContentFrame.tsx'
-import { PAGE_CHANNEL } from '../src/client/access/executor.ts'
+import { ContentFrame } from '../src/client/ContentFrame.tsx'
+import { ContentChannel } from '../src/client/access/channel.ts'
 import { zh } from '../src/client/locales.ts'
 import { CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, type ChannelOutcome, type ClaimAck } from '../src/access/wire.ts'
 import type { ContentAccessRequest, ContentPageView } from '../src/types.ts'
@@ -42,6 +42,9 @@ let published: Record<string, Published> = {}
 
 /** The session the console is showing. */
 let current = 'a'
+
+/** The page load's channel the seat answers through. */
+const CHANNEL = new ContentChannel()
 
 /**
  * A stand-in for the framework hook every root slot receives, memoizing the
@@ -89,7 +92,7 @@ function mount(
   cacheSize = 3,
   view?: ReturnType<typeof render>,
 ): ReturnType<typeof render> {
-  const props = {
+  const props: ComponentProps<typeof ContentFrame> = {
     sessionId: current,
     entry,
     cacheSize,
@@ -98,8 +101,8 @@ function mount(
     pageAccess: ACCESS,
     useSessions,
     t: makeTranslate(zh),
-    channel: PAGE_CHANNEL,
-  } as unknown as ContentFrameProps
+    channel: CHANNEL,
+  }
   const element = <ContentFrame {...props} />
   if (view === undefined) return render(element)
   view.rerender(element)

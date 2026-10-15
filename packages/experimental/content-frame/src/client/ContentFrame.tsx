@@ -241,6 +241,9 @@ interface FrameHandlers {
   readonly onLoad: () => void
 }
 
+/** What the seat reads of its props: the column's selection, the session list, the injected face, and the locale seat. */
+type ContentFrameSeatProps = Pick<ContentFrameProps, 'sessionId' | 'entry' | 'useSessions' | 't' | keyof ContentFrameFace>
+
 /**
  * Render the page seat.
  * @param props - the column's selection, the two bounds and the reader's
@@ -249,7 +252,7 @@ interface FrameHandlers {
  * after the one that armed it.
  * @returns every cached frame, plus a notice when the selected page is gone.
  */
-export function ContentFrame(props: ContentFrameProps) {
+export function ContentFrame(props: ContentFrameSeatProps) {
   const { sessionId, entry, cacheSize, navigationPollMs, pageAccess, channel, useSessions, t } = props
   const active = activeFrame(sessionId, entry)
 
@@ -299,7 +302,6 @@ export function ContentFrame(props: ContentFrameProps) {
     frames,
     tables,
     access: pageAccess,
-    tabId: channel.tabId,
     draw: exportPixels,
   }, channel)
 

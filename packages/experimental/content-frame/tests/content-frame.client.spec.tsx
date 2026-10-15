@@ -9,19 +9,19 @@
  * reader and the navigation watch live, because it is the only placement
  * holding those elements.
  */
-import { useRef } from 'react'
+import { useRef, type ComponentProps } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import { ContentFrame, type ContentFrameProps } from '../src/client/ContentFrame.tsx'
 import { ContentChannel } from '../src/client/access/channel.ts'
-import { PAGE_CHANNEL, TAB_ID } from '../src/client/access/executor.ts'
 import { zh } from '../src/client/locales.ts'
 import { CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, type ReadOutcome } from '../src/access/wire.ts'
 import { NAVIGATION_SETTLE_MS } from '../src/client/perception/navigation.ts'
 import type { ContentReadRequest } from '../src/types.ts'
 import type { ContentPageView } from '../src/types.ts'
+import type { ContentFrameAccessSettings } from '../src/route.ts'
 
 /** One `page` entry, as the column's projection resolves it. */
 function pageEntry(page: string, payload: ContentPageView): ContentFrameProps['entry'] {
@@ -73,6 +73,9 @@ let navigated: { sessionId: string; page: string; url: string; title: string }[]
 /** How often the seat asks the frame in front where it is, in these cases. */
 const POLL_MS = 50
 
+/** The page load's channel a case mounts the seat with unless it brings its own. */
+const CHANNEL = new ContentChannel()
+
 /**
  * Render the seat for one selection, reusing an existing tree when given one.
  * @param sessionId - the session the column shows, absent while none is.
@@ -80,7 +83,7 @@ const POLL_MS = 50
  * @param cacheSize - how many frames the seat keeps alive.
  * @param view - the tree to re-render, for a case that mounts twice.
  * @param pageAccess - the reader's settings, absent for a deployment that configured none.
- * @param channel - the page load's own channel, defaulting to the one this module provides.
+ * @param channel - the page load's own channel, defaulting to the one every case here shares.
  * @returns the rendered tree.
  */
 function mount(
@@ -88,10 +91,10 @@ function mount(
   entry: ContentFrameProps['entry'],
   cacheSize = 3,
   view?: ReturnType<typeof render>,
-  pageAccess?: { outlineChars: number; claimTimeoutMs: number; readTimeoutMs: number; settleQuietMs: number },
-  channel: ContentChannel = PAGE_CHANNEL,
+  pageAccess?: ContentFrameAccessSettings,
+  channel: ContentChannel = CHANNEL,
 ): ReturnType<typeof render> {
-  const props = {
+  const props: ComponentProps<typeof ContentFrame> = {
     sessionId,
     entry,
     cacheSize,
@@ -103,7 +106,7 @@ function mount(
     t: makeTranslate(zh),
     channel,
     ...pageAccess === undefined ? {} : { pageAccess },
-  } as unknown as ContentFrameProps
+  }
   const element = <ContentFrame {...props} />
   if (view === undefined) return render(element)
   view.rerender(element)
@@ -334,7 +337,9 @@ describe('the page seat as the reader\'s seat', () => {
   const BLANK: ContentPageView = { state: 'shown', page: 'reports', url: 'about:blank', title: 'Weekly reports' }
 
   /** The reader's own bounds: small enough that a case settles rather than waits. */
-  const ACCESS = { outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 500, settleQuietMs: 5 }
+  const ACCESS: ContentFrameAccessSettings = {
+    outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 500, settleQuietMs: 5, actTimeoutMs: 1000, maxSteps: 20, settleMaxMs: 20,
+  }
 
   /** The one page entry the reader answers about. */
   const ENTRY: ContentSurfaceEntry = {
@@ -409,7 +414,7 @@ describe('the page seat as the reader\'s seat', () => {
     // calls to is the one instance the row provides, and the seat reads its
     // identity off that instance rather than minting one of its own.
     const channel = new ContentChannel()
-    expect(channel.tabId).not.toBe(TAB_ID)
+    expect(channel.tabId).not.toBe(CHANNEL.tabId)
     const view = mount('a', ENTRY, 3, undefined, ACCESS, channel)
     fill(view, '<main><button>Refresh</button></main>')
     await settled(1)

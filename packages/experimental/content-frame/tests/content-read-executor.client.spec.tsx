@@ -13,7 +13,7 @@ import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import {
-  isVisible, TAB_ID, useContentRead, type ContentReadSeat, type SeatSession,
+  isVisible, useContentRead, type ContentReadSeat, type SeatSession,
 } from '../src/client/access/executor.ts'
 import { looksClickable } from '../src/client/access/dom.ts'
 import {
@@ -31,8 +31,12 @@ import {
   wideAttrsMessage, wideTextMessage,
 } from '../src/access/text.ts'
 import { RefTable } from '../src/client/access/refs.ts'
+import { ContentChannel } from '../src/client/access/channel.ts'
 import type { ExportPixels } from '../src/client/access/capture.ts'
 import type { ContentAccessRequest, ContentReadRequest } from '../src/types.ts'
+
+/** The page load's channel every seat here answers through. */
+const CHANNEL = new ContentChannel()
 
 /** The session every case here reads for. */
 const SESSION = 'session_1'
@@ -261,7 +265,6 @@ function seatOf(
     frames: { current: new Map<string, HTMLIFrameElement>() },
     tables: { current: new Map<string, RefTable>() },
     access: ACCESS,
-    tabId: TAB_ID,
     draw: NO_DRAWING,
     ...seat,
   }
@@ -284,7 +287,7 @@ function withPending(seat: ContentReadSeat, pending: readonly ContentAccessReque
 
 /** Mount the reader over one seat. */
 function Probe({ seat }: { seat: ContentReadSeat }) {
-  useContentRead(seat)
+  useContentRead(seat, CHANNEL)
   return null
 }
 
@@ -403,7 +406,7 @@ describe('when the reader claims', () => {
     const started = Date.now()
     drive(seatOf({ frames: { current: frames } }))
     await settled()
-    expect(of(CONTENT_CLAIM_ROUTE)).toEqual([{ callId: 'call_1', tabId: TAB_ID }])
+    expect(of(CONTENT_CLAIM_ROUTE)).toEqual([{ callId: 'call_1', tabId: CHANNEL.tabId }])
     expect(reported()).toMatchObject({ status: 'ok' })
     const firstBid = posted.find(entry => entry.route === CONTENT_CLAIM_ROUTE)?.at ?? 0
     expect(firstBid - started).toBeGreaterThanOrEqual(HIDDEN_CLAIM_GRACE_MS * 0.8)
@@ -717,7 +720,7 @@ describe('what the reader reports', () => {
     expect(outcome.page).toEqual({ id: 'home', title: 'Home' })
     expect(outcome.snapshot.kind).toBe('outline')
     expect(outcome.snapshot.text).toContain('Refresh')
-    expect(of(CONTENT_REPORT_ROUTE)[0]).toMatchObject({ callId: 'call_1', tabId: TAB_ID })
+    expect(of(CONTENT_REPORT_ROUTE)[0]).toMatchObject({ callId: 'call_1', tabId: CHANNEL.tabId })
   })
 
   it('names what the page still says it is loading, and that it did settle', async () => {

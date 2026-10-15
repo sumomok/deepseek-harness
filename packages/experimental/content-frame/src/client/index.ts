@@ -38,7 +38,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import type {} from '../types.ts'
 import { CONTENT_SETTINGS_ROUTE, type ContentFrameAccessSettings } from '../route.ts'
 import { ContentFrame, type ContentFrameFace } from './ContentFrame.tsx'
-import { PAGE_CHANNEL } from './access/executor.ts'
+import { ContentChannel } from './access/channel.ts'
 import { ContentReadRow } from './access/ContentReadRow.tsx'
 import { reportNavigation } from './perception/navigated.ts'
 import { HiddenCommandRow } from './HiddenCommandRow.tsx'
@@ -57,6 +57,14 @@ export type { ContentReadRowProps } from './access/ContentReadRow.tsx'
 
 /** Required services: the slot registry, the locale registry, and remote commands (the navigation report's dispatch). */
 export const inject = ['slots', 'locale', 'remote', 'remote.commands']
+
+/**
+ * The one channel this page load answers content calls through. Its tab id is
+ * the identity the host pins a session's calls to, so the row keeps one
+ * instance for the page load rather than minting a second identity when it is
+ * applied again.
+ */
+const PAGE_CHANNEL = new ContentChannel()
 
 /**
  * Whether one served value is a usable positive whole number.
@@ -157,21 +165,11 @@ async function readSettings(onNavigated: ContentFrameFace['onNavigated']): Promi
 export async function apply(ctx: ClientContext): Promise<void> {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'content-frame: dictionaries')
   ctx.effect(() => installHiddenCommandRowStyle(), 'content-frame: hide empty command row')
-  // The one channel this page answers content calls through, provided as a
-  // service so a domain in another package can join it without importing this
-  // row's values. It is withdrawn with this row's fiber like every other effect,
-  // and its name is this face's because the host half owns `contentChannel`.
-  //
-  // The instance is `PAGE_CHANNEL`, the page-load channel the page seat falls
-  // back to when it is mounted without one: the tab id a claim is made under and
-  // the one its report carries have to be the same, and two instances would give
-  // the same page two identities. A row applied twice on one context — a second
-  // apply of the same body, which is how a settings failure is rehearsed — finds
-  // the channel already there and keeps it.
-  const channel = ctx.get('contentTabChannel') ?? PAGE_CHANNEL
-  if (ctx.get('contentTabChannel') === undefined) {
-    ctx.effect(() => ctx.provide('contentTabChannel', channel), 'content-frame: the content call channel')
-  }
+  // Provided as a service so a domain in another package can join the channel
+  // without importing this row's values. It is withdrawn with this row's fiber
+  // like every other effect, and its name is this face's because the host half
+  // owns `contentChannel`.
+  ctx.effect(() => ctx.provide('contentTabChannel', PAGE_CHANNEL), 'content-frame: the content call channel')
   const settings = await readSettings((sessionId, page, url, title) => {
     void reportNavigation(ctx, sessionId, page, url, title)
   })
@@ -184,7 +182,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
     locale: NS,
     // Configuration is settled in the apply world and handed over as plain
     // data; the component reads none of its own.
-    inject: () => ({ ...settings, channel }),
+    inject: () => ({ ...settings, channel: PAGE_CHANNEL }),
   }, ContentFrame))
   ctx.slots.inject('conversation.chat.commandview', () => ctx.slots.register({
     name: 'conversation.chat.commandview',
