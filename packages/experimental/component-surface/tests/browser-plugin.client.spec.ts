@@ -90,6 +90,18 @@ function stoodChannel(): StoodChannel {
   }
 }
 
+/** The part of the seat's injected face a case offers calls through. */
+type OfferingFace = Pick<ComponentSurfaceInjected, 'offerCalls' | 'parkCalls'>
+
+/**
+ * Whether the face the kind registration injects carries the offering half.
+ * @param face - what the registration's `inject` answered.
+ * @returns whether both offering functions are there.
+ */
+function isOfferingFace(face: Record<string, unknown> | undefined): face is Record<string, unknown> & OfferingFace {
+  return typeof face?.offerCalls === 'function' && typeof face.parkCalls === 'function'
+}
+
 describe('show-component browser half', () => {
   it('declares the services it binds', () => {
     expect(inject).toEqual(['slots', 'locale', 'remote', 'remote.commands'])
@@ -237,5 +249,28 @@ describe('show-component browser half', () => {
     // bidding for calls after the row is gone.
     await fiber.dispose()
     expect(stood.parked()).toBe(2)
+  })
+
+  it('offers nothing through a channel row that left while the seat stayed', async () => {
+    const stood = stoodChannel()
+    const { ctx } = await bench()
+    const provider = ctx.plugin({
+      apply: (child: Context) => { child.provide('contentTabChannel' as never, stood.channel as never) },
+    })
+    await provider.await()
+    const face = ctx.slots.entries('content.surface.kind')[0]?.inject?.()
+    if (!isOfferingFace(face)) throw new Error('the kind registration injects no offering face')
+    const request: ActComponentCall = {
+      callId: 'call_1',
+      tool: 'act_component',
+      args: { entry: 'demo', steps: [{ action: 'click', key: 'add' }] },
+    }
+    face.offerCalls('session-a', [request])
+    expect(stood.offers).toHaveLength(1)
+    await provider.dispose()
+    expect(stood.parked()).toBe(1)
+    face.offerCalls('session-a', [request])
+    face.parkCalls()
+    expect({ offers: stood.offers.length, parked: stood.parked() }).toEqual({ offers: 1, parked: 1 })
   })
 })

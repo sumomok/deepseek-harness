@@ -103,6 +103,12 @@ export type { ViewCommandRowProps } from './ViewCommandRow.tsx'
  */
 export const inject = ['slots', 'locale', 'remote', 'remote.commands']
 
+/** What the seat offers through while no channel row is composed: a page with no channel answers nothing. */
+const NO_CHANNEL: ComponentChannelWiring = {
+  offer: () => {},
+  park: () => {},
+}
+
 /**
  * Client plugin body: install the renderer registry, register this row's
  * dictionaries, claim the column's `component` kind, and take over both of this
@@ -118,12 +124,9 @@ export function apply(ctx: ClientContext): void {
   // presses whose records have not come back, and every seat this registration
   // ever mounts reads and writes the same ones.
   const pending: PendingPresses = new Map()
-  // What the seat offers through until the channel row is composed, and what it
-  // offers through afterwards; a page with no channel answers nothing.
-  let channelWiring: ComponentChannelWiring = {
-    offer: () => {},
-    park: () => {},
-  }
+  // What the seat offers through: the channel row's seat while that row is
+  // composed, and nothing before it is or after it leaves.
+  let channelWiring = NO_CHANNEL
   ctx.plugin(ComponentRendererRegistry)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'show-component: dictionaries')
   // The seat answers this package's channel calls — the steps a call runs in a
@@ -135,7 +138,13 @@ export function apply(ctx: ClientContext): void {
   ctx.inject(['contentTabChannel'], (channelCtx) => {
     const channel = joinComponentChannel(channelCtx.contentTabChannel)
     channelWiring = channel
-    return () => { channel.park() }
+    // A seat still mounted after the channel row left would otherwise go on
+    // offering calls to a domain whose channel no longer exists, and that
+    // channel would go on claiming and answering them.
+    return () => {
+      channel.park()
+      channelWiring = NO_CHANNEL
+    }
   })
   ctx.inject(['componentRenderers'], (seatCtx) => {
     seatCtx.slots.inject('content.surface.kind', () => seatCtx.slots.register({
