@@ -1176,11 +1176,11 @@ it('lists the bundles the profile manifest names as shipped while switched off, 
   expect(listed.slice(0, 2)).toEqual([
     {
       name: 'payload', version: '1.0.0', meta: { title: 'payload' },
-      enabled: false, installed: false, optional: false, shipped: true, removable: false,
+      enabled: false, installed: false, official: false, availability: 'profile', optional: false, shipped: true, removable: false,
       rows: [{ rowId: 'payload-row', moduleName }], overrides: [],
     },
     {
-      name: 'payload-plain', enabled: false, installed: false, optional: false, shipped: true, removable: false,
+      name: 'payload-plain', enabled: false, installed: false, official: false, availability: 'profile', optional: false, shipped: true, removable: false,
       error: { code: 'not-bundle' }, rows: [], overrides: [],
     },
   ])

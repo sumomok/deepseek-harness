@@ -86,7 +86,7 @@ it('exposes an absent Official bundle installation target without display metada
   const { manager, call } = await fixture()
   const offered: BundleInfo = {
     name: '@deepseek-ai/dsh-subagent-codex', official: true, availability: 'missing',
-    installed: false, enabled: false, optional: false, removable: false, rows: [], overrides: [],
+    installed: false, enabled: false, optional: false, shipped: false, removable: false, rows: [], overrides: [],
     installTarget: { spec: '@deepseek-ai/dsh-subagent-codex@1.2.3', version: '1.2.3' },
     meta: { title: 'Codex subagent' },
   }
@@ -108,6 +108,7 @@ it('exposes an absent Official bundle installation target without display metada
           "overrides": [],
           "removable": false,
           "rows": [],
+          "shipped": false,
         },
       ],
       "nextOffset": null,

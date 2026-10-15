@@ -21,7 +21,7 @@ const URL_B = 'https://other.example/index.json'
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 
 function bundle(name: string, fields: Partial<BundleInfo>): BundleInfo {
-  return { name, official: false, availability: 'profile', enabled: true, installed: true, optional: false, removable: true, rows: [], overrides: [], ...fields }
+  return { name, official: false, availability: 'profile', enabled: true, installed: true, optional: false, shipped: false, removable: true, rows: [], overrides: [], ...fields }
 }
 
 function index(plugins: unknown[] = []): unknown {
