@@ -17,6 +17,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { remoteMethods, type PeerId, type PeerScope, type Principal, type RemoteInvocation } from '@deepseek-ai/dsh-typert-protocol'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import type SessionController from '../src/index.ts'
 import { ApiSessionList } from '../src/list.ts'
 import type { SessionControlFrame, SessionRequestId, SessionSearchValue } from '../src/types.ts'
@@ -207,6 +208,34 @@ describe('Session Controller access', () => {
       { kind: 'user', rpcId: 'guest-1', principal: GUEST },
       { kind: 'user', rpcId: 'owner-1' },
     ])
+  })
+
+  it('logs accepted prompt references on the user message source after the caller', async () => {
+    const { ctx, as } = await harness()
+    const adapter = new MockAdapter([textResponse('guest reply'), textResponse('owner reply')])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const agent = await ctx.agentLoop.create(SessionId('referenced-session'), { provider: 'mock', model: 'mock' })
+    const references = [{ source: 'owner.rows', label: 'Row 2', data: { row: 'row-data-2' } }]
+    const prompt = async (principal: Principal, requestId: string) => {
+      await expect(as(principal, 'prompt').sessionController.prompt({
+        sessionId: agent.id,
+        requestId: requestId as SessionRequestId,
+        mode: 'queue',
+        content: [{ type: 'text', text: `from ${principal.kind}` }],
+        references,
+      }, new AbortController().signal)).resolves.toEqual({ accepted: true })
+      await agent.whenIdle()
+    }
+    await prompt(GUEST, 'guest-ref')
+    await prompt(OWNER, 'owner-ref')
+    const logged = agent.session.snapshotEvents()
+      .flatMap(event => event.type === 'user/message' ? [event.data.source] : [])
+    expect(logged).toEqual([
+      { kind: 'user', rpcId: 'guest-ref', principal: GUEST, references },
+      { kind: 'user', rpcId: 'owner-ref', references },
+    ])
+    expect(Object.keys(logged[0]!)).toEqual(['kind', 'rpcId', 'principal', 'references'])
+    expect(adapter.requests).toHaveLength(2)
   })
 
   it('lets a non-owner read projections only in a Session its Session role names', async () => {

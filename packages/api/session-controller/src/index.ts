@@ -4,6 +4,7 @@ import { stat } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import { resolve } from 'node:path'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { promptReferencesProblem } from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-fs'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -509,8 +510,10 @@ export class SessionController extends TypertRemoteService {
   }
 
   /**
-   * Admit one prompt after explicitly resuming its Session.
-   * @param request - Session identity, prompt content, source metadata, and delivery mode.
+   * Admit one prompt after explicitly resuming its Session. Empty content and
+   * out-of-bounds references are rejected with `gateway/bad-request`; accepted
+   * references are recorded on the message source only, after the caller.
+   * @param request - Session identity, prompt content, references, source metadata, and delivery mode.
    * @param signal - caller cancellation before prompt admission begins.
    * @returns acknowledgement that the Agent accepted the prompt.
    */
@@ -530,6 +533,9 @@ export class SessionController extends TypertRemoteService {
         { value: request.clientTimeZone },
       )
     }
+    const references = request.references ?? []
+    const referencesProblem = promptReferencesProblem(references)
+    if (referencesProblem !== undefined) throw new RemoteError('gateway/bad-request', referencesProblem, {})
     // The caller is recorded only when it is not the owner, so owner messages keep their exact source.
     const principal = principalOf(this.ctx.invocation)
     const source: MessageSource = {
@@ -537,6 +543,7 @@ export class SessionController extends TypertRemoteService {
       rpcId: request.requestId,
       ...(clientTimeZone === undefined ? {} : { clientTimeZone }),
       ...(principal === undefined ? {} : { principal }),
+      ...(references.length === 0 ? {} : { references }),
     }
     return this.commands.prompt(request, source)
   }
