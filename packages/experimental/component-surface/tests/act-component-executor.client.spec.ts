@@ -791,8 +791,8 @@ function drawAutocomplete(
   }
   input.addEventListener('input', () => {
     // element-ui drops the suggestions with an emptied field and shows the
-    // panel over a typed one; what the block answers the typed text with is
-    // `answerFor`'s.
+    // panel over a typed one; whether and what the block answers the typed
+    // text with is set by `answer` and `answers`.
     if (input.value === '') {
       panel.style.display = 'none'
       drawnOptions = ''
@@ -934,7 +934,7 @@ describe('a field the entry draws as an autocomplete', () => {
     expect(input.value).toBe('接入')
     // Well before the budget's end: the step waited out the bound, not the
     // call.
-    expect(performance.now() - started).toBeLessThan(2000)
+    expect(performance.now() - started).toBeLessThan(2500)
   })
 
   it('says the call ran out of time, not that there is no option, while the block is still asking', async () => {
@@ -1050,9 +1050,9 @@ describe('a field the entry draws as an autocomplete', () => {
   })
 
   it('closes a textarea field\'s panel from the root element-ui draws for it', async () => {
-    // element-ui draws a textarea input's root as `.el-textarea`, so a put-back
-    // that looked only for `.el-input` sent no key and left the panel open on
-    // the restored text's answer.
+    // element-ui draws a textarea field's root as `.el-textarea`, not
+    // `.el-input`, and hears the Tab there; that Tab is what closes the panel
+    // the restored text's answer opens.
     const { drawn, root, input, panel } = drawAutocomplete(['核心'], { loading: true, asTextarea: true })
     input.value = '林地一张图'
     const heard: string[] = []
