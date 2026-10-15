@@ -4,35 +4,25 @@
  *
  * The events come from a real `Session` rather than hand-built envelopes, so
  * the fold is exercised against the log shapes the harness actually writes —
- * the top-level call and the Code Mode dispatch pair. The view is checked
- * against its own schema here before it is published, which is the one path
- * that reaches the logger.
+ * the top-level call and the Code Mode dispatch pair.
  *
  * The `.client.` suffix names the typecheck aggregate this package belongs to,
  * not the face under test.
  */
 
-import { beforeEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
-import type { SessionEventMap } from '@deepseek-ai/dsh-session/types'
 import { ACT_COMPONENT_TOOL_NAME, type ActComponentArgs, type ComponentCall } from '../src/act-component-call.ts'
 import { READ_COMPONENT_TOOL_NAME, type ReadComponentArgs } from '../src/read-component-call.ts'
 import { actComponentProjection } from '../src/act-component-projection.ts'
 
-/** Every line this unit logged, in order; each case starts with none. */
-let warnings: string[] = []
-
-/** The logger the unit is built over, which only a refused view reaches. */
-const logger = { warn: (message: string): void => { warnings.push(message) } }
-
-/** Build the unit under test over this case's logger. */
+/** Build the unit under test over the shipped report deadline. */
 function projection(): ReturnType<typeof actComponentProjection> {
-  return actComponentProjection(logger)
+  return actComponentProjection(15_000)
 }
-
-beforeEach(() => { warnings = [] })
 
 let sessions = 0
 
@@ -68,13 +58,8 @@ function result(target: Session, callId: string): void {
   target.append('tool/result', {
     turn: 1,
     step: 1,
-    message: {
-      id: `msg_${callId}`,
-      role: 'user',
-      content: [{ type: 'tool_result', callId, content: [], isError: false }],
-      source: { kind: 'tool', callId },
-    },
-  } as unknown as SessionEventMap['tool/result'], { surfaceOp: 'append' })
+    message: createToolResultMessage({ callId: ToolCallId(callId), content: [], isError: false }),
+  }, { surfaceOp: 'append' })
 }
 
 /** Record one PTC dispatch settling. */
@@ -153,34 +138,34 @@ describe('the componentAccess unit', () => {
     call(noise, 'call_4', { entry: 'demo', steps: [] })
     result(noise, 'call_not_open')
     for (const event of noise.snapshotEvents()) {
-      expect(unit.apply(opened, event as SessionEvent)).toBe(opened)
+      expect(unit.apply(opened, event)).toBe(opened)
     }
   })
 
-  it('publishes the open calls of both tools in order, and refuses a view its own schema does not take', () => {
+  it('publishes the open calls of both tools in order, with the share of the deadline their steps may run for', () => {
     const unit = projection()
     const pending: ComponentCall[] = [
       { callId: 'call_1', tool: ACT_COMPONENT_TOOL_NAME, args: OPENED },
       { callId: 'call_2', tool: READ_COMPONENT_TOOL_NAME, args: READ },
     ]
-    expect(unit.wire.view(pending)).toEqual({ pending })
-    expect(warnings).toEqual([])
-    const impossible = [{ callId: 'call_1', tool: 'content_read', args: OPENED }] as never
-    expect(() => unit.wire.view(impossible)).toThrow(
-      'componentAccess could not publish a call it had folded: this is a defect in the component action channel.',
-    )
-    expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toContain('componentAccess refused its own view:')
+    // Three quarters of the report deadline, which is what a claimed set of
+    // steps may run for before the trip back.
+    const view = unit.wire.view(pending)
+    expect(view).toEqual({ pending, stepBudgetMs: 11_250 })
+    expect(unit.wire.viewSchema.parse(view)).toEqual(view)
+    expect(unit.wire.viewSchema.safeParse({ pending, stepBudgetMs: 11_250.5 }).success).toBe(false)
   })
 
-  it('refuses a view whose arguments either tool\'s reading cannot read', () => {
+  it('refuses a call whose arguments the tool\'s own reading cannot read, in the checkpoint and on the wire', () => {
     const unit = projection()
-    const unreadableAct = [{ callId: 'call_1', tool: ACT_COMPONENT_TOOL_NAME, args: { entry: '', steps: [] } }] as never
-    expect(() => unit.wire.view(unreadableAct)).toThrow()
-    expect(warnings[0]).toContain('not a set of arguments this tool takes')
-    const unreadableRead = [{ callId: 'call_1', tool: READ_COMPONENT_TOOL_NAME, args: { entry: '', node: 'a b' } }] as never
-    expect(() => unit.wire.view(unreadableRead)).toThrow()
-    expect(warnings[1]).toContain('not a set of arguments this tool takes')
+    for (const call of [
+      { callId: 'call_1', tool: ACT_COMPONENT_TOOL_NAME, args: { entry: '', steps: [] } },
+      { callId: 'call_2', tool: READ_COMPONENT_TOOL_NAME, args: { entry: '', node: 'a b' } },
+    ]) {
+      expect(unit.stateSchema.safeParse([call]).success).toBe(false)
+      expect(JSON.stringify(unit.wire.viewSchema.safeParse({ pending: [call], stepBudgetMs: 0 }).error))
+        .toContain('not a set of arguments this tool takes')
+    }
   })
 
   it('reads back the state its own schema wrote, so a checkpoint cannot drift from the wire', () => {

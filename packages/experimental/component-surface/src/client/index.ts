@@ -59,19 +59,7 @@ import { en, NS, zh } from './locales.ts'
 import { ComponentRendererRegistry } from './registry.ts'
 import { ViewCommandRow } from './ViewCommandRow.tsx'
 
-export {
-  COMPONENT_KIT_ENTRIES,
-  DATA_PAGE_BATCH_MODIFIED_ID,
-  DATA_PAGE_DELETED_ID,
-  DATA_PAGE_EDITING_OUTPUT,
-  DATA_PAGE_GATED_IDS,
-  DATA_PAGE_INFO_CARD_TABS,
-  DATA_PAGE_OPENED_OUTPUT,
-  FORM_PAGE_ID,
-  INFO_CARD_ID,
-  MAX_RECORD_ID_LENGTH,
-  placedOnlyByViews,
-} from '../component-call.ts'
+export { COMPONENT_KIT_ENTRIES, MAX_RECORD_ID_LENGTH } from '../component-call.ts'
 export { NS } from './locales.ts'
 export { ComponentRendererRegistry } from './registry.ts'
 export type { ContentComponentKey } from './locales.ts'
@@ -103,6 +91,12 @@ export type { ViewCommandRowProps } from './ViewCommandRow.tsx'
  */
 export const inject = ['slots', 'locale', 'remote', 'remote.commands']
 
+/** What the seat offers through while no channel row is composed: a page with no channel answers nothing. */
+const NO_CHANNEL: ComponentChannelWiring = {
+  offer: () => {},
+  park: () => {},
+}
+
 /**
  * Client plugin body: install the renderer registry, register this row's
  * dictionaries, claim the column's `component` kind, and take over both of this
@@ -118,12 +112,9 @@ export function apply(ctx: ClientContext): void {
   // presses whose records have not come back, and every seat this registration
   // ever mounts reads and writes the same ones.
   const pending: PendingPresses = new Map()
-  // What the seat offers through until the channel row is composed, and what it
-  // offers through afterwards; a page with no channel answers nothing.
-  let channelWiring: ComponentChannelWiring = {
-    offer: () => {},
-    park: () => {},
-  }
+  // What the seat offers through: the channel row's seat while that row is
+  // composed, and nothing before it is or after it leaves.
+  let channelWiring = NO_CHANNEL
   ctx.plugin(ComponentRendererRegistry)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'show-component: dictionaries')
   // The seat answers this package's channel calls — the steps a call runs in a
@@ -135,7 +126,13 @@ export function apply(ctx: ClientContext): void {
   ctx.inject(['contentTabChannel'], (channelCtx) => {
     const channel = joinComponentChannel(channelCtx.contentTabChannel)
     channelWiring = channel
-    return () => { channel.park() }
+    // A seat still mounted after the channel row left would otherwise go on
+    // offering calls to a domain whose channel no longer exists, and that
+    // channel would go on claiming and answering them.
+    return () => {
+      channel.park()
+      channelWiring = NO_CHANNEL
+    }
   })
   ctx.inject(['componentRenderers'], (seatCtx) => {
     seatCtx.slots.inject('content.surface.kind', () => seatCtx.slots.register({
@@ -151,7 +148,7 @@ export function apply(ctx: ClientContext): void {
         // A page with no channel row is handed a wiring that does nothing:
         // there is no tab-side answerer for the host to reach, which the host
         // half reads the same way and offers no tool for.
-        offerCalls: (sessionId, calls) => { channelWiring.offer(sessionId, calls) },
+        offerCalls: (sessionId, access) => { channelWiring.offer(sessionId, access) },
         parkCalls: () => { channelWiring.park() },
         // The live registry rather than a snapshot of it: a component row loaded
         // after this seat mounted is drawable at the next render, and one

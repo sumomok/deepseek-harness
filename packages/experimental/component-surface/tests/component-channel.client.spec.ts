@@ -30,6 +30,9 @@ const ENTRY = 'demo'
 /** How a claim is acknowledged; the domain only passes it along. */
 const CLAIMED: ClaimAck = { claimed: true }
 
+/** How long the steps of every call offered here may run. */
+const BUDGET_MS = 10_000
+
 /** How the console's content column is drawn around one component entry. */
 const COLUMN = `
 <nav data-content-surface-switcher>
@@ -54,6 +57,16 @@ function reading(entry = ENTRY, node?: string): ReadComponentCall {
     tool: 'read_component',
     args: { entry, ...node === undefined ? {} : { node } },
   }
+}
+
+/**
+ * One call as the seat offers it to the channel.
+ * @param call - the call the projection published.
+ * @param stepBudgetMs - how long its steps may run.
+ * @returns the seat's call.
+ */
+function seatCall(call: ComponentCall, stepBudgetMs = BUDGET_MS): ComponentSeatCall {
+  return { callId: call.callId, sessionId: 'session_1', request: call, stepBudgetMs }
 }
 
 /** A channel that keeps the domain joined to it and the demand its seat was offered. */
@@ -104,18 +117,18 @@ describe('the component domain', () => {
     const fake = stood()
     const wiring = joinComponentChannel(fake.channel)
     const second = { ...reading(), callId: 'call_2' }
-    wiring.offer('session_1', [request(), second])
+    wiring.offer('session_1', { pending: [request(), second], stepBudgetMs: 11_250 })
     expect(fake.offers).toEqual([{
-      calls: [
-        { callId: 'call_1', sessionId: 'session_1', request: request() },
-        { callId: 'call_2', sessionId: 'session_1', request: second },
-      ],
+      calls: [seatCall(request(), 11_250), seatCall(second, 11_250)],
       openCalls: ['call_1', 'call_2'],
     }])
     // A seat with no session offers no calls, but still reports every id open
     // on the tab, which is what prunes the calls it has taken up.
-    wiring.offer(undefined, [request()])
+    wiring.offer(undefined, { pending: [request()], stepBudgetMs: BUDGET_MS })
     expect(fake.offers[1]).toEqual({ calls: [], openCalls: ['call_1'] })
+    // A session whose projection published nothing yet has no call open.
+    wiring.offer('session_1', undefined)
+    expect(fake.offers[2]).toEqual({ calls: [], openCalls: [] })
   })
 
   it('parks the seat, which drops the calls it was offering', () => {
@@ -129,7 +142,7 @@ describe('the component domain', () => {
     document.body.innerHTML = '<div data-content-surface-seat="component"><div data-component-surface></div></div>'
     const fake = stood()
     joinComponentChannel(fake.channel)
-    expect(await fake.domain().answer({ callId: 'call_1', sessionId: 'session_1', request: request() }, CLAIMED))
+    expect(await fake.domain().answer(seatCall(request()), CLAIMED))
       .toEqual({
         kind: 'outcome',
         outcome: { status: 'error', code: 'empty', message: 'No component entry is in front, so there is nothing to act on.' },
@@ -147,7 +160,7 @@ describe('the component domain', () => {
     `
     const fake = stood()
     joinComponentChannel(fake.channel)
-    expect(await fake.domain().answer({ callId: 'call_1', sessionId: 'session_1', request: request() }, CLAIMED))
+    expect(await fake.domain().answer(seatCall(request()), CLAIMED))
       .toEqual({
         kind: 'outcome',
         outcome: { status: 'error', code: 'front-changed', message: 'The entry in front is "other", not the one this call named.' },
@@ -160,7 +173,7 @@ describe('the component domain', () => {
     document.querySelector('[data-component-action="add"]')?.addEventListener('click', pressed)
     const fake = stood()
     joinComponentChannel(fake.channel)
-    const answer = await fake.domain().answer({ callId: 'call_1', sessionId: 'session_1', request: request() }, CLAIMED)
+    const answer = await fake.domain().answer(seatCall(request()), CLAIMED)
     expect(pressed).toHaveBeenCalledTimes(1)
     expect(answer).toEqual({
       kind: 'outcome',
@@ -177,13 +190,30 @@ describe('the component domain', () => {
     })
   })
 
+  it('runs the steps inside the budget the call was offered with', async () => {
+    document.body.innerHTML = COLUMN
+    const pressed = vi.fn()
+    document.querySelector('[data-component-action="add"]')?.addEventListener('click', pressed)
+    const fake = stood()
+    joinComponentChannel(fake.channel)
+    const answer = await fake.domain().answer(seatCall(request(), 0), CLAIMED)
+    expect(pressed).not.toHaveBeenCalled()
+    expect(answer).toMatchObject({
+      kind: 'outcome',
+      outcome: {
+        status: 'failed',
+        steps: [{ index: 1, status: 'failed', message: 'The console\'s time for this call ran out before this step finished.' }],
+      },
+    })
+  })
+
   it('reads the entry and answers with the reading, pressing nothing', async () => {
     document.body.innerHTML = COLUMN
     const pressed = vi.fn()
     document.querySelector('[data-component-action="add"]')?.addEventListener('click', pressed)
     const fake = stood()
     joinComponentChannel(fake.channel)
-    const answer = await fake.domain().answer({ callId: 'call_1', sessionId: 'session_1', request: reading() }, CLAIMED)
+    const answer = await fake.domain().answer(seatCall(reading()), CLAIMED)
     expect(pressed).not.toHaveBeenCalled()
     expect(answer).toEqual({
       kind: 'outcome',
@@ -213,7 +243,7 @@ describe('the component domain', () => {
     `
     const fake = stood()
     joinComponentChannel(fake.channel)
-    expect(await fake.domain().answer({ callId: 'call_1', sessionId: 'session_1', request: reading() }, CLAIMED))
+    expect(await fake.domain().answer(seatCall(reading()), CLAIMED))
       .toEqual({
         kind: 'outcome',
         outcome: { status: 'error', code: 'empty', message: 'No component entry is in front, so there is nothing to act on.' },

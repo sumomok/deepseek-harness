@@ -2,25 +2,29 @@
  * The gate on the rule
  * [the self-contained-copy Agent Note](../../../../.agents/notes/implemented/feature/2026-09-04-self-contained-tool-copy.md)
  * records, held over this package: no sentence it writes names a tool other
- * than `show_component`. That covers what the model reads — the tool's
- * description, its parameter and output descriptions, every refusal and result
- * line, every notice an action becomes — and what a view's writer reads: the
- * catalog's labels, purposes and the reasons its declarations splice into a
- * refusal. `show_component` is this package's own tool, so its name in a
- * refusal's prefix or a result line is outside the rule.
+ * than the one the sentence belongs to. That covers what the model reads — each
+ * tool's description, its parameter and output descriptions, every refusal and
+ * result line, every notice an action becomes — and what a view's writer reads:
+ * the catalog's labels, purposes and the reasons its declarations splice into a
+ * refusal. A tool naming itself, in a refusal's prefix or a result line, is
+ * outside the rule; this package's three tools naming each other are not.
  *
  * A sentence names another tool when it carries a name of one of the tool
  * families below, one of the named tools, an external MCP tool's
- * `mcp__<server>__<tool>` name, or one of the single-word tool names in quotes
- * or backticks. The single words are matched only quoted because they are
- * ordinary English — `read-only`, `written down` — and a bare match would
- * refuse sentences that name nothing.
+ * `mcp__<server>__<tool>` name, one of the single-word tool names in quotes or
+ * backticks, or the name of one of this package's tools other than its own.
+ * The single words are matched only quoted because they are ordinary English —
+ * `read-only`, `written down` — and a bare match would refuse sentences that
+ * name nothing. A source file's sentences belong to `act_component` where the
+ * file's name starts `act-`, to `read_component` where it starts `read-`, and
+ * to `show_component` otherwise.
  *
- * The spec walks five things, and each asserts that it walked more than a
+ * The spec walks six things, and each asserts that it walked more than a
  * floor before it reads for names, so a walk that came back empty fails
  * rather than passing. It
- * assembles the tool under every offer a composition makes and reads every
- * `description` the definition carries. It reads the catalog of every
+ * assembles `show_component` under every offer a composition makes and reads
+ * every `description` the definition carries, and does the same for the two
+ * channel tools. It reads the catalog of every
  * component this package declares: each label and purpose, the catalog lines
  * the description splices in, and every sentence a property, an action
  * payload or an output declares for a refusal to quote. It builds every
@@ -37,14 +41,13 @@
  * sentence through an expression is seen by the first four walks, and only in
  * the sentences they reach.
  *
- * Three controls then run the same readers over names planted on purpose: a
- * name of every family, every named tool and every quoted word, beside two
- * ordinary phrases that must not match; a name appended to one purpose, read
- * through the description and the catalog lines; and a name in each kind of
- * literal of two files written for the control. The first control's names are
- * written out apart from the lists the readers match, so a name dropped from a
- * list fails it. A reader that stopped matching fails there instead of letting
- * every walk pass.
+ * Four controls then run the same readers over names planted on purpose: a
+ * family name, a named tool and a quoted word, beside ordinary phrases that
+ * must not match; each of this package's tools named in a sentence of another
+ * one and of its own; a name appended to one purpose, read through the
+ * description and the catalog lines; and a name in each kind of literal of
+ * three files written for the control. A reader that stopped matching fails
+ * there instead of letting every walk pass.
  *
  * The `.client.` suffix names the typecheck aggregate this package belongs to,
  * not the face under test.
@@ -52,10 +55,13 @@
 
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, relative, resolve, sep } from 'node:path'
+import { basename, join, relative, resolve, sep } from 'node:path'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import type { CallTable, CallTimeouts } from '@deepseek-ai/dsh-experimental-content-frame/src/access/pending.ts'
+import { ACT_COMPONENT_TOOL_NAME } from '../src/act-component-call.ts'
+import { actComponentTool } from '../src/act-component-tool.ts'
 import {
   catalogEntry,
   COMPONENT_KIT_ENTRIES,
@@ -67,6 +73,7 @@ import {
   INFO_CARD_ID,
   placedOnlyByViews,
   readCatalog,
+  SHOW_COMPONENT_TOOL_NAME,
   TABLE_ID,
   type ComponentActionNotice,
   type ComponentCatalogEntry,
@@ -78,6 +85,8 @@ import * as dataPageText from '../src/data-page.ts'
 import type { DataPageLoadReport } from '../src/data-page.ts'
 import * as dataSourceText from '../src/data-source.ts'
 import type { DataSourceAttribute, DataSourceBlock, DataSourceTarget } from '../src/data-source.ts'
+import { READ_COMPONENT_TOOL_NAME } from '../src/read-component-call.ts'
+import { readComponentTool } from '../src/read-component-tool.ts'
 import { showComponentTool, type ShowComponentOptions } from '../src/tool.ts'
 import { acceptsActionPayload, validateComponentSpec } from '../src/validate.ts'
 import { KIT_CATALOG } from './kit-catalog.client.ts'
@@ -118,7 +127,10 @@ const WORD_TOOLS: readonly string[] = [
   'read', 'write', 'edit', 'bash', 'pwsh', 'skill', 'glob', 'grep', 'lsp', 'present', 'ralph', 'subagent', 'workflow',
 ]
 
-/** Every pattern a sentence naming another tool matches; none carries `g`, so each test reads from the start. */
+/** This package's own tools, each of which may name itself and none of which may name another. */
+const PACKAGE_TOOLS: readonly string[] = [SHOW_COMPONENT_TOOL_NAME, ACT_COMPONENT_TOOL_NAME, READ_COMPONENT_TOOL_NAME]
+
+/** Every pattern a sentence naming another package's tool matches; none carries `g`, so each test reads from the start. */
 const ANOTHER_TOOL: readonly RegExp[] = [
   ...TOOL_FAMILIES,
   new RegExp(`\\b(?:${NAMED_TOOLS.join('|')})\\b`),
@@ -126,12 +138,14 @@ const ANOTHER_TOOL: readonly RegExp[] = [
 ]
 
 /**
- * The tool name one sentence carries, if it carries one.
+ * The tool name one sentence carries other than its own tool's, if it carries one.
  * @param sentence - the sentence.
+ * @param own - the tool of this package the sentence belongs to.
  * @returns the first match, or `undefined` for a sentence naming no other tool.
  */
-function toolNameIn(sentence: string): string | undefined {
-  for (const pattern of ANOTHER_TOOL) {
+function toolNameIn(sentence: string, own: string): string | undefined {
+  const siblings = new RegExp(`\\b(?:${PACKAGE_TOOLS.filter(name => name !== own).join('|')})\\b`)
+  for (const pattern of [...ANOTHER_TOOL, siblings]) {
     const match = pattern.exec(sentence)
     if (match !== null) return match[0]
   }
@@ -141,17 +155,53 @@ function toolNameIn(sentence: string): string | undefined {
 /**
  * The sentences that name another tool, each with the name it carries.
  * @param sentences - the sentences one walk reached.
+ * @param own - the tool of this package the sentences belong to.
  * @returns the offending sentences, empty when the walk is clean.
  */
-function namingAnotherTool(sentences: readonly string[]): { sentence: string; name: string }[] {
+function namingAnotherTool(sentences: readonly string[], own: string): { sentence: string; name: string }[] {
   return sentences.flatMap((sentence) => {
-    const name = toolNameIn(sentence)
+    const name = toolNameIn(sentence, own)
     return name === undefined ? [] : [{ sentence, name }]
   })
 }
 
+/**
+ * The tool of this package one source file's sentences belong to.
+ * @param file - the file's path.
+ * @returns `act_component` for an `act-` file, `read_component` for a `read-` file, `show_component` otherwise.
+ */
+function ownToolOf(file: string): string {
+  const name = basename(file)
+  if (name.startsWith('act-')) return ACT_COMPONENT_TOOL_NAME
+  if (name.startsWith('read-')) return READ_COMPONENT_TOOL_NAME
+  return SHOW_COMPONENT_TOOL_NAME
+}
+
+/**
+ * Every `description` one tool definition carries: its own, and every one its
+ * parameter and output schemas declare.
+ * @param tool - the definition.
+ * @param tool.description - the tool's own description.
+ * @param tool.parameters - its parameter schema.
+ * @param tool.output - its output declaration.
+ * @param tool.output.schema - its output schema.
+ * @returns the descriptions, the tool's own first.
+ */
+function toolDescriptions(tool: { description: string; parameters: unknown; output: { schema: unknown } }): string[] {
+  return [tool.description, ...descriptionsIn(tool.parameters), ...descriptionsIn(tool.output.schema)]
+}
+
 /** This package's source, the tree the literal walk reads. */
 const SOURCE_ROOT = resolve(import.meta.dirname, '../src')
+
+/** A channel table the two channel tools are assembled over; the walks read their definitions and never call them. */
+const CALLS: CallTable = {
+  open: () => Promise.resolve({ kind: 'unclaimed' }),
+  sessionOf: () => undefined,
+}
+
+/** The deadlines the two channel tools are assembled with. */
+const TIMEOUTS: CallTimeouts = { claimTimeoutMs: 5000, answerTimeoutMs: 15_000, pinMs: 30_000 }
 
 /** Every offer a composition can make: with and without a data backend, with and without the data page. */
 const OFFERS: readonly ShowComponentOptions[] = [false, true].flatMap(dataSource => [false, true].map(dataPage => ({
@@ -427,14 +477,21 @@ function sentencesOf(module: Record<string, unknown>, name: string): string[] {
 describe('every sentence this package writes', () => {
   it('names no other tool in any description the tool carries, under every offer', () => {
     const tools = OFFERS.map(options => showComponentTool(new Context(), KIT_CATALOG, options, new dataPageText.PendingLoads()))
-    const descriptions = tools.flatMap(tool => [
-      tool.description,
-      ...descriptionsIn(tool.parameters),
-      ...descriptionsIn(tool.output.schema),
-    ])
+    const descriptions = tools.flatMap(toolDescriptions)
     // The walk is worthless if a schema read as empty.
     expect(descriptions.length).toBeGreaterThan(30)
-    expect(namingAnotherTool(descriptions)).toEqual([])
+    expect(namingAnotherTool(descriptions, SHOW_COMPONENT_TOOL_NAME)).toEqual([])
+  })
+
+  it('names no other tool in any description either channel tool carries', () => {
+    const act = toolDescriptions(actComponentTool(CALLS, TIMEOUTS))
+    const read = toolDescriptions(readComponentTool(CALLS, TIMEOUTS))
+    expect(act.length).toBeGreaterThan(10)
+    expect(read.length).toBeGreaterThan(5)
+    expect([
+      ...namingAnotherTool(act, ACT_COMPONENT_TOOL_NAME),
+      ...namingAnotherTool(read, READ_COMPONENT_TOOL_NAME),
+    ]).toEqual([])
   })
 
   it('names no other tool in the catalog: its labels, purposes, lines and declared reasons', () => {
@@ -455,7 +512,7 @@ describe('every sentence this package writes', () => {
       ]),
     ]
     expect(sentences.length).toBeGreaterThan(60)
-    expect(namingAnotherTool(sentences)).toEqual([])
+    expect(namingAnotherTool(sentences, SHOW_COMPONENT_TOOL_NAME)).toEqual([])
   })
 
   it('names no other tool in any notice an action becomes, for the agent or for the user', () => {
@@ -471,7 +528,7 @@ describe('every sentence this package writes', () => {
       return notice === undefined ? [] : [notice.text, notice.summary]
     }))
     expect(sentences.length).toBeGreaterThan(60)
-    expect(namingAnotherTool(sentences)).toEqual([])
+    expect(namingAnotherTool(sentences, SHOW_COMPONENT_TOOL_NAME)).toEqual([])
   })
 
   it('names no other tool in either text module, string or composed', () => {
@@ -483,59 +540,39 @@ describe('every sentence this package writes', () => {
     expect(Object.keys(ARGUMENTS).filter(name => !exported.includes(name))).toEqual([])
     const sentences = Object.entries(modules).flatMap(([name, module]) => sentencesOf(module, name))
     expect(sentences.length).toBeGreaterThan(20)
-    expect(namingAnotherTool(sentences)).toEqual([])
+    expect(namingAnotherTool(sentences, SHOW_COMPONENT_TOOL_NAME)).toEqual([])
   })
 
   it('names no other tool in any literal its source writes, wherever it is written', () => {
     const literals = sourceFiles(SOURCE_ROOT).flatMap(file => literalsIn(file).map(text => ({
       file: relative(SOURCE_ROOT, file).split(sep).join('/'),
+      own: ownToolOf(file),
       text,
     })))
     expect(new Set(literals.map(literal => literal.file)).size).toBeGreaterThan(25)
     expect(literals.length).toBeGreaterThan(2000)
-    expect(literals.flatMap(({ file, text }) => {
-      const name = toolNameIn(text)
+    expect(literals.flatMap(({ file, own, text }) => {
+      const name = toolNameIn(text, own)
       return name === undefined ? [] : [{ file, text, name }]
     })).toEqual([])
   })
 })
 
-/** One name of every family in {@link TOOL_FAMILIES}, each a tool another package registers. */
-const FAMILY_SAMPLES: readonly string[] = [
-  'content_read', 'system_map_model', 'session_search', 'terminal_open', 'schedule_create', 'job_list',
-  'team_task_create', 'list_mcp_resources', 'mcp__github__create_issue', 'stagehand_act',
-]
-
-/**
- * Every tool {@link NAMED_TOOLS} lists, written out again so that a name dropped
- * from that list is still planted, and the control reading it fails.
- */
-const NAMED_SAMPLES: readonly string[] = [
-  'ask_user_question', 'cordis_inspect_list', 'cordis_inspect_query', 'create_goal', 'exit_plan_mode', 'get_goal',
-  'interrupt_agent', 'list_agents', 'list_subagent_models', 'load_workspace_dependencies', 'plugin_manager',
-  'read_image', 'run_code', 'send_message', 'show_chart', 'spawn_teammate', 'str_replace_editor',
-  'structured_output', 'todo_write', 'update_goal', 'wait_agent', 'web_fetch', 'web_search',
-]
-
-/**
- * Every word {@link WORD_TOOLS} lists, written out again for the same reason as
- * {@link NAMED_SAMPLES}.
- */
-const WORD_SAMPLES: readonly string[] = [
-  'bash', 'edit', 'glob', 'grep', 'lsp', 'present', 'pwsh', 'ralph', 'read', 'skill', 'subagent', 'workflow', 'write',
-]
-
 describe('the gate itself', () => {
-  it('reads a name of every family, every named tool and every quoted word, and not the words in ordinary prose', () => {
-    // A list entry no sample stands for is an entry this control does not check.
-    expect(TOOL_FAMILIES.filter(family => !FAMILY_SAMPLES.some(name => family.test(name))).map(String)).toEqual([])
-    expect(NAMED_TOOLS.filter(name => !NAMED_SAMPLES.includes(name))).toEqual([])
-    expect(WORD_TOOLS.filter(word => !WORD_SAMPLES.includes(word))).toEqual([])
-    const quoted = WORD_SAMPLES.flatMap(word => [`\`${word}\``, `"${word}"`, `'${word}'`])
-    const names = [...FAMILY_SAMPLES, ...NAMED_SAMPLES, ...quoted]
-    expect(names.filter(name => toolNameIn(`Then call ${name} on the same rows.`) !== name)).toEqual([])
+  it('reads a family name, a named tool and a quoted word, and not the words in ordinary prose', () => {
+    const names = ['content_read', 'todo_write', '`bash`']
+    expect(names.filter(name => toolNameIn(`Then call ${name} on the same rows.`, SHOW_COMPONENT_TOOL_NAME) !== name)).toEqual([])
     const prose = ['read-only', '\'read-only\'', 'written down', '\'written down\'', 'a view written down for this deployment']
-    expect(prose.filter(sentence => toolNameIn(sentence) !== undefined)).toEqual([])
+    expect(prose.filter(sentence => toolNameIn(sentence, SHOW_COMPONENT_TOOL_NAME) !== undefined)).toEqual([])
+  })
+
+  it('reads each of this package\'s tools in a sentence of another one, and not in a sentence of its own', () => {
+    const sentences = PACKAGE_TOOLS.map(name => `Name the entry with the id \`${name}\` placed it under.`)
+    expect(PACKAGE_TOOLS.map(own => sentences.map(sentence => toolNameIn(sentence, own)))).toEqual([
+      [undefined, 'act_component', 'read_component'],
+      ['show_component', undefined, 'read_component'],
+      ['show_component', 'act_component', undefined],
+    ])
   })
 
   it('reports a name appended to one purpose, through the description and through the catalog lines', () => {
@@ -544,9 +581,10 @@ describe('the gate itself', () => {
     ))
     const catalog = readCatalog(entries)
     const described = OFFERS.map(options => showComponentTool(new Context(), catalog, options, new dataPageText.PendingLoads()).description)
-    expect(described.map(description => namingAnotherTool([description]).map(found => found.name)))
+    expect(described.map(description => namingAnotherTool([description], SHOW_COMPONENT_TOOL_NAME).map(found => found.name)))
       .toEqual(OFFERS.map(() => ['content_read']))
-    expect(namingAnotherTool([describeCatalog(catalog.entries)]).map(found => found.name)).toEqual(['content_read'])
+    expect(namingAnotherTool([describeCatalog(catalog.entries)], SHOW_COMPONENT_TOOL_NAME).map(found => found.name))
+      .toEqual(['content_read'])
   })
 
   it('reports a name in a string literal, in a template piece and in JSX text of a file it walks', () => {
@@ -558,10 +596,15 @@ describe('the gate itself', () => {
         + 'export const word = \'Run `bash` first.\'\n',
       )
       writeFileSync(join(dir, 'view.tsx'), 'export const View = () => <p>Fetch it with web_fetch.</p>\n')
+      writeFileSync(
+        join(dir, 'act-copy.ts'),
+        'export const entry = \'the id `show_component` placed it under\'\n'
+        + 'export const own = \'act_component needs a session.\'\n',
+      )
       const files = sourceFiles(dir)
-      expect(files.map(file => relative(dir, file)).sort()).toEqual(['line.ts', 'view.tsx'])
-      const names = files.flatMap(file => literalsIn(file)).flatMap(text => toolNameIn(text) ?? [])
-      expect(names.sort()).toEqual(['`bash`', 'todo_write', 'web_fetch'])
+      expect(files.map(file => relative(dir, file)).sort()).toEqual(['act-copy.ts', 'line.ts', 'view.tsx'])
+      const names = files.flatMap(file => literalsIn(file).flatMap(text => toolNameIn(text, ownToolOf(file)) ?? []))
+      expect(names.sort()).toEqual(['`bash`', 'show_component', 'todo_write', 'web_fetch'])
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

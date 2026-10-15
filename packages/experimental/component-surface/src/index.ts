@@ -61,13 +61,15 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-experimental-biz-backend'
 // Type-only: resolves ctx.approval, which that child asks the user through.
 import type {} from '@deepseek-ai/dsh-user-approval'
+// Type-only: resolves ctx.contentChannel, which the optional channel-tools child joins.
+import type {} from '@deepseek-ai/dsh-experimental-content-frame/src/access/channel.ts'
 import { ComponentCatalogRegistry, trackCatalog } from './catalog.ts'
 import { MAX_TABLE_ROWS, type ComponentCatalog } from './component-call.ts'
 import { ComponentViewRegistry } from './component-views.ts'
 import { installComponentAction } from './command.ts'
 import { PendingLoads } from './data-page.ts'
 import { actComponentProjection } from './act-component-projection.ts'
-import { COMPONENT_DOMAIN, MAX_ACT_COMPONENT_STEPS } from './act-component-call.ts'
+import { COMPONENT_DOMAIN } from './act-component-call.ts'
 import { actComponentTool } from './act-component-tool.ts'
 import { parseComponentReport } from './read-component-call.ts'
 import { readComponentTool } from './read-component-tool.ts'
@@ -96,22 +98,13 @@ export type {
 export {
   catalogId,
   COMPONENT_KIT_ENTRIES,
-  DATA_PAGE_BATCH_MODIFIED_ID,
   DATA_PAGE_DELETE_GIS_RESOURCE_VALUES,
-  DATA_PAGE_DELETED_ID,
-  DATA_PAGE_EDITING_OUTPUT,
-  DATA_PAGE_GATED_IDS,
   DATA_PAGE_ID,
-  DATA_PAGE_INFO_CARD_TABS,
   DATA_PAGE_MODEL_PROP_NAMES,
-  DATA_PAGE_OPENED_OUTPUT,
   DATA_PAGE_ROW_OPERATIONS,
   DATA_PAGE_TOOLBAR_BUTTONS,
   DATA_PAGE_VIEW_PROP_NAMES,
-  FORM_PAGE_ID,
-  INFO_CARD_ID,
   MAX_RECORD_ID_LENGTH,
-  placedOnlyByViews,
   readCatalog,
   type CatalogId,
   type ComponentCatalog,
@@ -224,7 +217,9 @@ export interface Config {
   /**
    * How long a claimed call waits for that tab to report, in milliseconds. It
    * is the call's whole deadline: the steps a call runs, or the reading it
-   * composes, and the trip back are paid out of it.
+   * composes, and the trip back are paid out of it. The steps of an
+   * `act_component` call run for three quarters of it at most, so the console
+   * stops acting before the host stops waiting.
    */
   actTimeoutMs?: number
 }
@@ -441,7 +436,10 @@ function installViews(ctx: Context, config: ResolvedConfig, options: ShowCompone
   })
 }
 
-/** How long the tab that last answered a component call stays this session's preferred reader. */
+/**
+ * How long the tab that last answered a component call stays this session's
+ * preferred reader: an ordering preference among tabs, not a deadline.
+ */
 const ACT_TAB_PIN_MS = 30_000
 
 /**
@@ -459,9 +457,6 @@ function installComponentAccess(ctx: Context, config: ResolvedConfig): void {
   const timeouts: CallTimeouts = {
     claimTimeoutMs: config.actClaimTimeoutMs,
     answerTimeoutMs: config.actTimeoutMs,
-    // How long the tab that answered stays this session's preferred reader:
-    // an ordering heuristic rather than a deadline, so it is the same for every
-    // deployment rather than a configurable one.
     pinMs: ACT_TAB_PIN_MS,
   }
   const membership = ctx.contentChannel.register({
@@ -477,9 +472,9 @@ function installComponentAccess(ctx: Context, config: ResolvedConfig): void {
   // one of the services this child waits for keeps the row alive, and a member
   // left behind would read reports for a domain that is no longer offered.
   ctx.effect(() => () => { membership.release() }, 'show-component: this row\'s channel member')
-  ctx.tools.register(actComponentTool(membership.calls, timeouts, MAX_ACT_COMPONENT_STEPS))
+  ctx.tools.register(actComponentTool(membership.calls, timeouts))
   ctx.tools.register(readComponentTool(membership.calls, timeouts))
-  ctx.sessionProjections.register(actComponentProjection(ctx.logger('component-surface')))
+  ctx.sessionProjections.register(actComponentProjection(config.actTimeoutMs))
 }
 
 /**

@@ -29,7 +29,7 @@ import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surfac
 import * as ContentFrame from '@deepseek-ai/dsh-experimental-content-frame'
 import { CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE } from '@deepseek-ai/dsh-experimental-content-frame/src/access/wire.ts'
 import { ContentChannel } from '@deepseek-ai/dsh-experimental-content-frame/src/client/access/channel.ts'
-import { ACT_COMPONENT_TOOL_NAME, type ComponentCall } from '../src/act-component-call.ts'
+import { ACT_COMPONENT_TOOL_NAME, type ComponentCall, type ComponentView } from '../src/act-component-call.ts'
 import { READ_COMPONENT_TOOL_NAME } from '../src/read-component-call.ts'
 import * as ComponentSurface from '../src/index.ts'
 import { joinComponentChannel, type ComponentChannelWiring } from '../src/client/component-channel.ts'
@@ -82,6 +82,8 @@ interface Bench {
   origin: string
   /** The open calls the projection publishes for this session. */
   pending: () => readonly ComponentCall[]
+  /** The whole view the projection publishes for this session, which is what a seat offers. */
+  access: () => ComponentView | undefined
   /** Start one call of either tool the way an agent loop would, and answer with what it settles as. */
   call: (name: string, args: unknown, callId?: string) => Promise<ToolExecutionResult>
   /** Claim one open call over the served route, without ever reporting it. */
@@ -92,6 +94,19 @@ interface Bench {
   unloadRow: () => Promise<void>
   /** Dispose the composition. */
   close: () => Promise<void>
+}
+
+/**
+ * The composition's host session store.
+ * @param ctx - the composition.
+ * @returns the store.
+ */
+function storeOf(ctx: Context): SessionStore {
+  // Narrowed rather than cast: this package compiles in the Client aggregate,
+  // where the cordis `Context.sessions` merge names the browser service.
+  const sessions = ctx.get('sessions')
+  if (!(sessions instanceof SessionStore)) throw new Error('the composition runs no host session store')
+  return sessions
 }
 
 /** The one real fetch captured before the browser half's own is stubbed. */
@@ -142,9 +157,7 @@ async function boot(config: { actClaimTimeoutMs?: number; actTimeoutMs?: number;
   })
   await row
 
-  // The client aggregate types this service's `create()` as minting an id; the
-  // host store's own contract returns the live session, which is what the tools take.
-  const session = (ctx.get('sessions') as unknown as SessionStore).create()
+  const session = storeOf(ctx).create()
   const channel = new ContentChannel()
   const wiring = joinComponentChannel(channel)
   const posts: Post[] = []
@@ -165,11 +178,12 @@ async function boot(config: { actClaimTimeoutMs?: number; actTimeoutMs?: number;
     posts,
     origin,
     pending: () => ctx.sessionProjections.snapshot(session).values.componentAccess?.pending ?? [],
+    access: () => ctx.sessionProjections.snapshot(session).values.componentAccess,
     call: (name, args, callId = CALL) => ctx.tools.execute({
       callId: callId as ToolCallId,
       name,
       arguments: args,
-      agent: { id: session.id, session } as unknown as NonNullable<ToolExecutionInput['agent']>,
+      agent: { id: session.id, session } as NonNullable<ToolExecutionInput['agent']>,
       signal: new AbortController().signal,
     }),
     claim: async (callId) => {
@@ -220,9 +234,8 @@ async function callThroughTheColumn(
   // registered inside the tool body, so a bid before that is answered `unknown`
   // and retried, which is the loop's own behaviour rather than this file's.
   await new Promise<void>((resolve) => { setTimeout(resolve, 30) })
-  const pending = bench.pending()
-  expect(pending.map(call => call.callId)).toEqual([CALL])
-  bench.wiring.offer(bench.session.id, pending)
+  expect(bench.pending().map(call => call.callId)).toEqual([CALL])
+  bench.wiring.offer(bench.session.id, bench.access())
   return settled
 }
 
@@ -327,6 +340,31 @@ describe('the act_component chain', () => {
     expect(result.isError).toBe(true)
     if (result.isError) expect(result.error.message).toBe('act_component runs at most 8 steps in one call.')
     expect(bench.posts).toEqual([])
+  })
+
+  it('stops the steps inside the share of the report deadline the view publishes, and reports before the host gives up', async () => {
+    // The wait would run past the host's own deadline; the console stops it at
+    // three quarters of that deadline and the report says why, rather than the
+    // host answering unverified while the console is still acting.
+    drawColumn()
+    const bench = await boot({ actTimeoutMs: 2000 })
+    const pressed = vi.fn()
+    document.querySelector('[data-component-action="add"]')?.addEventListener('click', pressed)
+    const result = await actThroughTheColumn(bench, {
+      entry: ENTRY,
+      steps: [{ action: 'wait', key: 'ghost', timeoutMs: 5000 }, CLICK_ADD],
+    })
+    expect(bench.access()?.stepBudgetMs).toBe(1500)
+    expect(pressed).not.toHaveBeenCalled()
+    expect(result.isError).toBe(false)
+    if (result.isError) return
+    expect(result.value).toMatchObject({
+      status: 'failed',
+      steps: [
+        { index: 1, status: 'failed', message: 'The console\'s time for this call ran out before this step finished.' },
+        { index: 2, status: 'skipped' },
+      ],
+    })
   })
 
   it('answers unverified when a console claimed the call and never reported', async () => {
@@ -513,7 +551,7 @@ describe('one tab identity for every domain in the page', () => {
     const posts: Post[] = []
     vi.stubGlobal('fetch', (url: URL | string, init?: RequestInit) => {
       const resolved = new URL(String(url), document.baseURI)
-      posts.push({ path: resolved.pathname, body: JSON.parse(String(init?.body)) as Post['body'] })
+      if (typeof init?.body === 'string') posts.push({ path: resolved.pathname, body: JSON.parse(init.body) as Post['body'] })
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ claimed: true, tabId: bench.channel.tabId }) })
     })
     const second = bench.channel.join({
@@ -521,7 +559,10 @@ describe('one tab identity for every domain in the page', () => {
       ready: () => true,
       answer: () => Promise.resolve({ kind: 'outcome' as const, outcome: { status: 'error' as const, code: 'empty' as const, message: 'no' } }),
     })
-    bench.wiring.offer(bench.session.id, [{ callId: 'call_act', tool: 'act_component', args: { entry: ENTRY, steps: [CLICK_ADD] } }])
+    bench.wiring.offer(bench.session.id, {
+      pending: [{ callId: 'call_act', tool: 'act_component', args: { entry: ENTRY, steps: [CLICK_ADD] } }],
+      stepBudgetMs: 11_250,
+    })
     second.offer({
       calls: [{ callId: 'call_other', sessionId: bench.session.id }],
       openCalls: ['call_act', 'call_other'],

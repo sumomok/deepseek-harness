@@ -90,6 +90,29 @@ function stoodChannel(): StoodChannel {
   }
 }
 
+/** The part of the seat's injected face a case offers calls through. */
+type OfferingFace = Pick<ComponentSurfaceInjected, 'offerCalls' | 'parkCalls'>
+
+/**
+ * Whether the face the kind registration injects carries the offering half.
+ * @param face - what the registration's `inject` answered.
+ * @returns whether both offering functions are there.
+ */
+function isOfferingFace(face: Record<string, unknown> | undefined): face is Record<string, unknown> & OfferingFace {
+  return typeof face?.offerCalls === 'function' && typeof face.parkCalls === 'function'
+}
+
+/**
+ * The offering half of the face the kind registration injects now.
+ * @param ctx - the booted bench.
+ * @returns the two offering functions.
+ */
+function offeringFace(ctx: Context): OfferingFace {
+  const face = ctx.slots.entries('content.surface.kind')[0]?.inject?.()
+  if (!isOfferingFace(face)) throw new Error('the kind registration injects no offering face')
+  return face
+}
+
 describe('show-component browser half', () => {
   it('declares the services it binds', () => {
     expect(inject).toEqual(['slots', 'locale', 'remote', 'remote.commands'])
@@ -208,34 +231,54 @@ describe('show-component browser half', () => {
 
   it('answers nothing while no channel row is composed, rather than failing to mount', async () => {
     const { ctx } = await bench()
-    const [entry] = ctx.slots.entries('content.surface.kind')
-    const injected = entry?.inject?.() as unknown as ComponentSurfaceInjected
+    const face = offeringFace(ctx)
     // A page with no channel row has no tab-side answerer for the host to
     // reach, which the host reads the same way and offers no tool for.
-    expect(() => { injected.offerCalls('session-a', []) }).not.toThrow()
-    expect(() => { injected.parkCalls() }).not.toThrow()
+    expect(() => { face.offerCalls('session-a', { pending: [], stepBudgetMs: 11_250 }) }).not.toThrow()
+    expect(() => { face.parkCalls() }).not.toThrow()
   })
 
   it('offers the seat\'s open act_component calls through the channel row, and parks with the seat and the fiber', async () => {
     const stood = stoodChannel()
     const { ctx, fiber } = await bench(stood.channel)
-    const [entry] = ctx.slots.entries('content.surface.kind')
-    const injected = entry?.inject?.() as unknown as ComponentSurfaceInjected
+    const face = offeringFace(ctx)
     const request: ActComponentCall = {
       callId: 'call_1',
       tool: 'act_component',
       args: { entry: 'demo', steps: [{ action: 'click', key: 'add' }] },
     }
-    injected.offerCalls('session-a', [request])
+    face.offerCalls('session-a', { pending: [request], stepBudgetMs: 11_250 })
     expect(stood.offers).toEqual([{
-      calls: [{ callId: 'call_1', sessionId: 'session-a', request }],
+      calls: [{ callId: 'call_1', sessionId: 'session-a', request, stepBudgetMs: 11_250 }],
       openCalls: ['call_1'],
     }])
-    injected.parkCalls()
+    face.parkCalls()
     expect(stood.parked()).toBe(1)
     // The domain leaves with this row's fiber, which is what stops the seat
     // bidding for calls after the row is gone.
     await fiber.dispose()
     expect(stood.parked()).toBe(2)
+  })
+
+  it('offers nothing through a channel row that left while the seat stayed', async () => {
+    const stood = stoodChannel()
+    const { ctx } = await bench()
+    const provider = ctx.plugin({
+      apply: (child: Context) => { child.provide('contentTabChannel' as never, stood.channel as never) },
+    })
+    await provider.await()
+    const face = offeringFace(ctx)
+    const request: ActComponentCall = {
+      callId: 'call_1',
+      tool: 'act_component',
+      args: { entry: 'demo', steps: [{ action: 'click', key: 'add' }] },
+    }
+    face.offerCalls('session-a', { pending: [request], stepBudgetMs: 11_250 })
+    expect(stood.offers).toHaveLength(1)
+    await provider.dispose()
+    expect(stood.parked()).toBe(1)
+    face.offerCalls('session-a', { pending: [request], stepBudgetMs: 11_250 })
+    face.parkCalls()
+    expect({ offers: stood.offers.length, parked: stood.parked() }).toEqual({ offers: 1, parked: 1 })
   })
 })

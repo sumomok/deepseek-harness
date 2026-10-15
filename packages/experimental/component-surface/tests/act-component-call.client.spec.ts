@@ -13,8 +13,10 @@
 
 import { describe, expect, it } from 'vitest'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
-import type { SessionEvent, SessionEventMap } from '@deepseek-ai/dsh-session/types'
+import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
+import { MAX_NAME_CHARS } from '@deepseek-ai/dsh-experimental-content-frame/src/access/wire.ts'
 import {
   ACT_COMPONENT_TOOL_NAME, MAX_ACT_COMPONENT_STEPS, MAX_MESSAGE_CHARS,
   MAX_REPORT_TEXT_CHARS, MAX_SET_VALUE_CHARS, MAX_TARGET_CHARS, MAX_TITLE_CHARS, MAX_WAIT_MS,
@@ -201,24 +203,21 @@ describe('reading a posted outcome', () => {
       null, 'x', {},
       { ...REPORT, callId: '' },
       { ...REPORT, tabId: '' },
-      { ...REPORT, callId: 'a'.repeat(257) },
-      { ...REPORT, tabId: 'a'.repeat(257) },
+      { ...REPORT, callId: 'a'.repeat(MAX_NAME_CHARS + 1) },
+      { ...REPORT, tabId: 'a'.repeat(MAX_NAME_CHARS + 1) },
     ]) {
       expect(parseActComponentReport(value)).toBeUndefined()
     }
   })
 
   it("takes the channel's own ids at the bound the page domain takes them at", () => {
-    // The call and tab ids are the host's, not this domain's, and both domains
-    // read the same two off the same channel: a bound narrower here would
-    // refuse a report the page domain takes, and the call would be answered as
-    // a console that went quiet. 256 is that bound written out rather than
-    // read from this package's own constant, so a bound that moves here fails
-    // against the number the two domains have to agree on.
-    const long = 'a'.repeat(256)
+    // The call and tab ids are the host's, and both domains read the same two
+    // off the same channel: a bound narrower here would refuse a report the
+    // page domain takes, and the call would be answered as a console that went
+    // quiet. The bound is read from the page domain's own report reader.
+    const long = 'a'.repeat(MAX_NAME_CHARS)
     expect(parseActComponentReport({ ...REPORT, callId: long, tabId: long }))
       .toEqual({ ...REPORT, callId: long, tabId: long })
-    expect(parseActComponentReport({ ...REPORT, callId: 'a'.repeat(257) })).toBeUndefined()
   })
 })
 
@@ -327,13 +326,8 @@ describe('reading the calls out of a session log', () => {
     target.append('tool/result', {
       turn: 1,
       step: 1,
-      message: {
-        id: 'msg_1',
-        role: 'user',
-        content: [{ type: 'tool_result', callId: CALL, content: [], isError: false }],
-        source: { kind: 'tool', callId: CALL },
-      },
-    } as unknown as SessionEventMap['tool/result'], { surfaceOp: 'append' })
+      message: createToolResultMessage({ callId: ToolCallId(CALL), content: [], isError: false }),
+    }, { surfaceOp: 'append' })
     target.append('tool/ptc-dispatch', {
       rootCallId: 'call_root' as ToolCallId,
       parentCallId: 'call_root' as ToolCallId,

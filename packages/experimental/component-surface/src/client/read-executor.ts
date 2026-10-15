@@ -1,42 +1,26 @@
 /**
  * The browser half of `read_component`: it reads the entry the content column
- * is drawing, in the vocabulary the acting tool addresses it by.
+ * is drawing into a {@link ComponentReading}, which the text module writes out.
  *
- * The reading answers the one question a call needs before it can act: what is
- * on screen right now, under which key. Every fact in it is read off the drawn
- * document through [the shared resolution](./targets.ts) a step runs through —
- * the same block bounds, the same declared action and own keys, the same field
- * names, the same question about whether a person could reach the control — so
- * a key the reading prints is a key a step would press, and neither half can
- * drift from the other.
- *
- * What it composes is a tree rather than a flat list of everything drawn: the
- * entry, one node per block, one nested node per open dialog, and the rows a
- * scope draws folded to a count, a counted set of the targets one row holds,
- * and the name of the first few. The fold is what keeps an answer about one
- * page of records an answer rather than a dump: a table draws its rows as
- * cells, one per column per record, and a reading that listed every one of them
- * spends its whole budget on data no step can name. A dialog is never folded:
- * it is where the next step almost always acts.
- *
- * What it describes is bounded to the entry the call named: the blocks the
- * placement drew inside it, the controls it declares, the fields it names, and
- * the dialogs it has open. Nothing outside that container is looked at, for the
- * reason the step executor states — what the console draws beside the entry is
- * the user's screen rather than this call's subject.
+ * Every fact is read through [the shared resolution](./targets.ts) a step runs
+ * through, so a key the reading prints is a key a step would press. The
+ * reading is a tree: the entry, one node per block, one nested node per open
+ * dialog, and each scope's rows folded to a count, the targets one row holds,
+ * and the first few names. Dialogs are never folded. Nothing outside the
+ * entry's container is looked at.
  * @module @deepseek-ai/dsh-experimental-component-surface/client/read-executor
  */
 
 import type {
-  ComponentReadBlock, ComponentReadControl, ComponentReadDialog, ComponentReadField, ComponentReadRowDraw,
-  ComponentReading, ComponentReadScope, ComponentReadRows, ComponentTargetState, ReadComponentArgs,
+  ComponentControlKeys, ComponentReadBlock, ComponentReadControl, ComponentReadDialog, ComponentReadField,
+  ComponentReadRowDraw, ComponentReading, ComponentReadScope, ComponentReadRows, ComponentTargetState,
+  ReadComponentArgs,
 } from '../read-component-call.ts'
 import { MAX_ROW_NAMES } from '../read-component-call.ts'
-import { readComponentReportText } from '../read-component-text.ts'
 import type { DrawnEntry } from './entry-container.ts'
 import {
   ACTION_KEY, FIELD_KEY, NODE_KEY, OVERLAY, OWN_KEY, WRITABLE,
-  isCovered, isDisabled, isDrawn, openDialog, ownName, pagerTotal, rowCopies, rowOf, scopeOf, withAttribute,
+  isCovered, isDisabled, isDrawn, openDialog, optionLabel, ownName, pagerTotal, rowCopies, rowOf, scopeOf, withAttribute,
 } from './targets.ts'
 
 /** The kind each element is reported as, where the platform has no role to ask for one. */
@@ -93,8 +77,7 @@ function wordsOf(el: Element, within: Element): string {
  * @returns the words, empty where it draws none.
  */
 function drawnWords(el: Element): string {
-  /* v8 ignore next -- an element's textContent is null only for a document node, and this is an element */
-  return (el.textContent ?? '').trim()
+  return el.textContent.trim()
 }
 
 /**
@@ -177,9 +160,7 @@ function declaredName(el: Element, within: Element): string {
   const described = el.getAttribute('aria-labelledby')
   if (described !== null && described !== '') {
     for (const named of within.querySelectorAll('[id]')) {
-      if (named.getAttribute('id') !== described) continue
-      /* v8 ignore next -- an element's textContent is null only for a document node, and this is an element */
-      return (named.textContent ?? '').trim()
+      if (named.getAttribute('id') === described) return named.textContent.trim()
     }
   }
   const heading = el.querySelector(HEADINGS)
@@ -228,30 +209,49 @@ interface DrawnTarget<T> {
   readonly target: T
 }
 
+/** One drawn control, with the keys it was found by. */
+interface DrawnControl extends DrawnTarget<ComponentReadControl> {
+  /** The keys the control answers to. */
+  readonly keys: ComponentControlKeys
+}
+
+/**
+ * Whether one control's marks name it by a key, which every element a search
+ * by the two marks returns does.
+ * @param keys - the marks the element carries.
+ * @returns whether it carries either.
+ */
+function isKeyed(keys: { readonly action?: string; readonly ownKey?: string }): keys is ComponentControlKeys {
+  return keys.action !== undefined || keys.ownKey !== undefined
+}
+
+/**
+ * The keys one marked element answers to.
+ * @param el - the element.
+ * @returns the keys, as a list holding the one reading of them.
+ */
+function keysOf(el: Element): ComponentControlKeys[] {
+  const action = el.getAttribute(ACTION_KEY)
+  const ownKey = el.getAttribute(OWN_KEY)
+  const own = ownKey === null ? {} : { ownKey }
+  return [action === null ? own : { action, ...own }].filter(isKeyed)
+}
+
 /**
  * Every marked control one subtree draws, in document order.
  * @param scope - the subtree the reading is confined to.
  * @param within - the entry's own container.
  * @returns the controls, paired with their elements.
  */
-function controlsOf(scope: Element, within: Element): DrawnTarget<ComponentReadControl>[] {
+function controlsOf(scope: Element, within: Element): DrawnControl[] {
   const marks = `[${ACTION_KEY}], [${OWN_KEY}]`
   const found = [...scope.querySelectorAll(marks)]
   if (scope.matches(marks)) found.unshift(scope)
-  return found.filter(el => isDrawn(el, within)).map((el) => {
-    const action = el.getAttribute(ACTION_KEY)
-    const ownKey = el.getAttribute(OWN_KEY)
-    return {
-      el,
-      target: {
-        ...action === null ? {} : { action },
-        ...ownKey === null ? {} : { ownKey },
-        kind: kindOf(el),
-        words: wordsOf(el, within),
-        state: stateOf(el),
-      },
-    }
-  })
+  return found.filter(el => isDrawn(el, within)).flatMap(el => keysOf(el).map(keys => ({
+    el,
+    keys,
+    target: { ...keys, kind: kindOf(el), words: wordsOf(el, within), state: stateOf(el) },
+  })))
 }
 
 /**
@@ -260,8 +260,9 @@ function controlsOf(scope: Element, within: Element): DrawnTarget<ComponentReadC
  * A secret is reported as such rather than printed, because a reading is text
  * that reaches a model request and a password field's value is the user's. A
  * tick box holds a state rather than a value, and is reported as the platform
- * draws it. Everything else is its own `value`, which is what a `set` step
- * would replace.
+ * draws it. A native select holds the label of each option it has selected,
+ * which is what a `set` step chooses by. Everything else is its own `value`,
+ * which is what a `set` step would replace.
  * @param el - the field's control.
  * @returns the value, tick or secret it carries, none of them where it carries none.
  */
@@ -271,7 +272,8 @@ function heldBy(el: Element): Pick<ComponentReadField, 'value' | 'checked' | 'se
     if (el.type === 'checkbox' || el.type === 'radio') return { checked: el.checked }
     return { value: el.value }
   }
-  if (el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement) return { value: el.value }
+  if (el instanceof HTMLSelectElement) return { value: [...el.selectedOptions].map(option => optionLabel(option)).join(', ') }
+  if (el instanceof HTMLTextAreaElement) return { value: el.value }
   return {}
 }
 
@@ -332,15 +334,9 @@ function rowName(copies: readonly Element[], within: Element): string {
 function rowDraws(copies: readonly Element[], within: Element): ComponentReadRowDraw[] {
   const counted = new Map<string, ComponentReadRowDraw>()
   for (const copy of copies) {
-    for (const { target } of controlsOf(copy, within)) {
-      const key = `${target.action ?? ''}\u0000${target.ownKey ?? ''}\u0000${target.kind}`
-      const same = counted.get(key)
-      counted.set(key, {
-        ...target.action === undefined ? {} : { action: target.action },
-        ...target.ownKey === undefined ? {} : { ownKey: target.ownKey },
-        kind: target.kind,
-        count: (same?.count ?? 0) + 1,
-      })
+    for (const { keys, target } of controlsOf(copy, within)) {
+      const key = `${keys.action ?? ''}\u0000${keys.ownKey ?? ''}\u0000${target.kind}`
+      counted.set(key, { ...keys, kind: target.kind, count: (counted.get(key)?.count ?? 0) + 1 })
     }
   }
   return [...counted.values()]
@@ -454,6 +450,20 @@ function dialogsOf(
 }
 
 /**
+ * The blocks the entry draws, each id once with the first element drawing it, in document order.
+ * @param within - the entry's own container.
+ * @returns the blocks by id.
+ */
+function drawnBlocks(within: Element): Map<string, Element> {
+  const blocks = new Map<string, Element>()
+  for (const el of withAttribute(within, NODE_KEY)) {
+    const id = el.getAttribute(NODE_KEY)
+    if (id !== null && !blocks.has(id) && isDrawn(el, within)) blocks.set(id, el)
+  }
+  return blocks
+}
+
+/**
  * Read one call's entry, as the console sees it now.
  *
  * A block the call narrows the reading to and the entry does not draw is no
@@ -462,37 +472,13 @@ function dialogsOf(
  * a block that exists.
  * @param args - the call's arguments.
  * @param entry - the entry the column is drawing, which the caller has matched to the call.
- * @returns the reading, as the text the report carries.
- */
-export function readComponent(args: ReadComponentArgs, entry: DrawnEntry): string {
-  return readComponentReportText(readingOf(args, entry))
-}
-
-/**
- * The node ids of the blocks the entry draws, in document order, each once.
- * @param within - the entry's own container.
- * @returns the ids.
- */
-function blockIds(within: Element): string[] {
-  const ids: string[] = []
-  for (const el of withAttribute(within, NODE_KEY)) {
-    if (!isDrawn(el, within)) continue
-    /* v8 ignore next -- the element was read out of that attribute, so it carries a value for it */
-    ids.push(el.getAttribute(NODE_KEY) ?? '')
-  }
-  return [...new Set(ids)]
-}
-
-/**
- * What one call's entry shows right now, before the text module writes it out.
- * @param args - the call's arguments.
- * @param entry - the entry the column is drawing, which the caller has matched to the call.
  * @returns what the reading found, as the tree the text module writes out.
  */
-function readingOf(args: ReadComponentArgs, entry: DrawnEntry): ComponentReading {
+export function readComponentEntry(args: ReadComponentArgs, entry: DrawnEntry): ComponentReading {
   const within = entry.container
   const named = { id: entry.entryId, title: entry.title }
-  const ids = blockIds(within)
+  const blocks = drawnBlocks(within)
+  const ids = [...blocks.keys()]
   if (args.node !== undefined) {
     const scope = scopeOf(entry, args.node)
     if (scope === undefined) {
@@ -524,12 +510,7 @@ function readingOf(args: ReadComponentArgs, entry: DrawnEntry): ComponentReading
   return {
     entry: named,
     blockIds: ids,
-    blocks: ids.map((node) => {
-      const element = withAttribute(within, NODE_KEY).find(el => el.getAttribute(NODE_KEY) === node && isDrawn(el, within))
-      /* v8 ignore next -- the id came off a drawn element inside this container */
-      if (element === undefined) return { node, controls: [], fields: [], dialogs: [] }
-      return toBlock(node, element, within, listed)
-    }),
+    blocks: [...blocks].map(([node, element]) => toBlock(node, element, within, listed)),
     outside: { ...scopeDrawn(within, within, listed, undefined), dialogs: dialogsOf(within, within, listed, undefined) },
   }
 }

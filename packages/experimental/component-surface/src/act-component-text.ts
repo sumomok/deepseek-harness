@@ -1,12 +1,9 @@
 /**
  * The sentences `act_component` is described, refused, and reported with.
  *
- * The description is the tool's whole offer, so it states the addressing
- * vocabulary — entry, block, declared key, field name — and nothing about the
- * console's own layout. The refusals say only what stopped the call: what
- * stands outside the entry the model named is not this call's to name, and a
- * sentence listing it would tell the model about the user's screen rather than
- * about its own mistake.
+ * The description states the addressing vocabulary — entry, block, declared
+ * key, field name — and nothing about the console's layout. Refusals say only
+ * what stopped the call and never describe what stands outside the named entry.
  * @module @deepseek-ai/dsh-experimental-component-surface/act-component-text
  */
 
@@ -16,7 +13,7 @@ import { MAX_ACT_COMPONENT_STEPS } from './act-component-call.ts'
 /** The tool's description: what it acts on, how a call addresses it, and what comes back. */
 export const ACT_COMPONENT_DESCRIPTION = [
   'Act inside the component entry the user is looking at in the content panel.',
-  'A call acts on exactly one entry: name it with `entry`, the id `show_component` placed it under,',
+  'A call acts on exactly one entry: name it with `entry`, the id the entry was placed under,',
   'and it must be the entry currently in front. Nothing outside that entry — the console\'s own controls,',
   'another entry, the chat input — is ever touched, and a step that resolves outside it is refused.',
   '',
@@ -32,7 +29,7 @@ export const ACT_COMPONENT_DESCRIPTION = [
 
 /** What `entry` is. */
 export const ENTRY_DESCRIPTION =
-  'Id of the component entry to act on, exactly as `show_component` placed it. It must be the entry in front.'
+  'Id of the component entry to act on, the id the entry was placed under. It must be the entry in front.'
 
 /** What `steps` is. */
 export const STEPS_DESCRIPTION = `The steps to run, in order, at most ${String(MAX_ACT_COMPONENT_STEPS)}. The call stops at the first step that fails.`
@@ -88,7 +85,7 @@ export const CANCELLED_REFUSAL = 'The act_component call was cancelled.'
 export const MISREPORTED_REFUSAL = 'The console answered an act_component call with something other than its steps.'
 
 /** Refusal for an entry id this tool cannot read. */
-export const BAD_ENTRY_REFUSAL = 'entry must be the id `show_component` placed the entry under.'
+export const BAD_ENTRY_REFUSAL = 'entry must be the id of a component entry in the content panel.'
 
 /** What one unreadable step is refused for, which is the same list every time. */
 export const STEP_REFUSAL_TEXT =
@@ -139,6 +136,13 @@ export function anotherEntryInFront(inFront: string): string {
 export const ENTRY_REDRAWN_REASON = 'The entry was redrawn while this call was running.'
 
 /**
+ * The sentence a console posts for the step the call's deadline stopped: one
+ * that would have started past it, or one whose wait it cut short. A wait the
+ * deadline cut short is not reported as a missing option or target.
+ */
+export const OUT_OF_TIME_REASON = 'The console\'s time for this call ran out before this step finished.'
+
+/**
  * The sentence a console posts for a control it may not press.
  * @param key - the action key the step named.
  * @returns the model-facing sentence.
@@ -157,15 +161,9 @@ export function coveredReason(key: string): string {
 }
 
 /**
- * The sentence a console posts for a control the entry holds but does not draw.
- *
- * A block that keeps a control in the document while it is closed — a row's
- * confirmation bubble, a dialog that was closed — leaves an element a step can
- * resolve and no person can press, and a press of it would report a step that
- * ran while nothing the user sees changed. Its own sentence rather than
- * {@link missingTargetReason}'s: the entry does hold the key, and saying it is
- * not part of the entry would tell the model something false about its own
- * addressing.
+ * The sentence a console posts for a control the entry holds but does not
+ * draw, such as a closed row confirmation or dialog. The entry does hold the
+ * key, so {@link missingTargetReason} would be false here.
  * @param key - the action key the step named.
  * @returns the model-facing sentence.
  */
@@ -175,13 +173,7 @@ export function notDrawnReason(key: string): string {
 
 /**
  * The sentence a console posts for a step whose target the entry does not
- * declare.
- *
- * One sentence covers both a target that is nowhere and one the console draws
- * outside the entry, because from here they are the same fact: the entry this
- * call is confined to does not hold what the step named. What stands outside it
- * belongs to the user's screen, and this is a call about one entry rather than a
- * report on the console.
+ * declare, whether the target is nowhere or drawn outside the entry.
  * @param target - what the step named.
  * @returns the model-facing sentence.
  */
@@ -190,12 +182,8 @@ export function missingTargetReason(target: string): string {
 }
 
 /**
- * The sentence a console posts for a wait whose target never appeared.
- *
- * Its own sentence rather than {@link missingTargetReason}'s: the block or the
- * control may be one the entry declares and simply was not drawn in time, and
- * "is not part of the entry on display" would tell the model the entry does not
- * hold something it does.
+ * The sentence a console posts for a wait whose target never appeared; the
+ * target may be one the entry declares and did not draw in time.
  * @param target - what the step waited for, named as the step names it.
  * @param timeoutMs - how long the wait lasted.
  * @returns the model-facing sentence.
@@ -214,14 +202,8 @@ export function notWritableReason(name: string): string {
 }
 
 /**
- * The sentence a console posts for a name the entry draws more than once.
- *
- * One column or property may be drawn as several fields at once — a page's
- * query panel and its open write dialog both carry the column's name — and
- * which of them a call means is not something the call says. Refusing names the
- * ambiguity rather than writing where the step may not have meant, and the
- * answer tells the model what to change: one field at a time, with the dialog a
- * press opened.
+ * The sentence a console posts for a name the entry draws more than once, as
+ * when a query panel and an open write dialog both carry the column's name.
  * @param name - the column or property the step named.
  * @returns the model-facing sentence.
  */
@@ -230,11 +212,8 @@ export function ambiguousFieldReason(name: string): string {
 }
 
 /**
- * The sentence a console posts for a field the entry draws disabled.
- *
- * A disabled control is one no person can write either, so a step that wrote it
- * through the platform's value setter would report a write the user could not
- * have made; the refusal states the one property that decided it.
+ * The sentence a console posts for a field the entry draws disabled, which no
+ * person could write either.
  * @param name - the column or property the step named.
  * @returns the model-facing sentence.
  */
@@ -243,12 +222,8 @@ export function disabledFieldReason(name: string): string {
 }
 
 /**
- * The sentence a console posts for a field the entry draws read-only.
- *
- * A read-only control takes the value a script assigns it and shows it back
- * while a person cannot type into it, and a component behind one may never see
- * the assignment at all: reporting that step as done would say the entry holds
- * a value it does not.
+ * The sentence a console posts for a field the entry draws read-only: a script
+ * assignment would show while the component behind it may never see it.
  * @param name - the column or property the step named.
  * @returns the model-facing sentence.
  */
@@ -268,12 +243,19 @@ export function noOptionReason(name: string, value: string): string {
 }
 
 /**
- * The sentence a console posts for a field whose value is chosen drawing the
- * value more than once.
- *
- * Two drawn options may show the same label, and which one a call means is not
- * something the call says; refusing names the ambiguity rather than choosing
- * where the step may not have meant.
+ * The sentence a console posts for a native select's option the block draws
+ * disabled, which no person could choose either.
+ * @param name - the column or property the step named.
+ * @param value - the option label the step named.
+ * @returns the model-facing sentence.
+ */
+export function disabledOptionReason(name: string, value: string): string {
+  return `The field for "${name}" has the option "${value}" disabled, so this call cannot choose it.`
+}
+
+/**
+ * The sentence a console posts for a field whose value is chosen drawing more
+ * than one option with the value as its label.
  * @param name - the column or property the step named.
  * @param value - the option label the step named.
  * @returns the model-facing sentence.
@@ -283,12 +265,9 @@ export function ambiguousOptionReason(name: string, value: string): string {
 }
 
 /**
- * The sentence a console posts for a choice the component did not take.
- *
- * The choice is confirmed by the component itself — a select by displaying the
- * chosen option, an autocomplete by closing its panel on it — so this is the
- * sentence for a click the component took and drew nothing for: the step fails
- * rather than reporting a write the component never made.
+ * The sentence a console posts for a choice the component did not confirm: a
+ * select displaying no such option, or an autocomplete not closing its panel
+ * on it.
  * @param name - the column or property the step named.
  * @param value - the option label the step named.
  * @returns the model-facing sentence.
@@ -298,11 +277,7 @@ export function optionNotTakenReason(name: string, value: string): string {
 }
 
 /**
- * What the model is told the call did.
- *
- * Composed here rather than in either half's report body so a step's own
- * sentence is written once, and so a call answered from a console that later
- * version is read the same way as one from this build.
+ * What the model is told the call did, composed by the console that ran it.
  * @param entry - the entry the steps ran on, as the console named it.
  * @param steps - the steps the call asked for.
  * @param results - how each of them ended.
@@ -333,8 +308,14 @@ function describeStep(step: ActComponentStep): string {
   switch (step.action) {
     case 'click': return `click ${step.node === undefined ? '' : `in ${step.node} `}on "${step.key}"`
     case 'set': return `set "${step.name}"${step.node === undefined ? '' : ` in ${step.node}`}`
-    case 'wait': return `wait for ${step.node ?? step.key ?? ''}`
-    /* v8 ignore next 2 -- the step union is closed and typed; the arm keeps a new action loud */
-    default: return 'step'
+    case 'wait': return `wait for ${step.node ?? step.key}`
+    /* v8 ignore start -- ActComponentStep is closed and every variant returns above. */
+    default: {
+      // Not `assertNever` from dsh-llm, for the reason validate.ts states at its
+      // own exhaustiveness check: this module is loaded by the browser seat.
+      const unhandled: never = step
+      throw new Error(`component-surface: unhandled step ${JSON.stringify(unhandled)}`)
+    }
+    /* v8 ignore stop */
   }
 }

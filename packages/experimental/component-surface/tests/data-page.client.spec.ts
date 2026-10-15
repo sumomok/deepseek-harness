@@ -89,9 +89,6 @@ const SPEC = { nodes: [PAGE] }
 /** A form page on {@link PAGE}'s table, reading what that page's add and modify buttons are editing. */
 const FORM = { id: 'form', component: FORM_PAGE_ID, props: { relatedMeta: 'device', request: { $from: 'node:page.editing' } } }
 
-/** An info card reading the record {@link PAGE} opened. */
-const CARD_BLOCK = { id: 'card', component: INFO_CARD_ID, props: { record: { $from: 'node:page.opened' } } }
-
 /** A form page on its own, reading nothing. */
 const LONE_FORM = { id: 'form', component: FORM_PAGE_ID, props: { relatedMeta: 'device' } }
 
@@ -535,47 +532,6 @@ describe('a block only a view places, sent in a call', () => {
   const placedByViews = (index: number): string => `show_component: spec.nodes[${index}].component — names `
     + 'toy.form-page, which is placed only by a view written down for this deployment, never by a call.'
 
-  it.each([['offers', OPENING], ['does not offer', PLAIN]] as const)(
-    'is refused on its own where the deployment %s the data page, before asking and before recording',
-    async (_case, options) => {
-      const { asked, session, run } = await bench('allowed-once', options, KIT_CATALOG)
-      const result = await run({ id: 'form', title: '表单', spec: { nodes: [LONE_FORM] } })
-      expect(result.isError).toBe(true)
-      expect(refusal(result)).toBe(placedByViews(0))
-      expect(asked).toEqual([])
-      expect(resolvedEvents(session)).toEqual([])
-    },
-  )
-
-  it('is refused beside the data page it reads before the page\'s question is asked', async () => {
-    // The three blocks a view places together: a call carrying them asks the
-    // user about a read-only page and would draw a form that writes.
-    const { asked, session, run } = await bench('allowed-once', OPENING, KIT_CATALOG)
-    const result = await run({ id: 'page', title: '设备', spec: { nodes: [PAGE, FORM, CARD_BLOCK] } })
-    expect(refusal(result)).toBe(placedByViews(1))
-    expect(asked).toEqual([])
-    expect(resolvedEvents(session)).toEqual([])
-  })
-
-  it.each([['offers', OPENING], ['does not offer', PLAIN]] as const)(
-    'is refused in a call reading a data source where the deployment %s the data page, before asking',
-    async (_case, options) => {
-      // The read's own question is the one a person would answer for this
-      // call, and allowing it must not put a block on screen that no call may
-      // place.
-      const { asked, session, run } = await bench('allowed-once', { ...options, dataSource: true }, KIT_CATALOG)
-      const result = await run({
-        id: 'rows',
-        title: '设备',
-        spec: { nodes: [ROWS, LONE_FORM] },
-        dataSource: [{ nodeId: 'rows', meta: 'device', metaLabel: '设备' }],
-      })
-      expect(refusal(result)).toBe(placedByViews(1))
-      expect(asked).toEqual([])
-      expect(resolvedEvents(session)).toEqual([])
-    },
-  )
-
   it.each([
     ['a data source no read accepts', [{ nodeId: 'rows', meta: 3 }]],
     ['a data source naming the form page itself', [{ nodeId: 'form', meta: 'device', metaLabel: '设备' }]],
@@ -617,8 +573,10 @@ describe('a block only a view places, sent in a call', () => {
     'is refused beside the data page where the deployment %s it (reading a data source: %s), before the page\'s own refusals',
     async (_case, dataSource, options) => {
       // The page's own refusals would send the model to write a call that is
-      // refused again for the form page.
-      const { asked, run } = await bench('allowed-once', { ...options, dataSource }, KIT_CATALOG)
+      // refused again for the form page; and neither the page's question nor a
+      // data source's is asked about a call that would draw a block no call
+      // may place.
+      const { asked, session, run } = await bench('allowed-once', { ...options, dataSource }, KIT_CATALOG)
       const result = await run({
         id: 'page',
         title: '设备',
@@ -627,6 +585,7 @@ describe('a block only a view places, sent in a call', () => {
       })
       expect(refusal(result)).toBe(placedByViews(dataSource ? 2 : 1))
       expect(asked).toEqual([])
+      expect(resolvedEvents(session)).toEqual([])
     },
   )
 

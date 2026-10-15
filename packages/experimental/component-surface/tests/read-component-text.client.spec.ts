@@ -219,14 +219,6 @@ describe('the tree a reading writes', () => {
     expect(text).toContain('Dialog "添加":')
   })
 
-  it('names a control whose two keys the reading carries neither of, which its own type leaves open', () => {
-    // The console always reads a control out of a mark, so this arm of the
-    // control type is one no reading of a real document produces: the line
-    // still says which key a step would name rather than printing nothing.
-    expect(readComponentReportText({ ...EMPTY, outside: { controls: [{ kind: 'div', words: '', state: 'reachable' }], fields: [], dialogs: [] } }))
-      .toContain('- own key "": div')
-  })
-
   it('names a dialog that draws none as unnamed, with the block it stands in', () => {
     expect(readComponentReportText({
       ...EMPTY,

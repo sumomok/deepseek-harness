@@ -1,31 +1,21 @@
 /**
  * `act_component`'s own vocabulary: the tool's arguments, the answer it settles
- * on, and the readers both halves of the package share — which are the
- * readings this package's channel shares between its two tools, the log shapes
- * a call arrives in and the id one settles by.
+ * on, and the readers both of this package's channel tools share — the events
+ * a call arrives in, the id one settles by, and the report fields.
  *
- * The arguments are addressed in the components' own language rather than in
- * DOM references: which entry, which block of it, and which control or field the
- * call names, all as the placement wrote them. That is what makes a call
- * replayable and readable — `node` is the id `show_component`'s spec declared,
- * `key` is the action key the component declares for one of its controls, and
- * `name` is the column or property a field is named by.
- *
- * Parsing lives beside the types for the reason `component-call.ts` states: the
- * host judges a call with the same reading the browser runs, so neither half can
- * accept what the other refuses.
+ * Arguments use the components' own names rather than DOM references: `node`
+ * is the block id `show_component`'s spec declared, `key` an action key a
+ * component declares, and `name` the column or property a field is named by.
+ * The host and the browser parse with the same readers, so neither accepts what
+ * the other refuses.
  * @module @deepseek-ai/dsh-experimental-component-surface/act-component-call
  */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
-// Type-only: the shared channel's own outcome vocabulary, which both content
-// domains settle their calls with.
 import type {
   ActOutcome, ActStepResult, ChannelOutcome, ChannelReportRequest,
 } from '@deepseek-ai/dsh-experimental-content-frame/src/access/wire.ts'
-// Type-only: the other tool's arm of this package's channel, which the union
-// below carries. The dependency is this direction alone — that module imports
-// this one's shared readers as values — so the runtime graph stays a tree.
+// Type-only: that module imports this one's readers as values.
 import type { ReadComponentCall } from './read-component-call.ts'
 import { MAX_ENTRY_ID_LENGTH, TOKEN_CHARSET } from './component-call.ts'
 
@@ -39,17 +29,11 @@ export const MAX_REPORT_TEXT_CHARS = 20_000
 export const MAX_TITLE_CHARS = 200
 
 /**
- * Longest call or tab id a posted report may name, in characters.
- *
- * The same bound the page domain's own report reader takes those two ids at
- * (`MAX_NAME_CHARS` in content-frame's `access/wire.ts`): one channel carries
- * both domains' posts, and the ids are minted by the host rather than by either
- * domain, so a domain that bounded them more tightly would refuse a report the
- * other takes — a call left to answer as a console that went quiet while its
- * answer was on the wire. The number is written here rather than imported
- * because this module is part of the browser bundle, which carries no other
- * plugin's values (the seam's own constraint, recorded in the channel's module
- * doc and in `.agents/notes/implemented/architecture/2026-10-09-content-channel-seam-and-duplication.md`).
+ * Longest call or tab id a posted report may name, in characters: equal to
+ * `MAX_NAME_CHARS` in content-frame's `access/wire.ts`, since one channel carries
+ * both domains' reports. Written here because the browser bundle carries no
+ * other plugin's values
+ * (`.agents/notes/implemented/architecture/2026-10-09-content-channel-seam-and-duplication.md`).
  */
 export const MAX_CHANNEL_ID_CHARS = 256
 
@@ -74,9 +58,6 @@ export const MAX_WAIT_MS = 10_000
 /** The three actions a step may be. */
 export const ACT_COMPONENT_ACTIONS = ['click', 'set', 'wait'] as const
 
-/** One action a step names. */
-export type ActComponentAction = (typeof ACT_COMPONENT_ACTIONS)[number]
-
 /** Press the control one block declares under one key. */
 export interface ActComponentClick {
   /** Discriminant. */
@@ -99,17 +80,26 @@ export interface ActComponentSet {
   readonly value: string
 }
 
-/** Wait for one block or one declared control to be drawn. */
-export interface ActComponentWait {
+/** Wait for one block or one declared control to be drawn: a step names the block, the key, or both. */
+export type ActComponentWait = {
   /** Discriminant. */
   readonly action: 'wait'
-  /** The block to wait for. */
-  readonly node?: string
-  /** The action key to wait for. */
-  readonly key?: string
   /** How long to wait, in milliseconds; {@link DEFAULT_WAIT_MS} when absent. */
   readonly timeoutMs?: number
-}
+} & (
+  | {
+    /** The block to wait for, or to wait in for the key. */
+    readonly node: string
+    /** The action key to wait for. */
+    readonly key?: string
+  }
+  | {
+    /** No block: the key is waited for anywhere in the entry. */
+    readonly node?: undefined
+    /** The action key to wait for. */
+    readonly key: string
+  }
+)
 
 /** One step of one `act_component` call. */
 export type ActComponentStep = ActComponentClick | ActComponentSet | ActComponentWait
@@ -123,27 +113,16 @@ export interface ActComponentArgs {
 }
 
 /**
- * How one step ended, in the shared channel's own vocabulary.
- *
- * A step that ran or never ran carries no message, and the one that stopped the
- * call always does: the model reads that sentence to decide its next step, so an
- * arm without one would be an answer with nothing to act on.
+ * How one step ended, in the shared channel's own vocabulary: only the step
+ * that stopped the call carries a message.
  */
 export type ActComponentStepResult = ActStepResult
 
 /**
- * What a claimed call answers with when the entry was there.
- *
- * The shape is the shared channel's own — the same one a call that ran steps on
- * a page answers with — because both domains answer the same question: which
- * step ran, which one stopped the call, and what the entry's own controls said.
- * In this domain `page` is the component entry, which is the thing the call
- * acted on.
+ * What a claimed call answers with when the entry was there, in the shared
+ * channel's own fields; `page` names the component entry.
  */
 export type ActComponentReport = ActOutcome
-
-/** What a claimed call answers with when there was nothing to run the steps on. */
-export type ActComponentFailure = Extract<ChannelOutcome, { status: 'error' }>
 
 /** What one claimed `act_component` call ends as, as the shared channel carries it. */
 export type ActComponentOutcome = ChannelOutcome
@@ -158,29 +137,22 @@ export interface ActComponentCall {
   readonly args: ActComponentArgs
 }
 
-/**
- * One open call of this package's channel, whichever of its tools opened it.
- *
- * The two tools share one channel, one pending list and one seat, and the arm
- * the seat reads carries the tool's own name and its own arguments: a seat that
- * has offered a call is told by `tool` whether it will run steps in the entry
- * or read it.
- */
+/** One open call of this package's channel; `tool` tells which of its tools opened it. */
 export type ComponentCall = ActComponentCall | ReadComponentCall
 
 /** Whole current value of the projection this package publishes for its own calls. */
 export interface ComponentView {
   /** Every open call, oldest first. */
   readonly pending: readonly ComponentCall[]
+  /**
+   * How long the tab that claims an `act_component` call may spend running its
+   * steps, in milliseconds from when it starts: a share of the host's report
+   * deadline, leaving the rest for the claim and report to travel.
+   */
+  readonly stepBudgetMs: number
 }
 
-/**
- * How this package's domain names itself on the shared content channel.
- *
- * One name for both tools, because a call is read by the member that opened it
- * and both open theirs through this domain's registration; the name is what the
- * channel's diagnostics call it and nothing the wire carries.
- */
+/** The name both of this package's tools register under on the shared content channel, used in its diagnostics only. */
 export const COMPONENT_DOMAIN = 'component'
 
 /**
@@ -204,6 +176,35 @@ export function isTarget(value: unknown): value is string {
 }
 
 /**
+ * Whether one decoded value is a non-empty name inside a bound.
+ * @param value - the decoded value, however malformed.
+ * @param max - the longest the name may be.
+ * @returns whether it is such a name.
+ */
+export function isName(value: unknown, max: number): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= max
+}
+
+/**
+ * Whether one decoded value is a text field inside a bound.
+ * @param value - the decoded value, however malformed.
+ * @param max - the longest the text may be.
+ * @returns whether it is such a text.
+ */
+export function isText(value: unknown, max: number): value is string {
+  return typeof value === 'string' && value.length <= max
+}
+
+/**
+ * Whether one decoded value is an entry id either tool of this package may name.
+ * @param value - the decoded value, however malformed.
+ * @returns whether it is such an id.
+ */
+export function isEntryId(value: unknown): value is string {
+  return isName(value, MAX_ENTRY_ID_LENGTH)
+}
+
+/**
  * Read one step from a decoded value.
  * @param value - the step, however malformed.
  * @returns the step, or `undefined` when the value is not one this tool runs.
@@ -218,51 +219,49 @@ export function readActComponentStep(value: unknown): ActComponentStep | undefin
     value?: unknown
     timeoutMs?: unknown
   }
-  // A block named where the entry itself may be searched: absent means the whole
-  // entry, and a name that is not one of the components' own ids is refused
-  // rather than searched for.
-  if (step.node !== undefined && !isTarget(step.node)) return undefined
+  const { node, key } = step
+  if (node !== undefined && !isTarget(node)) return undefined
+  const block = node === undefined ? {} : { node }
   switch (step.action) {
-    case 'click': return isTarget(step.key)
-      ? { action: 'click', ...step.node === undefined ? {} : { node: step.node }, key: step.key }
-      : undefined
+    case 'click': return isTarget(key) ? { action: 'click', ...block, key } : undefined
     case 'set':
       return isTarget(step.name) && typeof step.value === 'string' && step.value.length <= MAX_SET_VALUE_CHARS
-        ? { action: 'set', ...step.node === undefined ? {} : { node: step.node }, name: step.name, value: step.value }
+        ? { action: 'set', ...block, name: step.name, value: step.value }
         : undefined
-    case 'wait': {
-      if (step.key !== undefined && !isTarget(step.key)) return undefined
-      if (step.node === undefined && step.key === undefined) return undefined
-      if (step.timeoutMs !== undefined
-        && (typeof step.timeoutMs !== 'number' || !Number.isInteger(step.timeoutMs) || step.timeoutMs < 1 || step.timeoutMs > MAX_WAIT_MS)) {
-        return undefined
-      }
-      return {
-        action: 'wait',
-        ...step.node === undefined ? {} : { node: step.node },
-        ...step.key === undefined ? {} : { key: step.key },
-        ...step.timeoutMs === undefined ? {} : { timeoutMs: step.timeoutMs as number },
-      }
-    }
-    // The step union is closed and typed; the arm keeps a new action loud.
-    /* v8 ignore next 2 -- the step union is closed and typed */
+    case 'wait': return readWait(node, key, step.timeoutMs)
+    // `action` is whatever the model sent.
     default: return undefined
   }
 }
 
 /**
- * Read one call's arguments from a decoded value.
- *
- * A field this reading does not take makes the whole call unreadable rather
- * than partially understood: the tool's own schema refuses that call too, so a
- * browser told to run half of it would be running something nobody asked for.
+ * Read one `wait` step: a block, a key, or both, and a duration inside the ceiling.
+ * @param node - the block the step named, already read as a target.
+ * @param key - the key the step named, however malformed.
+ * @param timeoutMs - the duration the step named, however malformed.
+ * @returns the step, or `undefined` when it names neither target or a malformed one.
+ */
+function readWait(node: string | undefined, key: unknown, timeoutMs: unknown): ActComponentWait | undefined {
+  if (key !== undefined && !isTarget(key)) return undefined
+  if (timeoutMs !== undefined
+    && (typeof timeoutMs !== 'number' || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_WAIT_MS)) {
+    return undefined
+  }
+  const duration = timeoutMs === undefined ? {} : { timeoutMs }
+  if (node !== undefined) return { action: 'wait', node, ...key === undefined ? {} : { key }, ...duration }
+  return key === undefined ? undefined : { action: 'wait', key, ...duration }
+}
+
+/**
+ * Read one call's arguments from a decoded value; one unreadable step makes the
+ * whole call unreadable.
  * @param value - the decoded arguments, however malformed.
  * @returns the arguments, or `undefined` when the value is not a runnable set.
  */
 export function parseActComponentArgs(value: unknown): ActComponentArgs | undefined {
   if (value === null || typeof value !== 'object') return undefined
   const candidate = value as { entry?: unknown; steps?: unknown }
-  if (typeof candidate.entry !== 'string' || candidate.entry.length === 0 || candidate.entry.length > MAX_ENTRY_ID_LENGTH) return undefined
+  if (!isEntryId(candidate.entry)) return undefined
   if (!Array.isArray(candidate.steps) || candidate.steps.length === 0 || candidate.steps.length > MAX_ACT_COMPONENT_STEPS) return undefined
   const steps: ActComponentStep[] = []
   for (const raw of candidate.steps) {
@@ -273,28 +272,21 @@ export function parseActComponentArgs(value: unknown): ActComponentArgs | undefi
   return { entry: candidate.entry, steps }
 }
 
-/** Whether one decoded value is a non-empty name inside a bound. */
-function isName(value: unknown, max: number): value is string {
-  return typeof value === 'string' && value.length > 0 && value.length <= max
-}
-
-/** Whether one decoded value is a text field inside a bound. */
-function isText(value: unknown, max: number = MAX_TARGET_CHARS): value is string {
-  return typeof value === 'string' && value.length <= max
+/**
+ * Read the entry one posted outcome names: its id, and the title the column shows for it.
+ * @param value - the decoded `page` field, however malformed.
+ * @returns the entry, or `undefined` when the value is not one.
+ */
+export function readReportedEntry(value: unknown): { id: string; title: string } | undefined {
+  if (value === null || typeof value !== 'object') return undefined
+  const named = value as { id?: unknown; title?: unknown }
+  return isEntryId(named.id) && isText(named.title, MAX_TITLE_CHARS) ? { id: named.id, title: named.title } : undefined
 }
 
 /**
- * Read one posted `act_component` outcome.
- *
- * A wire boundary: the document crossed a process, so its own contract is
- * checked here rather than trusted from the type. Every string carries a bound
- * of its own, so a forged report cannot make the host carry an arbitrary
- * document to the model.
- *
- * The result is the shared channel's own vocabulary rather than a type of this
- * package's: the member that reads a report hands it to the waiting tool
- * through that channel, and a second spelling of the same document would be one
- * more place for the two to disagree.
+ * Read one posted `act_component` outcome. The document crossed a process, so
+ * every field is checked and every string bounded before the host carries it
+ * to the model.
  * @param value - the decoded `outcome` field, however malformed.
  * @returns the outcome, or `undefined` when the value is not one this tool posts.
  */
@@ -311,18 +303,15 @@ export function parseActComponentOutcome(value: unknown): ChannelOutcome | undef
     message?: unknown
   }
   if (outcome.status === 'error') {
-    // The two refusals this domain posts, plus the one every reader shares for
-    // a failure of its own: `empty` when the column holds no component entry,
-    // `front-changed` when it holds another, `engine` when the steps threw.
+    // `empty`: no component entry in front; `front-changed`: another one is;
+    // `engine`: the steps threw.
     if (outcome.code !== 'empty' && outcome.code !== 'front-changed' && outcome.code !== 'engine') return undefined
     if (!isText(outcome.message, MAX_MESSAGE_CHARS)) return undefined
     return { status: 'error', code: outcome.code, message: outcome.message }
   }
   if (outcome.status !== 'done' && outcome.status !== 'failed') return undefined
-  const page = outcome.page
-  if (page === null || typeof page !== 'object') return undefined
-  const named = page as { id?: unknown; title?: unknown }
-  if (!isName(named.id, MAX_ENTRY_ID_LENGTH) || !isText(named.title, MAX_TITLE_CHARS)) return undefined
+  const page = readReportedEntry(outcome.page)
+  if (page === undefined) return undefined
   if (!isText(outcome.title, MAX_TITLE_CHARS)) return undefined
   if (typeof outcome.truncated !== 'boolean') return undefined
   if (!Array.isArray(outcome.steps) || outcome.steps.length > MAX_ACT_COMPONENT_STEPS) return undefined
@@ -330,7 +319,7 @@ export function parseActComponentOutcome(value: unknown): ChannelOutcome | undef
   if (!isText(outcome.text, MAX_REPORT_TEXT_CHARS)) return undefined
   return {
     status: outcome.status,
-    page: { id: named.id, title: named.title },
+    page,
     title: outcome.title,
     steps: outcome.steps,
     text: outcome.text,
@@ -343,38 +332,42 @@ function isStepResult(value: unknown): value is ActComponentStepResult {
   if (value === null || typeof value !== 'object') return false
   const step = value as { index?: unknown; status?: unknown; message?: unknown }
   if (typeof step.index !== 'number' || !Number.isInteger(step.index) || step.index < 1) return false
-  // The same reading the page domain's reports get: the step that stopped the
-  // call is the one carrier of a message, and a failure without one is the
-  // answer the model can do nothing with.
   if (step.status === 'failed') return isText(step.message, MAX_MESSAGE_CHARS)
   if (step.status !== 'ok' && step.status !== 'skipped') return false
   return step.message === undefined
 }
 
 /**
- * Read one posted `act_component` report.
- *
- * A wire boundary: the document crossed a process, so its own contract is
- * checked here rather than trusted from the type. The call and the tab are read
- * as names, and the outcome carries its own bounds.
+ * Read one posted report of either tool of this package: the call and tab ids
+ * bounded by {@link MAX_CHANNEL_ID_CHARS}, the outcome by the tool's own reader.
  * @param body - the decoded request body, however malformed.
+ * @param parseOutcome - the tool's own reading of the `outcome` field.
  * @returns the report, or `undefined` when the body is not one.
  */
-export function parseActComponentReport(body: unknown): ChannelReportRequest | undefined {
+export function readChannelReport(
+  body: unknown,
+  parseOutcome: (value: unknown) => ChannelOutcome | undefined,
+): ChannelReportRequest | undefined {
   if (body === null || typeof body !== 'object') return undefined
   const candidate = body as { callId?: unknown; tabId?: unknown; outcome?: unknown }
   if (!isName(candidate.callId, MAX_CHANNEL_ID_CHARS) || !isName(candidate.tabId, MAX_CHANNEL_ID_CHARS)) return undefined
-  const outcome = parseActComponentOutcome(candidate.outcome)
+  const outcome = parseOutcome(candidate.outcome)
   return outcome === undefined ? undefined : { callId: candidate.callId, tabId: candidate.tabId, outcome }
 }
 
 /**
- * Read one tool call of this package's channel out of a committed event, in
- * either of the two log shapes.
- *
- * The name is read before the arguments are: this fold runs over every event of
- * every session, and parsing the JSON of every tool call in the log to throw it
- * away is a cost the whole harness would pay for.
+ * Read one posted `act_component` report.
+ * @param body - the decoded request body, however malformed.
+ * @returns the report, or `undefined` when the body is not one.
+ */
+export function parseActComponentReport(body: unknown): ChannelReportRequest | undefined {
+  return readChannelReport(body, parseActComponentOutcome)
+}
+
+/**
+ * Read one tool call of this package's channel out of a committed `tool/call`
+ * or `tool/ptc-dispatch-start` event. The name is compared before the
+ * arguments are parsed, since the fold runs over every event of every session.
  * @param event - the committed session event.
  * @param tool - the tool name this reading takes.
  * @param parse - that tool's own reading of its arguments.
@@ -435,12 +428,9 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
   }
   interface SessionProjectionMap {
     /**
-     * The calls of this package's tools one session has open: every call the
-     * log recorded without a result yet, in log order, whichever of the tools
-     * opened it. It is how the host asks the tab showing this session to act
-     * inside a component entry or to read one — no host reaches a browser
-     * directly, so the request rides the session's own projection stream and
-     * the seat showing that session picks it up.
+     * The calls of this package's tools one session has open, in log order:
+     * how the host asks the tab showing the session to act inside or read a
+     * component entry.
      */
     componentAccess: ComponentView
   }

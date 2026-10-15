@@ -21,11 +21,11 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, ToolDefinition, ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
-import type { CallTable, CallTimeouts } from '@deepseek-ai/dsh-experimental-content-frame/src/access/pending.ts'
+import type { CallSettlement, CallTable, CallTimeouts } from '@deepseek-ai/dsh-experimental-content-frame/src/access/pending.ts'
 import type { ActOutcome, ChannelOutcome, ReadOutcome } from '@deepseek-ai/dsh-experimental-content-frame/src/access/wire.ts'
 import { ACT_COMPONENT_TOOL_NAME, MAX_ACT_COMPONENT_STEPS } from '../src/act-component-call.ts'
 import { tooManyStepsRefusal, unclaimedRefusal, unverifiedRefusal } from '../src/act-component-text.ts'
-import { ACT_COMPONENT_BOUNDS, actComponentTool } from '../src/act-component-tool.ts'
+import { actComponentTool } from '../src/act-component-tool.ts'
 
 /** The deadlines every case here opens its wait with. */
 const TIMEOUTS: CallTimeouts = { claimTimeoutMs: 5000, answerTimeoutMs: 15000, pinMs: 30_000 }
@@ -76,13 +76,13 @@ let calls = 0
  * @param settlement - what the table's `open` resolves to.
  * @returns the definition, the table, and a runner.
  */
-async function bench(settlement: unknown): Promise<Bench> {
+async function bench(settlement: CallSettlement): Promise<Bench> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
-  const open = vi.fn(() => Promise.resolve(settlement))
-  const table = { open, sessionOf: () => undefined } as unknown as CallTable
-  const definition = actComponentTool(table, TIMEOUTS, MAX_ACT_COMPONENT_STEPS)
+  const open = vi.fn((): Promise<CallSettlement> => Promise.resolve(settlement))
+  const table: CallTable = { open, sessionOf: () => undefined }
+  const definition = actComponentTool(table, TIMEOUTS)
   ctx.tools.register(definition)
   const session = Session.create(SessionId('act-component-tool'))
   return {
@@ -92,7 +92,7 @@ async function bench(settlement: unknown): Promise<Bench> {
       callId: `call-${++calls}` as ToolCallId,
       name: ACT_COMPONENT_TOOL_NAME,
       arguments: args,
-      agent: { id: session.id, session } as unknown as NonNullable<ToolExecutionInput['agent']>,
+      agent: { id: session.id, session } as NonNullable<ToolExecutionInput['agent']>,
       signal: new AbortController().signal,
     }),
   }
@@ -103,8 +103,11 @@ async function runWithoutAgent(args: unknown): Promise<ToolExecutionResult> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
-  const table = { open: vi.fn(), sessionOf: () => undefined } as unknown as CallTable
-  ctx.tools.register(actComponentTool(table, TIMEOUTS, MAX_ACT_COMPONENT_STEPS))
+  const table: CallTable = {
+    open: vi.fn((): Promise<CallSettlement> => Promise.resolve({ kind: 'unclaimed' })),
+    sessionOf: () => undefined,
+  }
+  ctx.tools.register(actComponentTool(table, TIMEOUTS))
   return ctx.tools.execute({
     callId: 'call-no-agent' as ToolCallId,
     name: ACT_COMPONENT_TOOL_NAME,
@@ -155,12 +158,6 @@ describe('the act_component offer', () => {
         text: { type: 'string' },
       },
     })
-    expect(ACT_COMPONENT_BOUNDS).toEqual({
-      maxSteps: MAX_ACT_COMPONENT_STEPS,
-      maxTargetChars: 64,
-      maxValueChars: 4096,
-      maxWaitMs: 10_000,
-    })
   })
 
   it('runs one call of this tool at a time, because two would interleave in one entry', async () => {
@@ -205,8 +202,8 @@ describe('a call the tool refuses before any console is asked', () => {
   it('refuses an entry this tool cannot read, a call with no steps, and one past the ceiling', async () => {
     const { run, calls: opened } = await bench({ kind: 'unclaimed' })
     const cases: [unknown, string][] = [
-      [{ entry: '', steps: ARGS.steps }, 'entry must be the id `show_component` placed the entry under.'],
-      [{ entry: 'a'.repeat(65), steps: ARGS.steps }, 'entry must be the id `show_component` placed the entry under.'],
+      [{ entry: '', steps: ARGS.steps }, 'entry must be the id of a component entry in the content panel.'],
+      [{ entry: 'a'.repeat(65), steps: ARGS.steps }, 'entry must be the id of a component entry in the content panel.'],
       [{ entry: ENTRY, steps: [] }, 'act_component needs at least one step.'],
       [
         { entry: ENTRY, steps: Array.from({ length: MAX_ACT_COMPONENT_STEPS + 1 }, () => ({ action: 'click', key: 'add' })) },
@@ -223,8 +220,7 @@ describe('a call the tool refuses before any console is asked', () => {
     const missing = await run({ steps: ARGS.steps })
     expect(missing.isError).toBe(true)
     if (missing.isError) expect(missing.error.message).toContain('missing required property "entry"')
-    // `maxSteps` here is the protocol ceiling, so eight steps is the last set
-    // that gets as far as a claim.
+    // Eight steps, the protocol ceiling, is the last set that gets as far as a claim.
     const atCeiling = await run({
       entry: ENTRY,
       steps: Array.from({ length: MAX_ACT_COMPONENT_STEPS }, () => ({ action: 'click', key: 'add' })),

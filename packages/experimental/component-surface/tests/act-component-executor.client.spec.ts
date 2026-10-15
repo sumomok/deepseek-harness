@@ -53,13 +53,15 @@ function args(steps: ActComponentArgs['steps']): ActComponentArgs {
 }
 
 /**
- * Run one call the way the seat does: the entry is read again before every step.
+ * Run one call the way the seat does: the entry is read again before every
+ * step, and the steps run inside a budget counted from now.
  * @param call - the call's arguments.
  * @param entry - the entry the case drew.
+ * @param budgetMs - how long the steps may run.
  * @returns what the call ended as.
  */
-function run(call: ActComponentArgs, entry: DrawnEntry): Promise<ActComponentRun> {
-  return runActComponent(call, entry, () => drawnEntry(document))
+function run(call: ActComponentArgs, entry: DrawnEntry, budgetMs = 10_000): Promise<ActComponentRun> {
+  return runActComponent(call, entry, () => drawnEntry(document), Date.now() + budgetMs)
 }
 
 /**
@@ -75,7 +77,17 @@ function draw(): { inside: ReturnType<typeof vi.fn>; outside: ReturnType<typeof 
   return { inside, outside }
 }
 
-beforeEach(() => { document.body.innerHTML = '' })
+/**
+ * What the document's hit test answers: jsdom has none, and a case that gives
+ * a control a box to test sets what stands at its point.
+ */
+let hit: (x: number, y: number) => Element | null = () => null
+
+beforeEach(() => {
+  document.body.innerHTML = ''
+  hit = () => null
+  document.elementFromPoint = (x, y) => hit(x, y)
+})
 
 describe('the component entry a call may act on', () => {
   it('finds the entry the column is drawing, and nothing while another kind is in front', () => {
@@ -255,31 +267,69 @@ describe('the field a step writes', () => {
 
   it('writes a select and a textarea the way a person would', async () => {
     const drawn = drawEntry(`
-      <select data-component-field="kind"><option value="a">a</option><option value="b">b</option></select>
+      <select data-component-field="kind"><option value="a">Alpha</option><option value="b">Beta</option></select>
       <textarea data-component-field="note"></textarea>
     `)
+    const changed = vi.fn()
+    document.querySelector('select')?.addEventListener('change', changed)
     const report = await run(args([
-      { action: 'set', name: 'kind', value: 'b' },
+      { action: 'set', name: 'kind', value: 'Beta' },
       { action: 'set', name: 'note', value: 'hello' },
     ]), drawn)
     expect(report.status).toBe('done')
     expect(document.querySelector('select')?.value).toBe('b')
+    expect(changed).toHaveBeenCalledTimes(1)
     expect(document.querySelector('textarea')?.value).toBe('hello')
   })
 
-  it('writes through the element itself when its prototype declares no value accessor', async () => {
-    const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
-    const drawn = drawEntry('<input data-component-field="title">')
-    try {
-      // The prototype accessor is what a controlled component replaces; a DOM
-      // implementation without one leaves the step the plain assignment.
-      delete (HTMLInputElement.prototype as { value?: unknown }).value
-      const report = await run(args([{ action: 'set', name: 'title', value: 'X' }]), drawn)
-      expect(report.status).toBe('done')
-      expect((document.querySelector('input') as HTMLInputElement).value).toBe('X')
-    } finally {
-      if (descriptor !== undefined) Object.defineProperty(HTMLInputElement.prototype, 'value', descriptor)
-    }
+  it('chooses a native select\'s option by the label it shows, never by its value', async () => {
+    const drawn = drawEntry(`
+      <select data-component-field="kind">
+        <option value="a">Alpha</option><option value="b">Beta</option><option value="c">Twin</option><option value="d">Twin</option>
+      </select>
+    `)
+    const report = await run(args([{ action: 'set', name: 'kind', value: 'b' }]), drawn)
+    expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "kind" has no option "b".' }])
+    const twice = await run(args([{ action: 'set', name: 'kind', value: 'Twin' }]), drawn)
+    expect(twice.steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'The field for "kind" draws more than one option "Twin", so this call cannot tell which to choose.',
+    }])
+    expect(document.querySelector('select')?.value).toBe('a')
+  })
+
+  it('refuses an option the native select draws disabled rather than choosing it', async () => {
+    const drawn = drawEntry(`
+      <select data-component-field="kind">
+        <option value="a">Alpha</option><option value="b" disabled>Beta</option>
+      </select>
+    `)
+    const report = await run(args([{ action: 'set', name: 'kind', value: 'Beta' }]), drawn)
+    expect(report.steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'The field for "kind" has the option "Beta" disabled, so this call cannot choose it.',
+    }])
+    expect((document.querySelector('select') as HTMLSelectElement).value).toBe('a')
+  })
+
+  it('refuses an option a disabled group holds rather than choosing it', async () => {
+    // An `<optgroup disabled>` disables the options inside it, which is one a
+    // person cannot choose either, however the select's own state reads.
+    const drawn = drawEntry(`
+      <select data-component-field="kind">
+        <option value="a">Alpha</option>
+        <optgroup label="More" disabled><option value="b">Beta</option></optgroup>
+      </select>
+    `)
+    const report = await run(args([{ action: 'set', name: 'kind', value: 'Beta' }]), drawn)
+    expect(report.steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'The field for "kind" has the option "Beta" disabled, so this call cannot choose it.',
+    }])
+    expect((document.querySelector('select') as HTMLSelectElement).value).toBe('a')
   })
 
   it('fails the step when the control refuses the value rather than reporting a write that never happened', async () => {
@@ -482,6 +532,20 @@ describe('a field the entry draws as a select', () => {
     expect(input.value).toBe('接入')
   })
 
+  it('fails where the column switched to another entry while the list opened, and chooses nothing', async () => {
+    // The entry the column switches to draws in the same element, so the
+    // option the step would choose may be its own.
+    const { drawn, select, input } = drawSelect(['接入'])
+    select.addEventListener('click', () => {
+      document.querySelector('[data-content-surface-selected]')?.setAttribute('data-content-surface-entry', 'component other')
+    })
+    const report = await run(args([{ action: 'set', name: 'city', value: '接入' }]), drawn)
+    expect(report.steps).toEqual([
+      { index: 1, status: 'failed', message: 'The entry in front is "other", not the one this call named.' },
+    ])
+    expect(input.value).toBe('')
+  })
+
   it('chooses from a list already open without the click that would toggle it shut', async () => {
     // A previous step may have left the list open, and the toggle an open list
     // gets is the one that closes it.
@@ -613,17 +677,66 @@ describe('a field the entry draws as a select', () => {
  * @param options - the labels the block answers with, in order.
  * @param behavior - how the fixture's own component answers: a block still
  *   loading, so the panel first holds the asking row and the suggestions land
- *   a turn later, or a component that takes nothing on a click.
+ *   a turn later; a component that takes nothing on a click; or one that draws
+ *   its panel only once the field was focused, which is element-ui's own rule
+ *   for a block that does not open the panel itself. `answer` makes the block
+ *   ask and then never answer, or answer with no suggestion, which closes the
+ *   panel the way element-ui does. `opensOnAnswer` opens the panel when a late
+ *   answer lands whether or not it was closed, as the vendored kit does.
+ *   `answers` gives the labels the block answers one query text with, an empty
+ *   list included, so a case can tell one query's answer from another's; a text
+ *   it does not list is answered the way `options` says.
+ *   `queryDelayMs` is the block's own debounce, so the asking row is drawn
+ *   that long after the typing; `askingMs` is how long that row stands before
+ *   the answer lands, and 20ms by default. `inFlightMs` opens the case with a
+ *   query already out, as a field whose earlier text left one on the wire: its
+ *   row is drawn from the start and answers with no suggestion that long
+ *   after, element-ui keeping one loading flag that a cleared field does not
+ *   reset; `'never'` leaves that query unanswered for the whole case, as a
+ *   request the transport rejected does. The Tab key closes the panel from the
+ *   field's root, as element-ui's own markup does; `asTextarea` draws that root
+ *   as the `.el-textarea` element-ui gives a textarea field rather than the
+ *   `.el-input` it gives a text field, with the control a `textarea`.
  * @returns the drawn entry, and the autocomplete with the parts a case asserts on.
  */
 function drawAutocomplete(
   options: readonly string[],
-  behavior: { readonly ignores?: boolean; readonly loading?: boolean } = {},
-): { drawn: DrawnEntry; autocomplete: HTMLElement; input: HTMLInputElement; panel: HTMLElement; list: HTMLElement } {
-  const items = options.map(label => `<li role="option">${label}</li>`).join('')
+  behavior: {
+    readonly ignores?: boolean
+    readonly loading?: boolean
+    readonly opensOnFocus?: boolean
+    readonly opensOnAnswer?: boolean
+    readonly answer?: 'never' | 'none'
+    readonly answers?: Readonly<Record<string, readonly string[]>>
+    readonly queryDelayMs?: number
+    readonly askingMs?: number
+    readonly inFlightMs?: number | 'never'
+    readonly asTextarea?: boolean
+  } = {},
+): {
+  drawn: DrawnEntry
+  autocomplete: HTMLElement
+  root: HTMLElement
+  input: HTMLInputElement | HTMLTextAreaElement
+  panel: HTMLElement
+  list: HTMLElement
+} {
+  const listed = (labels: readonly string[]): string => labels.map(label => `<li role="option">${label}</li>`).join('')
+  const items = listed(options)
+  // The newlines give the mutation text nodes besides the row, which is what
+  // exercises the branch `addedAskingRow` answers for a node that is not an
+  // Element.
+  const askingRow = '\n<li><i class="el-icon-loading"></i></li>\n'
+  const asTextarea = behavior.asTextarea === true
+  const rootClass = asTextarea ? 'el-textarea' : 'el-input'
+  const control = asTextarea
+    ? '<textarea class="el-textarea__inner" data-component-field="topic"></textarea>'
+    : '<input class="el-input__inner" data-component-field="topic">'
   const drawn = drawEntry(`
     <div class="el-autocomplete">
-      <input class="el-input__inner" data-component-field="topic">
+      <div class="${rootClass}">
+        ${control}
+      </div>
       <div class="el-autocomplete-suggestion">
         <div class="el-autocomplete-suggestion__wrap">
           <ul class="el-autocomplete-suggestion__list">${items}</ul>
@@ -632,22 +745,83 @@ function drawAutocomplete(
     </div>
   `)
   const autocomplete = drawn.container.querySelector('.el-autocomplete') as HTMLElement
-  const input = autocomplete.querySelector('input.el-input__inner') as HTMLInputElement
+  const root = autocomplete.querySelector(`.${rootClass}`) as HTMLElement
+  const input = autocomplete.querySelector(asTextarea ? 'textarea.el-textarea__inner' : 'input.el-input__inner') as HTMLInputElement | HTMLTextAreaElement
   const panel = autocomplete.querySelector('.el-autocomplete-suggestion') as HTMLElement
   const list = autocomplete.querySelector('.el-autocomplete-suggestion__list') as HTMLElement
   panel.style.display = 'none'
+  let activated = behavior.opensOnFocus !== true
+  // element-ui draws whatever the one loading flag says, so a query that starts
+  // while another is still out finds the row already there and adds nothing,
+  // and a cleared field keeps the row a query still out drew.
+  let loading = behavior.inFlightMs !== undefined
+  let drawnOptions = items
+  let shown = items
+  const render = (): void => {
+    const asked = loading ? askingRow : drawnOptions
+    if (asked === shown) return
+    shown = asked
+    list.innerHTML = asked
+  }
+  const answer = (labels: string): void => {
+    loading = false
+    drawnOptions = labels
+    render()
+    if (labels === '') panel.style.display = 'none'
+    else if (behavior.opensOnAnswer === true) {
+      activated = true
+      panel.style.display = ''
+    }
+  }
+  /** The answer to one query text: what `answers` lists for it, or `options`. */
+  const answerFor = (typed: string): string => {
+    const written = behavior.answers?.[typed]
+    return written === undefined ? items : listed(written)
+  }
+  input.addEventListener('focus', () => { activated = true })
+  // element-ui hears the Tab on the field's root, not on the control itself.
+  root.addEventListener('keydown', (event) => {
+    if (event.key !== 'Tab') return
+    activated = false
+    panel.style.display = 'none'
+  })
+  if (behavior.inFlightMs !== undefined) {
+    render()
+    if (typeof behavior.inFlightMs === 'number') setTimeout(() => { answer('') }, behavior.inFlightMs)
+  }
   input.addEventListener('input', () => {
     // element-ui drops the suggestions with an emptied field and shows the
-    // block's answer over a typed one; this fixture's block answers every
-    // query with the same suggestions.
+    // panel over a typed one; whether and what the block answers the typed
+    // text with is set by `answer` and `answers`.
     if (input.value === '') {
       panel.style.display = 'none'
-      list.innerHTML = ''
+      drawnOptions = ''
+      render()
       return
     }
-    panel.style.display = ''
-    list.innerHTML = behavior.loading === true ? '<li><i class="el-icon-loading"></i></li>' : items
-    if (behavior.loading === true) setTimeout(() => { list.innerHTML = items }, 20)
+    panel.style.display = activated ? '' : 'none'
+    const asks = behavior.loading === true || behavior.answer !== undefined || behavior.answers !== undefined
+    const askingMs = behavior.askingMs ?? 20
+    const startAsking = (): void => {
+      if (asks) {
+        loading = true
+        render()
+      } else {
+        // An answer clears element-ui's one loading flag even where an earlier
+        // query left it set, which is what brings the suggestions back.
+        loading = false
+        drawnOptions = items
+        render()
+      }
+      if (behavior.answer === 'none') setTimeout(() => { answer('') }, askingMs)
+      else if (asks && behavior.answer !== 'never') {
+        const labels = answerFor(input.value)
+        setTimeout(() => { answer(labels) }, askingMs)
+      }
+    }
+    const queryDelayMs = behavior.queryDelayMs ?? 0
+    if (queryDelayMs === 0) startAsking()
+    else setTimeout(startAsking, queryDelayMs)
   })
   // The suggestions are re-rendered per query, so the choice is heard where
   // it does not unmount: element-ui's own rows carry the click per row.
@@ -658,9 +832,11 @@ function drawAutocomplete(
     if (behavior.ignores === true) return
     input.value = (option.textContent ?? '').trim()
     // element-ui empties the suggestions on the choice itself.
-    list.innerHTML = ''
+    loading = false
+    drawnOptions = ''
+    render()
   })
-  return { drawn, autocomplete, input, panel, list }
+  return { drawn, autocomplete, root, input, panel, list }
 }
 
 describe('a field the entry draws as an autocomplete', () => {
@@ -674,11 +850,30 @@ describe('a field the entry draws as an autocomplete', () => {
     expect(input.value).toBe('森林防火一张图')
   })
 
+  it('focuses the field, which is what opens the panel of a block that does not open it itself', async () => {
+    const { drawn, input } = drawAutocomplete(['接入'], { opensOnFocus: true })
+    expect((await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)).status).toBe('done')
+    expect(input.value).toBe('接入')
+  })
+
   it('does not count the row the block draws while it is still asking as a suggestion', async () => {
     // A wait that settled on the loading row would match against a list that
     // holds no choice yet and report no option before any arrived.
     const { drawn, input } = drawAutocomplete(['接入'], { loading: true })
     expect((await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)).status).toBe('done')
+    expect(input.value).toBe('接入')
+  })
+
+  it('finds the suggestion on a retry where the field kept its focus and a Tab left the panel closed', async () => {
+    // The regression this pins: a Tab closed the panel with the focus still in
+    // the field, so the row this query draws stands in a hidden panel. A step
+    // that read the row's presence off what is drawn would take the row for
+    // the block's answer and refuse a value still on its way.
+    const { drawn, input } = drawAutocomplete(['接入'], { opensOnFocus: true, loading: true, opensOnAnswer: true, askingMs: 200 })
+    input.focus()
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }))
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)
+    expect(report.steps).toEqual([{ index: 1, status: 'ok' }])
     expect(input.value).toBe('接入')
   })
 
@@ -692,6 +887,256 @@ describe('a field the entry draws as an autocomplete', () => {
       text: 'Acted on the component entry "Demo" (demo).\n- set "topic": The field for "topic" has no option "接入".',
     })
     expect(input.value).toBe('')
+  })
+
+  it('refuses a value the block answers with no suggestion for as soon as the answer lands', { timeout: 3000 }, async () => {
+    // The asking row came and went with nothing drawn: the block answered, and
+    // the wait does not run on to the call's deadline to say so.
+    const { drawn, input } = drawAutocomplete(['接入'], { answer: 'none' })
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn, 60_000)
+    expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
+    expect(input.value).toBe('')
+  })
+
+  it('refuses it the same way where the asking row is drawn and gone between two looks', { timeout: 3000 }, async () => {
+    // The regression this pins: the row is drawn and gone inside one poll
+    // interval, so looking for it at poll time could miss it entirely and leave
+    // the step waiting for a deadline that a refusal does not need.
+    const { drawn, input } = drawAutocomplete(['接入'], { answer: 'none', queryDelayMs: 15, askingMs: 10 })
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn, 60_000)
+    expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
+    expect(input.value).toBe('')
+  })
+
+  it('refuses a value the block answers with no suggestion for even where a query was already out', { timeout: 4000 }, async () => {
+    // The regression this pins: the earlier query's row was already standing
+    // when the watching began, and element-ui's one loading flag means this
+    // step's query adds no row of its own — a step that only watched for an
+    // added row would run out the call's time over two answers that both came
+    // back empty.
+    const { drawn, input } = drawAutocomplete(['接入'], { answer: 'none', inFlightMs: 300 })
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn, 2000)
+    expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
+    expect(input.value).toBe('')
+  })
+
+  it('types its own value where a query already out never calls back, rather than waiting out the call', { timeout: 20_000 }, async () => {
+    // The regression this pins: a query that never answers leaves element-ui's
+    // loading flag set and its asking row standing, so a wait for that row to
+    // go would run to the call's deadline and every later `set` on the field
+    // would report the time-out sentence until somebody typed in it. The step
+    // waits no longer than the component's own re-render bound and types, and
+    // its own answer clears the row.
+    const { drawn, input } = drawAutocomplete(['接入'], { inFlightMs: 'never' })
+    const started = performance.now()
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn, 4000)
+    expect(report.steps).toEqual([{ index: 1, status: 'ok' }])
+    expect(input.value).toBe('接入')
+    // Well before the budget's end: the step waited out the bound, not the
+    // call.
+    expect(performance.now() - started).toBeLessThan(2500)
+  })
+
+  it('says the call ran out of time, not that there is no option, while the block is still asking', async () => {
+    const { drawn, input } = drawAutocomplete(['接入'], { answer: 'never' })
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }, { action: 'click', key: 'add' }]), drawn, 150)
+    expect(report.steps).toEqual([
+      { index: 1, status: 'failed', message: 'The console\'s time for this call ran out before this step finished.' },
+      { index: 2, status: 'skipped' },
+    ])
+    expect(input.value).toBe('')
+  })
+
+  it('puts back what the field held before the step typed, tells the block it did, and closes the panel', async () => {
+    // A field that already holds a choice — a related record the person picked
+    // — keeps it through a refusal: the step's own typing is what is undone.
+    const { drawn, input, panel } = drawAutocomplete(['核心'])
+    input.value = '林地一张图'
+    const heard: string[] = []
+    input.addEventListener('change', () => { heard.push(input.value) })
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)
+    expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
+    expect(input.value).toBe('林地一张图')
+    expect(heard).toEqual(['', '接入', '林地一张图'])
+    expect(panel.style.display).toBe('none')
+  })
+
+  it('waits for the block to answer the text it put back before closing a panel the answer opens', async () => {
+    // The vendored kit opens the panel on every answer, closed or not, so a
+    // panel closed before the block answered the restored text would open
+    // again under a refusal.
+    const { drawn, input, panel } = drawAutocomplete(['核心'], { loading: true, opensOnAnswer: true })
+    input.value = '林地一张图'
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)
+    expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
+    await new Promise<void>((resolve) => { setTimeout(resolve, 60) })
+    expect(input.value).toBe('林地一张图')
+    expect(panel.style.display).toBe('none')
+  })
+
+  it('puts the text back and closes the panel even when the call\'s time runs out while the block answers', async () => {
+    const { drawn, input, panel } = drawAutocomplete(['接入'], { answer: 'never' })
+    input.value = '林地一张图'
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn, 150)
+    expect(report.steps).toEqual([
+      { index: 1, status: 'failed', message: 'The console\'s time for this call ran out before this step finished.' },
+    ])
+    expect(input.value).toBe('林地一张图')
+    expect(panel.style.display).toBe('none')
+  })
+
+  it('waits out the restored text\'s query whose asking row is drawn and gone between two looks', async () => {
+    // The row lives less than one look and the answer behind it opens the
+    // panel, so a close sent on the strength of the row having started would
+    // be undone by that answer.
+    const { drawn, root, input, panel } = drawAutocomplete(['核心'], {
+      opensOnFocus: true, loading: true, opensOnAnswer: true, queryDelayMs: 15, askingMs: 10,
+    })
+    input.value = '林地一张图'
+    input.focus()
+    root.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: false }))
+    const tabs: string[] = []
+    root.addEventListener('keydown', (event) => { tabs.push(event.key) })
+    const started = performance.now()
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)
+    expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
+    // The row was recorded as it was added, not missed and waited out.
+    expect(performance.now() - started).toBeLessThan(600)
+    await new Promise<void>((resolve) => { setTimeout(resolve, 40) })
+    expect(tabs).toEqual(['Tab'])
+    expect(panel.style.display).toBe('none')
+  })
+
+  it('waits out the restored text\'s query whose asking row is drawn in a hidden panel', async () => {
+    // The row stands in a panel a Tab closed while the field kept its focus,
+    // where a look at what is drawn misses it: the close would then be sent
+    // before the answer that opens the panel again.
+    const { drawn, root, input, panel } = drawAutocomplete([], {
+      opensOnFocus: true, opensOnAnswer: true, queryDelayMs: 15, askingMs: 200,
+      answers: { 接入: [], 林地一张图: ['林地一张图'] },
+    })
+    input.value = '林地一张图'
+    input.focus()
+    root.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: false }))
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn, 60_000)
+    expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
+    expect(input.value).toBe('林地一张图')
+    // The restored text's answer lands after the close: one sent before it
+    // would leave the panel the answer opened on screen.
+    await new Promise<void>((resolve) => { setTimeout(resolve, 250) })
+    expect(panel.style.display).toBe('none')
+  })
+
+  it('closes the panel with a Tab the field\'s own root hears and no bubbling listener does', async () => {
+    // element-ui hears the key on the `.el-input` root; a listener outside the
+    // field sees it only in the capture phase, which is what leaves the
+    // console's own keyboard-operation styling with the key.
+    const { drawn, root, input, panel } = drawAutocomplete(['核心'], { loading: true })
+    input.value = '林地一张图'
+    const heard: string[] = []
+    root.addEventListener('keydown', (event) => { heard.push(event.key) })
+    const bubbled: string[] = []
+    const listen = (event: KeyboardEvent): void => { bubbled.push(event.key) }
+    window.addEventListener('keydown', listen)
+    try {
+      const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)
+      expect(report.status).toBe('failed')
+    } finally {
+      window.removeEventListener('keydown', listen)
+    }
+    expect(heard).toEqual(['Tab'])
+    expect(bubbled).toEqual([])
+    expect(panel.style.display).toBe('none')
+  })
+
+  it('closes a textarea field\'s panel from the root element-ui draws for it', async () => {
+    // element-ui draws a textarea field's root as `.el-textarea`, not
+    // `.el-input`, and hears the Tab there; that Tab is what closes the panel
+    // the restored text's answer opens.
+    const { drawn, root, input, panel } = drawAutocomplete(['核心'], { loading: true, asTextarea: true })
+    input.value = '林地一张图'
+    const heard: string[] = []
+    root.addEventListener('keydown', (event) => { heard.push(event.key) })
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)
+    expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
+    expect(input.value).toBe('林地一张图')
+    expect(heard).toEqual(['Tab'])
+    expect(panel.style.display).toBe('none')
+  })
+
+  it('sends no Tab where the entry left the front while the restored text was answered', async () => {
+    // Another entry may draw in the element this one held, and the key would
+    // close whatever panel that entry has open.
+    const { drawn, root, input } = drawAutocomplete(['核心'], { loading: true })
+    input.value = '林地一张图'
+    const heard: string[] = []
+    root.addEventListener('keydown', (event) => { heard.push(event.key) })
+    input.addEventListener('input', () => {
+      if (input.value !== '林地一张图') return
+      document.querySelector('[data-content-surface-selected]')?.setAttribute('data-content-surface-entry', 'component other')
+    })
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)
+    expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
+    expect(heard).toEqual([])
+  })
+
+  it('sends no key where a suggestion field is drawn without an element-ui input root', async () => {
+    // A block may draw its own suggestion markup. The value is still put back,
+    // and element-ui hears nothing: there is no root of its own to close on.
+    const drawn = drawEntry(`
+      <div class="el-autocomplete">
+        <input class="el-input__inner" data-component-field="topic">
+        <div class="el-autocomplete-suggestion"><div class="el-autocomplete-suggestion__wrap">
+          <ul class="el-autocomplete-suggestion__list"><li role="option">核心</li></ul>
+        </div></div>
+      </div>
+    `)
+    const input = drawn.container.querySelector('input') as HTMLInputElement
+    input.value = '林地一张图'
+    const heard: string[] = []
+    input.addEventListener('keydown', (event) => { heard.push(event.key) })
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)
+    expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
+    expect(input.value).toBe('林地一张图')
+    expect(heard).toEqual([])
+  })
+
+  it('writes nothing back where the step left the field holding what it held, and closes the panel', async () => {
+    const { drawn, input, panel } = drawAutocomplete(['核心'])
+    input.value = '接入'
+    const heard: string[] = []
+    input.addEventListener('change', () => { heard.push(input.value) })
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)
+    expect(report.status).toBe('failed')
+    expect(heard).toEqual(['', '接入'])
+    expect(panel.style.display).toBe('none')
+  })
+
+  it('fails where the column switched to another entry while the block answered, and leaves the field alone', async () => {
+    // The entry the column switches to draws in the same element, so the
+    // suggestions and the field the step would go on with may be its own.
+    const { drawn, input } = drawAutocomplete(['接入'])
+    const chosen = vi.fn()
+    input.addEventListener('input', () => {
+      if (input.value !== '接入') return
+      document.querySelector('[data-content-surface-selected]')?.setAttribute('data-content-surface-entry', 'component other')
+    })
+    drawn.container.querySelector('.el-autocomplete-suggestion__list')?.addEventListener('click', chosen)
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)
+    expect(report.steps).toEqual([
+      { index: 1, status: 'failed', message: 'The entry in front is "other", not the one this call named.' },
+    ])
+    expect(chosen).not.toHaveBeenCalled()
+    expect(input.value).toBe('接入')
+  })
+
+  it('refuses a suggestion field whose control takes no typing', async () => {
+    const drawn = drawEntry('<div class="el-autocomplete"><span data-component-field="topic">接入</span></div>')
+    expect((await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'The field for "topic" is not one this call may write.',
+    }])
   })
 
   it('refuses a value two drawn suggestions carry rather than choosing one of them', async () => {
@@ -792,6 +1237,31 @@ describe('a step naming a block the entry does not draw', () => {
   })
 })
 
+describe('the time a call\'s steps may run for', () => {
+  it('stops the step whose wait the deadline cuts short, and runs none of the steps behind it', async () => {
+    const { inside } = draw()
+    const drawn = drawnEntry(document)
+    if (drawn === undefined) throw new Error('the case drew no entry')
+    const report = await run(args([{ action: 'wait', key: 'ghost', timeoutMs: 5000 }, { action: 'click', key: 'add' }]), drawn, 80)
+    expect(report.steps).toEqual([
+      { index: 1, status: 'failed', message: 'The console\'s time for this call ran out before this step finished.' },
+      { index: 2, status: 'skipped' },
+    ])
+    expect(inside).not.toHaveBeenCalled()
+  })
+
+  it('starts no step once the deadline has passed', async () => {
+    const { inside } = draw()
+    const drawn = drawnEntry(document)
+    if (drawn === undefined) throw new Error('the case drew no entry')
+    const report = await run(args([{ action: 'click', key: 'add' }]), drawn, -1)
+    expect(report.steps).toEqual([
+      { index: 1, status: 'failed', message: 'The console\'s time for this call ran out before this step finished.' },
+    ])
+    expect(inside).not.toHaveBeenCalled()
+  })
+})
+
 describe('a wait step', () => {
   it('waits for a declared key with the built-in deadline when the step names none', async () => {
     draw()
@@ -848,7 +1318,7 @@ describe('the entry a long call is running against', () => {
    * @returns the entry the call started on.
    */
   function drawAndSwitch(replace: () => void): DrawnEntry {
-    document.body.innerHTML = `${COLUMN}`
+    document.body.innerHTML = COLUMN
     const drawn = drawnEntry(document)
     if (drawn === undefined) throw new Error('the case drew no entry')
     document.querySelector('[data-component-action="add"]')?.addEventListener('click', replace)
@@ -875,6 +1345,23 @@ describe('the entry a long call is running against', () => {
       { index: 3, status: 'skipped' },
     ])
     expect((document.querySelector('[data-component-field="zh_label"]') as HTMLInputElement).value).toBe('')
+  })
+
+  it('fails a wait the entry that took this one\'s place would have satisfied', async () => {
+    // One kind's entries share the element they are drawn in, so the entry
+    // the column switches to can draw the very control the step waits for.
+    document.body.innerHTML = COLUMN
+    const drawn = drawnEntry(document)
+    if (drawn === undefined) throw new Error('the case drew no entry')
+    setTimeout(() => {
+      document.querySelector('[data-content-surface-selected]')?.setAttribute('data-content-surface-entry', 'component other')
+      drawn.container.insertAdjacentHTML('beforeend', '<button data-component-action="later">Later</button>')
+    }, 60)
+    const report = await run(args([{ action: 'wait', key: 'later', timeoutMs: 1000 }, { action: 'click', key: 'later' }]), drawn)
+    expect(report.steps).toEqual([
+      { index: 1, status: 'failed', message: 'The entry in front is "other", not the one this call named.' },
+      { index: 2, status: 'skipped' },
+    ])
   })
 
   it('stops the remaining steps where the same entry was redrawn into a new element', async () => {
@@ -959,25 +1446,21 @@ describe('a press the control itself refuses', () => {
     button.getBoundingClientRect = () => ({
       left: 10, top: 20, width: 40, height: 10, right: 50, bottom: 30, x: 10, y: 20, toJSON: () => ({}),
     })
-    document.elementFromPoint = () => over
-    try {
-      expect(await run(args([{ action: 'click', key: 'go' }]), drawn)).toEqual({
-        status: 'failed',
-        steps: [{ index: 1, status: 'failed', message: 'control "go" is covered where it is drawn.' }],
-        text: 'Acted on the component entry "Demo" (demo).\n- click on "go": control "go" is covered where it is drawn.',
-      })
-      expect(pressed).not.toHaveBeenCalled()
-      // Something inside the control reaches it, and so does the point the
-      // document reports no element for: neither is something drawn over it.
-      document.elementFromPoint = () => inner
-      expect((await run(args([{ action: 'click', key: 'go' }]), drawn)).status).toBe('done')
-      expect(pressed).toHaveBeenCalledTimes(1)
-      document.elementFromPoint = () => null
-      expect((await run(args([{ action: 'click', key: 'go' }]), drawn)).status).toBe('done')
-      expect(pressed).toHaveBeenCalledTimes(2)
-    } finally {
-      Reflect.deleteProperty(document, 'elementFromPoint')
-    }
+    hit = () => over
+    expect(await run(args([{ action: 'click', key: 'go' }]), drawn)).toEqual({
+      status: 'failed',
+      steps: [{ index: 1, status: 'failed', message: 'control "go" is covered where it is drawn.' }],
+      text: 'Acted on the component entry "Demo" (demo).\n- click on "go": control "go" is covered where it is drawn.',
+    })
+    expect(pressed).not.toHaveBeenCalled()
+    // Something inside the control reaches it, and so does the point the
+    // document reports no element for: neither is something drawn over it.
+    hit = () => inner
+    expect((await run(args([{ action: 'click', key: 'go' }]), drawn)).status).toBe('done')
+    expect(pressed).toHaveBeenCalledTimes(1)
+    hit = () => null
+    expect((await run(args([{ action: 'click', key: 'go' }]), drawn)).status).toBe('done')
+    expect(pressed).toHaveBeenCalledTimes(2)
   })
 
   it('reaches a table control through the copy the fixed-column layer draws of it', async () => {
@@ -1017,18 +1500,14 @@ describe('a press the control itself refuses', () => {
         left: 10, top: 20, width: 40, height: 10, right: 50, bottom: 30, x: 10, y: 20, toJSON: () => ({}),
       })
     }
-    try {
-      // The point over the cell's centre is held by the copy, and the point
-      // over the heading's by the caret the fixed header draws.
-      document.elementFromPoint = () => copyOfCell
-      expect((await run(args([{ action: 'click', key: 'cell-click' }]), drawn)).status).toBe('done')
-      expect(pressed).toHaveBeenCalledTimes(1)
-      document.elementFromPoint = () => copyOfCaret
-      expect((await run(args([{ action: 'click', key: 'sort' }]), drawn)).status).toBe('done')
-      expect(sorted).toHaveBeenCalledTimes(1)
-    } finally {
-      Reflect.deleteProperty(document, 'elementFromPoint')
-    }
+    // The point over the cell's centre is held by the copy, and the point
+    // over the heading's by the caret the fixed header draws.
+    hit = () => copyOfCell
+    expect((await run(args([{ action: 'click', key: 'cell-click' }]), drawn)).status).toBe('done')
+    expect(pressed).toHaveBeenCalledTimes(1)
+    hit = () => copyOfCaret
+    expect((await run(args([{ action: 'click', key: 'sort' }]), drawn)).status).toBe('done')
+    expect(sorted).toHaveBeenCalledTimes(1)
   })
 
   it('refuses a point held by another control of the same action, which is no copy of this one', async () => {
@@ -1049,26 +1528,22 @@ describe('a press the control itself refuses', () => {
     keep.getBoundingClientRect = () => ({
       left: 10, top: 20, width: 40, height: 10, right: 50, bottom: 30, x: 10, y: 20, toJSON: () => ({}),
     })
-    try {
-      // The other operation's own link holds the point, and so does an element
-      // declaring this key on another kind of element: neither is a second
-      // drawing of this control.
-      document.elementFromPoint = () => document.querySelector('#drop')
-      expect((await run(args([{ action: 'click', key: 'keep' }]), drawn)).steps).toEqual([{
-        index: 1,
-        status: 'failed',
-        message: 'control "keep" is covered where it is drawn.',
-      }])
-      document.elementFromPoint = () => document.querySelector('#row-cell')
-      expect((await run(args([{ action: 'click', key: 'keep' }]), drawn)).steps).toEqual([{
-        index: 1,
-        status: 'failed',
-        message: 'control "keep" is covered where it is drawn.',
-      }])
-      expect(dropped).not.toHaveBeenCalled()
-    } finally {
-      Reflect.deleteProperty(document, 'elementFromPoint')
-    }
+    // The other operation's own link holds the point, and so does an element
+    // declaring this key on another kind of element: neither is a second
+    // drawing of this control.
+    hit = () => document.querySelector('#drop')
+    expect((await run(args([{ action: 'click', key: 'keep' }]), drawn)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'control "keep" is covered where it is drawn.',
+    }])
+    hit = () => document.querySelector('#row-cell')
+    expect((await run(args([{ action: 'click', key: 'keep' }]), drawn)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'control "keep" is covered where it is drawn.',
+    }])
+    expect(dropped).not.toHaveBeenCalled()
   })
 
   it('refuses a copy drawn by another block, which is no drawing of this control', async () => {
@@ -1086,17 +1561,13 @@ describe('a press the control itself refuses', () => {
     cell.getBoundingClientRect = () => ({
       left: 10, top: 20, width: 40, height: 10, right: 50, bottom: 30, x: 10, y: 20, toJSON: () => ({}),
     })
-    document.elementFromPoint = () => document.querySelector('#copy-b')
-    try {
-      expect((await run(args([{ action: 'click', key: 'cell-click' }]), drawn)).steps).toEqual([{
-        index: 1,
-        status: 'failed',
-        message: 'control "cell-click" is covered where it is drawn.',
-      }])
-      expect(pressed).not.toHaveBeenCalled()
-    } finally {
-      Reflect.deleteProperty(document, 'elementFromPoint')
-    }
+    hit = () => document.querySelector('#copy-b')
+    expect((await run(args([{ action: 'click', key: 'cell-click' }]), drawn)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'control "cell-click" is covered where it is drawn.',
+    }])
+    expect(pressed).not.toHaveBeenCalled()
   })
 
   it('refuses a table control something unrelated is drawn over', async () => {
@@ -1123,25 +1594,21 @@ describe('a press the control itself refuses', () => {
         left: 10, top: 20, width: 40, height: 10, right: 50, bottom: 30, x: 10, y: 20, toJSON: () => ({}),
       })
     }
-    document.elementFromPoint = () => document.querySelector('#mask')
-    try {
-      expect((await run(args([{ action: 'click', key: 'cell-click' }]), drawn)).steps).toEqual([{
-        index: 1,
-        status: 'failed',
-        message: 'control "cell-click" is covered where it is drawn.',
-      }])
-      // A control the block marks by its own key alone is covered the same
-      // way: nothing on the point carries an action that could be its copy.
-      expect((await run(args([{ action: 'click', key: 'only' }]), drawn)).steps).toEqual([{
-        index: 1,
-        status: 'failed',
-        message: 'control "only" is covered where it is drawn.',
-      }])
-      expect(pressed).not.toHaveBeenCalled()
-      expect(pressedOnly).not.toHaveBeenCalled()
-    } finally {
-      Reflect.deleteProperty(document, 'elementFromPoint')
-    }
+    hit = () => document.querySelector('#mask')
+    expect((await run(args([{ action: 'click', key: 'cell-click' }]), drawn)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'control "cell-click" is covered where it is drawn.',
+    }])
+    // A control the block marks by its own key alone is covered the same
+    // way: nothing on the point carries an action that could be its copy.
+    expect((await run(args([{ action: 'click', key: 'only' }]), drawn)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'control "only" is covered where it is drawn.',
+    }])
+    expect(pressed).not.toHaveBeenCalled()
+    expect(pressedOnly).not.toHaveBeenCalled()
   })
 
   it('reaches a control through the label that carries it', async () => {
@@ -1153,14 +1620,10 @@ describe('a press the control itself refuses', () => {
     })
     let toggled = 0
     input.addEventListener('change', () => { toggled += 1 })
-    document.elementFromPoint = () => box
-    try {
-      expect((await run(args([{ action: 'click', key: 'tick' }]), drawn)).status).toBe('done')
-      expect(toggled).toBe(1)
-      expect(input.checked).toBe(true)
-    } finally {
-      Reflect.deleteProperty(document, 'elementFromPoint')
-    }
+    hit = () => box
+    expect((await run(args([{ action: 'click', key: 'tick' }]), drawn)).status).toBe('done')
+    expect(toggled).toBe(1)
+    expect(input.checked).toBe(true)
   })
 
   it('asks the hit test about the centre of the control, where a person\'s click would land', async () => {
@@ -1176,17 +1639,13 @@ describe('a press the control itself refuses', () => {
     // point the step's press would land on. Any other point the test is asked
     // about answers the control itself, so a press that probes somewhere else
     // reads as reachable and reports a step this case refuses.
-    document.elementFromPoint = (x, y) => (x === 30 && y === 25 ? over : button)
-    try {
-      expect((await run(args([{ action: 'click', key: 'go' }]), drawn)).steps).toEqual([{
-        index: 1,
-        status: 'failed',
-        message: 'control "go" is covered where it is drawn.',
-      }])
-      expect(pressed).not.toHaveBeenCalled()
-    } finally {
-      Reflect.deleteProperty(document, 'elementFromPoint')
-    }
+    hit = (x, y) => (x === 30 && y === 25 ? over : button)
+    expect((await run(args([{ action: 'click', key: 'go' }]), drawn)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'control "go" is covered where it is drawn.',
+    }])
+    expect(pressed).not.toHaveBeenCalled()
   })
 
   it('presses a control the document gives no box to test', async () => {
@@ -1199,13 +1658,9 @@ describe('a press the control itself refuses', () => {
     // test below has nothing to say about it even where it names something
     // else — the same rule as a point the test reports no element for.
     button.getBoundingClientRect = () => ({ left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) })
-    document.elementFromPoint = () => over
-    try {
-      expect((await run(args([{ action: 'click', key: 'flat' }]), drawn)).status).toBe('done')
-      expect(pressed).toHaveBeenCalledTimes(1)
-    } finally {
-      Reflect.deleteProperty(document, 'elementFromPoint')
-    }
+    hit = () => over
+    expect((await run(args([{ action: 'click', key: 'flat' }]), drawn)).status).toBe('done')
+    expect(pressed).toHaveBeenCalledTimes(1)
   })
 })
 
