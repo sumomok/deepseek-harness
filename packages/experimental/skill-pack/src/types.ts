@@ -313,27 +313,12 @@ export interface PackArchiveLimits {
   readonly maxFiles: number
 }
 
-/** A delivered set that is already unpacked, which is also what an archive is written from. */
+/** A delivered set that is already unpacked: what a pack root is replaced with, and what an archive is written from. */
 export type PackSetSource =
   /** A directory whose immediate children are pack directories. */
   | { readonly kind: 'directory'; readonly path: string }
   /** The packs themselves, already in hand. */
   | { readonly kind: 'packs'; readonly packs: readonly DeliveredPack[] }
-
-/** One archive file, verified against its own manifest before anything is staged. */
-export interface PackArchiveDelivery {
-  /** Discriminant of the archive delivery. */
-  readonly kind: 'archive'
-  /** The archive's own name, which a refusal about the archive as a whole is reported against. */
-  readonly name: string
-  /** The archive's bytes. */
-  readonly bytes: Uint8Array
-  /** The sizes and count this archive is read under. */
-  readonly limits: PackArchiveLimits
-}
-
-/** Where the delivered set comes from. */
-export type PackDelivery = PackSetSource | PackArchiveDelivery
 
 /**
  * One skill pack an organization hands over, whose files the handing plugin

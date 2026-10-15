@@ -189,7 +189,7 @@ Every withheld pack is also stated once in the process log, and again only when 
 <a id="replacing-a-pack-root"></a>
 ## Replacing a pack root
 
-`syncPackRoot(targetRoot, delivery)` makes a pack root hold exactly the delivered packs. A delivery is a source directory, the packs themselves, or [one archive file](#installing-from-a-packed-file); the three differ only in how the set is read. It is a replacement rather than a merge: a pack retired upstream is gone, and so is one somebody dropped into the root by hand, so the root always says what the delivery says. Running the same delivery twice writes nothing the second time — the call compares the root against the delivered set first and returns unchanged when every pack, path and byte already matches.
+`syncPackRoot(targetRoot, delivery)` makes a pack root hold exactly the delivered packs. A delivery is a source directory or the packs themselves; the two differ only in how the set is read, and [a packed file](#installing-from-a-packed-file) is read into packs before it is installed. It is a replacement rather than a merge: a pack retired upstream is gone, and so is one somebody dropped into the root by hand, so the root always says what the delivery says. Running the same delivery twice writes nothing the second time — the call compares the root against the delivered set first and returns unchanged when every pack, path and byte already matches.
 
 Nothing is written into the live root. The delivered set is staged into a sibling directory, verified there, and swapped in by rename, so a failure part-way through leaves the root exactly as it was. A root that does not exist is a first install, and so is a root that is a symbolic link to a path that does not exist; a call that writes replaces that link with a real directory. The row refuses such a link as its configured `root` at load, as [Mount and configure](#mount-and-configure) states, so a root reaches this case when it is handed to `syncPackRoot` directly or when its link target is removed after the row loads. A root that cannot be read for any other reason rejects the call with that error before anything is staged: what it holds is unknown, and replacing it as an empty root would retire every pack in it.
 
@@ -219,7 +219,7 @@ The component-catalog judgement is a parameter rather than an import. `syncPackR
 <a id="installing-from-a-packed-file"></a>
 ## Installing from a packed file
 
-A delivery console hands a deployment one file, and the deployment installs it with one action. `buildPackArchive(source, set)` writes that file from a source directory or from the packs themselves, and `syncPackRoot(root, { kind: 'archive', name, bytes, limits })` installs it.
+A delivery console hands a deployment one file, and the deployment installs it with one action. `buildPackArchive(source, set)` writes that file from a source directory or from the packs themselves, and a deployment installs it once it is copied into [the delivery directory](#the-directory-a-delivery-arrives-in).
 
 An archive is a ZIP named `*.dshpack`. It carries `pack-delivery.json` at its root and every pack file under `packs/<pack>/`, and the manifest is what it is read by.
 
