@@ -1,10 +1,11 @@
 /**
  * Host-level relocation of a stored Session over real JSONL persistence, the
- * Workspace registry, and the Workspace controller: a Session no Agent owns
- * moves to another Workspace and continues there; a Session whose history
- * was followed owns a live Agent and refuses the move; a listener that throws
- * ahead of the registry does not keep the move from it; a move whose event
- * the registry never received is repaired at the next start.
+ * working directory, the Workspace registry, and the Workspace controller: a
+ * Session no Agent owns moves to another Workspace and continues there, and
+ * the model sees the moved directory its log records; a Session whose
+ * history was followed owns a live Agent and refuses the move; a listener
+ * that throws ahead of the registry does not keep the move from it; a move
+ * whose event the registry never received is repaired at the next start.
  */
 
 import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises'
@@ -16,7 +17,7 @@ import WorkspaceController from '@deepseek-ai/dsh-api-workspace-controller'
 import type { WorkspaceFollowFrame } from '@deepseek-ai/dsh-api-workspace-controller/types'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import { SessionAlreadyOwnedError } from '@deepseek-ai/dsh-session-persistence'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { sessionDir, toHeaderLine } from '@deepseek-ai/dsh-session-persistence-jsonl/src/format.ts'
@@ -37,7 +38,6 @@ import type { SessionRequestId } from '../src/types.ts'
 import { createSessionTestRemote } from './test-remote.ts'
 
 const SESSION = SessionId('session-relocated')
-const PROMPT = { personaPrefix: 'Working directory: {{cwd}}' }
 
 const roots: string[] = []
 const contexts: Context[] = []
@@ -50,7 +50,7 @@ afterEach(async () => {
 /** Store one finished conversation at `cwd` in a process that exits before the Host starts. */
 async function storeConversation(sessions: string, cwd: string): Promise<void> {
   const ctx = new Context()
-  await mountAgentLoopTestDependencies(ctx, { systemPrompt: PROMPT })
+  await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
   await ctx.plugin(JsonlSessionPersistence, { root: sessions })
   const harness = await mountAgentLoopTestHarness(ctx)
   ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('first reply')]))
@@ -81,7 +81,7 @@ async function layout() {
 async function startHost(root: string, sessions: string, before?: (ctx: Context) => void) {
   const ctx = new Context()
   contexts.push(ctx)
-  await mountAgentLoopTestDependencies(ctx, { systemPrompt: PROMPT })
+  await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
   await ctx.plugin(JsonlSessionPersistence, { root: sessions })
   await ctx.plugin(Storage)
   await ctx.plugin({ name: storageJsonName, inject: storageJsonInject, apply: storageJsonApply, Config: storageJsonConfig }, { root: join(root, 'storage') })
@@ -109,6 +109,24 @@ async function host() {
 async function stop(ctx: Context): Promise<void> {
   contexts.splice(contexts.indexOf(ctx), 1)
   await ctx.fiber.dispose()
+}
+
+/** The working directory the stored log of the Session folds to. */
+async function loggedDirectory(ctx: Context): Promise<string | null | undefined> {
+  await ctx.sessionPersistence.flush()
+  const handle = await ctx.sessionPersistence.open(SESSION, 'read')
+  try {
+    const { events } = await handle.read()
+    return ctx.sessionProjections.restore({}, events, SessionLogOffset(0), handle.header, handle.inheritedEventCount)
+      .snapshot.values.workingDirectory
+  } finally {
+    await handle.close()
+  }
+}
+
+/** Whether the last model request carries `text` in any message or context part. */
+function requested(adapter: MockAdapter, text: string): boolean {
+  return JSON.stringify(adapter.requests.at(-1)).includes(JSON.stringify(text).slice(1, -1))
 }
 
 async function nextFrame(iterator: AsyncIterator<WorkspaceFollowFrame>): Promise<WorkspaceFollowFrame> {
@@ -143,11 +161,9 @@ describe('Session relocation in a composed Host', () => {
     })
     follow.abort()
 
-    // Adopting an existing id compares the stored cwd with the requested one exactly.
+    // Naming the moved id with its old directory conflicts: the stored cwd changed.
     await expect(sessionRemote.create({ sessionId: SESSION, cwd: origin }))
       .resolves.toMatchObject({ ok: false, error: { code: 'session/conflict' } })
-    await expect(sessionRemote.create({ sessionId: SESSION, workspaceId: target.workspaceId }))
-      .resolves.toEqual({ ok: true, value: { sessionId: SESSION } })
     await expect(sessionRemote.prompt({
       requestId: 'relocated-prompt' as SessionRequestId,
       sessionId: SESSION,
@@ -156,10 +172,10 @@ describe('Session relocation in a composed Host', () => {
     })).resolves.toEqual({ ok: true, value: { accepted: true } })
     await ctx.agents.get(SESSION)!.whenIdle()
 
-    const request = JSON.stringify(adapter.requests.at(-1)?.messages)
-    expect(request).toContain(`Working directory: ${target.path}`)
-    expect(request).toContain('first prompt')
-    expect(request).toContain('after the move')
+    expect(requested(adapter, `Current working directory: ${JSON.stringify(target.path)}.`)).toBe(true)
+    expect(requested(adapter, 'first prompt')).toBe(true)
+    expect(requested(adapter, 'after the move')).toBe(true)
+    expect(await loggedDirectory(ctx)).toBe(target.path)
   })
 
   it('refuses to move a Session whose followed history resumed its Agent', async () => {
@@ -269,8 +285,8 @@ describe('Session relocation whose event the Workspace registry missed', () => {
     expect(listed.value.items).toEqual([expect.objectContaining({ sessionId: SESSION, cwd: target.path })])
     expect(second.ctx.workspaceRegistry.list().map(workspace => [workspace.path, workspace.sessionIds]))
       .toEqual([[destination, []], [origin, []]])
-    await expect(second.sessionRemote.create({ sessionId: SESSION, workspaceId: target.workspaceId }))
-      .resolves.toEqual({ ok: true, value: { sessionId: SESSION } })
+    // The caller that moved the Session attaches it to the target Workspace.
+    await second.ctx.workspaceRegistry.get(target.workspaceId)!.attachSession(SESSION)
     await stop(second.ctx)
 
     const third = await startHost(root, sessions)
