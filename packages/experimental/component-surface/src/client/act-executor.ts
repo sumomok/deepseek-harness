@@ -188,8 +188,8 @@ async function fillSelect(run: StepRun, select: Element, trigger: Element, name:
 /**
  * Fill one element-ui suggestion field by choosing a suggestion, which alone
  * carries the block's record of the value. A refusal puts back the text the
- * field held, unless the entry is no longer in front, in which case the field
- * is left alone.
+ * field held and closes the panel, unless the entry is no longer in front, in
+ * which case the field is left alone.
  * @param run - the call the step belongs to.
  * @param autocomplete - the autocomplete the field's control belongs to.
  * @param trigger - the control the field was found by.
@@ -203,7 +203,7 @@ async function fillAutocomplete(run: StepRun, autocomplete: Element, trigger: El
   try {
     await chooseSuggestion(run, autocomplete, trigger, name, value)
   } catch (refusal) {
-    if (displacedReason(run) === undefined && trigger.value !== before) writeValue(trigger, name, before)
+    if (displacedReason(run) === undefined) await putBack(run, autocomplete, trigger, name, before)
     throw refusal
   }
 }
@@ -262,6 +262,43 @@ async function chooseSuggestion(
   // The component empties the panel on the choice itself.
   const taken = await settles(run, () => autocompleteOptions(autocomplete, within).length === 0, SELECT_SETTLE_MS)
   if (!taken) throw new Error(optionNotTakenReason(name, value))
+}
+
+/**
+ * Leave a suggestion field holding the text a refused step found, with the
+ * panel closed.
+ *
+ * Writing non-empty text back starts a query, and the vendored kit opens the
+ * panel on every answer, so an answer that starts within the settle window is
+ * waited for, within the call's time, before closing. The panel is closed with
+ * a Tab keydown, which element-ui closes it on without changing the value or
+ * querying; a blur would let the kit clear a value it holds no record for.
+ * @param run - the call the step belongs to.
+ * @param autocomplete - the autocomplete the field's control belongs to.
+ * @param trigger - the field's control.
+ * @param name - the column or property the step named.
+ * @param before - what the field held before the step.
+ */
+async function putBack(
+  run: StepRun,
+  autocomplete: Element,
+  trigger: HTMLInputElement | HTMLTextAreaElement,
+  name: string,
+  before: string,
+): Promise<void> {
+  if (trigger.value !== before) {
+    writeValue(trigger, name, before)
+    if (before !== '') {
+      const asking = (): boolean => autocompleteAsking(autocomplete, run.entry.container)
+      try {
+        if (await settles(run, asking, SELECT_SETTLE_MS)) await settles(run, () => !asking(), Number.POSITIVE_INFINITY)
+      } catch (_stoppedWaiting) {
+        // Out of time or entry gone: the panel is closed anyway, and the
+        // rethrown refusal says why the step stopped.
+      }
+    }
+  }
+  trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }))
 }
 
 /**

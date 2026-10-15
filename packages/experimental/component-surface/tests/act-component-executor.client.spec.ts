@@ -648,7 +648,9 @@ describe('a field the entry draws as a select', () => {
  *   its panel only once the field was focused, which is element-ui's own rule
  *   for a block that does not open the panel itself. `answer` makes the block
  *   ask and then never answer, or answer with no suggestion, which closes the
- *   panel the way element-ui does.
+ *   panel the way element-ui does. `opensOnAnswer` opens the panel when a late
+ *   answer lands whether or not it was closed, as the vendored kit does. The
+ *   Tab key closes the panel, as element-ui does.
  * @returns the drawn entry, and the autocomplete with the parts a case asserts on.
  */
 function drawAutocomplete(
@@ -657,6 +659,7 @@ function drawAutocomplete(
     readonly ignores?: boolean
     readonly loading?: boolean
     readonly opensOnFocus?: boolean
+    readonly opensOnAnswer?: boolean
     readonly answer?: 'never' | 'none'
   } = {},
 ): { drawn: DrawnEntry; autocomplete: HTMLElement; input: HTMLInputElement; panel: HTMLElement; list: HTMLElement } {
@@ -678,6 +681,11 @@ function drawAutocomplete(
   panel.style.display = 'none'
   let activated = behavior.opensOnFocus !== true
   input.addEventListener('focus', () => { activated = true })
+  input.addEventListener('keydown', (event) => {
+    if (event.key !== 'Tab') return
+    activated = false
+    panel.style.display = 'none'
+  })
   input.addEventListener('input', () => {
     // element-ui drops the suggestions with an emptied field and shows the
     // block's answer over a typed one; this fixture's block answers every
@@ -696,7 +704,13 @@ function drawAutocomplete(
         panel.style.display = 'none'
       }, 20)
     } else if (behavior.loading === true) {
-      setTimeout(() => { list.innerHTML = items }, 20)
+      setTimeout(() => {
+        list.innerHTML = items
+        if (behavior.opensOnAnswer === true) {
+          activated = true
+          panel.style.display = ''
+        }
+      }, 20)
     }
   })
   // The suggestions are re-rendered per query, so the choice is heard where
@@ -769,10 +783,10 @@ describe('a field the entry draws as an autocomplete', () => {
     expect(input.value).toBe('')
   })
 
-  it('puts back what the field held before the step typed, and tells the block it did', async () => {
+  it('puts back what the field held before the step typed, tells the block it did, and closes the panel', async () => {
     // A field that already holds a choice — a related record the person picked
     // — keeps it through a refusal: the step's own typing is what is undone.
-    const { drawn, input } = drawAutocomplete(['核心'])
+    const { drawn, input, panel } = drawAutocomplete(['核心'])
     input.value = '林地一张图'
     const heard: string[] = []
     input.addEventListener('change', () => { heard.push(input.value) })
@@ -780,16 +794,42 @@ describe('a field the entry draws as an autocomplete', () => {
     expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
     expect(input.value).toBe('林地一张图')
     expect(heard).toEqual(['', '接入', '林地一张图'])
+    expect(panel.style.display).toBe('none')
   })
 
-  it('writes nothing back where the step left the field holding what it held', async () => {
-    const { drawn, input } = drawAutocomplete(['核心'])
+  it('waits for the block to answer the text it put back before closing a panel the answer opens', async () => {
+    // The vendored kit opens the panel on every answer, closed or not, so a
+    // panel closed before the block answered the restored text would open
+    // again under a refusal.
+    const { drawn, input, panel } = drawAutocomplete(['核心'], { loading: true, opensOnAnswer: true })
+    input.value = '林地一张图'
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)
+    expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
+    await new Promise<void>((resolve) => { setTimeout(resolve, 60) })
+    expect(input.value).toBe('林地一张图')
+    expect(panel.style.display).toBe('none')
+  })
+
+  it('puts the text back and closes the panel even when the call\'s time runs out while the block answers', async () => {
+    const { drawn, input, panel } = drawAutocomplete(['接入'], { answer: 'never' })
+    input.value = '林地一张图'
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn, 150)
+    expect(report.steps).toEqual([
+      { index: 1, status: 'failed', message: 'The console\'s time for this call ran out before this step finished.' },
+    ])
+    expect(input.value).toBe('林地一张图')
+    expect(panel.style.display).toBe('none')
+  })
+
+  it('writes nothing back where the step left the field holding what it held, and closes the panel', async () => {
+    const { drawn, input, panel } = drawAutocomplete(['核心'])
     input.value = '接入'
     const heard: string[] = []
     input.addEventListener('change', () => { heard.push(input.value) })
     const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)
     expect(report.status).toBe('failed')
     expect(heard).toEqual(['', '接入'])
+    expect(panel.style.display).toBe('none')
   })
 
   it('fails where the column switched to another entry while the block answered, and leaves the field alone', async () => {
