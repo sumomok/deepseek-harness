@@ -12,13 +12,13 @@
  */
 
 import { missingTargetReason } from './act-component-text.ts'
-
-export { BAD_ENTRY_REFUSAL } from './act-component-text.ts'
 import {
   MAX_READING_CHARS, MAX_READING_LINES, MAX_READING_TEXT_CHARS,
   type ComponentControlKeys, type ComponentReadControl, type ComponentReadDialog, type ComponentReadField, type ComponentReadRow,
   type ComponentReadRows, type ComponentReading, type ComponentReadScope, type ComponentTargetState,
 } from './read-component-call.ts'
+
+export { BAD_ENTRY_REFUSAL } from './act-component-text.ts'
 
 /** The tool's description: what it reads, how a call addresses it, and what comes back. */
 export const READ_COMPONENT_DESCRIPTION = [

@@ -707,6 +707,9 @@ function drawAutocomplete(
   } = {},
 ): { drawn: DrawnEntry; autocomplete: HTMLElement; elInput: HTMLElement; input: HTMLInputElement; panel: HTMLElement; list: HTMLElement } {
   const items = options.map(label => `<li role="option">${label}</li>`).join('')
+  // The newlines give the mutation text nodes besides the row, which is what
+  // exercises the branch `addedAskingRow` answers for a node that is not an
+  // Element.
   const askingRow = '\n<li><i class="el-icon-loading"></i></li>\n'
   const drawn = drawEntry(`
     <div class="el-autocomplete">
