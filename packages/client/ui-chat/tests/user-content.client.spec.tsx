@@ -98,7 +98,7 @@ async function bench() {
   const session = runtime.sessions.retainFor(runtime.ctx, SessionId('user-content'))
   const captured: { seats?: RenderSeats; setContent?: (content: ReactNode) => void } = {}
   await runtime.root.declare({
-    'conversation.approval.detail': { kind: 'single', scope: 'session' },
+    'conversation.approval.detail': { kind: 'keyed', scope: 'session' },
   }, function TestRoot(props) {
     const [content, setContent] = useState<ReactNode>(null)
     captured.seats = props
