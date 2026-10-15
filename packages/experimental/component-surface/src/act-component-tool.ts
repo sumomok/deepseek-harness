@@ -130,8 +130,8 @@ export function actComponentTool(calls: CallTable, timeouts: CallTimeouts): Tool
       // in `content-frame`: both answer "which step ran, which one stopped the
       // call", with each domain's own step vocabulary and bounds. The two
       // cannot share a declaration for the reason the folds cannot — a value
-      // import across these packages is refused for the client bundle and
-      // inlines a second copy of the channel in the host one.
+      // import across these packages is refused for the client bundle, and
+      // this package takes types only from `content-frame`.
       /* jscpd:ignore-start */
       schema: {
         type: 'object',

@@ -48,10 +48,10 @@ const UNREADABLE_ARGS = 'not a set of arguments this tool takes'
  * deadline would be answered as a console that went quiet while the console
  * was still acting. The share is a fraction of that deadline rather than a
  * time of its own, so the deployment tunes `actTimeoutMs` and the steps follow
- * it. It is written here rather than imported from `content-frame` because
- * that package is a peer dependency and the host bundle inlines anything that
- * is not a production dependency, which would ship a second copy of the
- * channel's wire layer inside this package's artifact.
+ * it. The number is declared here rather than imported from `content-frame`,
+ * from which this package takes types only;
+ * [the content channel note](../../../../.agents/notes/implemented/architecture/2026-10-09-content-channel-seam-and-duplication.md)
+ * records that choice.
  */
 const ACT_RUN_SHARE = 0.75
 
