@@ -122,8 +122,8 @@ function chooseOption(select: HTMLSelectElement, name: string, label: string): v
   const option = matches[0]
   if (option === undefined) throw new Error(noOptionReason(name, label))
   // A disabled option is one a person cannot choose either, whatever the
-  // select's own state.
-  if (option.disabled) throw new Error(disabledOptionReason(name, label))
+  // select's own state; an option inside a disabled group is disabled too.
+  if (option.matches(':disabled')) throw new Error(disabledOptionReason(name, label))
   option.selected = true
   announce(select)
 }
