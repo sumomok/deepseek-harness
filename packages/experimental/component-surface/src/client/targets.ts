@@ -329,20 +329,6 @@ export function askingRowPresent(autocomplete: Element): boolean {
 }
 
 /**
- * Whether one autocomplete draws its loading row. element-ui draws it from the
- * moment a query leaves until the answer lands, and an empty answer closes the
- * panel without drawing a suggestion, so the row going with nothing behind it
- * is the only sign of an empty answer.
- * @param autocomplete - the autocomplete element.
- * @param within - the entry's own container, past which nothing is asked.
- * @returns whether the asking row is drawn.
- */
-export function autocompleteAsking(autocomplete: Element, within: Element): boolean {
-  return [...autocomplete.querySelectorAll(AUTOCOMPLETE_OPTION)]
-    .some(option => isDrawn(option, within) && option.querySelector(LOADING_ICON) !== null)
-}
-
-/**
  * Whether one node a mutation added is an autocomplete's asking row, or holds
  * one. Read off the node itself rather than by where it stands, because the
  * mutation an observer hands over may carry a row the block already took away,

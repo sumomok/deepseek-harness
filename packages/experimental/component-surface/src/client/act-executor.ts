@@ -33,9 +33,9 @@ import {
 } from '../act-component-text.ts'
 import type { DrawnEntry } from './entry-container.ts'
 import {
-  addedAskingRow, askingRowPresent, autocompleteAsking, autocompleteOf, autocompleteOptions, clickTarget, FIELD_KEY,
-  isCovered, isDisabled, isDrawn, marked, namedControls, openDialog, optionLabel, scopeOf, selectOf, selectOptions,
-  selectShows, undrawnTarget, withAttribute,
+  addedAskingRow, askingRowPresent, autocompleteOf, autocompleteOptions, clickTarget, FIELD_KEY, isCovered, isDisabled,
+  isDrawn, marked, namedControls, openDialog, optionLabel, scopeOf, selectOf, selectOptions, selectShows, undrawnTarget,
+  withAttribute,
 } from './targets.ts'
 
 /** How often a wait looks again. */
@@ -307,10 +307,14 @@ async function chooseSuggestion(
  * panel closed.
  *
  * Writing non-empty text back starts a query, and the vendored kit opens the
- * panel on every answer, so an answer that starts within the settle window is
+ * panel on every answer, so the row the block draws while that query is out is
  * waited for, within the call's time, before closing. The panel is closed with
- * a Tab keydown, which element-ui closes it on without changing the value or
- * querying; a blur would let the kit clear a value it holds no record for.
+ * a Tab keydown sent to the `.el-input` element-ui hears it on, and not
+ * bubbled: a listener outside the field still sees it in the capture phase,
+ * which is how the console switches to its keyboard-operation styling, and a
+ * query the restored text never answers keeps the report here until the call's
+ * deadline. A blur would let the kit clear a value it holds no record for, and
+ * an entry no longer in front is sent no key at all.
  * @param run - the call the step belongs to.
  * @param autocomplete - the autocomplete the field's control belongs to.
  * @param trigger - the field's control.
@@ -325,18 +329,31 @@ async function putBack(
   before: string,
 ): Promise<void> {
   if (trigger.value !== before) {
-    writeValue(trigger, name, before)
-    if (before !== '') {
-      const asking = (): boolean => autocompleteAsking(autocomplete, run.entry.container)
-      try {
-        if (await settles(run, asking, SELECT_SETTLE_MS)) await settles(run, () => !asking(), Number.POSITIVE_INFINITY)
-      } catch (_stoppedWaiting) {
-        // Out of time or entry gone: the panel is closed anyway, and the
-        // rethrown refusal says why the step stopped.
+    // The row is recorded from before the write, because the query may answer
+    // between the write and the first look.
+    const asking = watchAsking(autocomplete)
+    try {
+      writeValue(trigger, name, before)
+      if (before !== '') {
+        try {
+          if (await settles(run, () => asking.seen() || askingRowPresent(autocomplete), SELECT_SETTLE_MS)) {
+            await settles(run, () => !askingRowPresent(autocomplete), Number.POSITIVE_INFINITY)
+          }
+        } catch (_stoppedWaiting) {
+          // Out of time or entry gone: the panel is closed anyway, and the
+          // rethrown refusal says why the step stopped.
+        }
       }
+    } finally {
+      asking.stop()
     }
   }
-  trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }))
+  // Another entry may draw in the element this one held, and a key sent into
+  // it would close whatever panel that entry has open.
+  if (displacedReason(run) !== undefined) return
+  const field = trigger.closest('.el-input')
+  if (field === null) return
+  field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: false }))
 }
 
 /**

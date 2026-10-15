@@ -671,7 +671,8 @@ describe('a field the entry draws as a select', () => {
  *   query already out, as a field whose earlier text left one on the wire: its
  *   row is drawn from the start and answers with no suggestion that long
  *   after, element-ui keeping one loading flag that a cleared field does not
- *   reset. The Tab key closes the panel, as element-ui does.
+ *   reset. The Tab key closes the panel from the `.el-input` root, as
+ *   element-ui's own markup does.
  * @returns the drawn entry, and the autocomplete with the parts a case asserts on.
  */
 function drawAutocomplete(
@@ -686,12 +687,14 @@ function drawAutocomplete(
     readonly askingMs?: number
     readonly inFlightMs?: number
   } = {},
-): { drawn: DrawnEntry; autocomplete: HTMLElement; input: HTMLInputElement; panel: HTMLElement; list: HTMLElement } {
+): { drawn: DrawnEntry; autocomplete: HTMLElement; elInput: HTMLElement; input: HTMLInputElement; panel: HTMLElement; list: HTMLElement } {
   const items = options.map(label => `<li role="option">${label}</li>`).join('')
   const askingRow = '\n<li><i class="el-icon-loading"></i></li>\n'
   const drawn = drawEntry(`
     <div class="el-autocomplete">
-      <input class="el-input__inner" data-component-field="topic">
+      <div class="el-input">
+        <input class="el-input__inner" data-component-field="topic">
+      </div>
       <div class="el-autocomplete-suggestion">
         <div class="el-autocomplete-suggestion__wrap">
           <ul class="el-autocomplete-suggestion__list">${items}</ul>
@@ -700,6 +703,7 @@ function drawAutocomplete(
     </div>
   `)
   const autocomplete = drawn.container.querySelector('.el-autocomplete') as HTMLElement
+  const elInput = autocomplete.querySelector('.el-input') as HTMLElement
   const input = autocomplete.querySelector('input.el-input__inner') as HTMLInputElement
   const panel = autocomplete.querySelector('.el-autocomplete-suggestion') as HTMLElement
   const list = autocomplete.querySelector('.el-autocomplete-suggestion__list') as HTMLElement
@@ -728,7 +732,8 @@ function drawAutocomplete(
     }
   }
   input.addEventListener('focus', () => { activated = true })
-  input.addEventListener('keydown', (event) => {
+  // element-ui hears the Tab on the `.el-input` root, not on the input itself.
+  elInput.addEventListener('keydown', (event) => {
     if (event.key !== 'Tab') return
     activated = false
     panel.style.display = 'none'
@@ -778,7 +783,7 @@ function drawAutocomplete(
     drawnOptions = ''
     render()
   })
-  return { drawn, autocomplete, input, panel, list }
+  return { drawn, autocomplete, elInput, input, panel, list }
 }
 
 describe('a field the entry draws as an autocomplete', () => {
@@ -908,6 +913,84 @@ describe('a field the entry draws as an autocomplete', () => {
     ])
     expect(input.value).toBe('林地一张图')
     expect(panel.style.display).toBe('none')
+  })
+
+  it('waits out the restored text\'s query whose asking row is drawn and gone between two looks', async () => {
+    // The row lives less than one look and the answer behind it opens the
+    // panel, so a close sent on the strength of the row having started would
+    // be undone by that answer.
+    const { drawn, elInput, input, panel } = drawAutocomplete(['核心'], {
+      opensOnFocus: true, loading: true, opensOnAnswer: true, askingMs: 10,
+    })
+    input.value = '林地一张图'
+    input.focus()
+    elInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: false }))
+    const tabs: string[] = []
+    elInput.addEventListener('keydown', (event) => { tabs.push(event.key) })
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)
+    expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
+    await new Promise<void>((resolve) => { setTimeout(resolve, 40) })
+    expect(tabs).toEqual(['Tab'])
+    expect(panel.style.display).toBe('none')
+  })
+
+  it('closes the panel with a Tab the field\'s own root hears and no bubbling listener does', async () => {
+    // element-ui hears the key on the `.el-input` root; a listener outside the
+    // field sees it only in the capture phase, which is what leaves the
+    // console's own keyboard-operation styling with the key.
+    const { drawn, elInput, input, panel } = drawAutocomplete(['核心'], { loading: true })
+    input.value = '林地一张图'
+    const heard: string[] = []
+    elInput.addEventListener('keydown', (event) => { heard.push(event.key) })
+    const bubbled: string[] = []
+    const listen = (event: KeyboardEvent): void => { bubbled.push(event.key) }
+    window.addEventListener('keydown', listen)
+    try {
+      const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)
+      expect(report.status).toBe('failed')
+    } finally {
+      window.removeEventListener('keydown', listen)
+    }
+    expect(heard).toEqual(['Tab'])
+    expect(bubbled).toEqual([])
+    expect(panel.style.display).toBe('none')
+  })
+
+  it('sends no Tab where the entry left the front while the restored text was answered', async () => {
+    // Another entry may draw in the element this one held, and the key would
+    // close whatever panel that entry has open.
+    const { drawn, elInput, input } = drawAutocomplete(['核心'], { loading: true })
+    input.value = '林地一张图'
+    const heard: string[] = []
+    elInput.addEventListener('keydown', (event) => { heard.push(event.key) })
+    input.addEventListener('input', () => {
+      if (input.value !== '林地一张图') return
+      document.querySelector('[data-content-surface-selected]')?.setAttribute('data-content-surface-entry', 'component other')
+    })
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)
+    expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
+    expect(heard).toEqual([])
+  })
+
+  it('sends no key where a suggestion field is drawn without an element-ui input root', async () => {
+    // A block may draw its own suggestion markup. The value is still put back,
+    // and element-ui hears nothing: there is no root of its own to close on.
+    const drawn = drawEntry(`
+      <div class="el-autocomplete">
+        <input class="el-input__inner" data-component-field="topic">
+        <div class="el-autocomplete-suggestion"><div class="el-autocomplete-suggestion__wrap">
+          <ul class="el-autocomplete-suggestion__list"><li role="option">核心</li></ul>
+        </div></div>
+      </div>
+    `)
+    const input = drawn.container.querySelector('input') as HTMLInputElement
+    input.value = '林地一张图'
+    const heard: string[] = []
+    input.addEventListener('keydown', (event) => { heard.push(event.key) })
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)
+    expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
+    expect(input.value).toBe('林地一张图')
+    expect(heard).toEqual([])
   })
 
   it('writes nothing back where the step left the field holding what it held, and closes the panel', async () => {
