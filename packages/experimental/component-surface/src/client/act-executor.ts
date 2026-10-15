@@ -42,10 +42,11 @@ import {
 const WAIT_POLL_MS = 50
 
 /**
- * How long a select's list, the value it shows, an autocomplete's panel, and
- * the start of an autocomplete's query may take after the step's own gesture.
- * Each is the component's own re-render or debounce rather than a network
- * answer, so this bounds a Vue turn and not a request.
+ * How long a select's list, the value it shows, an autocomplete's panel, the
+ * start of an autocomplete's query, and a query the field's earlier text left
+ * out may take. The first four are the component's own re-render or debounce
+ * rather than a network answer, so this bounds a Vue turn and not a request;
+ * the fifth is an answer this step gives up on rather than waits for.
  */
 const SELECT_SETTLE_MS = 1000
 
@@ -261,6 +262,12 @@ function answered(seenAsking: () => boolean, autocomplete: Element, within: Elem
  * no focus — clear it so the suggestions that come answer this step's own
  * typing, type the value, choose the one drawn suggestion whose label is the
  * value, and be done once the panel closed on the choice.
+ *
+ * A query the field's earlier text started is waited out before the value is
+ * typed, up to the settle ceiling: an answer back inside it lands while the
+ * field is empty and is not read as this step's. A query that never calls back
+ * leaves the asking row standing past the ceiling, and the step types anyway,
+ * its own query's answer being what clears the row.
  * @param run - the call the step belongs to.
  * @param autocomplete - the autocomplete the field's control belongs to.
  * @param trigger - the field's control.
@@ -281,8 +288,12 @@ async function chooseSuggestion(
   await settles(run, () => autocompleteOptions(autocomplete, within).length === 0, SELECT_SETTLE_MS)
   // A query the field's earlier text started may still be out, and its answer
   // would land as this step's own. The field is empty by now, so waiting for
-  // the row to go lets that answer pass with nothing to read.
-  await settles(run, () => !askingRowPresent(autocomplete), Number.POSITIVE_INFINITY)
+  // the row to go lets an answer that is back within the ceiling pass with
+  // nothing to read. A query the block never answers keeps the row standing —
+  // element-ui's one loading flag is cleared by whatever answer comes next —
+  // so the step types its own value past the ceiling and lets that answer
+  // clear the row.
+  await settles(run, () => !askingRowPresent(autocomplete), SELECT_SETTLE_MS)
   const asking = watchAsking(autocomplete)
   try {
     writeValue(trigger, name, value)

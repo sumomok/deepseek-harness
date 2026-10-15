@@ -689,8 +689,9 @@ describe('a field the entry draws as a select', () => {
  *   query already out, as a field whose earlier text left one on the wire: its
  *   row is drawn from the start and answers with no suggestion that long
  *   after, element-ui keeping one loading flag that a cleared field does not
- *   reset. The Tab key closes the panel from the `.el-input` root, as
- *   element-ui's own markup does.
+ *   reset; `'never'` leaves that query unanswered for the whole case, as a
+ *   request the transport rejected does. The Tab key closes the panel from the
+ *   `.el-input` root, as element-ui's own markup does.
  * @returns the drawn entry, and the autocomplete with the parts a case asserts on.
  */
 function drawAutocomplete(
@@ -703,7 +704,7 @@ function drawAutocomplete(
     readonly answer?: 'never' | 'none'
     readonly queryDelayMs?: number
     readonly askingMs?: number
-    readonly inFlightMs?: number
+    readonly inFlightMs?: number | 'never'
   } = {},
 ): { drawn: DrawnEntry; autocomplete: HTMLElement; elInput: HTMLElement; input: HTMLInputElement; panel: HTMLElement; list: HTMLElement } {
   const items = options.map(label => `<li role="option">${label}</li>`).join('')
@@ -761,7 +762,7 @@ function drawAutocomplete(
   })
   if (behavior.inFlightMs !== undefined) {
     render()
-    setTimeout(() => { answer('') }, behavior.inFlightMs)
+    if (typeof behavior.inFlightMs === 'number') setTimeout(() => { answer('') }, behavior.inFlightMs)
   }
   input.addEventListener('input', () => {
     // element-ui drops the suggestions with an emptied field and shows the
@@ -781,6 +782,9 @@ function drawAutocomplete(
         loading = true
         render()
       } else {
+        // An answer clears element-ui's one loading flag even where an earlier
+        // query left it set, which is what brings the suggestions back.
+        loading = false
         drawnOptions = items
         render()
       }
@@ -886,6 +890,23 @@ describe('a field the entry draws as an autocomplete', () => {
     const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn, 2000)
     expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
     expect(input.value).toBe('')
+  })
+
+  it('types its own value where a query already out never calls back, rather than waiting out the call', { timeout: 20_000 }, async () => {
+    // The regression this pins: a query that never answers leaves element-ui's
+    // loading flag set and its asking row standing, so a wait for that row to
+    // go would run to the call's deadline and every later `set` on the field
+    // would report the time-out sentence until somebody typed in it. The step
+    // waits no longer than the component's own re-render bound and types, and
+    // its own answer clears the row.
+    const { drawn, input } = drawAutocomplete(['接入'], { inFlightMs: 'never' })
+    const started = performance.now()
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn, 4000)
+    expect(report.steps).toEqual([{ index: 1, status: 'ok' }])
+    expect(input.value).toBe('接入')
+    // Well before the budget's end: the step waited out the bound, not the
+    // call.
+    expect(performance.now() - started).toBeLessThan(3000)
   })
 
   it('says the call ran out of time, not that there is no option, while the block is still asking', async () => {
