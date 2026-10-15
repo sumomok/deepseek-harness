@@ -139,6 +139,15 @@ export function anotherEntryInFront(inFront: string): string {
 export const ENTRY_REDRAWN_REASON = 'The entry was redrawn while this call was running.'
 
 /**
+ * The sentence a console posts for the step its time for the call ran out on:
+ * one that would have started past it, or one whose wait it cut short. Its own
+ * sentence rather than the one the step's wait ends with by itself, because
+ * what stopped the step is the call's deadline and not the block — a
+ * suggestion list still loading is not a field with no such option.
+ */
+export const OUT_OF_TIME_REASON = 'The console\'s time for this call ran out before this step finished.'
+
+/**
  * The sentence a console posts for a control it may not press.
  * @param key - the action key the step named.
  * @returns the model-facing sentence.

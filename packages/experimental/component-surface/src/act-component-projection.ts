@@ -17,6 +17,11 @@
  * its tool names and their arguments — and the two domains share the channel
  * rather than their calls. What they do share is the fold and the check, which
  * live in the channel module.
+ *
+ * The view also carries how long a claimed set of steps may run, because the
+ * seat receives no configuration of this row's: the host's report deadline is
+ * a deployment's choice, and the seat must stop acting before the host stops
+ * waiting.
  * @module @deepseek-ai/dsh-experimental-component-surface/act-component-projection
  */
 
@@ -42,6 +47,18 @@ const UNIT_NAME = 'componentAccess'
 
 /** The issue a value carries when the shared parser could not read it. */
 const UNREADABLE_ARGS = 'not a set of arguments this tool takes'
+
+/**
+ * The share of a claimed call's report deadline its steps may spend.
+ *
+ * The host's deadline starts when it grants the claim, and the seat's run
+ * starts once the grant has come back to it; steps that spent the whole
+ * deadline would be answered as a console that went quiet while the console
+ * was still acting. The same share the page domain's steps get
+ * (`ACT_RUN_SHARE` in content-frame's `access/wire.ts`), written here because
+ * this module may carry no other plugin's values.
+ */
+const ACT_RUN_SHARE = 0.75
 
 /**
  * The schema form of one tool's shared parser: the value becomes the
@@ -84,7 +101,10 @@ const callSchema: ZodType<ComponentCall> = zod.union([
 const stateSchema: ZodType<ComponentCall[]> = zod.array(callSchema)
 
 /** Wire payload schema of the `componentAccess` projection. */
-const viewSchema: ZodType<ComponentView> = zod.object({ pending: zod.array(callSchema) }).strict()
+const viewSchema: ZodType<ComponentView> = zod.object({
+  pending: zod.array(callSchema),
+  stepBudgetMs: zod.number().int().nonnegative(),
+}).strict()
 
 /** The unit as the registry's client-visible overload takes it: `wire` is required, not optional. */
 type ActComponentProjectionDefinition =
@@ -124,12 +144,13 @@ function foldPending(state: ComponentCall[], event: SessionEvent): ComponentCall
  * call whose arguments are fine. Checking here turns the same defect into one
  * sentence the model can act on and one log line carrying the issues.
  * @param pending - the calls this fold holds open.
+ * @param stepBudgetMs - how long a claimed set of steps may run.
  * @param logger - where the refused value's issues are recorded.
  * @returns the wire value.
  * @throws {Error} when the value is not one this schema takes.
  */
-function publishable(pending: readonly ComponentCall[], logger: ProjectionLogger): ComponentView {
-  const value = { pending: [...pending] }
+function publishable(pending: readonly ComponentCall[], stepBudgetMs: number, logger: ProjectionLogger): ComponentView {
+  const value = { pending: [...pending], stepBudgetMs }
   const read = viewSchema.safeParse(value)
   if (read.success) return value
   logger.warn(`${UNIT_NAME} refused its own view: ${JSON.stringify(read.error.issues)}`)
@@ -143,15 +164,18 @@ function publishable(pending: readonly ComponentCall[], logger: ProjectionLogger
  * deployment offers decides what a call may draw and what an action means, while
  * the projection carries the call to the browser that will act on it or read it.
  * @param logger - where a value this unit folded and then refused is recorded.
+ * @param answerTimeoutMs - how long the host waits for a claimed call's
+ * report, of which the view publishes the share a set of steps may run for.
  * @returns the definition to hand to `ctx.sessionProjections.register`.
  */
-export function actComponentProjection(logger: ProjectionLogger): ActComponentProjectionDefinition {
+export function actComponentProjection(logger: ProjectionLogger, answerTimeoutMs: number): ActComponentProjectionDefinition {
+  const stepBudgetMs = Math.floor(answerTimeoutMs * ACT_RUN_SHARE)
   return {
     key: 'componentAccess',
     stateSchema,
     init: () => [],
     apply: foldPending,
-    wire: { viewSchema, view: pending => publishable(pending, logger) },
+    wire: { viewSchema, view: pending => publishable(pending, stepBudgetMs, logger) },
     stateVersion: 1,
   }
 }

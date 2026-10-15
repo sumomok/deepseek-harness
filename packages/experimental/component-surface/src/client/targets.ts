@@ -402,6 +402,23 @@ export function autocompleteOptions(autocomplete: Element, within: Element): Ele
 }
 
 /**
+ * Whether one autocomplete draws the row it shows while the block is still
+ * asking for its suggestions.
+ *
+ * element-ui draws that row from the moment the query leaves until the answer
+ * lands, and an answer holding no suggestion closes the panel without drawing
+ * anything: the row coming and going with no suggestion behind it is the one
+ * sign that the block answered with none.
+ * @param autocomplete - the autocomplete element.
+ * @param within - the entry's own container, past which nothing is asked.
+ * @returns whether the asking row is drawn.
+ */
+export function autocompleteAsking(autocomplete: Element, within: Element): boolean {
+  return [...autocomplete.querySelectorAll(AUTOCOMPLETE_OPTION)]
+    .some(option => isDrawn(option, within) && option.querySelector('.el-icon-loading') !== null)
+}
+
+/**
  * What one drawn element shows as its label: an option's text, or a tag's.
  * @param el - the option or tag.
  * @returns the label, trimmed.

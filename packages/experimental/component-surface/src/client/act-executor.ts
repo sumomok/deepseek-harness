@@ -32,6 +32,13 @@
  * the column replaces what it draws without telling this seat, and the steps
  * after a switch would otherwise land in whatever entry took this one's place.
  *
+ * Every wait a step makes ends at the call's deadline as well as at its own
+ * ceiling, and a step that would start past the deadline does not start: the
+ * host stops waiting for the report at a deadline of its own, and a console
+ * still acting after it would be changing the user's screen for a call already
+ * answered. The step the deadline stops fails with the sentence saying so, and
+ * the steps behind it are not run.
+ *
  * Nothing here is copied from the page domain: a component entry has no ref
  * table, no frames and no cross-origin question, and no step of this tool ever
  * reaches one.
@@ -47,13 +54,13 @@ import {
 import {
   actComponentReportText, ambiguousFieldReason, ambiguousOptionReason, anotherEntryInFront, coveredReason,
   disabledFieldReason, disabledReason, ENTRY_REDRAWN_REASON, missingTargetReason, noOptionReason,
-  NO_ENTRY_IN_FRONT, notWritableReason, notDrawnReason, optionNotTakenReason, readOnlyFieldReason,
-  waitTimeoutReason,
+  NO_ENTRY_IN_FRONT, notWritableReason, notDrawnReason, optionNotTakenReason, OUT_OF_TIME_REASON,
+  readOnlyFieldReason, waitTimeoutReason,
 } from '../act-component-text.ts'
 import type { DrawnEntry } from './entry-container.ts'
 import {
-  autocompleteOf, autocompleteOptions, clickTarget, FIELD_KEY, isCovered, isDisabled, isDrawn, marked,
-  namedControls, openDialog, optionLabel, scopeOf, selectOf, selectOptions, selectShows, undrawnTarget,
+  autocompleteAsking, autocompleteOf, autocompleteOptions, clickTarget, FIELD_KEY, isCovered, isDisabled, isDrawn,
+  marked, namedControls, openDialog, optionLabel, scopeOf, selectOf, selectOptions, selectShows, undrawnTarget,
   withAttribute,
 } from './targets.ts'
 
@@ -61,24 +68,13 @@ import {
 const WAIT_POLL_MS = 50
 
 /**
- * How long a select's list, and then the value it shows, may take to settle
- * after the step's own click.
+ * How long a select's list, the value it shows, and an autocomplete's panel
+ * may take to settle after the step's own click or clear.
  *
- * Both are the component's own re-renders rather than network answers, so this
+ * Each is the component's own re-render rather than a network answer, so this
  * is a ceiling on a Vue turn and not on a request.
  */
 const SELECT_SETTLE_MS = 1000
-
-/**
- * How long an autocomplete's suggestions may take to arrive after the step's
- * own typing.
- *
- * The suggestions are the block's answer to a query it asks the deployment's
- * own endpoint — element-ui debounces the ask and the answer crosses the
- * network — so this is a ceiling on a request and the render after it, unlike
- * {@link SELECT_SETTLE_MS}, which bounds the component's own re-renders.
- */
-const SUGGESTION_SETTLE_MS = 5000
 
 /**
  * The field one `set` step writes into.
@@ -189,17 +185,23 @@ function isReadOnly(el: Element): boolean {
 }
 
 /**
- * Wait for one condition to hold, up to a deadline.
+ * Wait for one condition to hold, up to the wait's own ceiling and never past
+ * the call's deadline.
  * @param holds - the condition, read again every turn.
- * @param timeoutMs - how long it may take to hold.
- * @returns whether it held in time.
+ * @param ceilingMs - how long this wait may take by itself.
+ * @param deadline - the moment the call's steps must be over by, as a `Date.now()` value.
+ * @returns whether it held before the ceiling.
+ * @throws {Error} with the out-of-time reason when the deadline came first,
+ * and with whatever `holds` throws.
  */
-async function settles(holds: () => boolean, timeoutMs: number): Promise<boolean> {
-  const until = Date.now() + timeoutMs
+async function settles(holds: () => boolean, ceilingMs: number, deadline: number): Promise<boolean> {
+  const until = Math.min(Date.now() + ceilingMs, deadline)
   for (;;) {
     if (holds()) return true
-    if (Date.now() >= until) return false
-    await delay(Math.min(WAIT_POLL_MS, Math.max(until - Date.now(), 1)))
+    const now = Date.now()
+    if (now >= deadline) throw new Error(OUT_OF_TIME_REASON)
+    if (now >= until) return false
+    await delay(Math.min(WAIT_POLL_MS, Math.max(until - now, 1)))
   }
 }
 
@@ -218,19 +220,27 @@ async function settles(holds: () => boolean, timeoutMs: number): Promise<boolean
  * @param trigger - the control the field was found by.
  * @param name - the column or property the step named, for the refusals.
  * @param value - the option label the step named.
+ * @param deadline - the moment the call's steps must be over by.
  * @throws {Error} with the model-facing reason when the value cannot be chosen.
  */
-async function fillSelect(entry: DrawnEntry, select: Element, trigger: Element, name: string, value: string): Promise<void> {
+async function fillSelect(
+  entry: DrawnEntry,
+  select: Element,
+  trigger: Element,
+  name: string,
+  value: string,
+  deadline: number,
+): Promise<void> {
   // A select whose list is already drawn is open — a previous step may have
   // left it so, and the toggle this would click is the one that closes it.
   if (selectOptions(select, entry.container).length === 0) clickOn(trigger)
-  await settles(() => selectOptions(select, entry.container).length > 0, SELECT_SETTLE_MS)
+  await settles(() => selectOptions(select, entry.container).length > 0, SELECT_SETTLE_MS, deadline)
   const matches = selectOptions(select, entry.container).filter(option => optionLabel(option) === value)
   if (matches.length > 1) throw new Error(ambiguousOptionReason(name, value))
   const option = matches[0]
   if (option === undefined) throw new Error(noOptionReason(name, value))
   clickOn(option)
-  const taken = await settles(() => selectShows(select).includes(value), SELECT_SETTLE_MS)
+  const taken = await settles(() => selectShows(select).includes(value), SELECT_SETTLE_MS, deadline)
   if (!taken) throw new Error(optionNotTakenReason(name, value))
 }
 
@@ -255,15 +265,23 @@ async function fillSelect(entry: DrawnEntry, select: Element, trigger: Element, 
  * @param trigger - the control the field was found by.
  * @param name - the column or property the step named, for the refusals.
  * @param value - the suggestion label the step named.
+ * @param deadline - the moment the call's steps must be over by.
  * @throws {Error} with the model-facing reason when the value cannot be chosen.
  */
-async function fillAutocomplete(entry: DrawnEntry, autocomplete: Element, trigger: Element, name: string, value: string): Promise<void> {
+async function fillAutocomplete(
+  entry: DrawnEntry,
+  autocomplete: Element,
+  trigger: Element,
+  name: string,
+  value: string,
+  deadline: number,
+): Promise<void> {
   // The field is typed into, so a control that takes no typing is one this
   // step cannot write.
   if (!(trigger instanceof HTMLInputElement || trigger instanceof HTMLTextAreaElement)) throw new Error(notWritableReason(name))
   const before = trigger.value
   try {
-    await chooseSuggestion(entry, autocomplete, trigger, name, value)
+    await chooseSuggestion(entry, autocomplete, trigger, name, value, deadline)
   } catch (refusal) {
     // Written back only where the step's typing changed it, so a field the
     // step left as it was sees no edit at all.
@@ -279,6 +297,7 @@ async function fillAutocomplete(entry: DrawnEntry, autocomplete: Element, trigge
  * @param trigger - the field's control.
  * @param name - the column or property the step named, for the refusals.
  * @param value - the suggestion label the step named.
+ * @param deadline - the moment the call's steps must be over by.
  * @throws {Error} with the model-facing reason when the value cannot be chosen.
  */
 async function chooseSuggestion(
@@ -287,6 +306,7 @@ async function chooseSuggestion(
   trigger: HTMLInputElement | HTMLTextAreaElement,
   name: string,
   value: string,
+  deadline: number,
 ): Promise<void> {
   // A person's click into the field focuses it, and element-ui draws the
   // suggestion panel only for a field it saw focused; a script's click()
@@ -295,9 +315,20 @@ async function chooseSuggestion(
   // The clear is the field's own gesture: an emptied field drops the
   // suggestions with it, so what the step matches below answers its own typing.
   writeValue(trigger, name, '')
-  await settles(() => autocompleteOptions(autocomplete, entry.container).length === 0, SELECT_SETTLE_MS)
+  await settles(() => autocompleteOptions(autocomplete, entry.container).length === 0, SELECT_SETTLE_MS, deadline)
   writeValue(trigger, name, value)
-  await settles(() => autocompleteOptions(autocomplete, entry.container).length > 0, SUGGESTION_SETTLE_MS)
+  // The suggestions are the block's answer to a query it asks over the
+  // network, so this wait has no ceiling of its own and the call's deadline
+  // bounds it. An answer holding no suggestion ends it early: the asking row
+  // came and went with nothing drawn, which is a field with no such option
+  // rather than one still asking.
+  let asked = false
+  await settles(() => {
+    if (autocompleteOptions(autocomplete, entry.container).length > 0) return true
+    const asking = autocompleteAsking(autocomplete, entry.container)
+    asked ||= asking
+    return asked && !asking
+  }, Number.POSITIVE_INFINITY, deadline)
   const matches = autocompleteOptions(autocomplete, entry.container).filter(option => optionLabel(option) === value)
   if (matches.length > 1) throw new Error(ambiguousOptionReason(name, value))
   const option = matches[0]
@@ -305,7 +336,7 @@ async function chooseSuggestion(
   clickOn(option)
   // The component empties the panel on the choice itself, so a panel still
   // holding suggestions is a click the component did not take.
-  const taken = await settles(() => autocompleteOptions(autocomplete, entry.container).length === 0, SELECT_SETTLE_MS)
+  const taken = await settles(() => autocompleteOptions(autocomplete, entry.container).length === 0, SELECT_SETTLE_MS, deadline)
   if (!taken) throw new Error(optionNotTakenReason(name, value))
 }
 
@@ -315,25 +346,26 @@ async function chooseSuggestion(
  * A text control is written the way a person typing writes it, and a select —
  * drawn or native — or a suggestion field is filled by choosing an option by
  * its label; the difference is where the component's value lives, not what
- * the step promises. What both share is
- * the refusal: a disabled or read-only control, and a value the control did not
- * take, end the step rather than report a write that never happened.
+ * the step promises. What both share is the refusal: a disabled or read-only
+ * control, and a value the control did not take, end the step rather than
+ * report a write that never happened.
  * @param entry - the drawn entry.
  * @param target - the control the field was found by.
  * @param name - the column or property the step named.
  * @param value - what to write.
+ * @param deadline - the moment the call's steps must be over by.
  * @throws {Error} with the model-facing reason when the value cannot be written.
  */
-async function setField(entry: DrawnEntry, target: Element, name: string, value: string): Promise<void> {
+async function setField(entry: DrawnEntry, target: Element, name: string, value: string, deadline: number): Promise<void> {
   if (isDisabled(target)) throw new Error(disabledFieldReason(name))
   const select = selectOf(target, entry.container)
   if (select !== undefined) {
-    await fillSelect(entry, select, target, name, value)
+    await fillSelect(entry, select, target, name, value, deadline)
     return
   }
   const autocomplete = autocompleteOf(target, entry.container)
   if (autocomplete !== undefined) {
-    await fillAutocomplete(entry, autocomplete, target, name, value)
+    await fillAutocomplete(entry, autocomplete, target, name, value, deadline)
     return
   }
   if (target instanceof HTMLSelectElement) {
@@ -360,24 +392,24 @@ function delay(ms: number): Promise<void> {
  * @param step - the wait step.
  * @param timeoutMs - how long the step may wait.
  * @param locate - how the console reads the entry in front now.
+ * @param deadline - the moment the call's steps must be over by.
  * @returns whether it was there in time.
- * @throws {Error} with the reason the entry is no longer the one in front.
+ * @throws {Error} with the reason the entry is no longer the one in front, or
+ * with the out-of-time reason when the deadline came first.
  */
 async function waitFor(
   entry: DrawnEntry,
   step: ActComponentStep & { action: 'wait' },
   timeoutMs: number,
   locate: () => DrawnEntry | undefined,
+  deadline: number,
 ): Promise<boolean> {
-  const until = Date.now() + timeoutMs
-  for (;;) {
+  return await settles(() => {
     const displaced = displacedReason(entry, locate)
     if (displaced !== undefined) throw new Error(displaced)
     const scope = scopeOf(entry, step.node)
-    if (scope !== undefined && (step.key === undefined || clickTarget(scope, step.key, entry.container) !== undefined)) return true
-    if (Date.now() >= until) return false
-    await delay(Math.min(WAIT_POLL_MS, Math.max(until - Date.now(), 1)))
-  }
+    return scope !== undefined && (step.key === undefined || clickTarget(scope, step.key, entry.container) !== undefined)
+  }, timeoutMs, deadline)
 }
 
 /**
@@ -385,14 +417,20 @@ async function waitFor(
  * @param entry - the drawn entry.
  * @param step - the step to run.
  * @param locate - how the console reads the entry in front now, for a step that waits.
+ * @param deadline - the moment the call's steps must be over by.
  * @throws {Error} with the model-facing reason when the step cannot run.
  */
-async function runStep(entry: DrawnEntry, step: ActComponentStep, locate: () => DrawnEntry | undefined): Promise<void> {
+async function runStep(
+  entry: DrawnEntry,
+  step: ActComponentStep,
+  locate: () => DrawnEntry | undefined,
+  deadline: number,
+): Promise<void> {
   if (step.action === 'wait') {
     // The wait names its own duration in the sentence it fails with, so the
     // step reads it once and the number the model is told is the one it waited.
     const timeoutMs = step.timeoutMs ?? DEFAULT_WAIT_MS
-    if (!await waitFor(entry, step, timeoutMs, locate)) {
+    if (!await waitFor(entry, step, timeoutMs, locate, deadline)) {
       // The sentence names what the step waited for: the key where the step
       // named one — what did not appear is the control, and a model reading the
       // failure has to know which key it was — and the block otherwise.
@@ -423,7 +461,7 @@ async function runStep(entry: DrawnEntry, step: ActComponentStep, locate: () => 
   }
   const target = setTarget(scope, step.name, entry.container)
   if (target === undefined) throw new Error(missingTargetReason(`field "${step.name}"`))
-  await setField(entry, target, step.name, step.value)
+  await setField(entry, target, step.name, step.value, deadline)
 }
 
 /**
@@ -522,12 +560,15 @@ function displacedReason(entry: DrawnEntry, locate: () => DrawnEntry | undefined
  * @param args - the call's arguments.
  * @param entry - the entry the column is drawing, which the caller has matched to the call.
  * @param locate - reads the entry in front again, for the check before every step.
+ * @param deadline - the moment the steps must be over by, as a `Date.now()`
+ * value: no step starts past it, and every wait a step makes ends at it.
  * @returns what the call ended as.
  */
 export async function runActComponent(
   args: ActComponentArgs,
   entry: DrawnEntry,
   locate: () => DrawnEntry | undefined,
+  deadline: number,
 ): Promise<ActComponentRun> {
   const results: ActComponentStepResult[] = []
   let failed = false
@@ -538,9 +579,10 @@ export async function runActComponent(
     }
     try {
       await settled()
+      if (Date.now() >= deadline) throw new Error(OUT_OF_TIME_REASON)
       const displaced = displacedReason(entry, locate)
       if (displaced !== undefined) throw new Error(displaced)
-      await runStep(entry, step, locate)
+      await runStep(entry, step, locate, deadline)
       results.push({ index: at + 1, status: 'ok' })
     } catch (refusal) {
       failed = true

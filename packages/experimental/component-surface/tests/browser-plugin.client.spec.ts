@@ -224,7 +224,7 @@ describe('show-component browser half', () => {
     const injected = entry?.inject?.() as unknown as ComponentSurfaceInjected
     // A page with no channel row has no tab-side answerer for the host to
     // reach, which the host reads the same way and offers no tool for.
-    expect(() => { injected.offerCalls('session-a', []) }).not.toThrow()
+    expect(() => { injected.offerCalls('session-a', { pending: [], stepBudgetMs: 11_250 }) }).not.toThrow()
     expect(() => { injected.parkCalls() }).not.toThrow()
   })
 
@@ -238,9 +238,9 @@ describe('show-component browser half', () => {
       tool: 'act_component',
       args: { entry: 'demo', steps: [{ action: 'click', key: 'add' }] },
     }
-    injected.offerCalls('session-a', [request])
+    injected.offerCalls('session-a', { pending: [request], stepBudgetMs: 11_250 })
     expect(stood.offers).toEqual([{
-      calls: [{ callId: 'call_1', sessionId: 'session-a', request }],
+      calls: [{ callId: 'call_1', sessionId: 'session-a', request, stepBudgetMs: 11_250 }],
       openCalls: ['call_1'],
     }])
     injected.parkCalls()
@@ -265,11 +265,11 @@ describe('show-component browser half', () => {
       tool: 'act_component',
       args: { entry: 'demo', steps: [{ action: 'click', key: 'add' }] },
     }
-    face.offerCalls('session-a', [request])
+    face.offerCalls('session-a', { pending: [request], stepBudgetMs: 11_250 })
     expect(stood.offers).toHaveLength(1)
     await provider.dispose()
     expect(stood.parked()).toBe(1)
-    face.offerCalls('session-a', [request])
+    face.offerCalls('session-a', { pending: [request], stepBudgetMs: 11_250 })
     face.parkCalls()
     expect({ offers: stood.offers.length, parked: stood.parked() }).toEqual({ offers: 1, parked: 1 })
   })

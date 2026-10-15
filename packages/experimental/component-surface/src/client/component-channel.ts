@@ -28,7 +28,7 @@ import type {
 } from '@deepseek-ai/dsh-experimental-content-frame/src/client/access/channel.ts'
 import type { ChannelOutcome } from '@deepseek-ai/dsh-experimental-content-frame/src/access/wire.ts'
 import {
-  ACT_COMPONENT_TOOL_NAME, COMPONENT_DOMAIN, type ComponentCall,
+  ACT_COMPONENT_TOOL_NAME, COMPONENT_DOMAIN, type ComponentCall, type ComponentView,
 } from '../act-component-call.ts'
 import { NO_ENTRY_IN_FRONT, anotherEntryInFront } from '../act-component-text.ts'
 import { runActComponent } from './act-executor.ts'
@@ -39,6 +39,8 @@ import { readComponent } from './read-executor.ts'
 export interface ComponentSeatCall extends ChannelCall {
   /** The call as the projection published it. */
   readonly request: ComponentCall
+  /** How long a set of steps this call asks for may run, as the projection published it. */
+  readonly stepBudgetMs: number
 }
 
 /** Where one seat reports what it can answer: the offering point, and the parking call that ends it. */
@@ -46,9 +48,10 @@ export interface ComponentChannelWiring {
   /**
    * Tell the channel what this seat can answer now.
    * @param sessionId - the session the seat is drawing, absent while none is.
-   * @param pending - that session's open calls, as the projection published them.
+   * @param access - that session's open calls and their step budget, as the
+   * projection published them; absent while it has published none.
    */
-  offer(sessionId: string | undefined, pending: readonly ComponentCall[]): void
+  offer(sessionId: string | undefined, access: ComponentView | undefined): void
   /** Stop answering: the seat that offered the calls is gone. */
   park(): void
 }
@@ -80,6 +83,9 @@ export function joinComponentChannel(channel: ContentChannelJoin): ComponentChan
     name: COMPONENT_DOMAIN,
     ready: () => true,
     answer: async (call: ComponentSeatCall) => {
+      // The host started its report deadline when it granted the claim, which
+      // is before this answer starts; the budget is a share of that deadline.
+      const deadline = Date.now() + call.stepBudgetMs
       // Read again here, after the claim: the column switches what it draws
       // without re-rendering this seat, so what was on screen when the call was
       // offered is not what is on screen now.
@@ -92,7 +98,7 @@ export function joinComponentChannel(channel: ContentChannelJoin): ComponentChan
         // The same reading is handed to the run, which takes it again before
         // every step: a step that starts after the column switched what it
         // draws would otherwise land in the entry that took this one's place.
-        const run = await runActComponent(call.request.args, drawn, () => drawnEntry(document))
+        const run = await runActComponent(call.request.args, drawn, () => drawnEntry(document), deadline)
         return {
           kind: 'outcome',
           outcome: {
@@ -122,11 +128,12 @@ export function joinComponentChannel(channel: ContentChannelJoin): ComponentChan
   }
   const seat: ChannelSeat<ComponentSeatCall> = channel.join(domain)
   return {
-    offer: (sessionId, pending) => {
+    offer: (sessionId, access) => {
+      const pending = access?.pending ?? []
       seat.offer({
-        calls: sessionId === undefined
+        calls: sessionId === undefined || access === undefined
           ? []
-          : pending.map(request => ({ callId: request.callId, sessionId, request })),
+          : pending.map(request => ({ callId: request.callId, sessionId, request, stepBudgetMs: access.stepBudgetMs })),
         openCalls: pending.map(request => request.callId),
       })
     },

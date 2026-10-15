@@ -27,9 +27,9 @@ let warnings: string[] = []
 /** The logger the unit is built over, which only a refused view reaches. */
 const logger = { warn: (message: string): void => { warnings.push(message) } }
 
-/** Build the unit under test over this case's logger. */
+/** Build the unit under test over this case's logger and the shipped report deadline. */
 function projection(): ReturnType<typeof actComponentProjection> {
-  return actComponentProjection(logger)
+  return actComponentProjection(logger, 15_000)
 }
 
 beforeEach(() => { warnings = [] })
@@ -163,7 +163,10 @@ describe('the componentAccess unit', () => {
       { callId: 'call_1', tool: ACT_COMPONENT_TOOL_NAME, args: OPENED },
       { callId: 'call_2', tool: READ_COMPONENT_TOOL_NAME, args: READ },
     ]
-    expect(unit.wire.view(pending)).toEqual({ pending })
+    // Three quarters of the report deadline, which is what a claimed set of
+    // steps may run for before the trip back.
+    expect(unit.wire.view(pending)).toEqual({ pending, stepBudgetMs: 11_250 })
+    expect(unit.wire.viewSchema.safeParse({ pending, stepBudgetMs: 11_250.5 }).success).toBe(false)
     expect(warnings).toEqual([])
     const impossible = [{ callId: 'call_1', tool: 'content_read', args: OPENED }] as never
     expect(() => unit.wire.view(impossible)).toThrow(

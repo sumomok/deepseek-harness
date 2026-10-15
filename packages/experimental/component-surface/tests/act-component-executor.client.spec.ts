@@ -53,13 +53,15 @@ function args(steps: ActComponentArgs['steps']): ActComponentArgs {
 }
 
 /**
- * Run one call the way the seat does: the entry is read again before every step.
+ * Run one call the way the seat does: the entry is read again before every
+ * step, and the steps run inside a budget counted from now.
  * @param call - the call's arguments.
  * @param entry - the entry the case drew.
+ * @param budgetMs - how long the steps may run.
  * @returns what the call ended as.
  */
-function run(call: ActComponentArgs, entry: DrawnEntry): Promise<ActComponentRun> {
-  return runActComponent(call, entry, () => drawnEntry(document))
+function run(call: ActComponentArgs, entry: DrawnEntry, budgetMs = 10_000): Promise<ActComponentRun> {
+  return runActComponent(call, entry, () => drawnEntry(document), Date.now() + budgetMs)
 }
 
 /**
@@ -635,12 +637,19 @@ describe('a field the entry draws as a select', () => {
  *   loading, so the panel first holds the asking row and the suggestions land
  *   a turn later; a component that takes nothing on a click; or one that draws
  *   its panel only once the field was focused, which is element-ui's own rule
- *   for a block that does not open the panel itself.
+ *   for a block that does not open the panel itself. `answer` makes the block
+ *   ask and then never answer, or answer with no suggestion, which closes the
+ *   panel the way element-ui does.
  * @returns the drawn entry, and the autocomplete with the parts a case asserts on.
  */
 function drawAutocomplete(
   options: readonly string[],
-  behavior: { readonly ignores?: boolean; readonly loading?: boolean; readonly opensOnFocus?: boolean } = {},
+  behavior: {
+    readonly ignores?: boolean
+    readonly loading?: boolean
+    readonly opensOnFocus?: boolean
+    readonly answer?: 'never' | 'none'
+  } = {},
 ): { drawn: DrawnEntry; autocomplete: HTMLElement; input: HTMLInputElement; panel: HTMLElement; list: HTMLElement } {
   const items = options.map(label => `<li role="option">${label}</li>`).join('')
   const drawn = drawEntry(`
@@ -670,8 +679,16 @@ function drawAutocomplete(
       return
     }
     panel.style.display = activated ? '' : 'none'
-    list.innerHTML = behavior.loading === true ? '<li><i class="el-icon-loading"></i></li>' : items
-    if (behavior.loading === true) setTimeout(() => { list.innerHTML = items }, 20)
+    const asks = behavior.loading === true || behavior.answer !== undefined
+    list.innerHTML = asks ? '<li><i class="el-icon-loading"></i></li>' : items
+    if (behavior.answer === 'none') {
+      setTimeout(() => {
+        list.innerHTML = ''
+        panel.style.display = 'none'
+      }, 20)
+    } else if (behavior.loading === true) {
+      setTimeout(() => { list.innerHTML = items }, 20)
+    }
   })
   // The suggestions are re-rendered per query, so the choice is heard where
   // it does not unmount: element-ui's own rows carry the click per row.
@@ -721,6 +738,25 @@ describe('a field the entry draws as an autocomplete', () => {
       steps: [{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }],
       text: 'Acted on the component entry "Demo" (demo).\n- set "topic": The field for "topic" has no option "接入".',
     })
+    expect(input.value).toBe('')
+  })
+
+  it('refuses a value the block answers with no suggestion for as soon as the answer lands', { timeout: 3000 }, async () => {
+    // The asking row came and went with nothing drawn: the block answered, and
+    // the wait does not run on to the call's deadline to say so.
+    const { drawn, input } = drawAutocomplete(['接入'], { answer: 'none' })
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn, 60_000)
+    expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
+    expect(input.value).toBe('')
+  })
+
+  it('says the call ran out of time, not that there is no option, while the block is still asking', async () => {
+    const { drawn, input } = drawAutocomplete(['接入'], { answer: 'never' })
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }, { action: 'click', key: 'add' }]), drawn, 150)
+    expect(report.steps).toEqual([
+      { index: 1, status: 'failed', message: 'The console\'s time for this call ran out before this step finished.' },
+      { index: 2, status: 'skipped' },
+    ])
     expect(input.value).toBe('')
   })
 
@@ -851,6 +887,31 @@ describe('a step naming a block the entry does not draw', () => {
         '- set "title" in ghost: not run',
       ].join('\n'),
     })
+  })
+})
+
+describe('the time a call\'s steps may run for', () => {
+  it('stops the step whose wait the deadline cuts short, and runs none of the steps behind it', async () => {
+    const { inside } = draw()
+    const drawn = drawnEntry(document)
+    if (drawn === undefined) throw new Error('the case drew no entry')
+    const report = await run(args([{ action: 'wait', key: 'ghost', timeoutMs: 5000 }, { action: 'click', key: 'add' }]), drawn, 80)
+    expect(report.steps).toEqual([
+      { index: 1, status: 'failed', message: 'The console\'s time for this call ran out before this step finished.' },
+      { index: 2, status: 'skipped' },
+    ])
+    expect(inside).not.toHaveBeenCalled()
+  })
+
+  it('starts no step once the deadline has passed', async () => {
+    const { inside } = draw()
+    const drawn = drawnEntry(document)
+    if (drawn === undefined) throw new Error('the case drew no entry')
+    const report = await run(args([{ action: 'click', key: 'add' }]), drawn, -1)
+    expect(report.steps).toEqual([
+      { index: 1, status: 'failed', message: 'The console\'s time for this call ran out before this step finished.' },
+    ])
+    expect(inside).not.toHaveBeenCalled()
   })
 })
 

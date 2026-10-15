@@ -172,6 +172,15 @@ export type ComponentCall = ActComponentCall | ReadComponentCall
 export interface ComponentView {
   /** Every open call, oldest first. */
   readonly pending: readonly ComponentCall[]
+  /**
+   * How long the tab that claims an `act_component` call may spend running its
+   * steps, in milliseconds, counted from the moment that tab starts answering
+   * it. A share of the deadline the host waits for the report with, which
+   * starts at the claim: the rest of it pays for the claim's answer reaching
+   * the tab and the report's trip back, so the host does not give up on a
+   * console that is still acting.
+   */
+  readonly stepBudgetMs: number
 }
 
 /**

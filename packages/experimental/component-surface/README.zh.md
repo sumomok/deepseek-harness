@@ -486,6 +486,8 @@ schema 说不出的是一个字符串**意味着**什么。把某个字符串读
 
 **回程答的就是页面上那套步骤答的那份文档。** 跑完的调用回报它作用的条目、每个请求步骤按序各一条结果——`ok`，或者停下这次调用的那一步连同它的那句话，或者它后面那些步骤的 `skipped`——以及一段逐一点名每一步及其结局的文本。另外三种结局是拒绝：眼前根本没有条目、在前的是另一条条目、以及某个组件在跑步骤时抛了错。认领之后始终不上报的调用答 `unverified` 而不是失败，因为它的步骤可能跑了一部分；`actClaimTimeoutMs` 之内没有任何控制台认领的调用会带着这个时限拒绝，而认领之后归于沉寂的调用按 `actTimeoutMs` 作答。
 
+**控制台在宿主停止等待之前就停手。** 已认领调用的步骤最多跑 `actTimeoutMs` 的四分之三，从控制台开始作答时算起，剩下的部分留给认领的应答回到控制台、以及报告的回程；座位收不到这一行的任何配置，所以这个份额以 `stepBudgetMs` 跟在 `componentAccess` 视图里、挨着那些未结的调用一起下发。过了这一刻不再开始任何一步，一步里的每一次等待——`wait` 步骤的、选择框下拉的、建议框建议的——都在这一刻结束，被它截停的那一步以「控制台给这次调用的时间用完了」失败，后面的步骤不再运行。建议框的建议除此之外没有自己的等待上限：它们是块经网络给出的答案，答案里一条建议都没有时，块在询问期间画的那一行一消失等待就结束，这是点名这个值的拒绝，而不是一步跑超了时。
+
 **这个工具一次只跑一次调用。** 两次调用作用在同一条条目上，会让各自的步骤交错在一个谁都没读过的文档里，所以定义里声明它不能与另一次调用并跑，运行时据此串行化。
 
 **审批闸逐次判它。** `act_component` 驱动的是用户眼前的东西，所以它不是只读工具，不能进 `@haoran/dsh-llm-permission-gateway` 的 `readOnlyTools` 名单。本仓库随附的那份分类文件——[`content-frame` 的闸 overlay](../content-frame/overlay/permission-gateway.patch.yml)——列了页面五个读、`read_component` 和 `content_show`，把这个工具留在外面；组合本行的部署写自己的名单时也要把它留在外面。`tests/act-component-gate.client.spec.ts` 把两个处置都钉在随附的那份文件上。
@@ -587,7 +589,7 @@ schema 说不出的是一个字符串**意味着**什么。把某个字符串读
 
 #### What the model sees
 
-跑过的调用答 `status`（`done` 或 `failed`）、它作用的条目 `{id, title}`、每个请求步骤一条 `steps`——`{index, status}`，停下这次调用的那一步还带 `message`——以及一段 `text`，点名条目和每一步的结局：先是 `Acted on the component entry "Demo" (demo).`，然后每步一行，`- click on "add": done`、`- set "title" in grid: …`、`- wait for grid: done`，失败后面的步骤读作 `not run`。步骤指认的控件条目没有申明时读作 `control "console-add" is not part of the entry on display.`——`哪里都没有`和`控制台画在条目之外`共用这一句，因为从调用这一侧看它们是同一件事。只有块没画出来的控件带着某个键时读作 `control "deleted" is not drawn, so this call cannot press it.`——条目持有这个控件、却没有人按得到它，这是关于调用自身寻址的另一件事。没有任何控制台认领的调用会带着 `No console showing this session claimed the call within <claimTimeoutMs>ms, so no step ran.` 拒绝；被控制台答成什么都没跑的调用——眼前没有条目、在前的是另一条条目、某个组件抛了错——用控制台自己那句话拒绝，前面加上 `act_component did not run: `。认领之后始终不上报的调用答 `status: "unverified"`，没有条目也没有步骤，文本说这些步骤可能跑全了、跑了一部分，或者一步都没跑。
+跑过的调用答 `status`（`done` 或 `failed`）、它作用的条目 `{id, title}`、每个请求步骤一条 `steps`——`{index, status}`，停下这次调用的那一步还带 `message`——以及一段 `text`，点名条目和每一步的结局：先是 `Acted on the component entry "Demo" (demo).`，然后每步一行，`- click on "add": done`、`- set "title" in grid: …`、`- wait for grid: done`，失败后面的步骤读作 `not run`。控制台给这次调用的时间用完时停在的那一步读作 `The console's time for this call ran out before this step finished.`。步骤指认的控件条目没有申明时读作 `control "console-add" is not part of the entry on display.`——`哪里都没有`和`控制台画在条目之外`共用这一句，因为从调用这一侧看它们是同一件事。只有块没画出来的控件带着某个键时读作 `control "deleted" is not drawn, so this call cannot press it.`——条目持有这个控件、却没有人按得到它，这是关于调用自身寻址的另一件事。没有任何控制台认领的调用会带着 `No console showing this session claimed the call within <claimTimeoutMs>ms, so no step ran.` 拒绝；被控制台答成什么都没跑的调用——眼前没有条目、在前的是另一条条目、某个组件抛了错——用控制台自己那句话拒绝，前面加上 `act_component did not run: `。认领之后始终不上报的调用答 `status: "unverified"`，没有条目也没有步骤，文本说这些步骤可能跑全了、跑了一部分，或者一步都没跑。
 
 #### Token effect
 

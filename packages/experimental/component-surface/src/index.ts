@@ -221,7 +221,9 @@ export interface Config {
   /**
    * How long a claimed call waits for that tab to report, in milliseconds. It
    * is the call's whole deadline: the steps a call runs, or the reading it
-   * composes, and the trip back are paid out of it.
+   * composes, and the trip back are paid out of it. The steps of an
+   * `act_component` call run for three quarters of it at most, so the console
+   * stops acting before the host stops waiting.
    */
   actTimeoutMs?: number
 }
@@ -476,7 +478,7 @@ function installComponentAccess(ctx: Context, config: ResolvedConfig): void {
   ctx.effect(() => () => { membership.release() }, 'show-component: this row\'s channel member')
   ctx.tools.register(actComponentTool(membership.calls, timeouts, MAX_ACT_COMPONENT_STEPS))
   ctx.tools.register(readComponentTool(membership.calls, timeouts))
-  ctx.sessionProjections.register(actComponentProjection(ctx.logger('component-surface')))
+  ctx.sessionProjections.register(actComponentProjection(ctx.logger('component-surface'), config.actTimeoutMs))
 }
 
 /**

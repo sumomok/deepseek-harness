@@ -160,7 +160,7 @@ export function apply(ctx: ClientContext): void {
         // A page with no channel row is handed a wiring that does nothing:
         // there is no tab-side answerer for the host to reach, which the host
         // half reads the same way and offers no tool for.
-        offerCalls: (sessionId, calls) => { channelWiring.offer(sessionId, calls) },
+        offerCalls: (sessionId, access) => { channelWiring.offer(sessionId, access) },
         parkCalls: () => { channelWiring.park() },
         // The live registry rather than a snapshot of it: a component row loaded
         // after this seat mounted is drawable at the next render, and one
