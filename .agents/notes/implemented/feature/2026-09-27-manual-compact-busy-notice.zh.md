@@ -26,7 +26,7 @@ Status: implemented
 
 **压缩相关的行位于两层折叠之外。** `command.ts` 的命令 Definition 把 `/compact` 卡片的分组树位置声明为 `turn`，与 `turn-error` 声明的位置相同：卡片结束前面的步骤组，并位于已完成轮次的整轮折叠之外。自动压缩失败行经 `auto-compaction-policy-seat` 得到同样的声明。
 
-**为什么是核心补丁。** 引擎监听器、Service Definition 与消费方都在上游包里，两处折叠集合是 `ui-chat` 内部的常量。提供时机的一方必须同时随桌面线与控制台线出货；本仓库之外的包只能到达桌面。
+**为什么是核心补丁。** 引擎监听器、Service Definition 与消费方都在上游包里，`/compact` 卡片的分组树位置由 `ui-chat` 自己的命令 Definition 声明，插件改不了。提供时机的一方必须同时随桌面线与控制台线出货；本仓库之外的包只能到达桌面。
 
 ## 考虑过的替代方案
 

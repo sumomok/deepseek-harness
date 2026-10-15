@@ -26,7 +26,7 @@ The user decided on 09-27 that a busy `/compact` is not refused: a Settings → 
 
 **Compaction rows stay outside both folds.** The command Definition in `command.ts` declares the `/compact` card's group-tree position as `turn`, the position `turn-error` declares: the card ends the preceding step group and stays outside a completed Turn's whole-Turn fold. The automatic failure row gets the same declaration through `auto-compaction-policy-seat`.
 
-**Why this is a core patch.** The engine listeners, the Service Definition, and the consumer live in upstream packages, and the fold sets are constants inside `ui-chat`. Whatever provides the timing must ship on both the desktop and the console line; a package outside this repository reaches only the desktop.
+**Why this is a core patch.** The engine listeners, the Service Definition, and the consumer live in upstream packages, and the `/compact` card's group-tree position is declared by `ui-chat`'s own command Definition, which no plugin can change. Whatever provides the timing must ship on both the desktop and the console line; a package outside this repository reaches only the desktop.
 
 ## Alternatives considered
 
