@@ -10,8 +10,8 @@
  * `input` and `change`; a select or a suggestion field is filled by choosing
  * the option whose label is the value and waiting for the component to take it.
  *
- * Before every step and on every look a `wait` step makes, the entry in front
- * is read again, and the run stops once it is not the entry the call was claimed
+ * Before every step and on every look a wait makes, the entry in front is read
+ * again, and the run stops once it is not the entry the call was claimed
  * against. No step starts past the call's deadline and every wait ends at it,
  * since the host stops waiting for the report then; the step it stops fails
  * saying so, and the steps behind it are not run.
@@ -137,17 +137,21 @@ function isReadOnly(el: Element): boolean {
 
 /**
  * Wait for one condition to hold, up to the wait's own ceiling and never past
- * the call's deadline.
+ * the call's deadline, reading the entry in front again on every look before
+ * the condition.
  * @param run - the call the wait belongs to.
  * @param holds - the condition, read again every turn.
  * @param ceilingMs - how long this wait may take by itself.
  * @returns whether it held before the ceiling.
- * @throws {Error} with the out-of-time reason when the deadline came first,
- * and with whatever `holds` throws.
+ * @throws {Error} with the reason the entry is no longer the one in front,
+ * with the out-of-time reason when the deadline came first, and with whatever
+ * `holds` throws.
  */
 async function settles(run: StepRun, holds: () => boolean, ceilingMs: number): Promise<boolean> {
   const until = Math.min(Date.now() + ceilingMs, run.deadline)
   for (;;) {
+    const displaced = displacedReason(run)
+    if (displaced !== undefined) throw new Error(displaced)
     if (holds()) return true
     const now = Date.now()
     if (now >= run.deadline) throw new Error(OUT_OF_TIME_REASON)
@@ -184,7 +188,8 @@ async function fillSelect(run: StepRun, select: Element, trigger: Element, name:
 /**
  * Fill one element-ui suggestion field by choosing a suggestion, which alone
  * carries the block's record of the value. A refusal puts back the text the
- * field held.
+ * field held, unless the entry is no longer in front, in which case the field
+ * is left alone.
  * @param run - the call the step belongs to.
  * @param autocomplete - the autocomplete the field's control belongs to.
  * @param trigger - the control the field was found by.
@@ -198,7 +203,7 @@ async function fillAutocomplete(run: StepRun, autocomplete: Element, trigger: El
   try {
     await chooseSuggestion(run, autocomplete, trigger, name, value)
   } catch (refusal) {
-    if (trigger.value !== before) writeValue(trigger, name, before)
+    if (displacedReason(run) === undefined && trigger.value !== before) writeValue(trigger, name, before)
     throw refusal
   }
 }
@@ -307,9 +312,6 @@ function delay(ms: number): Promise<void> {
  */
 async function waitFor(run: StepRun, step: ActComponentWait, timeoutMs: number): Promise<boolean> {
   return await settles(run, () => {
-    // The entry that took this one's place can draw the very target waited for.
-    const displaced = displacedReason(run)
-    if (displaced !== undefined) throw new Error(displaced)
     const scope = scopeOf(run.entry, step.node)
     return scope !== undefined && (step.key === undefined || clickTarget(scope, step.key, run.entry.container) !== undefined)
   }, timeoutMs)

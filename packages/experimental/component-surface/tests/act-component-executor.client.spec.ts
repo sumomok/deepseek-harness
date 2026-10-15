@@ -499,6 +499,20 @@ describe('a field the entry draws as a select', () => {
     expect(input.value).toBe('接入')
   })
 
+  it('fails where the column switched to another entry while the list opened, and chooses nothing', async () => {
+    // The entry the column switches to draws in the same element, so the
+    // option the step would choose may be its own.
+    const { drawn, select, input } = drawSelect(['接入'])
+    select.addEventListener('click', () => {
+      document.querySelector('[data-content-surface-selected]')?.setAttribute('data-content-surface-entry', 'component other')
+    })
+    const report = await run(args([{ action: 'set', name: 'city', value: '接入' }]), drawn)
+    expect(report.steps).toEqual([
+      { index: 1, status: 'failed', message: 'The entry in front is "other", not the one this call named.' },
+    ])
+    expect(input.value).toBe('')
+  })
+
   it('chooses from a list already open without the click that would toggle it shut', async () => {
     // A previous step may have left the list open, and the toggle an open list
     // gets is the one that closes it.
@@ -776,6 +790,24 @@ describe('a field the entry draws as an autocomplete', () => {
     const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)
     expect(report.status).toBe('failed')
     expect(heard).toEqual(['', '接入'])
+  })
+
+  it('fails where the column switched to another entry while the block answered, and leaves the field alone', async () => {
+    // The entry the column switches to draws in the same element, so the
+    // suggestions and the field the step would go on with may be its own.
+    const { drawn, input } = drawAutocomplete(['接入'])
+    const chosen = vi.fn()
+    input.addEventListener('input', () => {
+      if (input.value !== '接入') return
+      document.querySelector('[data-content-surface-selected]')?.setAttribute('data-content-surface-entry', 'component other')
+    })
+    drawn.container.querySelector('.el-autocomplete-suggestion__list')?.addEventListener('click', chosen)
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)
+    expect(report.steps).toEqual([
+      { index: 1, status: 'failed', message: 'The entry in front is "other", not the one this call named.' },
+    ])
+    expect(chosen).not.toHaveBeenCalled()
+    expect(input.value).toBe('接入')
   })
 
   it('refuses a suggestion field whose control takes no typing', async () => {
