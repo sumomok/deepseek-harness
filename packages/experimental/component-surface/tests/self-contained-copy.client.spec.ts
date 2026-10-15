@@ -62,7 +62,7 @@ import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { CallTable, CallTimeouts } from '@deepseek-ai/dsh-experimental-content-frame/src/access/pending.ts'
-import { ACT_COMPONENT_TOOL_NAME, MAX_ACT_COMPONENT_STEPS } from '../src/act-component-call.ts'
+import { ACT_COMPONENT_TOOL_NAME } from '../src/act-component-call.ts'
 import { actComponentTool } from '../src/act-component-tool.ts'
 import {
   catalogEntry,
@@ -486,7 +486,7 @@ describe('every sentence this package writes', () => {
   })
 
   it('names no other tool in any description either channel tool carries', () => {
-    const act = toolDescriptions(actComponentTool(CALLS, TIMEOUTS, MAX_ACT_COMPONENT_STEPS))
+    const act = toolDescriptions(actComponentTool(CALLS, TIMEOUTS))
     const read = toolDescriptions(readComponentTool(CALLS, TIMEOUTS))
     expect(act.length).toBeGreaterThan(10)
     expect(read.length).toBeGreaterThan(5)

@@ -61,13 +61,15 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-experimental-biz-backend'
 // Type-only: resolves ctx.approval, which that child asks the user through.
 import type {} from '@deepseek-ai/dsh-user-approval'
+// Type-only: resolves ctx.contentChannel, which the optional channel-tools child joins.
+import type {} from '@deepseek-ai/dsh-experimental-content-frame/src/access/channel.ts'
 import { ComponentCatalogRegistry, trackCatalog } from './catalog.ts'
 import { MAX_TABLE_ROWS, type ComponentCatalog } from './component-call.ts'
 import { ComponentViewRegistry } from './component-views.ts'
 import { installComponentAction } from './command.ts'
 import { PendingLoads } from './data-page.ts'
 import { actComponentProjection } from './act-component-projection.ts'
-import { COMPONENT_DOMAIN, MAX_ACT_COMPONENT_STEPS } from './act-component-call.ts'
+import { COMPONENT_DOMAIN } from './act-component-call.ts'
 import { actComponentTool } from './act-component-tool.ts'
 import { parseComponentReport } from './read-component-call.ts'
 import { readComponentTool } from './read-component-tool.ts'
@@ -467,9 +469,9 @@ function installComponentAccess(ctx: Context, config: ResolvedConfig): void {
   // one of the services this child waits for keeps the row alive, and a member
   // left behind would read reports for a domain that is no longer offered.
   ctx.effect(() => () => { membership.release() }, 'show-component: this row\'s channel member')
-  ctx.tools.register(actComponentTool(membership.calls, timeouts, MAX_ACT_COMPONENT_STEPS))
+  ctx.tools.register(actComponentTool(membership.calls, timeouts))
   ctx.tools.register(readComponentTool(membership.calls, timeouts))
-  ctx.sessionProjections.register(actComponentProjection(ctx.logger('component-surface'), config.actTimeoutMs))
+  ctx.sessionProjections.register(actComponentProjection(config.actTimeoutMs))
 }
 
 /**

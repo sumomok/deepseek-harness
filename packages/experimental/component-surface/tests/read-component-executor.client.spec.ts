@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 /**
- * The component read executor in a real document: what it reports about the
- * entry in front, as the tree a model reads.
+ * The component read executor in a real document: what it reads off the
+ * entry in front, mostly as the text module writes it out — the tree a model
+ * reads — and, where the text module's own cases already pin the writing, as
+ * the reading itself.
  *
  * The whole point of the tool is that the reading names the same things the
  * acting tool acts on, so the cases here are the ones a model meets: the blocks
@@ -14,10 +16,10 @@
  */
 
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MAX_ROW_NAMES } from '../src/read-component-call.ts'
+import { MAX_ROW_NAMES, type ComponentReading, type ReadComponentArgs } from '../src/read-component-call.ts'
+import { readComponentReportText } from '../src/read-component-text.ts'
 import { drawnEntry, type DrawnEntry } from '../src/client/entry-container.ts'
-import { readComponent } from '../src/client/read-executor.ts'
-import type { ReadComponentArgs } from '../src/read-component-call.ts'
+import { readComponentEntry } from '../src/client/read-executor.ts'
 
 /** The entry id every case here reads. */
 const ENTRY = 'demo'
@@ -41,15 +43,28 @@ function drawEntry(inner: string): DrawnEntry {
 }
 
 /**
+ * Read one call's entry.
+ * @param entry - the entry the case drew.
+ * @param node - the block the call narrows the reading to, absent for the whole entry.
+ * @returns the reading.
+ */
+function reading(entry: DrawnEntry, node?: string): ComponentReading {
+  const args: ReadComponentArgs = { entry: ENTRY, ...node === undefined ? {} : { node } }
+  return readComponentEntry(args, entry)
+}
+
+/**
  * Read one call the way the seat does.
  * @param entry - the entry the case drew.
  * @param node - the block the call narrows the reading to, absent for the whole entry.
  * @returns the reading text.
  */
 function read(entry: DrawnEntry, node?: string): string {
-  const args: ReadComponentArgs = { entry: ENTRY, ...node === undefined ? {} : { node } }
-  return readComponent(args, entry)
+  return readComponentReportText(reading(entry, node))
 }
+
+/** The entry every case draws, as a reading names it. */
+const NAMED = { id: ENTRY, title: 'Demo' }
 
 beforeEach(() => { document.body.innerHTML = '' })
 
@@ -161,15 +176,13 @@ describe('the tree a reading describes', () => {
     expect(read(drawn)).not.toContain('hidden-attr')
   })
 
-  it('says an entry with nothing drawn in it has nothing, rather than leaving the lines out', () => {
-    const drawn = drawEntry('')
-    expect(read(drawn)).toBe([
-      'Read the component entry "Demo" (demo).',
-      'Blocks: none.',
-      'Controls: none.',
-      'Fields: none.',
-      'No dialog is open.',
-    ].join('\n'))
+  it('reads an entry with nothing drawn in it as one with nothing', () => {
+    expect(reading(drawEntry(''))).toEqual({
+      entry: NAMED,
+      blockIds: [],
+      blocks: [],
+      outside: { controls: [], fields: [], dialogs: [] },
+    })
   })
 })
 
@@ -297,20 +310,17 @@ describe('the rows a scope draws, folded', () => {
     expect(text).toContain('(3 more drawn rows are not named.)')
   })
 
-  it('writes one block per row where the rows do not all draw the same thing', () => {
+  it('counts what each row draws on its own where the rows do not all draw the same thing', () => {
     const drawn = drawEntry(`
       <div data-component-node="grid"><table><tbody>
         <tr><td data-component-action="cell-click">one</td></tr>
         <tr><td data-component-action="cell-click">two</td><td data-component-action="select"></td></tr>
       </tbody></table></div>
     `)
-    expect(read(drawn)).toContain([
-      '      - "one":',
-      '        - "cell-click" ×1: td',
-      '      - "two":',
-      '        - "cell-click" ×1: td',
-      '        - "select" ×1: td',
-    ].join('\n'))
+    expect(reading(drawn).blocks[0]?.rows?.named).toEqual([
+      { name: 'one', draws: [{ action: 'cell-click', kind: 'td', count: 1 }] },
+      { name: 'two', draws: [{ action: 'cell-click', kind: 'td', count: 1 }, { action: 'select', kind: 'td', count: 1 }] },
+    ])
   })
 
   it('says a row that draws no words is one rather than printing empty quotes', () => {
@@ -325,7 +335,7 @@ describe('the rows a scope draws, folded', () => {
       </tbody></table>
       <div class="el-pagination__total">共 1048 条</div></div>
     `)
-    expect(read(drawn)).toContain('Rows: 1 drawn (the page says "共 1048 条").')
+    expect(reading(drawn).blocks[0]?.rows).toMatchObject({ drawn: 1, total: '共 1048 条' })
   })
 
   it('leaves a field drawn inside a row on its own line, with the value it holds', () => {
@@ -487,26 +497,29 @@ describe('a reading narrowed to one block', () => {
     ].join('\n'))
   })
 
-  it('says a block the entry does not draw is not part of it, and lists what it does draw', () => {
+  it('reads a block the entry does not draw as missing, with the blocks it does draw', () => {
     const drawn = drawEntry('<div data-component-node="toolbar"><button data-component-action="add">Add</button></div>')
-    expect(read(drawn, 'ghost')).toBe([
-      'Read the component entry "Demo" (demo).',
-      'Blocks: toolbar.',
-      'block "ghost" is not part of the entry on display.',
-      'No dialog is open.',
-    ].join('\n'))
+    expect(reading(drawn, 'ghost')).toEqual({
+      entry: NAMED,
+      blockIds: ['toolbar'],
+      blocks: [],
+      outside: { controls: [], fields: [], dialogs: [] },
+      missingNode: 'ghost',
+    })
   })
 
-  it('still reports the dialog the entry has open when the block it named is not drawn', () => {
+  it('still reads the dialog the entry has open when the block it named is not drawn', () => {
     const drawn = drawEntry(`
       <div data-component-node="grid">
         <div role="dialog" aria-label="添加"><input data-component-field="zh_label" value=""></div>
       </div>
     `)
-    const text = read(drawn, 'ghost')
-    expect(text).toContain('block "ghost" is not part of the entry on display.')
-    expect(text).toContain('Dialog "添加" (in "grid"):')
-    expect(text).toContain('    - "zh_label": textbox = ""')
+    expect(reading(drawn, 'ghost').outside.dialogs).toEqual([{
+      name: '添加',
+      node: 'grid',
+      controls: [],
+      fields: [{ name: 'zh_label', kind: 'textbox', value: '', state: 'reachable' }],
+    }])
   })
 
   it('reads the dialogs drawn inside the block it was narrowed to', () => {

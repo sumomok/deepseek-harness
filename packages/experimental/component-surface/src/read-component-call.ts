@@ -1,49 +1,27 @@
 /**
- * `read_component`'s own vocabulary: the tool's arguments, the reading it
- * settles on, and the readers both halves of the package share.
- *
- * The arguments address the same things `act_component`'s do, in the same
- * language: which entry, and which block of it the reading is narrowed to. The
- * reading itself is stated here as well — one block per id the placement wrote,
- * one control per mark a step could name, one field per name the entry gives —
- * because the console composes it and the text module writes it out, and the
- * two halves meet on this shape.
- *
- * Parsing lives beside the types for the reason `act-component-call.ts` states:
- * the host judges a call with the same reading the browser runs, so neither half
- * can accept what the other refuses.
+ * `read_component`'s own vocabulary: the tool's arguments, the reading the
+ * console composes and the text module writes out, and the parsers the host
+ * and the browser share, so neither accepts what the other refuses.
  * @module @deepseek-ai/dsh-experimental-component-surface/read-component-call
  */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
-// Type-only: the shared channel's own outcome vocabulary, which every content
-// domain settles its calls with.
 import type { ChannelReportRequest, ComponentReadOutcome } from '@deepseek-ai/dsh-experimental-content-frame/src/access/wire.ts'
 import {
-  isTarget, MAX_CHANNEL_ID_CHARS, MAX_TITLE_CHARS, parseActComponentReport, readChannelToolCall,
+  isEntryId, isTarget, isText, parseActComponentReport, readChannelReport, readChannelToolCall, readReportedEntry,
 } from './act-component-call.ts'
-import { MAX_ENTRY_ID_LENGTH } from './component-call.ts'
 
 /** The tool this reading serves. */
 export const READ_COMPONENT_TOOL_NAME = 'read_component'
 
 /**
- * Most lines one reading may carry, the truncation note included.
- *
- * A protocol ceiling rather than a deployment choice: a reading is bounded so a
- * table of hundreds of rows cannot fill a request with the model's own panel.
- * What makes one answer that large is row detail, so a reading larger than one
- * answer may carry gives up row detail before anything else and says what it
- * gave up; the note a reading cut even past that ends with says how many lines
- * were left out. A model that needs more narrows the reading to one block.
+ * Most lines one reading may carry, the truncation note included. A protocol
+ * ceiling: a reading over it drops row detail first, then cuts lines and says
+ * how many it left out.
  */
 export const MAX_READING_LINES = 200
 
-/**
- * Most characters one reading may carry, the truncation note included. The
- * second bound of the same kind, because lines of a table's operation links are
- * short enough that a count alone would not bound the text.
- */
+/** Most characters one reading may carry, the truncation note included. */
 export const MAX_READING_CHARS = 10_000
 
 /**
@@ -52,24 +30,10 @@ export const MAX_READING_CHARS = 10_000
  */
 export const MAX_READING_TEXT_CHARS = 120
 
-/**
- * Most drawn rows one reading names.
- *
- * The rows themselves are what a table draws for the user, and a name per row
- * is what lets a model say whether the record it means is on screen. Beyond
- * this many the rest are counted rather than named, so the row section stays a
- * small, predictable part of every answer whatever the page draws: a block
- * drawing a thousand rows costs this line and no more.
- */
+/** Most drawn rows one reading names; the rest are counted. */
 export const MAX_ROW_NAMES = 20
 
-/**
- * What one `read_component` call asks of the entry it names.
- *
- * `node` narrows the reading to one block, by the id the placement wrote, the
- * same name a `set` or `click` step would confine itself to; a call that names
- * none reads the whole entry.
- */
+/** What one `read_component` call asks of the entry it names. */
 export interface ReadComponentArgs {
   /** The content-column entry the call is against, as the entry was placed. */
   readonly entry: string
@@ -86,12 +50,23 @@ export type ComponentTargetState =
   /** Something else is drawn over the point it occupies. */
   | 'covered'
 
+/** The keys one control answers to, as the block marks it: an action key, its own key, or both. */
+export type ComponentControlKeys =
+  | {
+    /** The action key the block declares for the control. */
+    readonly action: string
+    /** The control's own key, where the block declares one for it. */
+    readonly ownKey?: string
+  }
+  | {
+    /** No action key: the control carries only its own key. */
+    readonly action?: never
+    /** The control's own key. */
+    readonly ownKey: string
+  }
+
 /** One control the reading found drawn, addressable the way a step addresses it. */
-export interface ComponentReadControl {
-  /** The action key the block declares for the control; absent for one carrying only its own key. */
-  readonly action?: string
-  /** The control's own key, where the block declares one for it. */
-  readonly ownKey?: string
+export type ComponentReadControl = ComponentControlKeys & {
   /** What the control is, in the platform's own word for it: `button`, `textbox`, … */
   readonly kind: string
   /** What the control says about itself: the words it draws, or the name it carries; empty when it draws neither. */
@@ -117,19 +92,10 @@ export interface ComponentReadField {
 }
 
 /**
- * One kind of target a drawn row holds, counted rather than listed.
- *
- * Two controls of a row are one kind of thing when a step naming either would
- * address the same key — the same action and own key, of the same kind — and a
- * row of a table draws its cells as one such set repeated per column. What
- * differs between them is the data they draw, which is what the row's name
- * stands for rather than something a reading lists per cell.
+ * One kind of target a drawn row holds, counted rather than listed: controls
+ * with the same keys and kind are one kind.
  */
-export interface ComponentReadRowDraw {
-  /** The action key the row declares for these controls; absent for ones carrying only their own key. */
-  readonly action?: string
-  /** The controls' own key, where the row declares one for them. */
-  readonly ownKey?: string
+export type ComponentReadRowDraw = ComponentControlKeys & {
   /** What the control is, in the platform's own word for it. */
   readonly kind: string
   /** How many of them the row draws. */
@@ -154,11 +120,7 @@ export interface ComponentReadRows {
   readonly named: readonly ComponentReadRow[]
 }
 
-/**
- * What one scope draws itself — a block, an open dialog, or the entry outside
- * every block — with the children read as a tree rather than as a flat list:
- * the scope is where a target is drawn, and nothing states the placement twice.
- */
+/** What one scope — a block, an open dialog, or the entry outside every block — draws itself. */
 export interface ComponentReadScope {
   /** The controls the scope draws itself, outside its rows and outside any dialog of its own. */
   readonly controls: readonly ComponentReadControl[]
@@ -214,39 +176,21 @@ export interface ReadComponentCall {
   readonly args: ReadComponentArgs
 }
 
-/** Whether one decoded value is a non-empty name inside a bound. */
-function isName(value: unknown, max: number): value is string {
-  return typeof value === 'string' && value.length > 0 && value.length <= max
-}
-
-/** Whether one decoded value is a text field inside a bound. */
-function isText(value: unknown, max: number): value is string {
-  return typeof value === 'string' && value.length <= max
-}
-
 /**
  * Read one call's arguments from a decoded value.
- *
- * A field this reading does not take makes the whole call unreadable rather
- * than partially understood: the tool's own schema refuses that call too, so a
- * browser told to read half of it would be reading something nobody asked for.
  * @param value - the decoded arguments, however malformed.
  * @returns the arguments, or `undefined` when the value is not a readable set.
  */
 export function parseReadComponentArgs(value: unknown): ReadComponentArgs | undefined {
   if (value === null || typeof value !== 'object') return undefined
   const candidate = value as { entry?: unknown; node?: unknown }
-  if (!isName(candidate.entry, MAX_ENTRY_ID_LENGTH)) return undefined
+  if (!isEntryId(candidate.entry)) return undefined
   if (candidate.node !== undefined && !isTarget(candidate.node)) return undefined
   return { entry: candidate.entry, ...candidate.node === undefined ? {} : { node: candidate.node } }
 }
 
 /**
- * Read the call one committed event opened.
- *
- * The log shapes and the settle test are the ones both of this package's tools
- * are read by, declared once beside `act_component`'s reading; this is the same
- * reading under this tool's own name.
+ * Read the `read_component` call one committed event opened.
  * @param event - the committed session event.
  * @returns the call, or `undefined` when the event opens no usable one.
  */
@@ -256,18 +200,9 @@ export function readReadComponentCall(event: SessionEvent): ReadComponentCall | 
 }
 
 /**
- * Read one posted component reading.
- *
- * A wire boundary: the document crossed a process, so its own contract is
- * checked here rather than trusted from the type. Every string carries a bound
- * of its own, so a forged report cannot make the host carry an arbitrary
- * document to the model.
- *
- * The result is the shared channel's own vocabulary rather than a type of this
- * package's, for the reason `act-component-call.ts` states: the member that
- * reads a report hands it to the waiting tool through the channel, and a second
- * spelling of the same document would be one more place for the two to
- * disagree.
+ * Read one posted component reading. The document crossed a process, so every
+ * field is checked and every string bounded before the host carries it to the
+ * model.
  * @param value - the decoded `outcome` field, however malformed.
  * @returns the outcome, or `undefined` when the value is not one this tool posts.
  */
@@ -275,39 +210,24 @@ export function parseReadComponentOutcome(value: unknown): ComponentReadOutcome 
   if (value === null || typeof value !== 'object') return undefined
   const outcome = value as { status?: unknown; page?: unknown; text?: unknown }
   if (outcome.status !== 'read') return undefined
-  const page = outcome.page
-  if (page === null || typeof page !== 'object') return undefined
-  const named = page as { id?: unknown; title?: unknown }
-  if (!isName(named.id, MAX_ENTRY_ID_LENGTH) || !isText(named.title, MAX_TITLE_CHARS)) return undefined
-  if (!isText(outcome.text, MAX_READING_CHARS)) return undefined
-  return { status: 'read', page: { id: named.id, title: named.title }, text: outcome.text }
+  const page = readReportedEntry(outcome.page)
+  if (page === undefined || !isText(outcome.text, MAX_READING_CHARS)) return undefined
+  return { status: 'read', page, text: outcome.text }
 }
 
 /**
  * Read one posted `read_component` report.
- *
- * A wire boundary like {@link parseReadComponentOutcome}: the call and the tab
- * are read as names at {@link MAX_CHANNEL_ID_CHARS}, the bound the page domain
- * takes the same two ids at, and the outcome carries its own bounds.
  * @param body - the decoded request body, however malformed.
  * @returns the report, or `undefined` when the body is not one.
  */
 export function parseReadComponentReport(body: unknown): ChannelReportRequest | undefined {
-  if (body === null || typeof body !== 'object') return undefined
-  const candidate = body as { callId?: unknown; tabId?: unknown; outcome?: unknown }
-  if (!isName(candidate.callId, MAX_CHANNEL_ID_CHARS) || !isName(candidate.tabId, MAX_CHANNEL_ID_CHARS)) return undefined
-  const outcome = parseReadComponentOutcome(candidate.outcome)
-  return outcome === undefined ? undefined : { callId: candidate.callId, tabId: candidate.tabId, outcome }
+  return readChannelReport(body, parseReadComponentOutcome)
 }
 
 /**
- * Read one posted report of either tool this package's channel serves.
- *
- * One member reads both tools' reports, because both open their calls through
- * one registration: the arm is told apart by its own discriminant, and each
- * tool's reading refuses the other's document. The refusal arm is shared —
- * `empty`, `front-changed` and `engine` say the same three things to either
- * tool — and is read by `act_component`'s reading, which both settle through.
+ * Read one posted report of either tool this package's channel serves. Each
+ * tool's reading refuses the other's document, and the shared refusal arm is
+ * read by `act_component`'s.
  * @param body - the decoded request body, however malformed.
  * @returns the report, or `undefined` when no tool of this package posts it.
  */

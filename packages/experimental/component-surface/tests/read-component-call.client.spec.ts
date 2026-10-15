@@ -18,7 +18,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { MAX_TARGET_CHARS, MAX_TITLE_CHARS } from '../src/act-component-call.ts'
 import { MAX_ENTRY_ID_LENGTH } from '../src/component-call.ts'
 import {
-  MAX_READING_CHARS, MAX_READING_LINES, MAX_READING_TEXT_CHARS, READ_COMPONENT_TOOL_NAME,
+  MAX_READING_CHARS, READ_COMPONENT_TOOL_NAME,
   parseComponentReport, parseReadComponentArgs, parseReadComponentOutcome, parseReadComponentReport,
   readReadComponentCall,
 } from '../src/read-component-call.ts'
@@ -248,16 +248,5 @@ describe('reading the calls out of a session log', () => {
       const [event] = target.snapshotEvents()
       expect(readReadComponentCall(event as SessionEvent)).toBeUndefined()
     }
-  })
-})
-
-describe('the bounds a reading is written under', () => {
-  it('states the three ceilings the console and this module share', () => {
-    // The console composes inside these, and this parser takes what it posts:
-    // the two are one number each, so a reading can never be refused for a size
-    // its own composer already held it to.
-    expect(MAX_READING_LINES).toBe(200)
-    expect(MAX_READING_CHARS).toBe(10_000)
-    expect(MAX_READING_TEXT_CHARS).toBe(120)
   })
 })

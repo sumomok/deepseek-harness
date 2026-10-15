@@ -31,9 +31,10 @@ import {
   ACT_COMPONENT_TOOL_NAME, COMPONENT_DOMAIN, type ComponentCall, type ComponentView,
 } from '../act-component-call.ts'
 import { NO_ENTRY_IN_FRONT, anotherEntryInFront } from '../act-component-text.ts'
+import { readComponentReportText } from '../read-component-text.ts'
 import { runActComponent } from './act-executor.ts'
 import { drawnEntry } from './entry-container.ts'
-import { readComponent } from './read-executor.ts'
+import { readComponentEntry } from './read-executor.ts'
 
 /** One call of this package's channel as this seat offers it: the call, and the request behind it. */
 export interface ComponentSeatCall extends ChannelCall {
@@ -121,7 +122,7 @@ export function joinComponentChannel(channel: ContentChannelJoin): ComponentChan
         outcome: {
           status: 'read',
           page: { id: drawn.entryId, title: drawn.title },
-          text: readComponent(call.request.args, drawn),
+          text: readComponentReportText(readComponentEntry(call.request.args, drawn)),
         },
       }
     },

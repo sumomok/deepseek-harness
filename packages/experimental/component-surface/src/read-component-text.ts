@@ -1,32 +1,22 @@
 /**
  * The sentences `read_component` is described, refused, and reported with.
  *
- * The description is the tool's whole offer, so it states what the reading
- * answers and how a call addresses the entry it reads, and nothing about the
- * console's own layout. The refusals say only what stopped the call. The report
- * is the reading written out — the same facts, in the same names, a call acts
- * by — and it is composed here rather than in the console so the tree's shape
- * is written once, whatever composed the reading.
- *
- * The report is a tree rather than a listing: one node per block, one nested
- * node per open dialog, and the rows a scope draws folded to how many, what one
- * row draws and the first few names. That shape is what keeps one answer about
- * one page of records inside its budget: rows are the only part of a reading
- * that grows with the data, so they are the only part an oversized answer gives
- * up, and it says what it gave up rather than cutting itself off.
- *
- * What the reading shares with the acting tool — that a target is not part of
- * the entry, which entry is in front — is stated by
- * [the acting tool's own text module](./act-component-text.ts) and used here:
- * the same fact has one sentence, and a reading that said it differently from
- * the step that would be refused by it would be two vocabularies again.
+ * The description states what the reading answers and how a call addresses
+ * the entry, and nothing about the console's layout. The report writes a
+ * {@link ComponentReading} out as a tree in the names a step acts by; rows are
+ * the only part that grows with the data, so an oversized reading gives up row
+ * detail first and says so. A fact the acting tool also states — a target not
+ * part of the entry, which entry is in front — uses
+ * [its sentence](./act-component-text.ts).
  * @module @deepseek-ai/dsh-experimental-component-surface/read-component-text
  */
 
 import { missingTargetReason } from './act-component-text.ts'
+
+export { BAD_ENTRY_REFUSAL } from './act-component-text.ts'
 import {
   MAX_READING_CHARS, MAX_READING_LINES, MAX_READING_TEXT_CHARS,
-  type ComponentReadControl, type ComponentReadDialog, type ComponentReadField, type ComponentReadRow,
+  type ComponentControlKeys, type ComponentReadControl, type ComponentReadDialog, type ComponentReadField, type ComponentReadRow,
   type ComponentReadRows, type ComponentReading, type ComponentReadScope, type ComponentTargetState,
 } from './read-component-call.ts'
 
@@ -55,9 +45,6 @@ export const NODE_DESCRIPTION = 'The block within the entry, by the id the place
 /** Refusal for a call with no owning session, which has no column to read. */
 export const NO_AGENT_REFUSAL =
   'read_component needs a session: the entry it reads belongs to a session\'s content column.'
-
-/** Refusal for an entry id this tool cannot read. */
-export const BAD_ENTRY_REFUSAL = 'entry must be the id of a component entry in the content panel.'
 
 /** Refusal for a `node` this tool cannot read. */
 export const BAD_NODE_REFUSAL =
@@ -114,37 +101,38 @@ const STEP = '  '
 /**
  * What the model is told the call read.
  *
- * Composed here rather than in the console's own body so the tree's shape is
- * written once, and so a reading answered from a console that later version is
- * read the same way as one from this build. A reading that does not fit one
- * answer keeps its dialog, its blocks, its toolbar and its fields, gives up row
- * detail in the order {@link ROW_DETAILS} states, and says what it gave up; only
- * a reading whose very shape is larger than an answer is cut, with the note
- * saying how many lines were left out.
+ * A reading that does not fit one answer keeps its dialog, its blocks, its
+ * toolbar and its fields, gives up row detail in the order {@link ROW_DETAILS}
+ * states, and says what it gave up; only a reading whose blocks and dialogs
+ * alone are larger than an answer is cut, ending with a note saying how many
+ * lines were left out.
  * @param reading - what the reading found.
  * @returns the report text, inside the reading's own bounds.
  */
 export function readComponentReportText(reading: ComponentReading): string {
+  let lines: string[] = []
+  let cut = -1
   for (const detail of ROW_DETAILS) {
-    const lines = compose(reading, detail)
-    if (fits(lines)) return lines.join('\n')
+    lines = compose(reading, detail)
+    cut = overflowAt(lines)
+    if (cut === -1) return lines.join('\n')
   }
-  return bounded(compose(reading, 'count'))
+  return [...lines.slice(0, cut), truncationNote(lines.length - cut)].join('\n')
 }
 
 /**
- * Whether every composed line fits the bounds one answer is written to, the
- * truncation note's own line and characters included.
+ * The first line one answer has no room for, counting both bounds — lines and
+ * characters — and reserving the truncation note's own line and characters, so
+ * a reading cut there still fits.
  * @param lines - the composed lines.
- * @returns whether they fit.
+ * @returns the index of that line, or -1 where every line fits.
  */
-function fits(lines: readonly string[]): boolean {
+function overflowAt(lines: readonly string[]): number {
   let chars = 0
-  for (const line of lines) {
+  return lines.findIndex((line, at) => {
     chars += line.length + 1
-    if (chars + NOTE_CHARS > MAX_READING_CHARS) return false
-  }
-  return lines.length <= MAX_READING_LINES - 1
+    return at >= MAX_READING_LINES - 1 || chars + NOTE_CHARS > MAX_READING_CHARS
+  })
 }
 
 /**
@@ -268,7 +256,7 @@ function rowLines(rows: ComponentReadRows, depth: number, detail: RowDetail): st
   const deeper = STEP.repeat(depth + 2)
   const counted = `${at}Rows: ${String(rows.drawn)} drawn${rows.total === undefined ? '' : ` (the page says "${clip(rows.total)}")`}.`
   if (detail === 'count') return [counted, `${inner}${droppedRows(rows.drawn)}`]
-  const shared = rows.named.length === 0 ? undefined : rows.named[0]
+  const shared = rows.named[0]
   const lines = [counted]
   if (shared !== undefined && rows.named.every(row => sameDraws(row, shared))) {
     lines.push(`${inner}Each row draws:`)
@@ -333,10 +321,8 @@ function drawLine(draw: ComponentReadRow['draws'][number]): string {
  * @param target - the control or drawn kind.
  * @returns the key phrase.
  */
-function keyOf(target: { readonly action?: string; readonly ownKey?: string }): string {
-  return target.action !== undefined
-    ? `"${clip(target.action)}"`
-    : `own key "${clip(target.ownKey ?? '')}"`
+function keyOf(target: ComponentControlKeys): string {
+  return target.action === undefined ? `own key "${clip(target.ownKey)}"` : `"${clip(target.action)}"`
 }
 
 /**
@@ -397,8 +383,6 @@ function stateNote(state: ComponentTargetState): string {
     case 'reachable': return ''
     case 'disabled': return ' (disabled)'
     case 'covered': return ' (covered where it is drawn)'
-    /* v8 ignore next 2 -- the state union is closed and typed; the arm keeps a new state loud */
-    default: return ''
   }
 }
 
@@ -427,32 +411,4 @@ function truncationNote(lines: number): string {
   return lines === 1
     ? '(Truncated: one more line was not shown.)'
     : `(Truncated: ${String(lines)} more lines were not shown.)`
-}
-
-/**
- * Cut a reading to what one answer may carry, saying so where it was cut.
- *
- * The outer bound, reached only by a reading whose own shape — blocks, dialogs,
- * toolbars and fields, which no size gives up — is larger than one answer; a
- * reading that rows alone made too large was reduced in
- * {@link readComponentReportText} before it came here. Two bounds, a count and
- * a size, and both are held by the same walk: a wide entry draws many short
- * lines and a narrow one may draw a few long ones. The note's own line and its
- * own characters are reserved rather than added, so a cut reading is still
- * inside the bound it was cut for.
- * @param lines - every line the reading composed.
- * @returns the text.
- */
-function bounded(lines: readonly string[]): string {
-  const kept: string[] = []
-  let chars = 0
-  for (const [at, line] of lines.entries()) {
-    if (kept.length >= MAX_READING_LINES - 1 || chars + line.length + 1 + NOTE_CHARS > MAX_READING_CHARS) {
-      return [...kept, truncationNote(lines.length - at)].join('\n')
-    }
-    kept.push(line)
-    chars += line.length + 1
-  }
-  /* v8 ignore next -- the walk is entered only with lines that already missed fits(), so it cuts before the last one */
-  return kept.join('\n')
 }

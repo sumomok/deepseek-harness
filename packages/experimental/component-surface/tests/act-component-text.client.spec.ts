@@ -110,12 +110,4 @@ describe('the report text', () => {
       '- step 3: no reason given',
     ].join('\n'))
   })
-
-  it('reads a wait that names no block, which the type leaves open', () => {
-    // Both fields are optional on the wait arm; the parser refuses such a step,
-    // and the report text still has to name it rather than print `undefined`.
-    const wait: ActComponentStep = { action: 'wait' }
-    expect(actComponentReportText(ENTRY, [wait], [{ index: 1, status: 'ok' }]))
-      .toBe('Acted on the component entry "Demo" (demo).\n- wait for : done')
-  })
 })
