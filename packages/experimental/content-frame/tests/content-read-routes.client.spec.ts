@@ -444,8 +444,8 @@ describe('the read channel over real HTTP', () => {
   it('refuses a post a browser labelled cross-site, and takes one labelled same-origin', async () => {
     const ctx = await loadComposition(true)
     for (const [route, refusal] of [
-      [CONTENT_CLAIM_ROUTE, 'content-frame: the read claim route serves same-site requests only'],
-      [CONTENT_REPORT_ROUTE, 'content-frame: the read report route serves same-site requests only'],
+      [CONTENT_CLAIM_ROUTE, 'content-frame: the call claim route serves same-site requests only'],
+      [CONTENT_REPORT_ROUTE, 'content-frame: the call report route serves same-site requests only'],
     ] as const) {
       const refused = await call(ctx, route, {
         method: 'POST',
@@ -555,7 +555,7 @@ describe('the read channel over real HTTP', () => {
     })
     expect({ status: overBytes.status, body: JSON.parse(overBytes.body) as unknown }).toEqual({
       status: 413,
-      body: { error: `content-frame: the read report route refuses a body past ${REPORT_BYTES} bytes` },
+      body: { error: `content-frame: the call report route refuses a body past ${REPORT_BYTES} bytes` },
     })
     // A claim is bounded on its own, well below a listing.
     const overClaim = await raw(ctx, CONTENT_CLAIM_ROUTE, {
@@ -563,7 +563,7 @@ describe('the read channel over real HTTP', () => {
     })
     expect({ status: overClaim.status, body: JSON.parse(overClaim.body) as unknown }).toEqual({
       status: 413,
-      body: { error: `content-frame: the read claim route refuses a body past ${CLAIM_BYTES} bytes` },
+      body: { error: `content-frame: the call claim route refuses a body past ${CLAIM_BYTES} bytes` },
     })
   })
 
@@ -576,7 +576,7 @@ describe('the read channel over real HTTP', () => {
     })
     expect({ status: refused.status, body: JSON.parse(refused.body) as unknown }).toEqual({
       status: 413,
-      body: { error: `content-frame: the read report route refuses a body past ${REPORT_BYTES} bytes` },
+      body: { error: `content-frame: the call report route refuses a body past ${REPORT_BYTES} bytes` },
     })
     // The same sender inside the bound is taken, so what refused the one above
     // is its size and not its missing header.
@@ -644,7 +644,7 @@ describe('the read channel over real HTTP', () => {
     expect({ status: refused.status, body: JSON.parse(refused.body) as unknown }).toEqual({
       status: 413,
       body: {
-        error: `content-frame: the read report route refuses a body past ${outlineChars * 4 + ENVELOPE_BYTES} bytes`,
+        error: `content-frame: the call report route refuses a body past ${outlineChars * 4 + ENVELOPE_BYTES} bytes`,
       },
     })
   })
@@ -690,7 +690,7 @@ describe('the read channel over real HTTP', () => {
     expect({ status: refused.status, body: JSON.parse(refused.body) as unknown }).toEqual({
       status: 413,
       body: {
-        error: 'content-frame: the read report route refuses a body past '
+        error: 'content-frame: the call report route refuses a body past '
           + `${DEFAULT_OUTLINE_CHARS * 4 + ENVELOPE_BYTES} bytes`,
       },
     })
@@ -715,7 +715,7 @@ describe('the read channel over real HTTP', () => {
     const refused = await raw(ctx, CONTENT_REPORT_ROUTE, { body: past })
     expect({ status: refused.status, body: JSON.parse(refused.body) as unknown }).toEqual({
       status: 413,
-      body: { error: `content-frame: the read report route refuses a body past ${bound} bytes` },
+      body: { error: `content-frame: the call report route refuses a body past ${bound} bytes` },
     })
     // A report the size a seat posts from a wide table of Chinese at this
     // budget, whose listing alone is 58,637 bytes — past the budget in bytes,
@@ -748,7 +748,7 @@ describe('the read channel over real HTTP', () => {
     expect({ status: size.status, body: JSON.parse(size.body) as unknown }).toEqual({
       status: 413,
       body: {
-        error: 'content-frame: the read report route refuses a body past '
+        error: 'content-frame: the call report route refuses a body past '
           + `${DEFAULT_OUTLINE_CHARS * 4 + ENVELOPE_BYTES} bytes`,
       },
     })

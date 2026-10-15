@@ -96,8 +96,8 @@ const CAPTURE: ImageCapture = {
 
 /** The three routes, each with a body of the document it takes and the name its refusals use. */
 const ROUTES = [
-  { path: CONTENT_CLAIM_ROUTE, name: 'the read claim route', body: { callId: CALL_A, tabId: TAB } },
-  { path: CONTENT_REPORT_ROUTE, name: 'the read report route', body: { callId: CALL_A, tabId: TAB, outcome: LISTING } },
+  { path: CONTENT_CLAIM_ROUTE, name: 'the call claim route', body: { callId: CALL_A, tabId: TAB } },
+  { path: CONTENT_REPORT_ROUTE, name: 'the call report route', body: { callId: CALL_A, tabId: TAB, outcome: LISTING } },
   { path: CONTENT_IMAGE_ROUTE, name: 'the picture report route', body: { callId: CALL_A, tabId: TAB, capture: CAPTURE } },
 ] as const
 

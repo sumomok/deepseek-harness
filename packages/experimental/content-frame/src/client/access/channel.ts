@@ -80,7 +80,7 @@ export interface ChannelDemand<Call extends ChannelCall> {
  * alone, and the channel composes the document around it, which is the one
  * place that knows the call id and the tab posting.
  */
-export type ChannelAnswer<Outcome> =
+export type ChannelAnswer =
   | {
     /** Discriminant: the domain serialized its own document. */
     readonly kind: 'body'
@@ -95,16 +95,11 @@ export type ChannelAnswer<Outcome> =
     /** The route the outcome settles on; the channel's report route when absent. */
     readonly route?: string
     /** What the call ended as, in the shared channel's own vocabulary. */
-    readonly outcome: Outcome
+    readonly outcome: ChannelOutcome
   }
 
-/**
- * One domain of the channel: a set of tools, and how their calls are answered.
- *
- * The outcome type is the domain's own declaration of what it posts, and the
- * channel's own union is what every domain in this deployment actually posts.
- */
-export interface ChannelDomain<Call extends ChannelCall, Outcome = ChannelOutcome> {
+/** One domain of the channel: a set of tools, and how their calls are answered. */
+export interface ChannelDomain<Call extends ChannelCall> {
   /** How this domain names itself in diagnostics. */
   readonly name: string
   /** Whether this page can answer this domain's calls at all right now. */
@@ -115,7 +110,7 @@ export interface ChannelDomain<Call extends ChannelCall, Outcome = ChannelOutcom
    * @param claimed - the host's acknowledgement, after the claim round trip.
    * @returns either a serialized body or an outcome, and where it settles.
    */
-  answer(call: Call, claimed: ClaimAck): Promise<ChannelAnswer<Outcome>>
+  answer(call: Call, claimed: ClaimAck): Promise<ChannelAnswer>
 }
 
 /** One domain's place in the channel: what its seat offers, and when it leaves. */
@@ -201,7 +196,7 @@ function delay(ms: number): Promise<void> {
  * @param route - the route this call settles on, as the node half registers it.
  * @param body - the answer, as the domain serialized it.
  */
-async function reportRead(route: string, body: string): Promise<void> {
+async function postAnswer(route: string, body: string): Promise<void> {
   if ((await post<ReportAck>(route, body)).kind !== 'undelivered') return
   await delay(CLAIM_RETRY_MS)
   await post<ReportAck>(route, body)
@@ -225,9 +220,7 @@ export class ContentChannel {
    * @param domain - the domain: which calls it answers, and how.
    * @returns the seat's offering point, and the parking call that ends it.
    */
-  join<Call extends ChannelCall, Outcome = ChannelOutcome>(
-    domain: ChannelDomain<Call, Outcome>,
-  ): ChannelSeat<Call> {
+  join<Call extends ChannelCall>(domain: ChannelDomain<Call>): ChannelSeat<Call> {
     const started = new Set<string>()
     const tabId = this.tabId
     let held: ChannelDemand<Call> = { calls: [], openCalls: [] }
@@ -304,7 +297,7 @@ export class ContentChannel {
       const body = answer.kind === 'body'
         ? answer.body
         : JSON.stringify({ callId: call.callId, tabId, outcome: answer.outcome })
-      await reportRead(route, body)
+      await postAnswer(route, body)
     }
 
     return {

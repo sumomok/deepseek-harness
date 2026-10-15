@@ -239,13 +239,6 @@ function settledCallId(event: SessionEvent): string | undefined {
   return undefined
 }
 
-/**
- * What this unit needs of a logger: one line for a call it folded and then
- * refused, which is the whole of what the model's own sentence leaves out. The
- * channel's own declaration is this unit's — every pending list shares it.
- */
-export type { ProjectionLogger }
-
 /** How this unit names itself in the line it writes about a value it refused. */
 const UNIT_NAME = 'contentAccess'
 

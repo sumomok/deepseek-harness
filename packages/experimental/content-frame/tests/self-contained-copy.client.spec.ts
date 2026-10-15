@@ -56,6 +56,7 @@ import {
   contentReadAttrsTool, contentReadDomContentTool, contentReadDomTool,
 } from '../src/access/markup-tool.ts'
 import { PendingCalls, type CallTimeouts } from '../src/access/pending.ts'
+import { memberTable } from './fixtures/member-table.client.ts'
 import { contentReadTool } from '../src/access/read-tool.ts'
 import type { FrontEntryLookup, ReadWait } from '../src/access/read-value.ts'
 import { indexPages } from '../src/pages.ts'
@@ -248,15 +249,15 @@ const NO_ROUTES: ModelRouteServices = { get: () => undefined }
 function toolDefinitions(): ToolDefinition[] {
   const pending = new PendingCalls()
   const front: FrontEntryLookup = () => undefined
-  const wait: ReadWait = { pending, timeouts: TIMEOUTS, front }
+  const wait: ReadWait = { pending: memberTable(pending), timeouts: TIMEOUTS, front }
   return [
     contentShowTool(indexPages(PAGES, undefined)),
-    contentReadTool(pending, TIMEOUTS, front),
+    contentReadTool(memberTable(pending), TIMEOUTS, front),
     contentReadDomTool(wait),
     contentReadAttrsTool(wait),
     contentReadDomContentTool(wait),
     contentReadImageTool(wait, NO_ROUTES),
-    contentActTool(pending, TIMEOUTS, MAX_STEPS, front, new DialogApprovals()),
+    contentActTool(memberTable(pending), TIMEOUTS, MAX_STEPS, front, new DialogApprovals()),
   ]
 }
 

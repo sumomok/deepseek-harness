@@ -21,6 +21,7 @@ import { contentReadImageTool } from '../src/access/image-tool.ts'
 import type { ModelRouteServices } from '../src/access/model-switch.ts'
 import { catalogue, fixedModalities, routeServices } from './route-services.client.ts'
 import { PendingCalls, type CallTimeouts } from '../src/access/pending.ts'
+import { memberTable } from './fixtures/member-table.client.ts'
 import {
   ELEMENT_REF_REFUSAL, EMPTY_COLUMN_REFUSAL, MISREPORTED_REFUSAL, noImageRouteRefusal, UNRESOLVED_ROUTE_REFUSAL,
 } from '../src/access/text.ts'
@@ -92,7 +93,7 @@ async function bench(model: string, registry: ModelRouteServices): Promise<Bench
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   const pending = new PendingCalls()
-  ctx.tools.register(contentReadImageTool({ pending, timeouts: FAST, front: () => undefined }, registry))
+  ctx.tools.register(contentReadImageTool({ pending: memberTable(pending), timeouts: FAST, front: () => undefined }, registry))
   const session = Session.create(SessionId(`content-image-${++calls}`))
   // The gate reads the session's own request header first and the agent's
   // options behind it; a session that has not made a request has only the
@@ -156,7 +157,7 @@ describe('the picture read', () => {
   it('offers the model one required ref and nothing else', async () => {
     const { run } = await bench(VISION_MODEL, routes(['text', 'image']))
     const tool = contentReadImageTool(
-      { pending: new PendingCalls(), timeouts: FAST, front: () => undefined },
+      { pending: memberTable(new PendingCalls()), timeouts: FAST, front: () => undefined },
       NO_ROUTES,
     )
     expect(tool.name).toBe('content_read_image')
@@ -286,7 +287,7 @@ describe('the picture read', () => {
 
   it('names the ref on the call card and the page on the settled one', async () => {
     const tool = contentReadImageTool(
-      { pending: new PendingCalls(), timeouts: FAST, front: () => undefined },
+      { pending: memberTable(new PendingCalls()), timeouts: FAST, front: () => undefined },
       NO_ROUTES,
     )
     expect(tool.presentCall?.({ ref: 'e12' })).toEqual({
@@ -310,7 +311,7 @@ describe('the picture read', () => {
     const pending = new PendingCalls()
     const open = vi.spyOn(pending, 'open')
     let asked = 0
-    ctx.tools.register(contentReadImageTool({ pending, timeouts: FAST, front: () => undefined }, routeServices({
+    ctx.tools.register(contentReadImageTool({ pending: memberTable(pending), timeouts: FAST, front: () => undefined }, routeServices({
       llm: catalogue([{
         id: PROVIDER,
         name: 'DeepSeek',
@@ -348,7 +349,7 @@ describe('the picture read', () => {
 
   it('falls back to the call\'s own title where the result carries no text', async () => {
     const tool = contentReadImageTool(
-      { pending: new PendingCalls(), timeouts: FAST, front: () => undefined },
+      { pending: memberTable(new PendingCalls()), timeouts: FAST, front: () => undefined },
       NO_ROUTES,
     )
     expect(tool.presentResult?.({ ref: 'e12' }, { content: [] } as never)).toEqual({

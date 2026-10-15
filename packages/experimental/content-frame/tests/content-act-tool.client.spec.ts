@@ -24,6 +24,7 @@ import { contentActTool } from '../src/access/act-tool.ts'
 import { registerActApproval, type ActApproval } from '../src/access/act-approval.ts'
 import { DialogApprovals } from '../src/access/dialog-approvals.ts'
 import { PendingCalls, type CallTimeouts } from '../src/access/pending.ts'
+import { memberTable } from './fixtures/member-table.client.ts'
 import type { ActOutcome, ActStep, ChannelOutcome, ClaimAck } from '../src/access/wire.ts'
 import type { FrontEntry } from '../src/access/text.ts'
 
@@ -127,7 +128,7 @@ async function bench(
   const pending = new PendingCalls()
   const approvals = new DialogApprovals()
   const asked: string[] = []
-  ctx.tools.register(contentActTool(pending, timeouts, MAX_STEPS, () => front, approvals))
+  ctx.tools.register(contentActTool(memberTable(pending), timeouts, MAX_STEPS, () => front, approvals))
   registerActApproval(ctx, approvals, MAX_STEPS, actApproval)
   if (approval !== 'none') {
     ctx.provide('approval', {
@@ -294,7 +295,7 @@ describe('what content_act offers the model', () => {
   })
 
   it('presents the call as the same sentence the user was asked, and the result by its first line', () => {
-    const tool = contentActTool(new PendingCalls(), FAST, MAX_STEPS, () => undefined, new DialogApprovals())
+    const tool = contentActTool(memberTable(new PendingCalls()), FAST, MAX_STEPS, () => undefined, new DialogApprovals())
     expect(tool.presentCall?.({ steps: STEPS })).toEqual({
       card: 'generic',
       title: 'Act on the page in the content column',
@@ -315,7 +316,7 @@ describe('what content_act offers the model', () => {
     // The presenter runs on replay of whatever was logged, including the
     // arguments this tool refused: a call the body rejected for a missing
     // field would otherwise throw every time its row was drawn.
-    const tool = contentActTool(new PendingCalls(), FAST, MAX_STEPS, () => undefined, new DialogApprovals())
+    const tool = contentActTool(memberTable(new PendingCalls()), FAST, MAX_STEPS, () => undefined, new DialogApprovals())
     for (const args of [
       { steps: [{ action: 'fill', ref: 'e1', label: '名称' }] },
       { steps: [{ action: 'click', label: '查询' }] },
@@ -343,7 +344,7 @@ describe('what content_act offers the model', () => {
   })
 
   it('cuts the raw arguments it prints for a call it could not read', () => {
-    const tool = contentActTool(new PendingCalls(), FAST, MAX_STEPS, () => undefined, new DialogApprovals())
+    const tool = contentActTool(memberTable(new PendingCalls()), FAST, MAX_STEPS, () => undefined, new DialogApprovals())
     const args = { steps: [{ action: 'fill', ref: 'e1', label: '名'.repeat(400) }] }
     const printed = tool.presentCall?.(args) as { rawInput: string } | undefined
     expect(printed?.rawInput).toHaveLength(201)
@@ -351,7 +352,7 @@ describe('what content_act offers the model', () => {
   })
 
   it('runs alone, because two sets of steps would interleave on one page', () => {
-    const tool = contentActTool(new PendingCalls(), FAST, MAX_STEPS, () => undefined, new DialogApprovals())
+    const tool = contentActTool(memberTable(new PendingCalls()), FAST, MAX_STEPS, () => undefined, new DialogApprovals())
     expect(tool.isConcurrencySafe?.({ steps: STEPS })).toBe(false)
   })
 })
@@ -479,7 +480,7 @@ describe('what the body refuses on its own', () => {
     // The kernel's approval seam refuses an agent-less call first, so this is
     // driven through the tool directly: there is no session whose column could
     // be acted on, and the body says which.
-    const tool = contentActTool(new PendingCalls(), FAST, MAX_STEPS, () => undefined, new DialogApprovals())
+    const tool = contentActTool(memberTable(new PendingCalls()), FAST, MAX_STEPS, () => undefined, new DialogApprovals())
     const exec = {
       callId: 'call_no_agent',
       name: 'content_act',
@@ -558,7 +559,7 @@ describe('the approval every set of steps runs under', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
-    ctx.tools.register(contentActTool(new PendingCalls(), FAST, MAX_STEPS, () => undefined, new DialogApprovals()))
+    ctx.tools.register(contentActTool(memberTable(new PendingCalls()), FAST, MAX_STEPS, () => undefined, new DialogApprovals()))
     const result = await ctx.tools.execute({
       callId: `call-${++calls}` as ToolExecutionInput['callId'],
       name: 'content_act',
@@ -813,7 +814,7 @@ describe('what content_act answers with', () => {
 
   it('names the cancellation the agent loop replaces with its own outcome', async () => {
     const aborter = new AbortController()
-    const tool = contentActTool(new PendingCalls(), FAST, MAX_STEPS, () => undefined, new DialogApprovals())
+    const tool = contentActTool(memberTable(new PendingCalls()), FAST, MAX_STEPS, () => undefined, new DialogApprovals())
     const session = Session.create(SessionId(`content-act-${++calls}`))
     const exec = {
       callId: 'call_cancelled',

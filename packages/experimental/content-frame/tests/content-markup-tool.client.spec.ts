@@ -22,6 +22,7 @@ import {
   contentReadAttrsTool, contentReadDomContentTool, contentReadDomTool,
 } from '../src/access/markup-tool.ts'
 import { PendingCalls, type CallTimeouts } from '../src/access/pending.ts'
+import { memberTable } from './fixtures/member-table.client.ts'
 import type { ReadOutcome, ReadSnapshot } from '../src/access/wire.ts'
 
 /** Deadlines short enough for a test to sit through both of them. */
@@ -62,7 +63,7 @@ async function bench(): Promise<Bench> {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   const pending = new PendingCalls()
-  const wait = { pending, timeouts: FAST, front: () => undefined }
+  const wait = { pending: memberTable(pending), timeouts: FAST, front: () => undefined }
   ctx.tools.register(contentReadDomTool(wait))
   ctx.tools.register(contentReadAttrsTool(wait))
   ctx.tools.register(contentReadDomContentTool(wait))
@@ -371,7 +372,7 @@ describe('what a markup read refuses', () => {
     const session = Session.create(SessionId(`content-markup-abort-${++calls}`))
     const control = new AbortController()
     control.abort()
-    await expect(contentReadDomContentTool({ pending, timeouts: FAST, front: () => undefined })
+    await expect(contentReadDomContentTool({ pending: memberTable(pending), timeouts: FAST, front: () => undefined })
       .execute({ ref: 'e1' }, {
         callId: 'call_abort' as ToolExecutionInput['callId'],
         agent: agentWithSession(session),
@@ -383,7 +384,7 @@ describe('what a markup read refuses', () => {
 describe('how the three reads appear in the transcript', () => {
   it('names the call and what it asked for', () => {
     const pending = new PendingCalls()
-    const wait = { pending, timeouts: FAST, front: () => undefined }
+    const wait = { pending: memberTable(pending), timeouts: FAST, front: () => undefined }
     expect(contentReadDomTool(wait).presentCall?.({ scope: 'e12' })).toEqual({
       card: 'generic',
       title: 'Read the markup of the page in the content column',
@@ -411,7 +412,7 @@ describe('how the three reads appear in the transcript', () => {
   })
 
   it('lets two reads of one step share a seat', () => {
-    const wait = { pending: new PendingCalls(), timeouts: FAST, front: () => undefined }
+    const wait = { pending: memberTable(new PendingCalls()), timeouts: FAST, front: () => undefined }
     // The reads write nothing and only wait on a browser, so the registry may
     // run them together and one seat answers them one after the other.
     for (const tool of [contentReadDomTool(wait), contentReadAttrsTool(wait), contentReadDomContentTool(wait)]) {
@@ -420,7 +421,7 @@ describe('how the three reads appear in the transcript', () => {
   })
 
   it('names the page in the settled row of a single-element read', () => {
-    const wait = { pending: new PendingCalls(), timeouts: FAST, front: () => undefined }
+    const wait = { pending: memberTable(new PendingCalls()), timeouts: FAST, front: () => undefined }
     const tool = contentReadAttrsTool(wait)
     expect(tool.presentResult?.({ ref: 'e1' }, {
       content: [{ type: 'text', text: 'Page: Home — the app is at /\ne1 i' }],
@@ -431,7 +432,7 @@ describe('how the three reads appear in the transcript', () => {
   })
 
   it('names the page in the settled row, and degrades to the call title without one', () => {
-    const wait = { pending: new PendingCalls(), timeouts: FAST, front: () => undefined }
+    const wait = { pending: memberTable(new PendingCalls()), timeouts: FAST, front: () => undefined }
     const tool = contentReadDomTool(wait)
     expect(tool.presentResult?.({ scope: 'e1' }, {
       content: [{ type: 'text', text: 'Page: Home — the app is at /\ne1 div' }],

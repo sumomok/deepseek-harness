@@ -50,7 +50,7 @@ import { serveContentApp } from './serve.ts'
 import {
   answerJson, readJsonBody, rejectMethod, rejectUntrustedPost, takeJsonBody, type BodyRefusals,
 } from './access/http.ts'
-import { admitCaller, placeByMember, placeEveryCaller, reportDirectoryMismatch } from './access/members.ts'
+import { admitCaller, placeByMember, placeEveryCaller, reportDirectoryMismatch, type PlaceCaller } from './access/members.ts'
 import { REPORT_REFUSED, type CallTimeouts } from './access/pending.ts'
 import { ContentChannel } from './access/channel.ts'
 import { contentAccessProjection } from './access/requests-projection.ts'
@@ -504,6 +504,7 @@ const IMAGE_ROUTE_NAME = 'the picture report route'
  * @param channel - the shared channel this domain delivers its calls through.
  * @param config - the deployment's page-access block.
  * @param perMember - whether each post is answered only for its member's calls.
+ * @param place - the admission the channel's routes use, which the picture route uses too.
  * @returns the settings the browser half needs to run a read.
  */
 function claimPageAccess(
@@ -511,6 +512,7 @@ function claimPageAccess(
   channel: ContentChannel,
   config: PageAccessConfig,
   perMember: boolean,
+  place: PlaceCaller,
 ): ContentFrameSettings['pageAccess'] {
   // Loud at load: a zero deadline would refuse every read the model can make,
   // with no diagnostic pointing at the row that set it.
@@ -584,7 +586,6 @@ function claimPageAccess(
     shape: 'content-frame: expected a JSON body with callId, tabId, and capture',
   }
   const approvals = new DialogApprovals()
-  const place = perMember ? placeByMember(ctx) : placeEveryCaller
   reportDirectoryMismatch(ctx, perMember, ctx.logger('content-frame'))
   // The page domain joins the shared channel: its own name, the widest body it
   // can post, and the parser that reads its own reports. The two routes and the
@@ -728,12 +729,12 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   }), 'content-frame: hosted application route')
   // The channel is provided here and joins whichever domains deliver calls
   // through it; it claims no route until one does.
-  const channel = new ContentChannel(ctx, {
-    place: config.perMember === true ? placeByMember(ctx) : placeEveryCaller,
-  })
+  const perMember = config.perMember === true
+  const place = perMember ? placeByMember(ctx) : placeEveryCaller
+  const channel = new ContentChannel(ctx, { place })
   const pageAccess = config.pageAccess === undefined
     ? undefined
-    : claimPageAccess(ctx, channel, config.pageAccess, config.perMember === true)
+    : claimPageAccess(ctx, channel, config.pageAccess, perMember, place)
   const settings: ContentFrameSettings = {
     cacheSize,
     navigationPollMs,

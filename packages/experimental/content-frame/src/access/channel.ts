@@ -13,10 +13,11 @@
  *
  * Two things stay with a domain. What a call *is* — the tool names it may
  * carry, the arguments it takes, the pending list published to the tab — is the
- * domain's own vocabulary, so each one publishes its list under its own
- * projection key and folds it with {@link foldPending}. And what a report
- * *means* is read by the member that opened the call, so a body posted for one
- * domain is never parsed against another's bounds.
+ * domain's own vocabulary, so each one publishes and folds its own list under
+ * its own projection key; {@link foldPending} and {@link checkedPending} are the
+ * page domain's fold and view check. And what a report *means* is read by the
+ * member that opened the call, so a body posted for one domain is never parsed
+ * against another's bounds.
  *
  * The routes exist while a member does: a composition that delivers no calls
  * serves none of them, and a row that serves one does not have to be the row
@@ -29,7 +30,6 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ZodType } from 'zod'
 // Type-only: resolves ctx.webServer, which owns the two routes claimed here.
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { admitCaller, type PlaceCaller } from './members.ts'
 import { answerJson, readJsonBody, rejectMethod, rejectUntrustedPost, takeJsonBody } from './http.ts'
@@ -51,10 +51,13 @@ declare module '@deepseek-ai/cordis' {
 const MAX_CLAIM_BYTES = 1024
 
 /** What the claim route calls itself in its own refusals. */
-const CLAIM_ROUTE_NAME = 'the read claim route'
+const CLAIM_ROUTE_NAME = 'the call claim route'
 
 /** What the report route calls itself in its own refusals. */
-const REPORT_ROUTE_NAME = 'the read report route'
+const REPORT_ROUTE_NAME = 'the call report route'
+
+/** The report route's sentence for a body no member reads. */
+const REPORT_SHAPE_REFUSAL = 'content-frame: expected a JSON body with callId, tabId, and outcome'
 
 /** The claim route's two sentences for a body it cannot use. */
 const CLAIM_REFUSALS = {
@@ -113,7 +116,7 @@ export interface ChannelMember {
  * The two log shapes a call arrives in are the domain's to read — a top-level
  * `tool/call` carries raw JSON arguments and a PTC dispatch carries them
  * decoded — so both readers are injected, and this fold is only the list
- * arithmetic every pending list shares.
+ * arithmetic.
  * @param state - the open calls, oldest first.
  * @param event - the committed session event.
  * @param opened - the call one event opened, or `undefined` when it opened none.
@@ -141,7 +144,7 @@ export function foldPending<Call extends { callId: string }>(
  * the model as the validator's raw issue list — an argument to change, about a
  * call whose arguments are fine. A unit checks its own view first so the same
  * defect becomes one sentence the model can act on and one log line carrying
- * the issues, on either domain's list.
+ * the issues.
  */
 export interface ProjectionLogger {
   /**
@@ -225,7 +228,7 @@ export class ContentChannel extends Service implements ReportSink {
     return {
       calls: {
         open: (callId, sessionId, signal, timeouts, page) => this.calls.open(
-          callId, sessionId, signal, timeouts, page, member.name,
+          callId, sessionId, signal, timeouts, member.name, page,
         ),
         sessionOf: callId => this.calls.sessionOf(callId),
       },
@@ -236,15 +239,6 @@ export class ContentChannel extends Service implements ReportSink {
         if (this.members.get(member.name) === member) this.members.delete(member.name)
       },
     }
-  }
-
-  /**
-   * The session one call id was opened against.
-   * @param callId - the call a claim or a report names.
-   * @returns that session, or `undefined` for an id this channel does not know.
-   */
-  sessionOf(callId: string): SessionId | undefined {
-    return this.calls.sessionOf(callId)
   }
 
   /**
@@ -284,8 +278,7 @@ export class ContentChannel extends Service implements ReportSink {
    * The call id is read first, because which domain wrote a body is a fact
    * about the call rather than about the document. A report for a call that has
    * already settled names no member any more, so every registered member is
-   * offered the body in turn — which is exactly how a single-domain channel
-   * read such a body before the channel was shared.
+   * offered the body in turn.
    * @param value - the decoded request body, however malformed.
    * @returns the report, or `undefined` when no member reads the body.
    */
@@ -364,12 +357,12 @@ export class ContentChannel extends Service implements ReportSink {
     if (caller === undefined) return
     const body = takeJsonBody(res, await readJsonBody(req, bound), {
       oversize: `content-frame: ${REPORT_ROUTE_NAME} refuses a body past ${bound} bytes`,
-      shape: 'content-frame: expected a JSON body with callId, tabId, and outcome',
+      shape: REPORT_SHAPE_REFUSAL,
     })
     if (body === undefined) return
     const report = this.readReport(body.value)
     if (report === undefined) {
-      answerJson(res, 400, { error: 'content-frame: expected a JSON body with callId, tabId, and outcome' })
+      answerJson(res, 400, { error: REPORT_SHAPE_REFUSAL })
       return
     }
     answerJson(res, 200, caller.owns(this.calls.sessionOf(report.callId)) ? this.calls.report(report) : REPORT_REFUSED)
