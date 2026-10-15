@@ -91,11 +91,6 @@ export function PointButton({ inputActions, useInput, point, draft, drafted, rel
   const latest = useRef(attachmentIds)
   latest.current = attachmentIds
   const button = useRef<HTMLButtonElement | null>(null)
-  const alive = useRef(true)
-  useEffect(() => {
-    alive.current = true
-    return () => { alive.current = false }
-  }, [])
   // Unmounting the composer ends a point still running.
   useEffect(() => () => running?.abort(), [running])
 
@@ -128,12 +123,11 @@ export function PointButton({ inputActions, useInput, point, draft, drafted, rel
     const controller = new AbortController()
     setRunning(controller)
     void point(controller.signal).then((outcome) => {
-      if (!alive.current) return
       setRunning(null)
       if (outcome.kind === 'reference') file(outcome)
       else if (outcome.kind === 'refused') notify(t('refused.text', { reason: refusal(outcome.reason) }))
     }, () => {
-      if (alive.current) setRunning(null)
+      setRunning(null)
     })
   }, [file, full, notify, point, refusal, running, t])
 

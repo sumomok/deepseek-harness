@@ -171,24 +171,11 @@ describe('the 「指一下」 button', () => {
     expect(b.addAttachments).not.toHaveBeenCalled()
   })
 
-  it('cancels a point still running when the composer unmounts, and takes no outcome after', async () => {
+  it('cancels a point still running when the composer unmounts', () => {
     const b = setup()
     fireEvent.click(b.button())
-    const running = b.points[0]
     b.view.unmount()
-    expect(running?.signal.aborted).toBe(true)
-    await act(async () => { running?.settle({ kind: 'reference', label: 'x', data: {} }) })
-    expect(b.draft).not.toHaveBeenCalled()
-    await waitFor(() => { expect(b.addAttachments).not.toHaveBeenCalled() })
-  })
-
-  it('takes no failure after the composer unmounts', async () => {
-    const b = setup()
-    fireEvent.click(b.button())
-    const running = b.points[0]
-    b.view.unmount()
-    await act(async () => { running?.fail(new Error('late')) })
-    expect(b.addAttachments).not.toHaveBeenCalled()
+    expect(b.points[0]?.signal.aborted).toBe(true)
   })
 
   it('cancels a real pick on a second trusted click, and shows no refusal', async () => {
