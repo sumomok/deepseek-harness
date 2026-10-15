@@ -21,14 +21,10 @@ import type { ComponentActionHandler, ComponentRendererProps } from '../src/clie
 import type { VueInstance } from '../src/client/vue-shim.ts'
 import type { DataPageAbilityTable } from '../src/route.ts'
 import { defineTable, drain, flush, seen, settleProgress, STORED_TOKEN, StubRequest } from './fixtures/crud-backend.client.ts'
+import { BASE_PATH, basePathRead } from './fixtures/base-path.client.ts'
+import { instanceOf } from './fixtures/kit-blocks.client.ts'
 
-/** What the base-path read answers with, per case: a path, or a refusal. */
-let basePath: Promise<string> = Promise.resolve('/probe-base/')
-
-vi.mock('../src/client/data-page-settings.ts', () => ({
-  dataPageBasePathReady: (): Promise<string> => basePath,
-  settleDataPageBasePath: (): Promise<string> => basePath,
-}))
+vi.mock('../src/client/data-page-settings.ts', () => import('./fixtures/base-path.client.ts'))
 
 /** Every ability on: the verdict a case gets unless it is about the verdict. */
 const ALL_ABILITIES: DataPageAbilityTable = { create: true, update: true, delete: true, import: true, export: true }
@@ -73,7 +69,7 @@ beforeAll(() => {
 })
 
 beforeEach(() => {
-  basePath = Promise.resolve('/probe-base/')
+  basePathRead.answer = Promise.resolve(BASE_PATH)
   abilities = Promise.resolve(ALL_ABILITIES)
   localStorage.removeItem('userInfo')
   seen.length = 0
@@ -115,11 +111,7 @@ type FormInstance = VueInstance & {
  * @returns the instance.
  */
 function formOf(container: HTMLElement): FormInstance {
-  const box = container.querySelector('[data-toy-crud-box]') as HTMLElement
-  const rootEl = box.firstElementChild?.firstElementChild as HTMLElement & { __vue__?: VueInstance }
-  let instance = rootEl.__vue__ as VueInstance
-  while (instance.$options.name !== 'ToyFormPage') instance = instance.$children[0] as VueInstance
-  return instance as FormInstance
+  return instanceOf(container, 'ToyFormPage') as FormInstance
 }
 
 /**
@@ -282,14 +274,14 @@ describe('toy.form-page', () => {
 
   it('mounts nothing before the base path is in force, and says so either way', async () => {
     let release: (path: string) => void = () => {}
-    basePath = new Promise((resolve) => { release = resolve })
+    basePathRead.answer = new Promise((resolve) => { release = resolve })
     const waiting = draw({ relatedMeta: table('probe_form_wait') })
     expect(waiting.view.container.querySelector('[data-part-line="preparing"]')?.textContent).toBe(en['formPage.preparing'])
     expect(waiting.view.container.querySelector('[data-toy-crud-box]')).toBeNull()
     release('/probe-base/')
     await vi.waitFor(() => { expect(waiting.view.container.querySelector('[data-toy-crud-box]')).not.toBeNull() })
     cleanup()
-    basePath = Promise.reject(new Error('component-kit: answered 503'))
+    basePathRead.answer = Promise.reject(new Error('component-kit: answered 503'))
     const failed = draw({ relatedMeta: table('probe_form_fail'), request: { mode: 'add', type: 'probe_form_fail' } })
     await vi.waitFor(() => {
       expect(failed.view.container.querySelector('[data-part-line="address"]')?.textContent).toBe(en['formPage.unavailable'])

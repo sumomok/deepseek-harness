@@ -27,12 +27,10 @@ import { installElementUI } from '../src/client/element-ui.ts'
 import { en } from '../src/client/locales.ts'
 import type { ComponentRendererProps } from '../src/client/renderer.ts'
 import { drain, flush, settleProgress, STORED_TOKEN, StubRequest, defineTable } from './fixtures/crud-backend.client.ts'
+import { entrySeat } from './fixtures/kit-blocks.client.ts'
 
 /** The base path read, in force for every case here. */
-vi.mock('../src/client/data-page-settings.ts', () => ({
-  dataPageBasePathReady: (): Promise<string> => Promise.resolve('/probe-base/'),
-  settleDataPageBasePath: (): Promise<string> => Promise.resolve('/probe-base/'),
-}))
+vi.mock('../src/client/data-page-settings.ts', () => import('./fixtures/base-path.client.ts'))
 
 /** The abilities the node half answers with: every entrance kept. */
 vi.mock('../src/client/data-page-abilities.ts', () => ({
@@ -109,16 +107,7 @@ interface Drawn {
  * @returns the entry container and the rendered block.
  */
 async function draw(): Promise<Drawn> {
-  document.body.innerHTML = `
-    <nav data-content-surface-switcher>
-      <button data-content-surface-entry="component demo" data-content-surface-selected>Demo</button>
-    </nav>
-    <div data-content-surface-seat="component" data-content-surface-active></div>
-  `
-  const seat = document.querySelector('[data-content-surface-seat="component"][data-content-surface-active]') as HTMLElement
-  const entry = document.createElement('div')
-  entry.setAttribute('data-component-surface', '')
-  seat.appendChild(entry)
+  const entry = entrySeat()
   const props = Object.freeze({ relatedMeta: META, metaLabel: '演示设备', readOnly: false })
   const view = render(
     <DataPageRenderer nodeId="page-1" props={props} state="idle" onAction={vi.fn()} onOutput={vi.fn()} t={t} />,
@@ -161,7 +150,7 @@ function dialogSelect(drawn: Drawn, field: string): HTMLElement {
 
 /** The value the component behind one select holds, read off its own instance. */
 function modelOf(select: HTMLElement): unknown {
-  return (select as unknown as { __vue__: { value: unknown } }).__vue__.value
+  return (select as HTMLElement & { readonly __vue__: { readonly value: unknown } }).__vue__.value
 }
 
 describe('a select field on a real data page', () => {

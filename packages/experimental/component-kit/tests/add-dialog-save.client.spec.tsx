@@ -22,12 +22,10 @@ import { installElementUI } from '../src/client/element-ui.ts'
 import { en } from '../src/client/locales.ts'
 import type { ComponentRendererProps } from '../src/client/renderer.ts'
 import { drain, flush, seen, settleProgress, STORED_TOKEN, StubRequest, defineTable } from './fixtures/crud-backend.client.ts'
+import { entrySeat } from './fixtures/kit-blocks.client.ts'
 
 /** The base path read, in force for every case here. */
-vi.mock('../src/client/data-page-settings.ts', () => ({
-  dataPageBasePathReady: (): Promise<string> => Promise.resolve('/probe-base/'),
-  settleDataPageBasePath: (): Promise<string> => Promise.resolve('/probe-base/'),
-}))
+vi.mock('../src/client/data-page-settings.ts', () => import('./fixtures/base-path.client.ts'))
 
 /** The abilities the node half answers with: every entrance kept. */
 vi.mock('../src/client/data-page-abilities.ts', () => ({
@@ -65,7 +63,7 @@ afterAll(settleProgress)
 
 /** Every request the stub saw for one table's add endpoint, which is what a save is. */
 function addRequests(): { method: string; url: string }[] {
-  return seen.filter(request => request.method === 'POST' && request.url.includes(`/api/resources/${META}`))
+  return seen.filter(request => request.method === 'POST' && request.url.split('?')[0]?.endsWith(`/api/resources/${META}`) === true)
 }
 
 /**
@@ -74,16 +72,7 @@ function addRequests(): { method: string; url: string }[] {
  * @returns the entry container and the rendered block.
  */
 async function drawAndOpen(): Promise<{ entry: HTMLElement; onAction: ReturnType<typeof vi.fn> }> {
-  document.body.innerHTML = `
-    <nav data-content-surface-switcher>
-      <button data-content-surface-entry="component demo" data-content-surface-selected>Demo</button>
-    </nav>
-    <div data-content-surface-seat="component" data-content-surface-active></div>
-  `
-  const seat = document.querySelector('[data-content-surface-seat="component"][data-content-surface-active]') as HTMLElement
-  const entry = document.createElement('div')
-  entry.setAttribute('data-component-surface', '')
-  seat.appendChild(entry)
+  const entry = entrySeat()
   const onAction = vi.fn()
   const props = Object.freeze({ relatedMeta: META, metaLabel: '演示设备', readOnly: false })
   render(<DataPageRenderer nodeId="page-1" props={props} state="idle" onAction={onAction} onOutput={vi.fn()} t={t} />, { container: entry })

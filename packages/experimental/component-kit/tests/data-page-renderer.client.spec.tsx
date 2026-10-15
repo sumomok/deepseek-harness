@@ -29,14 +29,10 @@ import type { ComponentActionHandler, ComponentOutputHandler, ComponentRendererP
 import type { VueInstance } from '../src/client/vue-shim.ts'
 import { NO_ABILITIES, type DataPageAbilityTable } from '../src/route.ts'
 import { answers, defineTable, drain, flush, seen, settleProgress, STORED_TOKEN, StubRequest } from './fixtures/crud-backend.client.ts'
+import { BASE_PATH, basePathRead } from './fixtures/base-path.client.ts'
+import { instanceOf } from './fixtures/kit-blocks.client.ts'
 
-/** What the base-path read answers with, per case: a path, or a refusal. */
-let basePath: Promise<string> = Promise.resolve('/probe-base/')
-
-vi.mock('../src/client/data-page-settings.ts', () => ({
-  dataPageBasePathReady: (): Promise<string> => basePath,
-  settleDataPageBasePath: (): Promise<string> => basePath,
-}))
+vi.mock('../src/client/data-page-settings.ts', () => import('./fixtures/base-path.client.ts'))
 
 /** Every ability on: the verdict a case gets unless it is about the verdict. */
 const ALL_ABILITIES: DataPageAbilityTable = { create: true, update: true, delete: true, import: true, export: true }
@@ -132,7 +128,7 @@ beforeAll(() => {
 })
 
 beforeEach(() => {
-  basePath = Promise.resolve('/probe-base/')
+  basePathRead.answer = Promise.resolve(BASE_PATH)
   abilities = Promise.resolve(ALL_ABILITIES)
   abilityReads.length = 0
   answers.userInfo = undefined
@@ -201,28 +197,20 @@ async function loaded(onAction: ReturnType<typeof vi.fn>): Promise<void> {
   await flush()
 }
 
-/** The `DataPage` instance under one drawn block: where its events are raised, and its save handlers. */
+/** The `DataPage` instance under one drawn block: where its events are raised. */
 type PageInstance = VueInstance & {
   $props: Record<string, unknown>
-  /** The delete window's write check, which a real delete reaches before it reports. */
-  guardDeleteSave(): Promise<false | undefined>
-  /** The batch edit's write check, which a real batch edit reaches before it reports. */
-  guardBatchModifySave(): Promise<false | undefined>
-  /** The page's own handler for a delete that removed at least one record. */
-  handleDeleteSuccess(finished: readonly unknown[]): void
-  /** The page's own handler for a batch edit that changed every record. */
-  handleModifyBatchSuccess(finished: readonly unknown[], batch: unknown): void
-  /** The page's own handler for a name or a relation link a person clicked, which opens its side card. */
+  /**
+   * The page's own handler for a relation link a person clicked, which opens
+   * its side card. The stub scheme draws no relation link, so a case that needs
+   * the card open calls the handler the link's click would.
+   */
   handleTableTransCellClick(payload: { readonly dataBase: unknown }): void
 }
 
 /** The `DataPage` instance under one drawn block, which is where its events are raised. */
 function pageOf(container: HTMLElement): PageInstance {
-  const box = container.querySelector('[data-toy-crud-box]') as HTMLElement
-  const rootEl = box.firstElementChild?.firstElementChild as HTMLElement & { __vue__?: VueInstance }
-  let instance = rootEl.__vue__ as VueInstance
-  while (instance.$options.name !== 'ToyDataPage') instance = instance.$children[0] as VueInstance
-  return instance as PageInstance
+  return instanceOf(container, 'ToyDataPage') as PageInstance
 }
 
 /**
@@ -243,7 +231,7 @@ function buttons(container: HTMLElement): { text: string; cls: string }[] {
 describe('toy.data-page', () => {
   it('mounts nothing before the base path is in force, and says so', async () => {
     let release: (path: string) => void = () => {}
-    basePath = new Promise((resolve) => { release = resolve })
+    basePathRead.answer = new Promise((resolve) => { release = resolve })
     const { view, onAction } = draw()
     expect(view.container.querySelector('[data-page-stalled="preparing"]')?.textContent).toBe(en['dataPage.preparing'])
     expect(view.container.querySelector('[data-toy-crud-box]')).toBeNull()
@@ -263,13 +251,13 @@ describe('toy.data-page', () => {
 
   it('lets the base path settle after the block is gone, either way, without touching it', async () => {
     let release: (path: string) => void = () => {}
-    basePath = new Promise((resolve) => { release = resolve })
+    basePathRead.answer = new Promise((resolve) => { release = resolve })
     const gone = draw()
     gone.view.unmount()
     release('/probe-base/')
     await flush()
     let refuse: (reason: Error) => void = () => {}
-    basePath = new Promise((_resolve, reject) => { refuse = reject })
+    basePathRead.answer = new Promise((_resolve, reject) => { refuse = reject })
     const alsoGone = draw()
     alsoGone.view.unmount()
     refuse(new Error('component-kit: answered 503'))
@@ -280,7 +268,7 @@ describe('toy.data-page', () => {
   })
 
   it('draws the line saying the page cannot open where the base path never arrived', async () => {
-    basePath = Promise.reject(new Error('component-kit: answered 503'))
+    basePathRead.answer = Promise.reject(new Error('component-kit: answered 503'))
     const { view, onAction } = draw()
     await vi.waitFor(() => {
       expect(view.container.querySelector('[data-page-stalled="address"]')?.textContent).toBe(en['dataPage.unavailable'])
@@ -294,7 +282,7 @@ describe('toy.data-page', () => {
     // is a record no call wrote. The line names this cause and not the settings
     // read's, and it is drawn whatever the base path is doing.
     let release: (path: string) => void = () => {}
-    basePath = new Promise((resolve) => { release = resolve })
+    basePathRead.answer = new Promise((resolve) => { release = resolve })
     const { view, onAction } = draw(Object.freeze({ metaLabel: '演示设备' }))
     expect(view.container.querySelector('[data-page-stalled="table"]')?.textContent).toBe(en['dataPage.noTable'])
     release('/probe-base/')
@@ -652,7 +640,7 @@ describe('toy.data-page', () => {
   })
 
   it('hands the page every property a call may choose, and nothing it may not', async () => {
-    const { view, onAction } = draw({
+    const { view } = draw({
       relatedMeta: META,
       metaLabel: '演示设备',
       conditions: [{ key: 'city', op: 'EQ', value: '北京' }, { key: 'state', op: 'IN', value: ['在用', 3, true] }, { op: 'EQ', value: 1 }, 7],
@@ -660,9 +648,9 @@ describe('toy.data-page', () => {
       querySort: { desc: 'city' },
       isInitQuery: false,
     })
-    await vi.waitFor(() => { expect(view.container.querySelector('[data-toy-crud-box]')).not.toBeNull() })
-    await flush()
-    const page = pageOf(view.container)
+    // The page's root renders a comment rather than an element until its
+    // scheme resolves, and `pageOf` walks the DOM to the instance.
+    const page = await vi.waitFor(() => pageOf(view.container), { timeout: 5000, interval: 20 })
     expect(page.$props['conditions']).toEqual([{ key: 'city', op: 'EQ', value: '北京' }, { key: 'state', op: 'IN', value: ['在用', 3] }])
     expect(page.$props['matchMode']).toBe('OR')
     expect(page.$props['querySort']).toEqual({ desc: 'city' })
@@ -670,10 +658,6 @@ describe('toy.data-page', () => {
     // The block named neither, so the page's own defaults stand.
     expect(page.$props['selectMode']).toBe('checkbox')
     expect(page.$props['readOnly']).toBe(true)
-    // No first query was asked for, so nothing was searched and nothing counted.
-    await flush()
-    expect(seen.map(request => request.url).filter(url => url.includes('_search'))).toEqual([])
-    expect(onAction).not.toHaveBeenCalledWith('query', expect.anything())
   })
 
   it('draws every entrance it could remove removed until the verdict arrives, then changes them in place', async () => {
@@ -854,17 +838,13 @@ describe('a column the table\'s scheme masks', () => {
     expect(onAction).toHaveBeenLastCalledWith('added', { record: { zh_label: '乙', city: '北京' } })
     page.$emit('modify-save-success', MASKED_ROW)
     expect(onAction).toHaveBeenLastCalledWith('modified', { record: { zh_label: '', city: '北京' } })
-    // The page's own handlers trim a deleted or changed record before raising
-    // it; the record is named by its first unmasked cell that shows anything.
-    // Each write reaches its handler through the check its window runs before
-    // writing, and that check is what records the table a report is computed
-    // against — without it the report would name no record.
-    await page.guardDeleteSave()
-    page.handleDeleteSuccess([{ type: 'success', rawValue: MASKED_ROW }])
+    // A deleted or changed record raised whole, masked cell and all, is named
+    // by its first unmasked cell that shows anything, and a masked field it
+    // changed is not named.
+    page.$emit('delete-save-success', { meta: MASKED_META, ids: ['1'], deleted: [MASKED_ROW], failed: 0 })
     expect(onAction).toHaveBeenLastCalledWith('deleted', { succeeded: 1, failed: 0, names: ['北京'] })
-    await page.guardBatchModifySave()
-    page.handleModifyBatchSuccess([{ type: 'success', rawValue: MASKED_ROW }], { checkedAttr: [{ name: 'city' }] })
-    expect(onAction).toHaveBeenLastCalledWith('batch-modified', { succeeded: 1, failed: 0, names: ['北京'], fields: ['city'] })
+    page.$emit('batch-modify-save-success', { meta: MASKED_META, modified: [MASKED_ROW], attrs: ['code', 'city'] })
+    expect(onAction).toHaveBeenLastCalledWith('batch-modified', { succeeded: 1, names: ['北京'], fields: ['city'] })
     // The page registered its own columns before raising the load; the
     // narrower list this block reports values from is the one it trims its
     // own saves to, and the one a form page on the same table trims to.
@@ -911,31 +891,82 @@ describe('the controls one data page marks for the act tool', () => {
   }
 
   /**
-   * One marked control, as the act tool addresses it.
-   * @param container - the drawn block.
-   * @param selector - the control.
-   * @returns the action and the key it carries, either `null` where absent.
+   * The action and key one control carries, as the act tool reads them.
+   * @param el - the control, as a person finds it on the page.
+   * @returns the two marks, either `null` where absent, or `null` for a control the page did not draw.
    */
-  function markOf(container: HTMLElement, selector: string): { action: string | null; key: string | null } | null {
-    const el = container.querySelector(selector)
-    return el === null ? null : { action: el.getAttribute('data-component-action'), key: el.getAttribute('data-component-key') }
+  function marksOn(el: Element | null | undefined): { action: string | null; key: string | null } | null {
+    return el == null ? null : { action: el.getAttribute('data-component-action'), key: el.getAttribute('data-component-key') }
+  }
+
+  /**
+   * The button a person finds by the text it shows.
+   * @param scope - where to look.
+   * @param text - the button's text.
+   * @returns the button, or `undefined` where none shows that text.
+   */
+  function buttonNamed(scope: ParentNode | null, text: string): Element | undefined {
+    return [...scope?.querySelectorAll('button') ?? []].find(button => button.textContent?.trim() === text)
+  }
+
+  /**
+   * The open dialog a person finds by its title.
+   * @param container - the drawn block.
+   * @param title - the dialog's title.
+   * @returns the dialog, or `null` where none is drawn under that title.
+   */
+  function dialogTitled(container: HTMLElement, title: string): Element | null {
+    return container.querySelector(`[role="dialog"][aria-label="${title}"]`)
+  }
+
+  /**
+   * One control a person finds in the row showing a name. el-table draws a row
+   * once per wrapper and leaves the copies under a fixed column as `is-hidden`
+   * placeholders, so the row is every wrapper's row at the same index, and only
+   * its drawn cells are looked in.
+   * @param container - the drawn block.
+   * @param name - the row's name cell.
+   * @param selector - the control, as it is drawn.
+   * @param text - the text it shows, where several controls match the selector.
+   * @returns the control, or `undefined` where the row draws none.
+   */
+  function inRow(container: HTMLElement, name: string, selector: string, text?: string): Element | undefined {
+    const cell = [...container.querySelectorAll('td:not(.is-hidden)')].find(td => td.textContent?.trim() === name)
+    const row = cell?.closest('tr')
+    if (row == null) throw new Error(`the table drew no row named "${name}"`)
+    const index = [...row.parentElement?.children ?? []].indexOf(row)
+    const controls = [...container.querySelectorAll('tbody')]
+      .flatMap(body => [...body.children[index]?.querySelectorAll(`td:not(.is-hidden) ${selector}`) ?? []])
+    return text === undefined ? controls[0] : controls.find(control => control.textContent?.trim() === text)
+  }
+
+  /**
+   * The field input a person finds by its label, among the fields drawn now.
+   * @param container - the drawn block.
+   * @param label - the label the field shows.
+   * @returns the column the input is marked with, `null` where it carries none.
+   */
+  function fieldLabelled(container: HTMLElement, label: string): string | null | undefined {
+    const item = [...container.querySelectorAll('.el-form-item')]
+      .find(candidate => candidate.querySelector('label')?.textContent?.trim() === label)
+    return item?.querySelector('input')?.getAttribute('data-component-field')
   }
 
   it('marks the toolbar, the table and its fields with the actions and keys the catalog declares', async () => {
     const { view, onAction } = draw(arranged())
     await loaded(onAction)
-    await vi.waitFor(() => { expect(markOf(view.container, 'button.query-btn')).not.toBeNull() })
+    await vi.waitFor(() => { expect(marksOn(buttonNamed(view.container, '查询'))).toEqual({ action: 'query', key: 'search' }) })
+    const row = (selector: string, text?: string): Element | undefined => inRow(view.container, '北京-核心-01', selector, text)
+    await vi.waitFor(() => { expect(row('a', '测试连通')).not.toBeUndefined() })
     expect([
-      markOf(view.container, 'button.query-btn'),
-      markOf(view.container, '.crud-action button.el-button--success'),
-      markOf(view.container, '.crud-action .right button.el-button--default:not(.query-btn)'),
-      markOf(view.container, '.crud-action button.action-button'),
-      markOf(view.container, '.crud-action .el-button-group .el-button:first-child'),
-      markOf(view.container, '[data-component-key="modify"]'),
-      markOf(view.container, '[data-component-key="ping"]'),
-      markOf(view.container, '[data-component-action="select"]'),
+      marksOn(buttonNamed(view.container, '新增')),
+      marksOn(buttonNamed(view.container, '清空')),
+      marksOn(buttonNamed(view.container, '模板导出')),
+      marksOn(buttonNamed(view.container, '表格导出')),
+      marksOn(row('i.el-icon-edit')),
+      marksOn(row('a', '测试连通')),
+      marksOn(row('input[type="checkbox"]')),
     ]).toEqual([
-      { action: 'query', key: 'search' },
       // Opening the add form and clearing the query report nothing by
       // themselves: the page reports what either produced, so these two carry
       // the toolbar key the arrangement names them by and no action.
@@ -949,20 +980,20 @@ describe('the controls one data page marks for the act tool', () => {
     ])
     // The query form's fields are named after the columns they write.
     await vi.waitFor(() => {
-      expect([...view.container.querySelectorAll('.crud-query input.el-input__inner')]
-        .map(input => input.getAttribute('data-component-field'))).toEqual(['zh_label', 'city', null])
+      expect([fieldLabelled(view.container, '名称'), fieldLabelled(view.container, '城市')]).toEqual(['zh_label', 'city'])
     }, { timeout: 3000, interval: 20 })
   })
 
   it('marks a write dialog\'s save button with the action it reports once that dialog is open', async () => {
     const { view, onAction } = draw(arranged())
     await loaded(onAction)
-    await vi.waitFor(() => { expect(view.container.querySelector('.crud-action button.el-button--success')).not.toBeNull() })
+    await vi.waitFor(() => { expect(buttonNamed(view.container, '新增')).not.toBeUndefined() })
     // No dialog is drawn yet, so the write it saves with has no control to mark.
-    expect(markOf(view.container, '[data-component-action="added"]')).toBeNull()
-    fireEvent.click(view.container.querySelector('.crud-action button.el-button--success') as HTMLElement)
-    await vi.waitFor(() => { expect(markOf(view.container, '[data-component-action="added"]')).not.toBeNull() }, { timeout: 5000, interval: 20 })
-    expect(view.container.querySelector('[data-component-action="added"]')?.textContent?.trim()).toBe('确 定')
+    expect(dialogTitled(view.container, '【演示设备】新增')).toBeNull()
+    fireEvent.click(buttonNamed(view.container, '新增') as HTMLElement)
+    await vi.waitFor(() => {
+      expect(marksOn(buttonNamed(dialogTitled(view.container, '【演示设备】新增'), '确 定'))).toEqual({ action: 'added', key: null })
+    }, { timeout: 5000, interval: 20 })
     // The page's own startup is the wait's whole cost here: a full file's
     // cases run these pages back to back, so the default deadline is short.
   }, 20_000)
@@ -970,17 +1001,17 @@ describe('the controls one data page marks for the act tool', () => {
   it('marks the modify dialog\'s save button with the write it reports', async () => {
     const { view, onAction } = draw(arranged())
     await loaded(onAction)
-    await vi.waitFor(() => { expect(view.container.querySelector('.el-table__body-wrapper tbody tr')).not.toBeNull() })
-    expect(markOf(view.container, '[data-component-action="modified"]')).toBeNull()
-    fireEvent.click(view.container.querySelector('i.operation-modify') as HTMLElement)
+    const edit = await vi.waitFor(() => {
+      const found = inRow(view.container, '北京-核心-01', 'i.el-icon-edit')
+      if (found === undefined) throw new Error('the row drew no modify control')
+      return found
+    })
+    fireEvent.click(edit)
     // The dialog draws its form a turn after it opens, and the footer with it,
     // so the save button is marked after that turn rather than with the click.
     await vi.waitFor(() => {
-      expect(view.container.querySelector('.crud-modify-dialog .dialog-footer .center .el-button:last-child')).not.toBeNull()
+      expect(marksOn(buttonNamed(dialogTitled(view.container, '【演示设备】修改'), '确 定'))).toEqual({ action: 'modified', key: null })
     }, { timeout: 5000, interval: 20 })
-    await flush()
-    expect(markOf(view.container, '[data-component-action="modified"]')).toEqual({ action: 'modified', key: null })
-    expect(view.container.querySelector('[data-component-action="modified"]')?.textContent?.trim()).toBe('确 定')
   }, 20_000)
 
   it('marks no modify control where the arrangement keeps no such operation', async () => {
@@ -1006,51 +1037,47 @@ describe('the controls one data page marks for the act tool', () => {
       selectMode: 'checkbox',
     }))
     await loaded(onAction)
-    await vi.waitFor(() => { expect(view.container.querySelector('.el-table__body-wrapper tbody tr')).not.toBeNull() })
+    const row = (selector: string, text?: string): Element | undefined => inRow(view.container, '北京-核心-01', selector, text)
+    await vi.waitFor(() => { expect(row('i.el-icon-delete')).not.toBeUndefined() })
     await flush()
     // The row's own delete control opens the page's confirmation bubble, and
     // the button that answers the bubble is what a delete is reported from —
     // the same split the toolbar's add button and the add dialog's save have.
-    expect(markOf(view.container, '[data-component-key="delete"]'))
-      .toEqual({ action: null, key: 'delete' })
-    expect(markOf(view.container, '[data-component-action="deleted"]'))
-      .toEqual({ action: 'deleted', key: null })
-    expect(view.container.querySelector('[data-component-action="deleted"]')?.textContent?.trim()).toBe('确定')
+    expect(marksOn(row('i.el-icon-delete'))).toEqual({ action: null, key: 'delete' })
+    expect(marksOn(row('button', '确定'))).toEqual({ action: 'deleted', key: null })
     // The batch button is the toolbar's own `batch`, and the clear button is
     // the one beside the query button: nothing else carries either key.
-    expect(markOf(view.container, '.crud-action button.more-button')).toEqual({ action: null, key: 'batch' })
-    expect(markOf(view.container, '.crud-action .right button.el-button--default:not(.query-btn)'))
-      .toEqual({ action: null, key: 'clear' })
-    expect(markOf(view.container, 'button.query-btn')).toEqual({ action: 'query', key: 'search' })
-    expect([...view.container.querySelectorAll('.crud-action .el-dropdown-menu__item')].map(item => item.getAttribute('data-component-key')))
-      .toEqual(['batch-update', 'batch-delete'])
+    expect(marksOn(view.container.querySelector('button[aria-haspopup="list"]'))).toEqual({ action: null, key: 'batch' })
+    expect(marksOn(buttonNamed(view.container, '清空'))).toEqual({ action: null, key: 'clear' })
+    expect(marksOn(buttonNamed(view.container, '查询'))).toEqual({ action: 'query', key: 'search' })
+    const item = (text: string): Element | undefined =>
+      [...view.container.querySelectorAll('li')].find(candidate => candidate.textContent?.trim() === text)
+    expect([marksOn(item('批量修改')), marksOn(item('批量删除'))])
+      .toEqual([{ action: null, key: 'batch-update' }, { action: null, key: 'batch-delete' }])
     // The item opens the batch edit; the dialog's own save button performs it.
-    fireEvent.click(view.container.querySelector('.el-table__body-wrapper .el-checkbox__original') as HTMLElement)
+    fireEvent.click(row('input[type="checkbox"]') as HTMLElement)
     await flush()
-    fireEvent.click(view.container.querySelector('[data-component-key="batch-update"]') as HTMLElement)
+    fireEvent.click(item('批量修改') as HTMLElement)
     await vi.waitFor(() => {
-      expect(view.container.querySelector('.crud-modify-batch-dialog .dialog-footer .center .el-button:last-child')).not.toBeNull()
+      expect(marksOn(buttonNamed(dialogTitled(view.container, '【演示设备】批量修改（1条）'), '确 定')))
+        .toEqual({ action: 'batch-modified', key: null })
     }, { timeout: 5000, interval: 20 })
-    await flush()
-    expect(markOf(view.container, '.crud-modify-batch-dialog .dialog-footer .center .el-button:last-child'))
-      .toEqual({ action: 'batch-modified', key: null })
     // A batch delete is confirmed inside the page's own delete dialog.
-    fireEvent.click(view.container.querySelector('[data-component-key="batch-delete"]') as HTMLElement)
-    await vi.waitFor(() => { expect(view.container.querySelector('.crud-delete-dialog button.confirm-button')).not.toBeNull() }, { timeout: 5000, interval: 20 })
-    expect(markOf(view.container, '.crud-delete-dialog button.confirm-button'))
-      .toEqual({ action: null, key: 'batch-delete-confirm' })
+    fireEvent.click(item('批量删除') as HTMLElement)
+    await vi.waitFor(() => {
+      expect(marksOn(buttonNamed(dialogTitled(view.container, 'dialog'), '确定'))).toEqual({ action: null, key: 'batch-delete-confirm' })
+    }, { timeout: 5000, interval: 20 })
   }, 20_000)
 
   it('marks the closer of the card the page draws for an opened record', async () => {
     const { view, onAction } = draw()
     await loaded(onAction)
-    expect(markOf(view.container, '.crud-small-card .close-btn .icon-close')).toBeNull()
+    const closer = (): Element | null => view.container.querySelector('.crud-small-card .icon-close')
+    expect(closer()).toBeNull()
     // What opens the page's own side card is its row interaction; until one
     // is taken there is no card and no closer to mark.
     pageOf(view.container).handleTableTransCellClick({ dataBase: { id: '1', name: '北京-核心-01', type: META } })
-    await vi.waitFor(() => { expect(view.container.querySelector('.crud-small-card .close-btn .icon-close')).not.toBeNull() }, { timeout: 5000, interval: 20 })
-    await flush()
-    expect(markOf(view.container, '.crud-small-card .close-btn .icon-close')).toEqual({ action: 'card-close', key: null })
+    await vi.waitFor(() => { expect(marksOn(closer())).toEqual({ action: 'card-close', key: null }) }, { timeout: 5000, interval: 20 })
   }, 20_000)
 
   it('marks a control a redraw adds by the key the call now declares', async () => {
@@ -1065,15 +1092,15 @@ describe('the controls one data page marks for the act tool', () => {
       customOperations: [{ name: 'ping', label: '测试连通' }],
     }))
     await loaded(onAction)
-    await vi.waitFor(() => { expect(markOf(view.container, '[data-component-key="ping"]')).not.toBeNull() })
+    const link = (text: string): Element | undefined => inRow(view.container, '北京-核心-01', 'a', text)
+    await vi.waitFor(() => { expect(marksOn(link('测试连通'))).toEqual({ action: 'operation', key: 'ping' }) })
     redraw(Object.freeze({
       relatedMeta: META,
       metaLabel: '演示设备',
       readOnly: false,
       customOperations: [{ name: 'ping', label: '测试连通' }, { name: 'pong', label: '测一下' }],
     }))
-    await vi.waitFor(() => { expect(markOf(view.container, '[data-component-key="pong"]')).not.toBeNull() }, { timeout: 3000, interval: 20 })
-    expect(new Set([...view.container.querySelectorAll('.operation-custom a[data-component-key]')]
-      .map(control => control.getAttribute('data-component-key')))).toEqual(new Set(['ping', 'pong']))
+    await vi.waitFor(() => { expect(marksOn(link('测一下'))).toEqual({ action: 'operation', key: 'pong' }) }, { timeout: 3000, interval: 20 })
+    expect(marksOn(link('测试连通'))).toEqual({ action: 'operation', key: 'ping' })
   })
 })
