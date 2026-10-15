@@ -14,6 +14,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { installElementUI } from '@deepseek-ai/dsh-experimental-component-kit/src/client/element-ui.ts'
+import type { ActionDispatch } from '../src/client/action.ts'
 import { ComponentSurface, type ComponentSurfaceProps } from '../src/client/ComponentSurface.tsx'
 import { RECORD_DETAIL_ID, TABLE_ID } from '../src/component-call.ts'
 import { en } from '../src/client/locales.ts'
@@ -75,10 +76,10 @@ interface Mounted {
 
 /** Draw the seat over one call. */
 async function mount(nodes: readonly unknown[]): Promise<Mounted> {
-  const onAction = vi.fn(() => Promise.resolve('dispatched'))
+  const onAction = vi.fn((): Promise<ActionDispatch> => Promise.resolve('dispatched'))
   const useSessions = ((selector: (snapshot: unknown) => unknown) => selector({ byId: {} })) as ComponentSurfaceProps['useSessions']
-  const element = (drawn: readonly unknown[], seq: number) => (
-    <ComponentSurface {...{
+  const element = (drawn: readonly unknown[], seq: number) => {
+    const props: ComponentSurfaceProps = {
       sessionId: 'a',
       entry: { kind: 'component', entryId: 'sites', seq, title: 'Sites', payload: { spec: { nodes: drawn, layout: SIDE_BY_SIDE } } },
       useSessions,
@@ -88,8 +89,9 @@ async function mount(nodes: readonly unknown[]): Promise<Mounted> {
       offerCalls: () => {},
       parkCalls: () => {},
       t,
-    } as unknown as ComponentSurfaceProps} />
-  )
+    }
+    return <ComponentSurface {...props} />
+  }
   const view = render(element(nodes, 4))
   await flush()
   return { view, onAction, show: (drawn, seq) => { view.rerender(element(drawn, seq)) } }

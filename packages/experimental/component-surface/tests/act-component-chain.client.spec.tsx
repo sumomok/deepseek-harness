@@ -96,6 +96,19 @@ interface Bench {
   close: () => Promise<void>
 }
 
+/**
+ * The composition's host session store.
+ * @param ctx - the composition.
+ * @returns the store.
+ */
+function storeOf(ctx: Context): SessionStore {
+  // Narrowed rather than cast: this package compiles in the Client aggregate,
+  // where the cordis `Context.sessions` merge names the browser service.
+  const sessions = ctx.get('sessions')
+  if (!(sessions instanceof SessionStore)) throw new Error('the composition runs no host session store')
+  return sessions
+}
+
 /** The one real fetch captured before the browser half's own is stubbed. */
 const realFetch = globalThis.fetch
 
@@ -144,9 +157,7 @@ async function boot(config: { actClaimTimeoutMs?: number; actTimeoutMs?: number;
   })
   await row
 
-  // The client aggregate types this service's `create()` as minting an id; the
-  // host store's own contract returns the live session, which is what the tools take.
-  const session = (ctx.get('sessions') as unknown as SessionStore).create()
+  const session = storeOf(ctx).create()
   const channel = new ContentChannel()
   const wiring = joinComponentChannel(channel)
   const posts: Post[] = []
@@ -172,7 +183,7 @@ async function boot(config: { actClaimTimeoutMs?: number; actTimeoutMs?: number;
       callId: callId as ToolCallId,
       name,
       arguments: args,
-      agent: { id: session.id, session } as unknown as NonNullable<ToolExecutionInput['agent']>,
+      agent: { id: session.id, session } as NonNullable<ToolExecutionInput['agent']>,
       signal: new AbortController().signal,
     }),
     claim: async (callId) => {
@@ -540,7 +551,7 @@ describe('one tab identity for every domain in the page', () => {
     const posts: Post[] = []
     vi.stubGlobal('fetch', (url: URL | string, init?: RequestInit) => {
       const resolved = new URL(String(url), document.baseURI)
-      posts.push({ path: resolved.pathname, body: JSON.parse(String(init?.body)) as Post['body'] })
+      if (typeof init?.body === 'string') posts.push({ path: resolved.pathname, body: JSON.parse(init.body) as Post['body'] })
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ claimed: true, tabId: bench.channel.tabId }) })
     })
     const second = bench.channel.join({

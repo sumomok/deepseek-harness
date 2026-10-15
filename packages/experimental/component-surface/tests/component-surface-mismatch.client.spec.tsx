@@ -43,16 +43,18 @@ const ENTRY = {
  */
 function seat(components: ComponentRendererTable) {
   const useSessions = ((selector: (snapshot: unknown) => unknown) => selector({ byId: {} })) as ComponentSurfaceProps['useSessions']
-  return render(<ComponentSurface {...{
+  const props: ComponentSurfaceProps = {
     sessionId: 'a',
     entry: ENTRY,
     useSessions,
+    onAction: () => Promise.resolve('dispatched'),
     pending: new Map(),
     components,
     offerCalls: () => {},
     parkCalls: () => {},
     t,
-  } as unknown as ComponentSurfaceProps} />)
+  }
+  return render(<ComponentSurface {...props} />)
 }
 
 describe('component content seat that cannot draw a block', () => {

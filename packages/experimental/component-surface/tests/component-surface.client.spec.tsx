@@ -110,19 +110,18 @@ function mount(seat: Seat): Mounted {
   const onAction = vi.fn(() => Promise.resolve(seat.dispatch ?? 'dispatched'))
   const element = (next: Seat) => {
     const components = next.components ?? KIT_COMPONENTS
-    return (
-      <ComponentSurface {...{
-        sessionId: 'sessionId' in next ? next.sessionId : 'a',
-        entry: next.entry,
-        useSessions: sessionsHook(next.recorded ?? {}),
-        onAction,
-        components,
-        pending,
-        offerCalls: () => {},
-        parkCalls: () => {},
-        t,
-      } as unknown as ComponentSurfaceProps} />
-    )
+    const props: ComponentSurfaceProps = {
+      sessionId: 'sessionId' in next ? next.sessionId : 'a',
+      entry: next.entry,
+      useSessions: sessionsHook(next.recorded ?? {}),
+      onAction,
+      components,
+      pending,
+      offerCalls: () => {},
+      parkCalls: () => {},
+      t,
+    }
+    return <ComponentSurface {...props} />
   }
   const view = render(element(seat))
   return { ...view, onAction, pending, show: (next: Seat) => { view.rerender(element(next)) } }

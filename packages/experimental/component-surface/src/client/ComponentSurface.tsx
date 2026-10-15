@@ -138,9 +138,13 @@ export interface ComponentSurfaceInjected {
   parkCalls: () => void
 }
 
-/** Composed props: the kind-seat runtime share, this registration's injected face, and the component row's locale seat. */
+/**
+ * Composed props, as far as the seat reads them: the selection and the session
+ * feed out of the kind-seat runtime share, this registration's injected face,
+ * and the component row's locale seat.
+ */
 export type ComponentSurfaceProps =
-  & PropsRuntime<'content.surface.kind', 'component'>
+  & Pick<PropsRuntime<'content.surface.kind', 'component'>, 'sessionId' | 'entry' | 'useSessions'>
   & ComponentSurfaceInjected
   & PropsLocale<'contentComponent'>
 
