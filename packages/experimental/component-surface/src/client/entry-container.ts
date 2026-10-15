@@ -2,23 +2,12 @@
  * Where the component entry the content column is drawing lives, read off the
  * console's own document.
  *
- * A component entry is not a frame: its blocks are drawn by the column, in the
- * console's document, inside the kind seat the column keeps mounted. So the
- * element a call is confined to is found rather than held, and it is found by
- * the two markers the column already writes: the selected switcher button
- * carries the entry's `<kind> <entryId>` key, and the wrapper of the kind in
- * front holds the entry's own root element.
- *
- * Both markers are read together on purpose. The column draws one entry of one
- * kind at a time, and the pair is what says which entry that is: the seat
- * wrapper alone survives a switch of entries, and the switcher key alone
- * survives a switch to another kind. A call that acts therefore refuses when
- * the entry it names is not the one in front, rather than acting on whatever
- * took its place.
- *
- * The kind key is spelled here, like the page seat spells its own slot key,
- * because the column's key domain is open and this module is the one place that
- * says which kind it serves.
+ * A component entry is drawn by the column in the console's document, inside
+ * the kind seat the column keeps mounted, so the element a call is confined to
+ * is found by two markers the column writes: the selected switcher button
+ * carries the entry's `<kind> <entryId>` key, and the active seat wrapper holds
+ * the entry's root element. Both are required: the wrapper alone survives a
+ * switch of entries, and the switcher key alone survives a switch of kinds.
  * @module @deepseek-ai/dsh-experimental-component-surface/client/entry-container
  */
 
@@ -45,14 +34,8 @@ export interface DrawnEntry {
 }
 
 /**
- * The component entry the column is drawing now.
- *
- * A kind seat keeps its wrapper while another kind is in front, and a wrapper
- * with no entry drawn in it is not an entry this package can act on, so the
- * wrapper has to be the active one and to hold the entry's root. The switcher
- * key is read with the same question in mind: the column selects one entry at a
- * time, and a selected entry of another kind means no component entry is in
- * front.
+ * The component entry the column is drawing now: the selected switcher key
+ * must name a component entry, and the active seat must hold an entry root.
  * @param root - the document the console's content column is drawn in.
  * @returns the drawn entry and its container, or undefined when no component entry is in front.
  */
@@ -67,6 +50,5 @@ export function drawnEntry(root: ParentNode): DrawnEntry | undefined {
   if (at === -1 || key.slice(0, at) !== COMPONENT_KIND) return undefined
   const container = root.querySelector(`${ACTIVE_SEAT} ${ENTRY_ROOT}`)
   if (container === null) return undefined
-  /* v8 ignore next -- an element's textContent is null only for a document node, and a switcher button is an element */
-  return { entryId: key.slice(at + 1), title: (tab.textContent ?? '').trim(), container }
+  return { entryId: key.slice(at + 1), title: tab.textContent.trim(), container }
 }

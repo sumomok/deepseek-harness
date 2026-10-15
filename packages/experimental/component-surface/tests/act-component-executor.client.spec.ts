@@ -77,7 +77,17 @@ function draw(): { inside: ReturnType<typeof vi.fn>; outside: ReturnType<typeof 
   return { inside, outside }
 }
 
-beforeEach(() => { document.body.innerHTML = '' })
+/**
+ * What the document's hit test answers: jsdom has none, and a case that gives
+ * a control a box to test sets what stands at its point.
+ */
+let hit: (x: number, y: number) => Element | null = () => null
+
+beforeEach(() => {
+  document.body.innerHTML = ''
+  hit = () => null
+  document.elementFromPoint = (x, y) => hit(x, y)
+})
 
 describe('the component entry a call may act on', () => {
   it('finds the entry the column is drawing, and nothing while another kind is in front', () => {
@@ -287,21 +297,6 @@ describe('the field a step writes', () => {
       message: 'The field for "kind" draws more than one option "Twin", so this call cannot tell which to choose.',
     }])
     expect(document.querySelector('select')?.value).toBe('a')
-  })
-
-  it('writes through the element itself when its prototype declares no value accessor', async () => {
-    const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
-    const drawn = drawEntry('<input data-component-field="title">')
-    try {
-      // The prototype accessor is what a controlled component replaces; a DOM
-      // implementation without one leaves the step the plain assignment.
-      delete (HTMLInputElement.prototype as { value?: unknown }).value
-      const report = await run(args([{ action: 'set', name: 'title', value: 'X' }]), drawn)
-      expect(report.status).toBe('done')
-      expect((document.querySelector('input') as HTMLInputElement).value).toBe('X')
-    } finally {
-      if (descriptor !== undefined) Object.defineProperty(HTMLInputElement.prototype, 'value', descriptor)
-    }
   })
 
   it('fails the step when the control refuses the value rather than reporting a write that never happened', async () => {
@@ -971,7 +966,7 @@ describe('the entry a long call is running against', () => {
    * @returns the entry the call started on.
    */
   function drawAndSwitch(replace: () => void): DrawnEntry {
-    document.body.innerHTML = `${COLUMN}`
+    document.body.innerHTML = COLUMN
     const drawn = drawnEntry(document)
     if (drawn === undefined) throw new Error('the case drew no entry')
     document.querySelector('[data-component-action="add"]')?.addEventListener('click', replace)
@@ -1099,25 +1094,21 @@ describe('a press the control itself refuses', () => {
     button.getBoundingClientRect = () => ({
       left: 10, top: 20, width: 40, height: 10, right: 50, bottom: 30, x: 10, y: 20, toJSON: () => ({}),
     })
-    document.elementFromPoint = () => over
-    try {
-      expect(await run(args([{ action: 'click', key: 'go' }]), drawn)).toEqual({
-        status: 'failed',
-        steps: [{ index: 1, status: 'failed', message: 'control "go" is covered where it is drawn.' }],
-        text: 'Acted on the component entry "Demo" (demo).\n- click on "go": control "go" is covered where it is drawn.',
-      })
-      expect(pressed).not.toHaveBeenCalled()
-      // Something inside the control reaches it, and so does the point the
-      // document reports no element for: neither is something drawn over it.
-      document.elementFromPoint = () => inner
-      expect((await run(args([{ action: 'click', key: 'go' }]), drawn)).status).toBe('done')
-      expect(pressed).toHaveBeenCalledTimes(1)
-      document.elementFromPoint = () => null
-      expect((await run(args([{ action: 'click', key: 'go' }]), drawn)).status).toBe('done')
-      expect(pressed).toHaveBeenCalledTimes(2)
-    } finally {
-      Reflect.deleteProperty(document, 'elementFromPoint')
-    }
+    hit = () => over
+    expect(await run(args([{ action: 'click', key: 'go' }]), drawn)).toEqual({
+      status: 'failed',
+      steps: [{ index: 1, status: 'failed', message: 'control "go" is covered where it is drawn.' }],
+      text: 'Acted on the component entry "Demo" (demo).\n- click on "go": control "go" is covered where it is drawn.',
+    })
+    expect(pressed).not.toHaveBeenCalled()
+    // Something inside the control reaches it, and so does the point the
+    // document reports no element for: neither is something drawn over it.
+    hit = () => inner
+    expect((await run(args([{ action: 'click', key: 'go' }]), drawn)).status).toBe('done')
+    expect(pressed).toHaveBeenCalledTimes(1)
+    hit = () => null
+    expect((await run(args([{ action: 'click', key: 'go' }]), drawn)).status).toBe('done')
+    expect(pressed).toHaveBeenCalledTimes(2)
   })
 
   it('reaches a table control through the copy the fixed-column layer draws of it', async () => {
@@ -1157,18 +1148,14 @@ describe('a press the control itself refuses', () => {
         left: 10, top: 20, width: 40, height: 10, right: 50, bottom: 30, x: 10, y: 20, toJSON: () => ({}),
       })
     }
-    try {
-      // The point over the cell's centre is held by the copy, and the point
-      // over the heading's by the caret the fixed header draws.
-      document.elementFromPoint = () => copyOfCell
-      expect((await run(args([{ action: 'click', key: 'cell-click' }]), drawn)).status).toBe('done')
-      expect(pressed).toHaveBeenCalledTimes(1)
-      document.elementFromPoint = () => copyOfCaret
-      expect((await run(args([{ action: 'click', key: 'sort' }]), drawn)).status).toBe('done')
-      expect(sorted).toHaveBeenCalledTimes(1)
-    } finally {
-      Reflect.deleteProperty(document, 'elementFromPoint')
-    }
+    // The point over the cell's centre is held by the copy, and the point
+    // over the heading's by the caret the fixed header draws.
+    hit = () => copyOfCell
+    expect((await run(args([{ action: 'click', key: 'cell-click' }]), drawn)).status).toBe('done')
+    expect(pressed).toHaveBeenCalledTimes(1)
+    hit = () => copyOfCaret
+    expect((await run(args([{ action: 'click', key: 'sort' }]), drawn)).status).toBe('done')
+    expect(sorted).toHaveBeenCalledTimes(1)
   })
 
   it('refuses a point held by another control of the same action, which is no copy of this one', async () => {
@@ -1189,26 +1176,22 @@ describe('a press the control itself refuses', () => {
     keep.getBoundingClientRect = () => ({
       left: 10, top: 20, width: 40, height: 10, right: 50, bottom: 30, x: 10, y: 20, toJSON: () => ({}),
     })
-    try {
-      // The other operation's own link holds the point, and so does an element
-      // declaring this key on another kind of element: neither is a second
-      // drawing of this control.
-      document.elementFromPoint = () => document.querySelector('#drop')
-      expect((await run(args([{ action: 'click', key: 'keep' }]), drawn)).steps).toEqual([{
-        index: 1,
-        status: 'failed',
-        message: 'control "keep" is covered where it is drawn.',
-      }])
-      document.elementFromPoint = () => document.querySelector('#row-cell')
-      expect((await run(args([{ action: 'click', key: 'keep' }]), drawn)).steps).toEqual([{
-        index: 1,
-        status: 'failed',
-        message: 'control "keep" is covered where it is drawn.',
-      }])
-      expect(dropped).not.toHaveBeenCalled()
-    } finally {
-      Reflect.deleteProperty(document, 'elementFromPoint')
-    }
+    // The other operation's own link holds the point, and so does an element
+    // declaring this key on another kind of element: neither is a second
+    // drawing of this control.
+    hit = () => document.querySelector('#drop')
+    expect((await run(args([{ action: 'click', key: 'keep' }]), drawn)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'control "keep" is covered where it is drawn.',
+    }])
+    hit = () => document.querySelector('#row-cell')
+    expect((await run(args([{ action: 'click', key: 'keep' }]), drawn)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'control "keep" is covered where it is drawn.',
+    }])
+    expect(dropped).not.toHaveBeenCalled()
   })
 
   it('refuses a copy drawn by another block, which is no drawing of this control', async () => {
@@ -1226,17 +1209,13 @@ describe('a press the control itself refuses', () => {
     cell.getBoundingClientRect = () => ({
       left: 10, top: 20, width: 40, height: 10, right: 50, bottom: 30, x: 10, y: 20, toJSON: () => ({}),
     })
-    document.elementFromPoint = () => document.querySelector('#copy-b')
-    try {
-      expect((await run(args([{ action: 'click', key: 'cell-click' }]), drawn)).steps).toEqual([{
-        index: 1,
-        status: 'failed',
-        message: 'control "cell-click" is covered where it is drawn.',
-      }])
-      expect(pressed).not.toHaveBeenCalled()
-    } finally {
-      Reflect.deleteProperty(document, 'elementFromPoint')
-    }
+    hit = () => document.querySelector('#copy-b')
+    expect((await run(args([{ action: 'click', key: 'cell-click' }]), drawn)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'control "cell-click" is covered where it is drawn.',
+    }])
+    expect(pressed).not.toHaveBeenCalled()
   })
 
   it('refuses a table control something unrelated is drawn over', async () => {
@@ -1263,25 +1242,21 @@ describe('a press the control itself refuses', () => {
         left: 10, top: 20, width: 40, height: 10, right: 50, bottom: 30, x: 10, y: 20, toJSON: () => ({}),
       })
     }
-    document.elementFromPoint = () => document.querySelector('#mask')
-    try {
-      expect((await run(args([{ action: 'click', key: 'cell-click' }]), drawn)).steps).toEqual([{
-        index: 1,
-        status: 'failed',
-        message: 'control "cell-click" is covered where it is drawn.',
-      }])
-      // A control the block marks by its own key alone is covered the same
-      // way: nothing on the point carries an action that could be its copy.
-      expect((await run(args([{ action: 'click', key: 'only' }]), drawn)).steps).toEqual([{
-        index: 1,
-        status: 'failed',
-        message: 'control "only" is covered where it is drawn.',
-      }])
-      expect(pressed).not.toHaveBeenCalled()
-      expect(pressedOnly).not.toHaveBeenCalled()
-    } finally {
-      Reflect.deleteProperty(document, 'elementFromPoint')
-    }
+    hit = () => document.querySelector('#mask')
+    expect((await run(args([{ action: 'click', key: 'cell-click' }]), drawn)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'control "cell-click" is covered where it is drawn.',
+    }])
+    // A control the block marks by its own key alone is covered the same
+    // way: nothing on the point carries an action that could be its copy.
+    expect((await run(args([{ action: 'click', key: 'only' }]), drawn)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'control "only" is covered where it is drawn.',
+    }])
+    expect(pressed).not.toHaveBeenCalled()
+    expect(pressedOnly).not.toHaveBeenCalled()
   })
 
   it('reaches a control through the label that carries it', async () => {
@@ -1293,14 +1268,10 @@ describe('a press the control itself refuses', () => {
     })
     let toggled = 0
     input.addEventListener('change', () => { toggled += 1 })
-    document.elementFromPoint = () => box
-    try {
-      expect((await run(args([{ action: 'click', key: 'tick' }]), drawn)).status).toBe('done')
-      expect(toggled).toBe(1)
-      expect(input.checked).toBe(true)
-    } finally {
-      Reflect.deleteProperty(document, 'elementFromPoint')
-    }
+    hit = () => box
+    expect((await run(args([{ action: 'click', key: 'tick' }]), drawn)).status).toBe('done')
+    expect(toggled).toBe(1)
+    expect(input.checked).toBe(true)
   })
 
   it('asks the hit test about the centre of the control, where a person\'s click would land', async () => {
@@ -1316,17 +1287,13 @@ describe('a press the control itself refuses', () => {
     // point the step's press would land on. Any other point the test is asked
     // about answers the control itself, so a press that probes somewhere else
     // reads as reachable and reports a step this case refuses.
-    document.elementFromPoint = (x, y) => (x === 30 && y === 25 ? over : button)
-    try {
-      expect((await run(args([{ action: 'click', key: 'go' }]), drawn)).steps).toEqual([{
-        index: 1,
-        status: 'failed',
-        message: 'control "go" is covered where it is drawn.',
-      }])
-      expect(pressed).not.toHaveBeenCalled()
-    } finally {
-      Reflect.deleteProperty(document, 'elementFromPoint')
-    }
+    hit = (x, y) => (x === 30 && y === 25 ? over : button)
+    expect((await run(args([{ action: 'click', key: 'go' }]), drawn)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'control "go" is covered where it is drawn.',
+    }])
+    expect(pressed).not.toHaveBeenCalled()
   })
 
   it('presses a control the document gives no box to test', async () => {
@@ -1339,13 +1306,9 @@ describe('a press the control itself refuses', () => {
     // test below has nothing to say about it even where it names something
     // else — the same rule as a point the test reports no element for.
     button.getBoundingClientRect = () => ({ left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) })
-    document.elementFromPoint = () => over
-    try {
-      expect((await run(args([{ action: 'click', key: 'flat' }]), drawn)).status).toBe('done')
-      expect(pressed).toHaveBeenCalledTimes(1)
-    } finally {
-      Reflect.deleteProperty(document, 'elementFromPoint')
-    }
+    hit = () => over
+    expect((await run(args([{ action: 'click', key: 'flat' }]), drawn)).status).toBe('done')
+    expect(pressed).toHaveBeenCalledTimes(1)
   })
 })
 

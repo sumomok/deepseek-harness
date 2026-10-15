@@ -2,46 +2,19 @@
  * The browser half of `act_component`: it runs one call's steps inside the
  * element the content column is drawing the named entry in.
  *
- * Every target is resolved inside that element and nowhere else, through
- * [the shared resolution](./targets.ts): a control by the key its component
- * declares, a field by the name the entry gives it, and both bounded by the
- * block the step names — or by the whole entry when it names none. That bound
- * is the confine: a control the entry does not declare is a step that names
- * nothing, whatever else the console draws, and the reason says only that it is
- * not part of the entry rather than describing the user's screen.
+ * Every target is resolved inside that element through
+ * [the shared resolution](./targets.ts), bounded by the block the step names or
+ * by the whole entry. Actions go through the block's own handlers: a press is
+ * the element's `click()`, refused for a control that is disabled, covered, or
+ * not drawn; a write goes through the prototype's value setter and dispatches
+ * `input` and `change`; a select or a suggestion field is filled by choosing
+ * the option whose label is the value and waiting for the component to take it.
  *
- * Actions go through the block's own handlers: a press is a real `click()` on
- * the element, and a write goes through the prototype's value setter and then
- * dispatches `input` and `change`, which is what a React-controlled or Vue
- * component sees as a person typing. A select field is filled the way a person
- * chooses instead: the list is opened, one option whose label is the value is
- * clicked, and the step is done only once the select displays it; a native
- * select has the one option whose label is the value selected. A suggestion
- * field is filled as the person makes it: focus the field, type the
- * value, and choose from the suggestions the block answers with. What a press
- * checks before it dispatches is whether the control is one a person could
- * reach: a disabled control, one something else is drawn over, and one the
- * block does not draw each stop the call, because the click would otherwise
- * reach a handler no real press could — a block keeps closed controls in the
- * document, and those hidden copies are what a search meets first.
- *
- * The document is left its own turn before every step reads it, so the step
- * after a press resolves what that press drew rather than what stood there
- * before the block rendered. The entry itself is read again after that and the
- * run stops where it no longer matches the one the call was claimed against —
- * the column replaces what it draws without telling this seat, and the steps
- * after a switch would otherwise land in whatever entry took this one's place.
- *
- * Every wait a step makes ends at the call's deadline as well as at its own
- * ceiling, and a step that would start past the deadline does not start: the
- * host stops waiting for the report at a deadline of its own, and a console
- * still acting after it would be changing the user's screen for a call already
- * answered. The step the deadline stops fails with the sentence saying so, and
- * the steps behind it are not run.
- *
- * Nothing here is copied from the page domain: a component entry has no ref
- * table, no frames and no cross-origin question, and no step of this tool ever
- * reaches one.
+ * Before every step and on every look a `wait` step makes, the entry in front
+ * is read again, and the run stops once it is not the entry the call was claimed
+ * against. No step starts past the call's deadline and every wait ends at it,
+ * since the host stops waiting for the report then; the step it stops fails
+ * saying so, and the steps behind it are not run.
  * @module @deepseek-ai/dsh-experimental-component-surface/client/act-executor
  */
 
@@ -50,6 +23,7 @@ import {
   type ActComponentArgs,
   type ActComponentStep,
   type ActComponentStepResult,
+  type ActComponentWait,
 } from '../act-component-call.ts'
 import {
   actComponentReportText, ambiguousFieldReason, ambiguousOptionReason, anotherEntryInFront, coveredReason,
@@ -64,39 +38,32 @@ import {
   withAttribute,
 } from './targets.ts'
 
-/** How often a `wait` step looks again. */
+/** How often a wait looks again. */
 const WAIT_POLL_MS = 50
 
 /**
- * How long a select's list, the value it shows, and an autocomplete's panel
- * may take to settle after the step's own click or clear.
- *
- * Each is the component's own re-render rather than a network answer, so this
- * is a ceiling on a Vue turn and not on a request.
+ * How long a select's list, the value it shows, an autocomplete's panel, and
+ * the start of an autocomplete's query may take after the step's own gesture.
+ * Each is the component's own re-render or debounce rather than a network
+ * answer, so this bounds a Vue turn and not a request.
  */
 const SELECT_SETTLE_MS = 1000
 
+/** The call one step runs in. */
+interface StepRun {
+  /** The entry the call was claimed against. */
+  readonly entry: DrawnEntry
+  /** How the console reads the entry in front now. */
+  readonly locate: () => DrawnEntry | undefined
+  /** The moment the call's steps must be over by, as a `Date.now()` value. */
+  readonly deadline: number
+}
+
 /**
- * The field one `set` step writes into.
- *
- * A block that names its fields declares them outright, and that declaration
- * wins; where it does not, the control whose own accessible name is the column
- * or property the step named is the one a person would type into, so it is the
- * one this writes.
- *
- * A block may draw one name more than once — a data page draws its open write
- * dialog's fields under the same names its query panel asks with, and a page
- * may keep a form it closed in the document as well — and the field is then
- * picked among the copies the way the person using the page would: the
- * candidates are the copies the block draws, a drawn copy inside an open dialog
- * is the one asking for the value now and wins over every other, and where no
- * dialog is open the drawn copies stand as they are.
- * One drawn candidate is the field; several name one column or property twice
- * with nothing to say which is meant, and a step that guesses would write
- * where nobody asked. Where not one copy is drawn the candidates stand
- * unranked: a page that keeps a form in the document while it is closed still
- * takes the value, and a step that refused here would refuse a write a person
- * can make by opening the form.
+ * The field one `set` step writes into: the controls declaring the name with
+ * {@link FIELD_KEY}, else those whose own accessible name it is. A drawn candidate
+ * inside an open dialog wins over other drawn ones, and two drawn candidates
+ * left are refused; where none is drawn, the first candidate is taken.
  * @param scope - the subtree the step is confined to.
  * @param name - the column or property the step named.
  * @param within - the entry's own container, which bounds what may name a field.
@@ -123,38 +90,26 @@ function announce(el: Element): void {
 }
 
 /**
- * Write one value into a form control the way a person typing would.
- *
- * The value is set through the prototype's own setter rather than by assigning
- * the element's property, because a controlled component replaces that property
- * with its own accessor and a plain assignment would reach the component's state
- * without its change handler ever seeing it.
+ * Write one value into a form control the way a person typing would: through
+ * the prototype's setter, which a controlled component's own `value` accessor
+ * would otherwise intercept.
  * @param el - the control to write into.
  * @param name - the column or property the step named, for the refusal.
  * @param value - what to write.
  * @throws {Error} when the control did not take the value.
  */
 function writeValue(el: Element, name: string, value: string): void {
-  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-    const prototype = el instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype
-    const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set
-    if (setter === undefined) el.value = value
-    else setter.call(el, value)
-  }
-  // Read back rather than assumed: a control that refused the value — a number
-  // input and text it cannot hold — leaves this step failing instead of
-  // reporting a write that never happened.
+  if (el instanceof HTMLInputElement) Reflect.set(HTMLInputElement.prototype, 'value', value, el)
+  else if (el instanceof HTMLTextAreaElement) Reflect.set(HTMLTextAreaElement.prototype, 'value', value, el)
+  // Read back rather than assumed: a number input refuses text it cannot hold.
   if ((el as HTMLInputElement).value !== value) throw new Error(notWritableReason(name))
   announce(el)
 }
 
 /**
- * Choose one option of a native select by the label it shows.
- *
- * The label is what a person reads in the list and what the step names, the
- * same reading a drawn select's options are matched by; an option's `value`
- * attribute is the form's own encoding, which nothing on screen shows, so a
- * step naming it names no option.
+ * Choose one option of a native select by the label it shows, the reading a
+ * drawn select's options are matched by; an option's `value` attribute is the
+ * form's own encoding, which nothing on screen shows.
  * @param select - the select.
  * @param name - the column or property the step named, for the refusals.
  * @param label - the option label the step named.
@@ -170,13 +125,9 @@ function chooseOption(select: HTMLSelectElement, name: string, label: string): v
 }
 
 /**
- * Whether one control refuses a person's own writing.
- *
- * The `readonly` attribute is the platform's way of saying so: a script can
- * still assign the control's value, which is exactly why a write that reported
- * success would be a write nobody made. element-ui draws a select's own input
- * read-only whatever the select's state — the value is chosen, not typed — so
- * this is asked of a field only after it was told apart from a select.
+ * Whether one control refuses a person's own writing. element-ui draws a
+ * select's own input read-only whatever the select's state, so this is asked
+ * of a field only after it was told apart from a select.
  * @param el - the control.
  * @returns whether it is read-only.
  */
@@ -187,185 +138,149 @@ function isReadOnly(el: Element): boolean {
 /**
  * Wait for one condition to hold, up to the wait's own ceiling and never past
  * the call's deadline.
+ * @param run - the call the wait belongs to.
  * @param holds - the condition, read again every turn.
  * @param ceilingMs - how long this wait may take by itself.
- * @param deadline - the moment the call's steps must be over by, as a `Date.now()` value.
  * @returns whether it held before the ceiling.
  * @throws {Error} with the out-of-time reason when the deadline came first,
  * and with whatever `holds` throws.
  */
-async function settles(holds: () => boolean, ceilingMs: number, deadline: number): Promise<boolean> {
-  const until = Math.min(Date.now() + ceilingMs, deadline)
+async function settles(run: StepRun, holds: () => boolean, ceilingMs: number): Promise<boolean> {
+  const until = Math.min(Date.now() + ceilingMs, run.deadline)
   for (;;) {
     if (holds()) return true
     const now = Date.now()
-    if (now >= deadline) throw new Error(OUT_OF_TIME_REASON)
+    if (now >= run.deadline) throw new Error(OUT_OF_TIME_REASON)
     if (now >= until) return false
     await delay(Math.min(WAIT_POLL_MS, Math.max(until - now, 1)))
   }
 }
 
 /**
- * Fill one select field the way a person chooses an option.
- *
- * A select's value lives in the component rather than in the input the entry
- * marks — element-ui's input is read-only and shows the chosen label; the value
- * itself is the component's — so a write through the input would be reported as
- * a write the component never took. The step performs the gesture instead: open
- * the list, choose the one drawn option whose label is the value, and report
- * done only once the select displays it. Every way that can fail is a refusal
- * naming the part that failed rather than a step reported as one that ran.
- * @param entry - the drawn entry.
+ * Fill one element-ui select field: open the list, click the one drawn option
+ * whose label is the value, and finish once the select displays it. The input
+ * only shows the label; the value lives in the component.
+ * @param run - the call the step belongs to.
  * @param select - the select the field's control belongs to.
  * @param trigger - the control the field was found by.
  * @param name - the column or property the step named, for the refusals.
  * @param value - the option label the step named.
- * @param deadline - the moment the call's steps must be over by.
  * @throws {Error} with the model-facing reason when the value cannot be chosen.
  */
-async function fillSelect(
-  entry: DrawnEntry,
-  select: Element,
-  trigger: Element,
-  name: string,
-  value: string,
-  deadline: number,
-): Promise<void> {
-  // A select whose list is already drawn is open — a previous step may have
-  // left it so, and the toggle this would click is the one that closes it.
-  if (selectOptions(select, entry.container).length === 0) clickOn(trigger)
-  await settles(() => selectOptions(select, entry.container).length > 0, SELECT_SETTLE_MS, deadline)
-  const matches = selectOptions(select, entry.container).filter(option => optionLabel(option) === value)
+async function fillSelect(run: StepRun, select: Element, trigger: Element, name: string, value: string): Promise<void> {
+  const within = run.entry.container
+  // A list already drawn is open, and the toggle would close it.
+  if (selectOptions(select, within).length === 0) clickOn(trigger)
+  await settles(run, () => selectOptions(select, within).length > 0, SELECT_SETTLE_MS)
+  const matches = selectOptions(select, within).filter(option => optionLabel(option) === value)
   if (matches.length > 1) throw new Error(ambiguousOptionReason(name, value))
   const option = matches[0]
   if (option === undefined) throw new Error(noOptionReason(name, value))
   clickOn(option)
-  const taken = await settles(() => selectShows(select).includes(value), SELECT_SETTLE_MS, deadline)
+  const taken = await settles(run, () => selectShows(select).includes(value), SELECT_SETTLE_MS)
   if (!taken) throw new Error(optionNotTakenReason(name, value))
 }
 
 /**
- * Fill one suggestion field the way a person chooses a suggestion.
- *
- * element-ui's autocomplete keeps its value in the component the way a select
- * does, and only a chosen suggestion carries the block's own record of it —
- * the text typed into the field is a value nothing behind it wrote down — so a
- * write through the input would be reported as a write the component never
- * took. The step performs the gesture instead: focus the field, clear it
- * so the suggestions that come are the block's answer to this step's own
- * typing rather than a list an earlier step left standing, type the value,
- * choose the one drawn suggestion whose label is the value, and report done
- * only once the panel closed on the choice. Every way that can fail is a
- * refusal naming the part that failed rather than a step reported as one that
- * ran, and a refusal leaves the field holding what the step found in it — the
- * typing was the step's own, and what the field held before it may be a
- * record the person chose.
- * @param entry - the drawn entry.
+ * Fill one element-ui suggestion field by choosing a suggestion, which alone
+ * carries the block's record of the value. A refusal puts back the text the
+ * field held.
+ * @param run - the call the step belongs to.
  * @param autocomplete - the autocomplete the field's control belongs to.
  * @param trigger - the control the field was found by.
  * @param name - the column or property the step named, for the refusals.
  * @param value - the suggestion label the step named.
- * @param deadline - the moment the call's steps must be over by.
  * @throws {Error} with the model-facing reason when the value cannot be chosen.
  */
-async function fillAutocomplete(
-  entry: DrawnEntry,
-  autocomplete: Element,
-  trigger: Element,
-  name: string,
-  value: string,
-  deadline: number,
-): Promise<void> {
-  // The field is typed into, so a control that takes no typing is one this
-  // step cannot write.
+async function fillAutocomplete(run: StepRun, autocomplete: Element, trigger: Element, name: string, value: string): Promise<void> {
   if (!(trigger instanceof HTMLInputElement || trigger instanceof HTMLTextAreaElement)) throw new Error(notWritableReason(name))
   const before = trigger.value
   try {
-    await chooseSuggestion(entry, autocomplete, trigger, name, value, deadline)
+    await chooseSuggestion(run, autocomplete, trigger, name, value)
   } catch (refusal) {
-    // Written back only where the step's typing changed it, so a field the
-    // step left as it was sees no edit at all.
     if (trigger.value !== before) writeValue(trigger, name, before)
     throw refusal
   }
 }
 
 /**
- * The gesture {@link fillAutocomplete} performs, which throws where it stops.
- * @param entry - the drawn entry.
+ * A wait condition for the block's answer to a query: suggestions drawn, or the
+ * row the block draws while asking having come and gone, which is an answer
+ * holding none.
+ * @param autocomplete - the autocomplete element.
+ * @param within - the entry's own container.
+ * @returns the condition, which remembers whether the block was seen asking.
+ */
+function answered(autocomplete: Element, within: Element): () => boolean {
+  let asked = false
+  return () => {
+    if (autocompleteOptions(autocomplete, within).length > 0) return true
+    const asking = autocompleteAsking(autocomplete, within)
+    asked ||= asking
+    return asked && !asking
+  }
+}
+
+/**
+ * The gesture {@link fillAutocomplete} performs: focus the field — element-ui
+ * draws the panel only for a field it saw focused, and a script's click moves
+ * no focus — clear it so the suggestions that come answer this step's own
+ * typing, type the value, choose the one drawn suggestion whose label is the
+ * value, and be done once the panel closed on the choice.
+ * @param run - the call the step belongs to.
  * @param autocomplete - the autocomplete the field's control belongs to.
  * @param trigger - the field's control.
  * @param name - the column or property the step named, for the refusals.
  * @param value - the suggestion label the step named.
- * @param deadline - the moment the call's steps must be over by.
  * @throws {Error} with the model-facing reason when the value cannot be chosen.
  */
 async function chooseSuggestion(
-  entry: DrawnEntry,
+  run: StepRun,
   autocomplete: Element,
   trigger: HTMLInputElement | HTMLTextAreaElement,
   name: string,
   value: string,
-  deadline: number,
 ): Promise<void> {
-  // A person's click into the field focuses it, and element-ui draws the
-  // suggestion panel only for a field it saw focused; a script's click()
-  // moves no focus, so the field is focused outright.
+  const within = run.entry.container
   trigger.focus()
-  // The clear is the field's own gesture: an emptied field drops the
-  // suggestions with it, so what the step matches below answers its own typing.
   writeValue(trigger, name, '')
-  await settles(() => autocompleteOptions(autocomplete, entry.container).length === 0, SELECT_SETTLE_MS, deadline)
+  await settles(run, () => autocompleteOptions(autocomplete, within).length === 0, SELECT_SETTLE_MS)
   writeValue(trigger, name, value)
-  // The suggestions are the block's answer to a query it asks over the
-  // network, so this wait has no ceiling of its own and the call's deadline
-  // bounds it. An answer holding no suggestion ends it early: the asking row
-  // came and went with nothing drawn, which is a field with no such option
-  // rather than one still asking.
-  let asked = false
-  await settles(() => {
-    if (autocompleteOptions(autocomplete, entry.container).length > 0) return true
-    const asking = autocompleteAsking(autocomplete, entry.container)
-    asked ||= asking
-    return asked && !asking
-  }, Number.POSITIVE_INFINITY, deadline)
-  const matches = autocompleteOptions(autocomplete, entry.container).filter(option => optionLabel(option) === value)
+  // The suggestions are an answer over the network, so only the call's
+  // deadline bounds this wait.
+  await settles(run, answered(autocomplete, within), Number.POSITIVE_INFINITY)
+  const matches = autocompleteOptions(autocomplete, within).filter(option => optionLabel(option) === value)
   if (matches.length > 1) throw new Error(ambiguousOptionReason(name, value))
   const option = matches[0]
   if (option === undefined) throw new Error(noOptionReason(name, value))
   clickOn(option)
-  // The component empties the panel on the choice itself, so a panel still
-  // holding suggestions is a click the component did not take.
-  const taken = await settles(() => autocompleteOptions(autocomplete, entry.container).length === 0, SELECT_SETTLE_MS, deadline)
+  // The component empties the panel on the choice itself.
+  const taken = await settles(run, () => autocompleteOptions(autocomplete, within).length === 0, SELECT_SETTLE_MS)
   if (!taken) throw new Error(optionNotTakenReason(name, value))
 }
 
 /**
- * Write one value into the field one `set` step named.
- *
- * A text control is written the way a person typing writes it, and a select —
- * drawn or native — or a suggestion field is filled by choosing an option by
- * its label; the difference is where the component's value lives, not what
- * the step promises. What both share is the refusal: a disabled or read-only
- * control, and a value the control did not take, end the step rather than
- * report a write that never happened.
- * @param entry - the drawn entry.
+ * Write one value into the field one `set` step named: a text control the way
+ * a person types, and a select — drawn or native — or a suggestion field by
+ * choosing an option by its label. A disabled or read-only control, and a
+ * value the control did not take, end the step rather than report a write
+ * that never happened.
+ * @param run - the call the step belongs to.
  * @param target - the control the field was found by.
  * @param name - the column or property the step named.
  * @param value - what to write.
- * @param deadline - the moment the call's steps must be over by.
  * @throws {Error} with the model-facing reason when the value cannot be written.
  */
-async function setField(entry: DrawnEntry, target: Element, name: string, value: string, deadline: number): Promise<void> {
+async function setField(run: StepRun, target: Element, name: string, value: string): Promise<void> {
   if (isDisabled(target)) throw new Error(disabledFieldReason(name))
-  const select = selectOf(target, entry.container)
+  const select = selectOf(target, run.entry.container)
   if (select !== undefined) {
-    await fillSelect(entry, select, target, name, value, deadline)
+    await fillSelect(run, select, target, name, value)
     return
   }
-  const autocomplete = autocompleteOf(target, entry.container)
+  const autocomplete = autocompleteOf(target, run.entry.container)
   if (autocomplete !== undefined) {
-    await fillAutocomplete(entry, autocomplete, target, name, value, deadline)
+    await fillAutocomplete(run, autocomplete, target, name, value)
     return
   }
   if (target instanceof HTMLSelectElement) {
@@ -383,70 +298,46 @@ function delay(ms: number): Promise<void> {
 
 /**
  * Wait for one block or one declared control to be drawn.
- *
- * The entry is read again on every look, before the target is: the column
- * replaces what it draws without telling this seat, and one kind's entries
- * share the element they are drawn in, so the entry that took this one's place
- * may draw the very block or control the step waits for.
- * @param entry - the drawn entry.
+ * @param run - the call the step belongs to.
  * @param step - the wait step.
  * @param timeoutMs - how long the step may wait.
- * @param locate - how the console reads the entry in front now.
- * @param deadline - the moment the call's steps must be over by.
  * @returns whether it was there in time.
  * @throws {Error} with the reason the entry is no longer the one in front, or
  * with the out-of-time reason when the deadline came first.
  */
-async function waitFor(
-  entry: DrawnEntry,
-  step: ActComponentStep & { action: 'wait' },
-  timeoutMs: number,
-  locate: () => DrawnEntry | undefined,
-  deadline: number,
-): Promise<boolean> {
-  return await settles(() => {
-    const displaced = displacedReason(entry, locate)
+async function waitFor(run: StepRun, step: ActComponentWait, timeoutMs: number): Promise<boolean> {
+  return await settles(run, () => {
+    // The entry that took this one's place can draw the very target waited for.
+    const displaced = displacedReason(run)
     if (displaced !== undefined) throw new Error(displaced)
-    const scope = scopeOf(entry, step.node)
-    return scope !== undefined && (step.key === undefined || clickTarget(scope, step.key, entry.container) !== undefined)
-  }, timeoutMs, deadline)
+    const scope = scopeOf(run.entry, step.node)
+    return scope !== undefined && (step.key === undefined || clickTarget(scope, step.key, run.entry.container) !== undefined)
+  }, timeoutMs)
 }
 
 /**
  * Run one step inside the entry.
- * @param entry - the drawn entry.
+ * @param run - the call the step belongs to.
  * @param step - the step to run.
- * @param locate - how the console reads the entry in front now, for a step that waits.
- * @param deadline - the moment the call's steps must be over by.
  * @throws {Error} with the model-facing reason when the step cannot run.
  */
-async function runStep(
-  entry: DrawnEntry,
-  step: ActComponentStep,
-  locate: () => DrawnEntry | undefined,
-  deadline: number,
-): Promise<void> {
+async function runStep(run: StepRun, step: ActComponentStep): Promise<void> {
+  const { entry } = run
   if (step.action === 'wait') {
-    // The wait names its own duration in the sentence it fails with, so the
-    // step reads it once and the number the model is told is the one it waited.
+    // Read once, so the number the model is told is the one it waited.
     const timeoutMs = step.timeoutMs ?? DEFAULT_WAIT_MS
-    if (!await waitFor(entry, step, timeoutMs, locate, deadline)) {
-      // The sentence names what the step waited for: the key where the step
-      // named one — what did not appear is the control, and a model reading the
-      // failure has to know which key it was — and the block otherwise.
-      const target = step.key === undefined
-        ? `"${String(step.node)}"`
-        : `control "${step.key}"${step.node === undefined ? '' : ` in "${step.node}"`}`
+    if (!await waitFor(run, step, timeoutMs)) {
+      // What did not appear is the control where the step named a key, and the block otherwise.
+      const target = step.node === undefined
+        ? `control "${step.key}"`
+        : step.key === undefined ? `"${step.node}"` : `control "${step.key}" in "${step.node}"`
       throw new Error(waitTimeoutReason(target, timeoutMs))
     }
     return
   }
-  // Every search below is bounded by this scope, which is the entry's own
-  // container or an element inside it: what the console draws beside the entry
-  // is not reachable from here at all, so a control only it declares is a step
-  // that names nothing rather than one that presses the wrong thing.
-  // A scope that is missing is therefore always a named block the entry does
-  // not draw: a step naming none searches the entry's own container.
+  // Every search below is bounded by this scope, the entry's own container or
+  // an element inside it, so a missing scope is a named block the entry does
+  // not draw.
   const scope = scopeOf(entry, step.node)
   if (scope === undefined) throw new Error(missingTargetReason(`block "${String(step.node)}"`))
   if (step.action === 'click') {
@@ -461,17 +352,13 @@ async function runStep(
   }
   const target = setTarget(scope, step.name, entry.container)
   if (target === undefined) throw new Error(missingTargetReason(`field "${step.name}"`))
-  await setField(entry, target, step.name, step.value, deadline)
+  await setField(run, target, step.name, step.value)
 }
 
 /**
- * Click one element the way a person would, whatever kind of element it is.
- *
- * An element with its own `click()` is clicked through it, which is what
- * carries the default action and the element's own activation behaviour;
- * anything else — an SVG control in a drawn chart — is given a bubbling click
- * event instead. A `set` step on a select clicks its trigger and its option
- * through here too: it is the same gesture a person makes.
+ * Click one element the way a person would: through its own `click()` where it
+ * has one, which carries the default action, and as a bubbling click event
+ * otherwise — an SVG control in a drawn chart.
  * @param target - the element to click.
  */
 function clickOn(target: Element): void {
@@ -484,11 +371,8 @@ function clickOn(target: Element): void {
 
 /**
  * Press one element the way a person would, so the block's own handler runs.
- *
- * A control the block disabled, and one something else is drawn over, are
- * refusals rather than presses: the click this function would dispatch reaches
- * the block whether or not the control is reachable, so reporting the step as
- * one that ran would say a person could have done what they could not.
+ * The click reaches the block whether or not a person could reach the control,
+ * so a disabled or covered control is a refusal rather than a press.
  * @param target - the element to press.
  * @param key - the action key the step named, for the refusal.
  * @throws {Error} when the control is disabled or covered.
@@ -510,53 +394,24 @@ export interface ActComponentRun {
 }
 
 /**
- * Let the document settle before the next step reads it.
- *
- * A step's press tells the block to change what it draws, and a block draws on
- * its own turn — Vue and React both queue the render for a later task — so a
- * step resolved immediately after a press would search the document from
- * before it. The step after a press that opens a write dialog must find the
- * dialog's fields; read too early it finds whatever the press left standing
- * instead, which is how a write meant for the dialog lands in the query panel
- * behind it and is reported done while the dialog stays empty. One task of
- * waiting covers the queue the press enqueued, the flush and the frame it
- * draws in, which is what a person does before typing into what their click
- * opened.
- * @returns after the document has had its turn.
- */
-function settled(): Promise<void> {
-  return delay(0)
-}
-
-/**
- * Why the entry one step was about to run on is no longer the one in front.
- *
- * The column replaces what it draws without telling the seat, and one kind's
- * entries share the element they are drawn in — so a step that starts after a
- * switch would press a control of the entry that took this one's place while
- * the report kept naming the entry the call asked for. The entry is therefore
- * read again before every step, and the two facts the column writes about it
- * are compared: which entry the switcher marks as selected, and which element
- * the entry is drawn in. A redraw of the same entry in a new element is a
- * mismatch too: the steps would otherwise run in a subtree nobody sees.
- * @param entry - the entry the call resolved when it was claimed.
- * @param locate - how the console reads the entry in front now, the same reading the claim used.
+ * Why the entry the call was claimed against is no longer the one in front: no
+ * entry, another one — by the switcher's selected key — or the same one redrawn
+ * into a new element, where the steps would run in a subtree nobody sees.
+ * @param run - the call the check belongs to.
  * @returns what stopped the call, or undefined while the entry is still the one in front.
  */
-function displacedReason(entry: DrawnEntry, locate: () => DrawnEntry | undefined): string | undefined {
-  const drawn = locate()
+function displacedReason(run: StepRun): string | undefined {
+  const drawn = run.locate()
   if (drawn === undefined) return NO_ENTRY_IN_FRONT
-  if (drawn.entryId !== entry.entryId) return anotherEntryInFront(drawn.entryId)
-  if (drawn.container !== entry.container) return ENTRY_REDRAWN_REASON
+  if (drawn.entryId !== run.entry.entryId) return anotherEntryInFront(drawn.entryId)
+  if (drawn.container !== run.entry.container) return ENTRY_REDRAWN_REASON
   return undefined
 }
 
 /**
- * Run one call's steps against the entry the column is drawing.
- *
- * A failing step is a value rather than a rejection: it stops the call, the
- * steps after it are reported as not run, and the model reads which step
- * stopped it in the same answer that carries the rest.
+ * Run one call's steps against the entry the column is drawing. A failing step
+ * is a result rather than a rejection: it stops the call, and the steps after
+ * it are reported as not run.
  * @param args - the call's arguments.
  * @param entry - the entry the column is drawing, which the caller has matched to the call.
  * @param locate - reads the entry in front again, for the check before every step.
@@ -570,6 +425,7 @@ export async function runActComponent(
   locate: () => DrawnEntry | undefined,
   deadline: number,
 ): Promise<ActComponentRun> {
+  const run: StepRun = { entry, locate, deadline }
   const results: ActComponentStepResult[] = []
   let failed = false
   for (const [at, step] of args.steps.entries()) {
@@ -578,11 +434,13 @@ export async function runActComponent(
       continue
     }
     try {
-      await settled()
+      // Vue and React draw on a later task; the step after a press must see
+      // what the press drew.
+      await delay(0)
       if (Date.now() >= deadline) throw new Error(OUT_OF_TIME_REASON)
-      const displaced = displacedReason(entry, locate)
+      const displaced = displacedReason(run)
       if (displaced !== undefined) throw new Error(displaced)
-      await runStep(entry, step, locate, deadline)
+      await runStep(run, step)
       results.push({ index: at + 1, status: 'ok' })
     } catch (refusal) {
       failed = true
