@@ -104,7 +104,7 @@ export interface SessionHeader {
   readonly id: SessionId
   /** Non-negative safe-integer Unix epoch milliseconds when the session was created. */
   readonly createdAt: number
-  /** Absolute working directory of the session: where it was created, or the target of its latest relocate (if any). */
+  /** Absolute directory of the session's original project: where it was created, or the target of its latest relocate (if any). */
   readonly cwd?: string
   /** The session this one was forked from (seed lineage), if any. */
   readonly parentSession?: SessionId
