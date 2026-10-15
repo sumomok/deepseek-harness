@@ -81,6 +81,11 @@ const RELOCATE_WHILE_OWNED = 'a relocation needs every handle that writes the se
   + 'its session open for writing until its host stops; restart the host, then relocate the session before anything '
   + 'resumes it or opens it for writing'
 
+/** Why a historical log format refuses a relocation, and how the relocation can succeed. */
+const RELOCATE_BEFORE_MIGRATION = 'a relocation moves only the current log format, and the first write open of the session '
+  + 'publishes it in that format; open the session once, as resuming it does, then restart the host and relocate the '
+  + 'session before anything resumes it or opens it for writing'
+
 /** Assert that the independently decodable first frame contains only the header record. */
 function assertZstdHeaderFrame(plaintext: Buffer): void {
   if (plaintext.length === 0 || plaintext.indexOf(0x0A) !== plaintext.length - 1) {
@@ -672,11 +677,14 @@ class JsonlSessionPersistence extends SessionPersistence {
     // Only a holder of the directory the session occupies writes an intent for it,
     // so one settled under this lease cannot be replaced before this move records its own.
     await this.relocation.settle(this.root, this.compression, id, source.dir)
-    let stored = await this.requireStoredLog(id, signal)
+    // The format is checked before the log is read, so a refusal prepares no migration.
+    const selected = await this.findLog(id, signal)
+    if (selected !== undefined && selected.sourceVersion < SESSION_FORMAT_VERSION) {
+      throw new Error(`session "${id}" is stored in log format v${selected.sourceVersion}; ${RELOCATE_BEFORE_MIGRATION}`)
+    }
+    const stored = await this.requireStoredLog(id, signal)
     signal?.throwIfAborted()
     if (stored.meta.cwd === cwd) return { current: await this.snapshotOf(id) }
-    if (stored.status === 'prepared') stored = await this.publishStoredMigration(id, stored)
-    signal?.throwIfAborted()
     const targetDir = sessionDir(this.root, cwd, id)
     const sameDirectory = await this.relocation.isSameDirectory(targetDir, source.dir)
     const header: SessionHeader = { ...stored.meta, cwd }
@@ -775,7 +783,11 @@ class JsonlSessionPersistence extends SessionPersistence {
     return snapshot
   }
 
-  /** Release a relocation's leases and in-process claim, then drop cached state keyed by its old location. */
+  /**
+   * Release a relocation's leases and in-process claim, then drop the decoded
+   * log memoized at its old location. A relocation reads only current logs,
+   * so it leaves historical migration preparations to their callers.
+   */
   private async releaseRelocation(id: SessionId, leases: readonly SessionWriteLease[]): Promise<Error | undefined> {
     const failures: unknown[] = []
     for (const lease of [...leases].reverse()) {
@@ -787,9 +799,6 @@ class JsonlSessionPersistence extends SessionPersistence {
     }
     this.tracker.releaseClaim(id)
     this.coldLogMemo.delete(id)
-    const preparation = this.migrationPreparations.get(id)
-    this.migrationPreparations.delete(id)
-    preparation?.controller.abort()
     return failures.length > 0 ? new AggregateError(failures, `session "${id}": relocation could not release its write locks`) : undefined
   }
 

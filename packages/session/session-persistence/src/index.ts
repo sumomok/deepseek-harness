@@ -254,7 +254,8 @@ export abstract class SessionPersistence extends Service {
    * events, and seqs stay unchanged; the returned snapshot carries a new
    * revision. When the stored cwd already equals `cwd` (exact string
    * comparison) nothing changes, no event fires, and the current snapshot
-   * returns, so a caller that crashed may repeat the call. Pass exactly the
+   * returns, so a caller that crashed may repeat the call; a stored log in a
+   * historical format is refused before this comparison. Pass exactly the
    * cwd later resumes will pass: resume compares cwd strings exactly.
    *
    * Optional: callers test `typeof ctx.sessionPersistence.relocate ===
@@ -290,7 +291,9 @@ export abstract class SessionPersistence extends Service {
    *   move, or an unfinished earlier move of the same session is malformed or
    *   contradicts the storage; when a move stays unfinished, the message
    *   names the backend's record of it.
-   * @throws {Error} when the source and target locations are on different
+   * @throws {Error} when the stored log is in a historical format, which
+   *   the session's first write open migrates (the message says when a move
+   *   can succeed), when the source and target locations are on different
    *   filesystems, when the target location is one the backend's discovery
    *   does not list (for the JSONL backend, a symbolic link), or when the
    *   verification of the rewritten log fails without judging it.
