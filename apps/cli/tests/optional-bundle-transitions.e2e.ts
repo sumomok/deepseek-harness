@@ -11,6 +11,7 @@ import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import type { ProfileContext } from '@deepseek-ai/dsh-app-boot'
 import { LlmAdapter, ToolCallId, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
+import { isolatedSkillRootEnv } from '@deepseek-ai/dsh-loader-smoke'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-hmr'
@@ -76,7 +77,7 @@ describe.skipIf(!existsSync(join(root, 'apps/cli/lib/bin.js')))('Official option
     await mkdir(workspace)
     const home = join(temporary, 'home')
     const values = {
-      DSH_HOME: home, DSH_AGENTS_HOME: join(temporary, 'agents'), DSH_BUNDLED_SKILL_DIR: join(temporary, 'skills'),
+      ...isolatedSkillRootEnv(temporary, { dshHome: home, agentsHome: join(temporary, 'agents'), bundledSkillDir: join(temporary, 'skills') }),
       DSH_TELEMETRY_DISABLED: '1', TMUX: '', TMUX_PANE: '',
     }
     originalEnvironment = Object.fromEntries(Object.keys(values).map(key => [key, process.env[key]]))

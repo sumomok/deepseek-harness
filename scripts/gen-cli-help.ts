@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { PROFILE_TEMPLATES } from '@deepseek-ai/dsh-app-boot'
+import { isolatedSkillRootEnv } from '@deepseek-ai/dsh-loader-smoke'
 import {
   computeTranslationPairingRecord,
   renderTranslationPairingRecord,
@@ -181,12 +182,11 @@ async function collectHelp(): Promise<HelpPage[]> {
   const profiles = Object.keys(PROFILE_TEMPLATES)
   // Concurrent profile boots share the repository worker budget.
   const reader = prefetchHelp(async (args, signal) => {
-    // Each invocation boots against its own empty Harness and agents homes.
+    // Each invocation boots against its own empty Harness, agents, and Claude Code homes.
     const home = mkdtempSync(join(directory, 'invocation-'))
     const environment = {
       ...process.env,
-      DSH_HOME: join(home, 'harness'),
-      DSH_AGENTS_HOME: join(home, 'agents'),
+      ...isolatedSkillRootEnv(home, { dshHome: join(home, 'harness'), agentsHome: join(home, 'agents') }),
       DSH_TELEMETRY_DISABLED: '1',
       NO_COLOR: '1',
     }
