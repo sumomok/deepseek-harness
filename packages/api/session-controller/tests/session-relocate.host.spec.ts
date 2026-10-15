@@ -18,7 +18,7 @@ import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deep
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { SessionAlreadyOwnedError } from '@deepseek-ai/dsh-session-persistence'
-import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { sessionDir, toHeaderLine } from '@deepseek-ai/dsh-session-persistence-jsonl/src/format.ts'
 import { SessionWriteLease } from '@deepseek-ai/dsh-session-persistence-jsonl/src/lease.ts'
 import type { JsonlRelocationPlan } from '@deepseek-ai/dsh-session-persistence-jsonl/src/relocation.ts'

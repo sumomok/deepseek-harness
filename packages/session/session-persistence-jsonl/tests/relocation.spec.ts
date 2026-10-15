@@ -24,7 +24,7 @@ import {
   SessionAlreadyOwnedError, SessionFormatUnsupportedError, SessionPersistenceCorruptionError,
   SessionPersistenceNotFoundError, type SessionHandle, type SessionPersistence, type SessionPersistenceSnapshot,
 } from '@deepseek-ai/dsh-session-persistence'
-import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import {
   encodeSegment, generationLogFilename, parseGenerationLogFilename, projectKey, scanLog, sessionDir, toHeaderLine,
   type JsonlCompression,
