@@ -838,14 +838,17 @@ describe('header-validated membership projection', () => {
     const id = WorkspaceId('stat-missing-workspace')
     const pool = storedPool([[id, record(dir, ['kept'])]], { initialized: true, workspaceIds: [id] })
     const normalize = workspacePaths.realpathNormalize
+    let resolutions = 0
     const spy = vi.spyOn(workspacePaths, 'realpathNormalize').mockImplementation(async (path) => {
       const canonical = await normalize(path)
-      if (path === dir) await rm(dir, { recursive: true })
+      // Startup re-resolves the stored workspace path first; the header index resolves the session cwd second.
+      if (path === dir && ++resolutions === 2) await rm(dir, { recursive: true })
       return canonical
     })
     onTestFinished(() => { spy.mockRestore() })
     const result = await harness({ pool, sessions: [header('kept', dir)] })
     onTestFinished(() => result.ctx.fiber.dispose())
+    expect(resolutions).toBe(2)
     expect(result.registry.get(id)!.sessionIds).toEqual(['kept'])
   })
 
