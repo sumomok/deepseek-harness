@@ -59,19 +59,7 @@ import { en, NS, zh } from './locales.ts'
 import { ComponentRendererRegistry } from './registry.ts'
 import { ViewCommandRow } from './ViewCommandRow.tsx'
 
-export {
-  COMPONENT_KIT_ENTRIES,
-  DATA_PAGE_BATCH_MODIFIED_ID,
-  DATA_PAGE_DELETED_ID,
-  DATA_PAGE_EDITING_OUTPUT,
-  DATA_PAGE_GATED_IDS,
-  DATA_PAGE_INFO_CARD_TABS,
-  DATA_PAGE_OPENED_OUTPUT,
-  FORM_PAGE_ID,
-  INFO_CARD_ID,
-  MAX_RECORD_ID_LENGTH,
-  placedOnlyByViews,
-} from '../component-call.ts'
+export { COMPONENT_KIT_ENTRIES, MAX_RECORD_ID_LENGTH } from '../component-call.ts'
 export { NS } from './locales.ts'
 export { ComponentRendererRegistry } from './registry.ts'
 export type { ContentComponentKey } from './locales.ts'
