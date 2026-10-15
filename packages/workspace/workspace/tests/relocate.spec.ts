@@ -143,6 +143,22 @@ describe('WorkspaceRegistry on session-persistence/relocated', () => {
     expect(target.sessionIds).toEqual([SESSION])
   })
 
+  it('stops listing a session whose old cwd was removed as soon as the event returns', async () => {
+    const run = await boot(root => directory(root, 'old'))
+    const target = await run.registry.create(await directory(run.root, 'new'))
+    await rm(run.from, { recursive: true })
+    // Archiving an unknown id lists every stored header; the removed cwd makes the session a missing-directory candidate.
+    await expect(run.registry.archiveSession(SessionId('unknown'))).rejects.toThrow('cannot archive session \'unknown\'')
+    expect(run.origin.sessionIds).toEqual([SESSION])
+    run.relocate(target.path)
+
+    // No await after the event: only the synchronous removal of the missing-directory exemption hides the session.
+    expect(run.origin.sessionIds).toEqual([])
+    await run.drain()
+    expect(target.sessionIds).toEqual([SESSION])
+    expect(run.storedIds(run.origin)).toEqual([])
+  })
+
   it('attaches the session to the workspace at its new path without a caller', async () => {
     const run = await boot(root => directory(root, 'old'))
     const target = await run.registry.create(await directory(run.root, 'new'))
@@ -399,6 +415,25 @@ describe('WorkspaceRegistry after a relocation event it missed', () => {
     expect(storedIn(w, origin)).toEqual([SESSION])
   })
 
+  it('keeps a session moved without an event to a missing directory in its old workspace until that directory exists', async () => {
+    const w = await world()
+    const first = await start(w)
+    const origin = first.registry.list()[0]!
+    await first.stop()
+
+    const later = join(w.root, 'later')
+    w.stored = headerAt(later)
+    const second = await start(w)
+    expect(second.view()).toEqual([[w.from, [SESSION]]])
+    expect(storedIn(w, origin)).toEqual([SESSION])
+    await second.stop()
+
+    await mkdir(later)
+    const third = await start(w)
+    expect(third.view()).toEqual([[w.from, []]])
+    expect(storedIn(w, origin)).toEqual([])
+  })
+
   it('keeps the sessions of a workspace whose stored path did not resolve at startup', async () => {
     const w = await world()
     const first = await start(w)
@@ -602,5 +637,30 @@ describe('WorkspaceRegistry attaches on its mutation queue', () => {
     expect(first.written).toEqual([])
     expect(first.view()).toEqual([[third, [SESSION]], [w.to, []], [w.from, []]])
     expect(first.warnings).toEqual([])
+  })
+})
+
+describe('WorkspaceRegistry while a queued move writes its detach', () => {
+  it('keeps a session moved to a missing cwd out of its old workspace until the detach lands', async () => {
+    const w = await world()
+    const first = await start(w)
+    const origin = first.registry.list()[0]!
+    const missing = join(w.root, 'missing')
+    let listedMeanwhile: readonly SessionId[] | undefined
+    w.onPut = (table, key) => {
+      if (table !== 'workspaces' || key !== origin.id) return
+      w.onPut = undefined
+      // The queued move indexed the missing cwd; the cached record still lists the session until this write lands.
+      listedMeanwhile = origin.sessionIds
+    }
+
+    first.relocate(missing)
+    await first.drain()
+    expect(listedMeanwhile).toEqual([])
+    expect(storedIn(w, origin)).toEqual([])
+    expect(origin.sessionIds).toEqual([])
+    expect(first.warnings).toEqual([
+      `workspace: relocated session '${SESSION}' joins no workspace: cwd '${missing}' does not resolve`,
+    ])
   })
 })
