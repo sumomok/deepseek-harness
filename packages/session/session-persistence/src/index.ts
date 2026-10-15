@@ -255,7 +255,9 @@ export abstract class SessionPersistence extends Service {
    * revision. When the stored cwd already equals `cwd` (exact string
    * comparison) nothing changes, no event fires, and the current snapshot
    * returns, so a caller that crashed may repeat the call; a stored log in a
-   * historical format is refused before this comparison. Pass exactly the
+   * historical format is refused before this comparison. A caller can first
+   * test `stat(id).formatStatus === 'migration-required'` to know whether the
+   * session must be migrated by an open before it can move. Pass exactly the
    * cwd later resumes will pass: resume compares cwd strings exactly.
    *
    * Optional: callers test `typeof ctx.sessionPersistence.relocate ===

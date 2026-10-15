@@ -270,6 +270,12 @@ const TARGET_CWD = '/work/target'
 const THIRD_CWD = '/work/third'
 
 /**
+ * The JSONL backend's private loader for a historical generation, reached only
+ * to pin that a refused relocation prepares no migration.
+ */
+type MigrationLoader = SessionPersistence & { loadStoredMigration: (...args: never[]) => Promise<unknown> }
+
+/**
  * Store one current session at SOURCE_CWD with two retained prior generations,
  * create its target directory, and return a plan to move it to `targetCwd`.
  */
@@ -462,6 +468,8 @@ describe.each(['none', 'zstd'] as const)('JsonlSessionPersistence.relocate (%s)'
     const restored = (await readEvents(ctx.sessionPersistence, id)).events
     const listener = vi.fn()
     ctx.on('session-persistence/relocated', listener)
+    // The refusal judges the stored format before it reads the log, so it prepares no migration.
+    const prepareMigration = vi.spyOn(ctx.sessionPersistence as MigrationLoader, 'loadStoredMigration')
 
     const refusal = await ctx.sessionPersistence.relocate!(id, TARGET_CWD).catch((caught: unknown) => caught)
 
@@ -469,6 +477,7 @@ describe.each(['none', 'zstd'] as const)('JsonlSessionPersistence.relocate (%s)'
     expect((refusal as Error).message).toContain(`session "${id}" is stored in log format v3`)
     expect((refusal as Error).message).toContain('open the session once')
     expect((refusal as Error).message).toContain('then restart the host and relocate the session before anything resumes it')
+    expect(prepareMigration).not.toHaveBeenCalled()
     expect(await fingerprint(v3)).toEqual(original)
     expect((await readdir(sourceDir)).filter(name => name !== LEASE_FILENAME)).toEqual([basename(v3)])
     expect(await exists(dirname(targetDir))).toBe(false)

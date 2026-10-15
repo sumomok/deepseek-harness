@@ -101,8 +101,8 @@ interface DirtyState {
  * session creation, `turn/end`, and session disposal (the live-to-cold
  * moment) — and serves the
  * cached rows for a session header. A `session-persistence/relocated` event
- * rebinds the moved session's record to its new cwd and drops the rows that
- * started from the old header. Every durable write is fail-soft: failures log
+ * rebinds the moved session's record to its new cwd and drops the rows whose
+ * unit starts from a different value under the new header. Every durable write is fail-soft: failures log
  * a warning and the cache self-heals on the next write.
  */
 export class SessionProjectionCache extends Service {
