@@ -559,7 +559,7 @@ schema 说不出的是一个字符串**意味着**什么。把某个字符串读
 
 #### What the model sees
 
-被接受的调用回一句 `Now showing "<title>" in the content panel: <labels>.`，后面跟着点名要复用哪个 id 的那句话。被拒绝的调用回 `Error: show_component: <路径> — <哪里不对、该改成什么>`；点名了不存在的组件时，再附上完整目录，属性行也在里面，于是改过的那次调用不必再挨一次拒绝才知道换的这个组件收什么。取过数的调用每填一块多一句——`Read 20 of 89 matching rows from "SpaceLayer" into block "rows", for the attributes zh_label, layer_id. Page 1 of 5.`——行里的内容一个字也没有。没取成的那次只回一句话，说清是七种里的哪一种：手上没有凭据、用户没有同意、后端答的是别的、这张表没有叫这个名字的属性（附字典自己前十个，于是下一次调用同样不用再吃一次拒绝）、一列都没点名的块填不出这张表自己的默认查询方案、什么都没匹配上，或者到手的行超过一份 spec 装得下的量。本包写下的句子——描述、拒绝、结果行、通知——没有一句点名别的工具，依据的是 [self-contained-copy Agent Note](../../../.agents/notes/implemented/feature/2026-09-04-self-contained-tool-copy.zh.md) 记下的那条规矩；[`tests/self-contained-copy.client.spec.ts`](tests/self-contained-copy.client.spec.ts) 逐句走一遍，碰到这样的名字就失败，而拒绝前缀和结果行里 `show_component` 自己的名字不在这条规矩之内。
+被接受的调用回一句 `Now showing "<title>" in the content panel: <labels>.`，后面跟着点名要复用哪个 id 的那句话。被拒绝的调用回 `Error: show_component: <路径> — <哪里不对、该改成什么>`；点名了不存在的组件时，再附上完整目录，属性行也在里面，于是改过的那次调用不必再挨一次拒绝才知道换的这个组件收什么。取过数的调用每填一块多一句——`Read 20 of 89 matching rows from "SpaceLayer" into block "rows", for the attributes zh_label, layer_id. Page 1 of 5.`——行里的内容一个字也没有。没取成的那次只回一句话，说清是七种里的哪一种：手上没有凭据、用户没有同意、后端答的是别的、这张表没有叫这个名字的属性（附字典自己前十个，于是下一次调用同样不用再吃一次拒绝）、一列都没点名的块填不出这张表自己的默认查询方案、什么都没匹配上，或者到手的行超过一份 spec 装得下的量。本包写下的句子——描述、拒绝、结果行、通知——没有一句点名别的工具，依据的是 [self-contained-copy Agent Note](../../../.agents/notes/implemented/feature/2026-09-04-self-contained-tool-copy.zh.md) 记下的那条规矩；[`tests/self-contained-copy.client.spec.ts`](tests/self-contained-copy.client.spec.ts) 逐句走一遍，连同 `act_component` 与 `read_component` 的句子，碰到这样的名字就失败。工具在自己的拒绝前缀或结果行里写自己的名字不在这条规矩之内；本包三个工具之间互相点名则在。
 
 #### Token effect
 

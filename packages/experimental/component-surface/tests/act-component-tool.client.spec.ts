@@ -205,8 +205,8 @@ describe('a call the tool refuses before any console is asked', () => {
   it('refuses an entry this tool cannot read, a call with no steps, and one past the ceiling', async () => {
     const { run, calls: opened } = await bench({ kind: 'unclaimed' })
     const cases: [unknown, string][] = [
-      [{ entry: '', steps: ARGS.steps }, 'entry must be the id `show_component` placed the entry under.'],
-      [{ entry: 'a'.repeat(65), steps: ARGS.steps }, 'entry must be the id `show_component` placed the entry under.'],
+      [{ entry: '', steps: ARGS.steps }, 'entry must be the id of a component entry in the content panel.'],
+      [{ entry: 'a'.repeat(65), steps: ARGS.steps }, 'entry must be the id of a component entry in the content panel.'],
       [{ entry: ENTRY, steps: [] }, 'act_component needs at least one step.'],
       [
         { entry: ENTRY, steps: Array.from({ length: MAX_ACT_COMPONENT_STEPS + 1 }, () => ({ action: 'click', key: 'add' })) },

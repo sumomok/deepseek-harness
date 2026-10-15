@@ -16,7 +16,7 @@ import { MAX_ACT_COMPONENT_STEPS } from './act-component-call.ts'
 /** The tool's description: what it acts on, how a call addresses it, and what comes back. */
 export const ACT_COMPONENT_DESCRIPTION = [
   'Act inside the component entry the user is looking at in the content panel.',
-  'A call acts on exactly one entry: name it with `entry`, the id `show_component` placed it under,',
+  'A call acts on exactly one entry: name it with `entry`, the id the entry was placed under,',
   'and it must be the entry currently in front. Nothing outside that entry — the console\'s own controls,',
   'another entry, the chat input — is ever touched, and a step that resolves outside it is refused.',
   '',
@@ -32,7 +32,7 @@ export const ACT_COMPONENT_DESCRIPTION = [
 
 /** What `entry` is. */
 export const ENTRY_DESCRIPTION =
-  'Id of the component entry to act on, exactly as `show_component` placed it. It must be the entry in front.'
+  'Id of the component entry to act on, the id the entry was placed under. It must be the entry in front.'
 
 /** What `steps` is. */
 export const STEPS_DESCRIPTION = `The steps to run, in order, at most ${String(MAX_ACT_COMPONENT_STEPS)}. The call stops at the first step that fails.`
@@ -88,7 +88,7 @@ export const CANCELLED_REFUSAL = 'The act_component call was cancelled.'
 export const MISREPORTED_REFUSAL = 'The console answered an act_component call with something other than its steps.'
 
 /** Refusal for an entry id this tool cannot read. */
-export const BAD_ENTRY_REFUSAL = 'entry must be the id `show_component` placed the entry under.'
+export const BAD_ENTRY_REFUSAL = 'entry must be the id of a component entry in the content panel.'
 
 /** What one unreadable step is refused for, which is the same list every time. */
 export const STEP_REFUSAL_TEXT =
