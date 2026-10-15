@@ -13,12 +13,6 @@
  * element's own window, not of the top one, so an element inside a nested
  * same-origin frame is measured where it actually lives.
  *
- * Visibility orders the bidding rather than gating it. A tab the user is not
- * looking at holds the same mounted frames and the same live documents, so it
- * bids too, after {@link HIDDEN_CLAIM_GRACE_MS} — long enough for a tab that is
- * in front to have bid first, short enough that a console nobody is looking at
- * still answers rather than leaving the call to the host's claim timeout.
- *
  * A read waits twice before it walks anything: for a document that is still
  * loading, and then for a loaded document to stop changing (`../perception/
  * settle.ts`). Each spends its own share of the report deadline, and the
