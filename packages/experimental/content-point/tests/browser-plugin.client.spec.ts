@@ -56,7 +56,11 @@ async function bench() {
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
   const slots = ctx.get('slots') as SlotRegistry
-  const declare = () => slots.register({ name: 'root', children: { 'conversation.input.left': { kind: 'list', scope: 'session' } } } as never, () => null)
+  // A root entry declaring the seat; it is never rendered here.
+  const declare = () => slots.register(
+    { name: 'root', children: { 'conversation.input.left': { kind: 'list', scope: 'session' } } },
+    (_props: { readonly renderSlot: unknown }) => null,
+  )
   const undeclare = declare()
   ctx.provide('locale', new LocaleRuntime(ctx))
   const drafts: Drafts = { filed: [], released: [] }

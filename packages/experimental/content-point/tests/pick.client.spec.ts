@@ -19,6 +19,8 @@ import type { PickOutcome } from '@haoran/dsh-point-anchor/page'
 import { blockAt, BLOCK_REASONS, FRAME_BLOCK_REASONS, point, pointOutcome } from '../src/client/pick.ts'
 import type { PointNames, PointOutcome } from '../src/client/pick.ts'
 import { withPointNotices } from '../src/notice.ts'
+import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { clickTrusted, corpusPage, mountConsole, probe, showFramePage } from './console-fixture.client.ts'
 
@@ -132,7 +134,10 @@ describe('an original-system page\'s table, described for a reference', () => {
     const logged: unknown[] = []
     for (let at = 0; at < filed.length; at += 16) {
       const references = filed.slice(at, at + 16).map(outcome => ({ source: 'content-point', label: outcome.label, data: outcome.data }))
-      const message = createUserMessage({ content: [{ type: 'text', text: '这些是什么' }], source: { kind: 'user', references } as never })
+      const message = createUserMessage({
+        content: [{ type: 'text', text: '这些是什么' }],
+        source: { kind: 'user', rpcId: brandString<SessionRequestId>(`rpc-${String(at)}`), references },
+      })
       logged.push(...withPointNotices([message]))
     }
     expect(logged.length).toBe(2 * Math.ceil(filed.length / 16))
