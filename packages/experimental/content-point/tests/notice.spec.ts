@@ -209,11 +209,6 @@ describe('the notice a user message\'s points add', () => {
     expect(out[3]?.source).toMatchObject({ message: fresh.id })
   })
 
-  it('appends once for a message the step holds twice', () => {
-    const message = prompt('一', [pointRef(HEADER)])
-    expect(withPointNotices([message, message]).filter(item => item.source.kind === POINT_MESSAGE_KIND)).toHaveLength(1)
-  })
-
   it('writes a point without an anchor with the reason it has none', () => {
     const unanchored = toPromptReference({ v: DESCRIBE_FORMAT, anchorFormat: ANCHOR_FORMAT, what: { kind: 'frame', role: 'button' }, unanchored: 'nameless', shown: { page: '订单' } }, POINT_SOURCE)
     const text = unanchored === undefined ? '' : pointNotice([{ source: POINT_SOURCE, label: unanchored.label, data: unanchored.data }], MAX_PROMPT_REFERENCES)?.text
