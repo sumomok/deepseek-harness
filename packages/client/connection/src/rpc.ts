@@ -120,6 +120,47 @@ export type PeerAdmission =
   | { readonly peer: PeerScope }
   | { readonly rejection: 401 | 403 }
 
+/**
+ * Decide which Peer one request speaks for. Connection calls it only for
+ * requests that already passed the Host/Origin checks and browser or API
+ * authentication, so it can refuse a request but never admit one those checks
+ * refused. It runs synchronously inside {@link HostConnectionHandle.admit} and
+ * must answer the same for the same headers, because route handlers may admit
+ * one request more than once.
+ * @param request - headers of the HTTP or upgrade request.
+ * @returns a live Peer, created through {@link HostConnectionHandle.createPeer}
+ * with the principal the request speaks for, the owner principal included;
+ * 401 or 403 to refuse; or `undefined` when the request names no Peer, which
+ * Connection refuses with 401.
+ */
+export type PeerAdmitter = (request: ConnectionTrustRequest) => PeerScope | 401 | 403 | undefined
+
+/** The Peer admission seam on the Host. */
+export interface HostConnectionPeers {
+  /**
+   * The resolved `requireAdmitter` value of Connection's Config: whether this
+   * Connection refuses with 401 every authenticated request while no admitter
+   * is installed. A plugin that installs the admitter for a deployment that
+   * depends on default deny reads it at load and refuses to start when it is
+   * false, because a later configuration layer replaces the whole Connection
+   * row and can drop the field.
+   */
+  readonly requireAdmitter: boolean
+
+  /**
+   * Install the sole Peer admitter. From then on every authenticated HTTP
+   * request and WebSocket upgrade, whether it carries a browser Cookie or an
+   * API Cookie from `/connect`, speaks for the Peer the admitter returns or is
+   * refused; none is admitted as `browserPeer` or an API Peer. Removing the
+   * admitter restores upstream admission, or refusal with 401 when
+   * {@link requireAdmitter} is true.
+   * @param admitter - synchronous decision applied after Connection's own checks.
+   * @returns asynchronous disposer removing the admitter; it also leaves with the registering fiber.
+   * @throws Error when another admitter is installed.
+   */
+  admitWith(admitter: PeerAdmitter): () => Promise<void>
+}
+
 /** Socket admission claims API ownership until its carrier calls release, including failed upgrades. */
 export type ConnectionAdmission =
   | {
@@ -210,6 +251,8 @@ export interface HostConnectionHandle {
   readonly fetch: HostConnectionFetch
   /** The owner Peer every authenticated browser connection shares. */
   readonly browserPeer: PeerScope
+  /** Peer admission seam; the admitter registration belongs to the Context reading it. */
+  readonly peers: HostConnectionPeers
 
   /**
    * Whether this deployment accepts authorities beyond loopback: true only
@@ -228,14 +271,18 @@ export interface HostConnectionHandle {
    * Apply Connection's Host/Origin checks and browser authentication to
    * another Web route.
    * @param request - request headers from the HTTP or upgrade request.
-   * @returns rejection status, or undefined when the route may accept the request.
+   * @returns the rejection status of {@link admit}, 403 when it admits a
+   * non-owner Peer, or undefined when the route may accept the request.
    */
   requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection
 
   /**
-   * Admit an HTTP request against its signed browser or API credential and live Peer.
+   * Admit an HTTP request against its signed browser or API credential and
+   * live Peer. With a Peer admitter installed, an authenticated request speaks
+   * for the Peer the admitter returns; without one and with `requireAdmitter`
+   * set, it is refused with 401.
    * @param request - request headers from the HTTP or upgrade request.
-   * @returns the credential's Peer, or the rejection status.
+   * @returns the admitted Peer, or the rejection status.
    */
   admit(request: ConnectionTrustRequest): PeerAdmission
 
