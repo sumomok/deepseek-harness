@@ -4,8 +4,8 @@
  * is in force, says where the form comes from and requests nothing while the
  * data page beside it has opened nothing, opens the form it is asked to with
  * the host's verdict on this visitor, reports a saved record as `added` or
- * `modified` with no field any of the table's schemes masks, and reads no
- * credential of its own.
+ * `modified`, an added one with no field any of the table's schemes masks,
+ * and reads no credential of its own.
  *
  * The backend is the shared stub on `XMLHttpRequest` the data page's own spec
  * draws against. Nothing here reaches a network.
