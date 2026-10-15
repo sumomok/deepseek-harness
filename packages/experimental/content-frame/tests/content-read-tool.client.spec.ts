@@ -22,6 +22,7 @@ import type { ToolExecutionInput, ToolExecutionResult, ToolRunContext } from '@d
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { contentReadTool } from '../src/access/read-tool.ts'
 import { PendingCalls, type CallTimeouts } from '../src/access/pending.ts'
+import { memberTable } from './fixtures/member-table.client.ts'
 import { unansweredRefusal, unclaimedRefusal, type FrontEntry } from '../src/access/text.ts'
 import type { ReadOutcome, ReadSnapshot } from '../src/access/wire.ts'
 
@@ -68,7 +69,7 @@ async function bench(timeouts: CallTimeouts = FAST, front?: FrontEntry): Promise
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   const pending = new PendingCalls()
-  ctx.tools.register(contentReadTool(pending, timeouts, () => front))
+  ctx.tools.register(contentReadTool(memberTable(pending), timeouts, () => front))
   const session = Session.create(SessionId(`content-read-${++calls}`))
   const agent = agentWithSession(session)
   return {
@@ -160,7 +161,7 @@ describe('what content_read offers the model', () => {
   })
 
   it('presents the call and its result as pure functions of what they carry', () => {
-    const tool = contentReadTool(new PendingCalls(), FAST, () => undefined)
+    const tool = contentReadTool(memberTable(new PendingCalls()), FAST, () => undefined)
     expect(tool.presentCall?.({})).toEqual({
       card: 'generic',
       title: 'Read the page in the content column',
@@ -321,7 +322,7 @@ describe('what content_read answers when no listing arrives', () => {
 
   it('names the cancellation the agent loop replaces with its own outcome', async () => {
     const aborter = new AbortController()
-    const tool = contentReadTool(new PendingCalls(), FAST, () => undefined)
+    const tool = contentReadTool(memberTable(new PendingCalls()), FAST, () => undefined)
     const session = Session.create(SessionId(`content-read-${++calls}`))
     const exec = {
       callId: 'call_cancelled',
@@ -453,6 +454,6 @@ describe('the listing content_read answers with', () => {
   })
 
   it('runs beside its siblings rather than queueing a second claim window', () => {
-    expect(contentReadTool(new PendingCalls(), FAST, () => undefined).isConcurrencySafe?.({})).toBe(true)
+    expect(contentReadTool(memberTable(new PendingCalls()), FAST, () => undefined).isConcurrencySafe?.({})).toBe(true)
   })
 })

@@ -34,9 +34,10 @@
  * calls `installElementUI()` first.
  */
 import { useEffect, useMemo, useRef } from 'react'
-import { InfoCard, type InfoCardRecord } from '@sumomok/toy-crud-kit'
+import { InfoCard } from '@sumomok/toy-crud-kit'
 import { readCardOpen, readInfoCard, type InfoCardVueProps } from './data-page-read.ts'
-import { useBasePathState, useContainedComponent } from './crud-box.ts'
+import { reportOnce, useBasePathState, useContainedComponent } from './crud-box.ts'
+import { CrudPart } from './CrudPart.tsx'
 import type { VueEventHandlers } from './vue2-bridge.tsx'
 import css from './crud-part.module.css'
 import type { ComponentActionHandler, ComponentRendererProps } from './renderer.ts'
@@ -50,15 +51,8 @@ const CARD_OPEN_ACTION_ID = 'card-open'
 /** Action id a card that no longer shows a record is reported under. */
 const CARD_CLOSE_ACTION_ID = 'card-close'
 
-/**
- * The last report each property record's card made, serialized.
- *
- * Keyed by the block's property record, which the placement package holds
- * steady while the record bound into it is the same one and replaces when it
- * changes — so a redraw over the same record finds the report it made, and a
- * record opened again after another finds none.
- */
-const REPORTED = new WeakMap<Readonly<Record<string, unknown>>, string>()
+/** The one report slot a card holds: whichever of its two actions it reported last. */
+const CARD_SLOT = 'card'
 
 /** What one drawn card needs. */
 interface InfoCardBlockProps {
@@ -74,22 +68,17 @@ interface InfoCardBlockProps {
 function InfoCardBlock({ props, vueProps, onAction }: InfoCardBlockProps) {
   const context = useRef({ props, onAction })
   useEffect(() => { context.current = { props, onAction } })
-  const on = useMemo<VueEventHandlers>(() => {
-    const reportOnce = (actionId: string, payload: Readonly<Record<string, unknown>>): void => {
-      const current = context.current
-      const signature = JSON.stringify([actionId, payload])
-      if (REPORTED.get(current.props) === signature) return
-      REPORTED.set(current.props, signature)
-      current.onAction(actionId, payload)
-    }
-    return {
-      'info-card-open': (payload: InfoCardRecord) => {
-        const report = readCardOpen(payload)
-        if (report !== undefined) reportOnce(CARD_OPEN_ACTION_ID, report)
-      },
-      'info-card-close': () => { reportOnce(CARD_CLOSE_ACTION_ID, {}) },
-    }
-  }, [])
+  const on = useMemo<VueEventHandlers>(() => ({
+    'info-card-open': (payload: unknown) => {
+      const report = readCardOpen(payload)
+      const { props: current, onAction: sink } = context.current
+      if (report !== undefined) reportOnce(current, CARD_SLOT, CARD_OPEN_ACTION_ID, report, sink)
+    },
+    'info-card-close': () => {
+      const { props: current, onAction: sink } = context.current
+      reportOnce(current, CARD_SLOT, CARD_CLOSE_ACTION_ID, {}, sink)
+    },
+  }), [])
   const { box, host } = useContainedComponent({ component: InfoCard, props: vueProps, on })
   return (
     <div ref={box} className={vueProps.record === undefined ? css.idleBox : css.box}>
@@ -110,20 +99,17 @@ export function InfoCardRenderer({ nodeId, props, onAction, t }: ComponentRender
   // Keyed on the block's property record, which the placement package replaces
   // exactly when the record bound into it changes.
   const vueProps = useMemo(() => readInfoCard(props), [props])
+  if (basePath !== 'ready') {
+    const line = { reason: basePath, text: t(basePath === 'failed' ? 'infoCard.unavailable' : 'infoCard.preparing') }
+    return <CrudPart componentId={COMPONENT_ID} nodeId={nodeId} line={line} />
+  }
   return (
-    <section className={css.section} data-component-block={COMPONENT_ID} data-component-node={nodeId}>
-      {basePath !== 'ready'
-        ? (
-          <p className={css.notice} data-info-card-stalled={basePath}>
-            {t(basePath === 'failed' ? 'infoCard.unavailable' : 'infoCard.preparing')}
-          </p>
-        )
-        : (
-          <>
-            {vueProps.record === undefined && <p className={css.notice} data-info-card-idle="">{t('infoCard.idle')}</p>}
-            <InfoCardBlock props={props} vueProps={vueProps} onAction={onAction} />
-          </>
-        )}
-    </section>
+    <CrudPart
+      componentId={COMPONENT_ID}
+      nodeId={nodeId}
+      line={vueProps.record === undefined ? { reason: 'idle', text: t('infoCard.idle') } : undefined}
+    >
+      <InfoCardBlock props={props} vueProps={vueProps} onAction={onAction} />
+    </CrudPart>
   )
 }

@@ -409,7 +409,7 @@ A block reports what the user did by running one command: `/component-action <js
 | `toy.data-page` `operation` | the pressed operation's `opId` and the `row`'s drawn cells | `context` |
 | `toy.data-page` `exported` | which of the two toolbar exports the page submitted as `mode`, and the `fileType` the press named where it named one; the export is a task on the deployment's own backend and the file is collected from that deployment's own task list, so the task number it answered with reaches nobody here | `context` |
 | `toy.data-page` `deleted` | how many records one delete removed as `succeeded`, how many it could not as `failed`, and the `names` of at most five of the removed records; never a field value | `context` |
-| `toy.data-page` `batch-modified` | `succeeded`, `failed` and `names` as for `deleted`, and the `fields` one batch edit changed, by attribute name and never by value | `context` |
+| `toy.data-page` `batch-modified` | `succeeded` and `names` as for `deleted`, and the `fields` one batch edit changed, by attribute name and never by value; the page reports a batch edit only when every record changed, so it carries no `failed` | `context` |
 | `toy.form-page` `added` / `modified` | a `record` of at most eight cells of the saved record, under the form's own `relatedMeta`; the empty record where no data page on that table has reported its columns | `context` |
 | `toy.info-card` `card-open` / `card-close` | the `name` of the record the card shows and its table `type`; nothing when it no longer shows one | `context` |
 

@@ -341,9 +341,8 @@ const ACTION_CASES: Readonly<Record<string, readonly ActionCase[]>> = {
     { props: PAGE, payload: { succeeded: 0, failed: 2, names: [] } },
   ],
   [`${DATA_PAGE_ID}.batch-modified`]: [
-    { props: PAGE, payload: { succeeded: 2, failed: 0, names: ['测试-1', '测试-2'], fields: ['status'] } },
-    { props: PAGE, payload: { succeeded: 2, failed: 1, names: ['测试-1', '测试-2'], fields: [] } },
-    { props: PAGE, payload: { succeeded: 0, failed: 2, names: [], fields: [] } },
+    { props: PAGE, payload: { succeeded: 2, names: ['测试-1', '测试-2'], fields: ['status'] } },
+    { props: PAGE, payload: { succeeded: 2, names: ['测试-1', '测试-2'], fields: [] } },
   ],
   [`${FORM_PAGE_ID}.added`]: [{ props: FORM, payload: { record: SAVED } }, { props: FORM, payload: { record: {} } }],
   [`${FORM_PAGE_ID}.modified`]: [{ props: FORM, payload: { record: SAVED } }, { props: FORM, payload: { record: {} } }],

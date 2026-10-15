@@ -37,11 +37,12 @@
  * calls `installElementUI()` first.
  */
 import { useEffect, useMemo, useRef } from 'react'
-import { FormPage, type FormPageSavedPayload } from '@sumomok/toy-crud-kit'
-import { readFormPage, readFormSaved, type FormPageVueProps } from './data-page-read.ts'
+import { FormPage } from '@sumomok/toy-crud-kit'
+import { readFormPage, readFormSaved, readSaveMode, type FormPageVueProps, type SaveMode } from './data-page-read.ts'
 import { useBasePathState, useContainedComponent } from './crud-box.ts'
+import { CrudPart } from './CrudPart.tsx'
 import { useAbilities } from './use-abilities.ts'
-import { keepMarked, markFormPage } from './marks.ts'
+import { markFormPage, useKeptMarks } from './marks.ts'
 import type { DataPageAbilityTable } from '../route.ts'
 import type { VueEventHandlers } from './vue2-bridge.tsx'
 import css from './crud-part.module.css'
@@ -63,8 +64,8 @@ type FormPageMountProps = FormPageVueProps & {
   readonly abilities: DataPageAbilityTable
 }
 
-/** The action a save reports, by the mode of the request the form is open on. */
-const SAVE_ACTION: Readonly<Record<string, string>> = {
+/** The action a save reports, by the mode it saves in. */
+const SAVE_ACTION: Readonly<Record<SaveMode, string>> = {
   add: ADDED_ACTION_ID,
   modify: MODIFIED_ACTION_ID,
 }
@@ -75,8 +76,19 @@ const SAVE_ACTION: Readonly<Record<string, string>> = {
  * @returns the mode's action, or `undefined` for a form no request opened.
  */
 function saveAction(vueProps: FormPageMountProps): string | undefined {
-  const mode = vueProps.request?.['mode']
-  return typeof mode === 'string' ? SAVE_ACTION[mode] : undefined
+  const mode = readSaveMode(vueProps.request?.['mode'])
+  return mode === undefined ? undefined : SAVE_ACTION[mode]
+}
+
+/**
+ * Mark one drawn form's controls: its save control with the action saving
+ * reports for the request the form is open on, and its fields by column.
+ * @param root - the block's subtree.
+ * @param vueProps - the form's properties, as the block is drawing it.
+ */
+function markForm(root: Element, vueProps: FormPageMountProps): void {
+  const save = saveAction(vueProps)
+  markFormPage(root, save === undefined ? {} : { save })
 }
 
 /** What one drawn form needs. */
@@ -92,22 +104,13 @@ function FormPageBlock({ vueProps, onAction }: FormPageBlockProps) {
   const report = useRef(onAction)
   useEffect(() => { report.current = onAction })
   const on = useMemo<VueEventHandlers>(() => ({
-    'form-saved': (payload: FormPageSavedPayload) => {
+    'form-saved': (payload: unknown) => {
       const saved = readFormSaved(payload)
-      if (saved !== undefined) report.current(payload.mode === 'add' ? ADDED_ACTION_ID : MODIFIED_ACTION_ID, saved)
+      if (saved !== undefined) report.current(SAVE_ACTION[saved.mode], saved.report)
     },
   }), [])
   const { box, host } = useContainedComponent({ component: FormPage, props: vueProps, on })
-  // The form and its save button are drawn by Vue inside this box, and the
-  // request the form is open on is what decides which action a save reports,
-  // so the mark pass reads the current properties through a ref the way every
-  // other effect that outlives its commit does.
-  const marking = useRef({ props: vueProps })
-  useEffect(() => { marking.current = { props: vueProps } })
-  useEffect(() => keepMarked(box.current as HTMLDivElement, (root) => {
-    const save = saveAction(marking.current.props)
-    markFormPage(root, save === undefined ? {} : { save })
-  }), [])
+  useKeptMarks(box, vueProps, markForm)
   return (
     <div ref={box} className={vueProps.request === undefined ? css.idleBox : css.box}>
       <div ref={host} className={css.host} />
@@ -144,16 +147,15 @@ export function FormPageRenderer({ nodeId, props, onAction, t }: ComponentRender
   )
   if (formProps === undefined || basePath !== 'ready') {
     const stalled: FormPageStall = formProps === undefined ? 'table' : basePath === 'failed' ? 'address' : 'preparing'
-    return (
-      <section className={css.section} data-component-block={COMPONENT_ID} data-component-node={nodeId}>
-        <p className={css.notice} data-form-page-stalled={stalled}>{t(STALL_LINE[stalled])}</p>
-      </section>
-    )
+    return <CrudPart componentId={COMPONENT_ID} nodeId={nodeId} line={{ reason: stalled, text: t(STALL_LINE[stalled]) }} />
   }
   return (
-    <section className={css.section} data-component-block={COMPONENT_ID} data-component-node={nodeId}>
-      {formProps.request === undefined && <p className={css.notice} data-form-page-idle="">{t('formPage.idle')}</p>}
+    <CrudPart
+      componentId={COMPONENT_ID}
+      nodeId={nodeId}
+      line={formProps.request === undefined ? { reason: 'idle', text: t('formPage.idle') } : undefined}
+    >
       <FormPageBlock vueProps={formProps} onAction={onAction} />
-    </section>
+    </CrudPart>
   )
 }

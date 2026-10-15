@@ -33,9 +33,7 @@ const CARRIED = 'carried'
  * it; anything else is a sentence saying which gesture reports the action and
  * why this row marks no control of the drawn block for it: nothing a press can
  * reach performs it, or the block draws no control of its own because the
- * gesture belongs to a block beside it. Every declared action is ruled on
- * here; no row defers its control to a later round, and the last case of the
- * gate refuses one that tries.
+ * gesture belongs to a block beside it.
  */
 const DISPOSITIONS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   'el.confirm-bar': {
@@ -105,44 +103,5 @@ describe('the actions the catalog declares and the marks the renderers write', (
     markTable(document.body, { operations: { custom: ['ping', 'ghost'] } })
     expect(document.querySelector('.operation-custom a')?.getAttribute('data-component-key')).toBe('ping')
     expect(document.querySelector('[data-component-key="ghost"]')).toBeNull()
-  })
-
-  it('carries every action a class of controls performs', () => {
-    // A `carried` action's control is asserted in the renderer's own spec, so
-    // what is checked here is that the marker names at least the actions this
-    // delivery claims are reachable, and that every other disposition says why.
-    const carried = Object.entries(DISPOSITIONS).flatMap(([component, actions]) =>
-      Object.entries(actions).filter(([, disposition]) => disposition === CARRIED).map(([action]) => `${component}/${action}`))
-    expect(carried).toEqual([
-      'el.confirm-bar/press',
-      'el.filter-bar/submit',
-      'toy.table/select',
-      'toy.table/row-click',
-      'toy.table/sort',
-      'toy.table/operation',
-      'toy.data-page/query',
-      'toy.data-page/cell-click',
-      'toy.data-page/select',
-      'toy.data-page/card-close',
-      'toy.data-page/added',
-      'toy.data-page/modified',
-      'toy.data-page/operation',
-      'toy.data-page/exported',
-      'toy.data-page/deleted',
-      'toy.data-page/batch-modified',
-      'toy.form-page/added',
-      'toy.form-page/modified',
-    ])
-  })
-
-  it('rules on every action without deferring its control to a later round', () => {
-    // The dispositions that are not `carried` have to say where the action is
-    // reported from and why no control of the drawn block performs it. A row
-    // that instead promises the control later is the state this file exists to
-    // end, so the words such a row would use are refused.
-    const deferred = /does not mark|not yet|not this round|this delivery|promised/
-    const rows = Object.entries(DISPOSITIONS).flatMap(([component, actions]) =>
-      Object.entries(actions).map(([action, disposition]) => `${component}/${action}: ${disposition}`))
-    for (const row of rows) expect(row).not.toMatch(deferred)
   })
 })

@@ -56,8 +56,8 @@ export type CallSettlement =
 
 /**
  * What one domain's tools ask of the channel they deliver their calls through:
- * open one call and look one up. {@link PendingCalls} satisfies it, and so does
- * the handle the channel hands a member, which is what a tool takes.
+ * open one call and look one up. It is the handle the channel hands a member,
+ * which opens every call on that member's behalf.
  */
 export interface CallTable {
   /**
@@ -165,7 +165,7 @@ interface PendingCall {
   /** The entry the column had in front when the wait opened, for a call that will act. */
   readonly page: ReadPage | undefined
   /** The member of the shared channel that opened this call, which is what reads its report. */
-  readonly member: string | undefined
+  readonly member: string
   /** The tab that claimed it, once one has. */
   tabId: string | undefined
   /** Whether one post has taken this call's settlement; see {@link PendingCalls.reserveReport}. */
@@ -203,12 +203,12 @@ export class PendingCalls {
    * @param sessionId - the session whose column the call is against.
    * @param signal - the execution's cancellation.
    * @param timeouts - the deployment's deadlines for both phases.
+   * @param member - the shared channel's member that opened this call, which is
+   * the only reader its posted report is handed to.
    * @param page - the entry the column has in front now, handed to the claiming
    * seat so a call that will act can tell whether the column moved under it.
    * The wait opens once the call has been approved, so this is the entry the
    * user was looking at when they answered.
-   * @param member - the shared channel's member that opened this call, which is
-   * the only reader its posted report is handed to.
    * @returns how the wait ended.
    * @throws {Error} when a call of that id is already waiting.
    */
@@ -217,8 +217,8 @@ export class PendingCalls {
     sessionId: SessionId,
     signal: AbortSignal,
     timeouts: CallTimeouts,
+    member: string,
     page?: ReadPage,
-    member?: string,
   ): Promise<CallSettlement> {
     // One call id, one open wait: a second registration would replace the first
     // entry and leave its execution blocked forever, since every path that

@@ -17,7 +17,7 @@
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
-import { isVisible, TAB_ID, useContentRead, type ContentReadSeat } from '../src/client/access/executor.ts'
+import { isVisible, useContentRead, type ContentReadSeat } from '../src/client/access/executor.ts'
 import { looksClickable, rowMark } from '../src/client/access/dom.ts'
 import { itemName } from '../src/client/access/collect.ts'
 import { snapshot } from '../src/client/access/snapshot.ts'
@@ -25,7 +25,11 @@ import { markup } from '../src/client/access/markup.ts'
 import { CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, type ActOutcome, type ClaimAck } from '../src/access/wire.ts'
 import { FRAME_WIDE_LISTING_MESSAGE } from '../src/access/text.ts'
 import { RefTable } from '../src/client/access/refs.ts'
+import { ContentChannel } from '../src/client/access/channel.ts'
 import type { ContentActRequest } from '../src/types.ts'
+
+/** The page load's channel every seat here answers through. */
+const CHANNEL = new ContentChannel()
 
 /** The session every case here acts for. */
 const SESSION = 'session_1'
@@ -151,14 +155,13 @@ function seatOf(request: ContentActRequest): ContentReadSeat {
     frames: { current: new Map([[FRAME, frame]]) },
     tables: { current: new Map([[FRAME, refs]]) },
     access: ACCESS,
-    tabId: TAB_ID,
     draw: NO_DRAWING,
   }
 }
 
 /** Mount the seat over one pending call. */
 function Probe({ seat }: { seat: ContentReadSeat }) {
-  useContentRead(seat)
+  useContentRead(seat, CHANNEL)
   return null
 }
 

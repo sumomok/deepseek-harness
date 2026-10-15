@@ -16,7 +16,6 @@ import { stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '../src/client/index.ts'
 import { ContentFrame } from '../src/client/ContentFrame.tsx'
-import { TAB_ID } from '../src/client/access/executor.ts'
 import { ContentReadRow } from '../src/client/access/ContentReadRow.tsx'
 import { HiddenCommandRow } from '../src/client/HiddenCommandRow.tsx'
 import { CONTENT_SETTINGS_ROUTE } from '../src/route.ts'
@@ -135,11 +134,13 @@ describe('content-frame browser half', () => {
     expect({ cacheSize: face.cacheSize, navigationPollMs: face.navigationPollMs, pageAccess: face.pageAccess })
       .toEqual(SETTINGS)
     expect(typeof face.onNavigated).toBe('function')
-    // The seat answers through the one channel this page provides, and takes
-    // its tab identity from it: a second instance would make the same page bid
-    // and report under two identities, which the host pins a session to.
+    // The seat answers through the one channel this page provides, and the
+    // row applied again in the same page load provides the same instance: its
+    // tab id is the identity the host pins a session's calls to.
     expect(face.channel).toBe(ctx.contentTabChannel)
-    expect((face.channel as { tabId: string }).tabId).toBe(TAB_ID)
+    const again = await bench()
+    expect(again.ctx.contentTabChannel).toBe(ctx.contentTabChannel)
+    await again.fiber.dispose()
 
     await fiber.dispose()
     expect(ctx.slots.entries('content.surface.kind')).toHaveLength(0)
@@ -204,11 +205,6 @@ describe('content-frame browser half', () => {
   })
 
   it('fails the row rather than guessing when the settings route is unusable', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SlotRegistry).await()
-    ctx.provide('locale', { register: () => () => {}, bind: () => () => '' } as never)
-    ctx.provide('remote', { commands: { execute: vi.fn() } } as never)
-    ctx.provide('remote.commands', { execute: vi.fn() } as never)
     for (const [body, ok, message] of [
       [{ cacheSize: 3 }, false, /answered 503/],
       [{}, true, /unusable cacheSize: undefined/],
@@ -222,12 +218,17 @@ describe('content-frame browser half', () => {
       [{ cacheSize: 3, navigationPollMs: 1000, pageAccess: { ...ACCESS, readTimeoutMs: '15s' } }, true, /unusable pageAccess/],
       [{ cacheSize: 3, navigationPollMs: 1000, pageAccess: { ...ACCESS, settleQuietMs: undefined } }, true, /unusable pageAccess/],
     ] as const) {
+      const ctx = new Context()
+      await ctx.plugin(SlotRegistry).await()
+      ctx.provide('locale', { register: () => () => {}, bind: () => () => '' } as never)
+      ctx.provide('remote', { commands: { execute: vi.fn() } } as never)
+      ctx.provide('remote.commands', { execute: vi.fn() } as never)
       serveSettings(body, ok)
       // The plugin body itself, not a fiber: a rejecting apply is what fails
       // the row, and the fiber only reports it.
       await expect(apply(ctx)).rejects.toThrow(message)
+      expect(ctx.slots.entries('content.surface.kind')).toHaveLength(0)
     }
-    expect(ctx.slots.entries('content.surface.kind')).toHaveLength(0)
   })
 
   it('reads the settings route through the deployment prefix the page is served under', async () => {

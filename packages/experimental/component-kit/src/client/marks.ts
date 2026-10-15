@@ -10,25 +10,25 @@
  * buttons, a table row's operation links), and `data-component-field` for a
  * field, named as the column or property it is. The renderers write these
  * attributes onto the markup they draw themselves; the controls inside a
- * vendored Vue component are drawn after the React commit and re-drawn whenever
- * that component renders on its own state — a table registering its columns, a
- * page answering a query — so this module marks them from the DOM: once at
- * mount, and again after every change below the block.
+ * vendored Vue component are drawn after the React commit and again whenever
+ * that component renders on its own state, so this module marks them from the
+ * DOM at mount and after every change below the block.
  *
  * The selectors are the vendored builds' own markup, written against the exact
  * tarballs this row vendors (`@sumomok/toy-surface-kit` 0.3.1 and
- * `@sumomok/toy-crud-kit` 0.5.0). A control a build stops drawing is one this
+ * `@sumomok/toy-crud-kit` 0.6.1). A control a build stops drawing is one this
  * module stops marking, which the marker tests fail on rather than a mark that
  * lands on the wrong element; the kit's README states what a rebuild of either
  * tarball has to keep.
  * @module @deepseek-ai/dsh-experimental-component-kit/client/marks
  */
+import { useEffect, useRef, type RefObject } from 'react'
 
 /** The attribute naming the action a control performs. */
-export const ACTION_MARK = 'data-component-action'
+const ACTION_MARK = 'data-component-action'
 
 /** The attribute naming a control's own key, where its action is performed by several controls. */
-export const KEY_MARK = 'data-component-key'
+const KEY_MARK = 'data-component-key'
 
 /** The attribute naming the column or property a field writes. */
 export const FIELD_MARK = 'data-component-field'
@@ -102,12 +102,9 @@ const DELETE_CONFIRM = under(BODY_WRAPPERS, 'tbody td:not(.is-hidden) .column-op
 const CUSTOM_OPERATION = '.operation-custom a'
 
 /**
- * What one table block reports, in the catalog's own vocabulary.
- *
- * Read off the block's properties by the renderer that draws it, because the
- * catalog is what decides which gestures exist for a table — a sort a table
- * reports none of, an openable row the call did not ask for — and the markup
- * alone cannot tell a cell that reports nothing from one that reports a row.
+ * What one table block reports, in the catalog's own vocabulary, read off the
+ * block's properties: the markup alone cannot tell a cell that reports nothing
+ * from one that reports a row.
  */
 export interface TableMarks {
   /** The action a click on a row's cell reports; absent for a table whose rows do not open. */
@@ -129,10 +126,10 @@ export interface TableMarks {
  * A MutationObserver rather than one pass per React commit: a vendored
  * component re-renders on state of its own, and every element it draws afresh
  * — a cell after a query, a dialog after a press — has to be marked again.
- * The pass itself is idempotent, so a change that adds nothing leaves every
- * mark as it was.
+ * The pass is idempotent, so a change that adds nothing leaves every mark as
+ * it was.
  * @param root - the element the block's controls live under, which Vue draws into.
- * @param apply - marks every control it can find under the root, from the block's current properties.
+ * @param apply - marks every control it can find under the root.
  * @returns the release, which stops watching.
  */
 export function keepMarked(root: Element, apply: (root: Element) => void): () => void {
@@ -140,6 +137,26 @@ export function keepMarked(root: Element, apply: (root: Element) => void): () =>
   const observer = new MutationObserver(() => { apply(root) })
   observer.observe(root, { childList: true, subtree: true })
   return () => { observer.disconnect() }
+}
+
+/**
+ * Keep a mounted block's controls marked from its current properties.
+ *
+ * Every pass reads the properties the block was last rendered with, so a
+ * placing call that changes them within one mount has the controls it redraws
+ * marked as it now declares them.
+ * @param target - the element the block's controls live under, attached by the first effect.
+ * @param props - the block's properties, as this render draws them.
+ * @param mark - marks every control under the root from those properties; the mount's instance is the one used.
+ */
+export function useKeptMarks<Props>(
+  target: RefObject<Element>,
+  props: Props,
+  mark: (root: Element, props: Props) => void,
+): void {
+  const current = useRef(props)
+  useEffect(() => { current.current = props })
+  useEffect(() => keepMarked(target.current as Element, (root) => { mark(root, current.current) }), [])
 }
 
 /**
@@ -154,11 +171,9 @@ function markAll(root: Element, selector: string, attribute: string, value: stri
 }
 
 /**
- * Mark one drawn table's controls.
- *
- * The body wrapper only, on every selector: el-table draws a second copy of
- * each cell and heading under its fixed columns, and the first copy in
- * document order is the one a person's click reaches.
+ * Mark one drawn table's controls: in both of the wrappers el-table draws a
+ * table in, and never on its `is-hidden` placeholder copy, as the selectors
+ * above are written.
  * @param root - the block's subtree.
  * @param marks - what this table reports.
  */
@@ -189,11 +204,8 @@ export function markTable(root: Element, marks: TableMarks): void {
 
 /**
  * Every field input one data page draws: its query panel's and its three write
- * dialogs'. One selector per form rather than one form list, because a
- * descendant combinator applies to the last selector of a list alone. The
- * dialogs' own classes are what tell them apart: each is also drawn with
- * `modify-single-dialog`, which is the dialog component rather than the write
- * it performs.
+ * dialogs', told apart by each dialog's own class rather than the
+ * `modify-single-dialog` class all three share.
  */
 const DATA_PAGE_FIELD_INPUTS = [
   '.crud-query input.el-input__inner',
@@ -206,14 +218,10 @@ const DATA_PAGE_FIELD_INPUTS = [
 const FORM_PAGE_FIELD_INPUTS = '.toy-form-page input.el-input__inner'
 
 /**
- * Name every field input a selector list finds, by the column its field item
- * labels it with.
- *
- * The field items are drawn from the table's own scheme, and each one's label
- * carries the column's own name in its `for` — the same name the block's
- * properties use, with the alias it shows the user beside it. An input inside
- * those panels that no field item labels, the query panel's own search box,
- * carries no name and is left unmarked rather than named after a guess.
+ * Name every field input a selector list finds by the column its field item's
+ * label carries in its `for`, which is the name the block's properties use. An
+ * input no field item labels, the query panel's own search box, is left
+ * unmarked.
  * @param root - the block's subtree.
  * @param inputs - the inputs one block's fields are drawn as.
  */
@@ -225,35 +233,18 @@ function markFields(root: Element, inputs: string): void {
   }
 }
 
-/**
- * Name every field one data page draws, by the column it stands for.
- * @param root - the block's subtree.
- */
-export function markPageFields(root: Element): void {
-  markFields(root, DATA_PAGE_FIELD_INPUTS)
-}
-
 /** The save control one form page draws at the centre of its footer. */
 const FORM_PAGE_SAVE = '.toy-form-page .dialog-footer .center button.el-button--primary'
 
 /** What one form page block reports, in the catalog's own vocabulary. */
 export interface FormPageMarks {
-  /**
-   * The action the form's save control reports; absent while the form has
-   * nothing to save — the form's mode is what decides whether saving adds a
-   * record or edits one, and this block reports that mode's action.
-   */
+  /** The action the form's save control reports for the form's mode; absent while the form has nothing to save. */
   readonly save?: string
 }
 
 /**
- * Mark one drawn form page's controls.
- *
- * The form draws its own save control at the centre of its footer, and that
- * button is the one a saved record is reported from; the form's fields are
- * named by the columns their labels carry, as a data page's are. Both are
- * drawn by the vendored component, so the mark pass runs again whenever it
- * renders.
+ * Mark one drawn form page's controls: the save control at the centre of its
+ * footer, which a saved record is reported from, and its fields by column.
  * @param root - the block's subtree.
  * @param marks - the action saving reports right now.
  */
@@ -271,10 +262,8 @@ interface PageControl {
   /** What the control is, in the vendored build's own markup. */
   readonly select: string
   /**
-   * The catalog action the control performs; absent where pressing it reports
-   * nothing on its own — the toolbar's add and clear are what a person uses to
-   * open a form and to drop a query, and the page reports what either produced
-   * rather than the press.
+   * The catalog action the control performs; absent where the page reports
+   * what pressing it produced rather than the press, as for add and clear.
    */
   readonly action?: string
   /** The control's own key, where the page's arrangement has one for it. */
@@ -282,17 +271,10 @@ interface PageControl {
 }
 
 /**
- * Every control one data page draws, as the vendored build marks it.
- *
- * Each selector is one control's own class or place in the toolbar, and every
- * entry carries the action the catalog declares, the key the arrangement names
- * it by, or both. The two export buttons are one action with two keys: what
- * the page reports on either is that an export task was submitted, and which
- * of the two it was is what the key says. The dialog buttons are drawn only
- * while their dialog is open, and the mark pass runs again when it is. The
- * clear button is looked for inside the toolbar's right half, where the page
- * draws it: the batch menu's trigger is a plain button too, and a selector
- * taking the first of both would mark the menu with the clear key.
+ * Every control one data page draws, with the action the catalog declares,
+ * the key the arrangement names it by, or both. The two export buttons are one
+ * action told apart by key. The clear button is looked for inside the
+ * toolbar's right half, because the batch menu's trigger is a plain button too.
  */
 const DATA_PAGE_CONTROLS: readonly PageControl[] = [
   { select: 'button.query-btn', action: 'query', key: 'search' },
@@ -311,13 +293,9 @@ const DATA_PAGE_CONTROLS: readonly PageControl[] = [
 ]
 
 /**
- * The key each item of a data page's batch menu carries, by the icon the
- * vendored build draws on it.
- *
- * The items are `el-dropdown-item`s whose only own markup is their text and
- * one icon, so the icon is what tells which operation an item starts; the
- * page's own names for the two — its `batchUpdate` and `batchDelete` toolbar
- * states — are what the keys spell.
+ * The key each item of a data page's batch menu carries, by the one icon that
+ * is an item's only markup besides its text; the keys spell the page's own
+ * `batchUpdate` and `batchDelete` toolbar states.
  */
 const BATCH_MENU_KEYS: readonly { readonly icon: string; readonly key: string }[] = [
   { icon: 'i.el-icon-edit', key: 'batch-update' },
@@ -327,27 +305,16 @@ const BATCH_MENU_KEYS: readonly { readonly icon: string; readonly key: string }[
 /** One item of the toolbar dropdown a data page's batch button opens. */
 const BATCH_MENU_ITEM = '.crud-action .el-dropdown-menu__item'
 
-/**
- * What one data page block reports, in the catalog's own vocabulary.
- *
- * The properties the page is opened on decide the controls: the custom
- * operations it adds are the buttons a row draws beside the page's own, and
- * their keys are what a step names one by.
- */
+/** What one data page block reports beyond its fixed controls: the custom operations a row draws. */
 export interface DataPageMarks {
   /** The keys of the declared custom operations, in the order a row draws them. */
   readonly custom: readonly string[]
 }
 
 /**
- * Mark one drawn data page's controls.
- *
- * Its table is marked as the table it is, with the one row action this page
- * reports and the operation keys its arrangement declares; its toolbar and its
- * dialogs are marked with the actions the catalog declares and the keys the
- * arrangement names; and the menu the batch button opens is marked item by
- * item, because what a batch edit is performed by is the dialog's own confirm
- * rather than the item that opened it.
+ * Mark one drawn data page's controls: its toolbar and dialogs, the batch
+ * menu's items by key, its fields by column, and its table with the one row
+ * action the page reports and its operation keys.
  * @param root - the block's subtree.
  * @param marks - the custom operations the block declared.
  */
@@ -362,7 +329,7 @@ export function markDataPage(root: Element, marks: DataPageMarks): void {
     const key = BATCH_MENU_KEYS.find(entry => item.querySelector(entry.icon) !== null)?.key
     if (key !== undefined) item.setAttribute(KEY_MARK, key)
   }
-  markPageFields(root)
+  markFields(root, DATA_PAGE_FIELD_INPUTS)
   markTable(root, {
     row: 'cell-click',
     operations: { builtin: 'modify', custom: marks.custom },

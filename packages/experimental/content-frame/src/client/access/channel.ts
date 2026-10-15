@@ -71,16 +71,11 @@ export interface ChannelDemand<Call extends ChannelCall> {
 }
 
 /**
- * One domain's answer to one claimed call.
- *
- * Two forms, because what a domain knows differs. A read that weighs its own
- * document answers with the serialized body it decided to post — the bound it
- * had to meet is its deployment's, and the sentence about a document past it is
- * the read's own. A domain with nothing to weigh answers with the outcome
- * alone, and the channel composes the document around it, which is the one
- * place that knows the call id and the tab posting.
+ * One domain's answer to one claimed call: the serialized body a domain that
+ * weighs its own document decided to post, or an outcome alone, which the
+ * channel composes into a document with the call id and this tab's id.
  */
-export type ChannelAnswer<Outcome> =
+export type ChannelAnswer =
   | {
     /** Discriminant: the domain serialized its own document. */
     readonly kind: 'body'
@@ -95,16 +90,11 @@ export type ChannelAnswer<Outcome> =
     /** The route the outcome settles on; the channel's report route when absent. */
     readonly route?: string
     /** What the call ended as, in the shared channel's own vocabulary. */
-    readonly outcome: Outcome
+    readonly outcome: ChannelOutcome
   }
 
-/**
- * One domain of the channel: a set of tools, and how their calls are answered.
- *
- * The outcome type is the domain's own declaration of what it posts, and the
- * channel's own union is what every domain in this deployment actually posts.
- */
-export interface ChannelDomain<Call extends ChannelCall, Outcome = ChannelOutcome> {
+/** One domain of the channel: a set of tools, and how their calls are answered. */
+export interface ChannelDomain<Call extends ChannelCall> {
   /** How this domain names itself in diagnostics. */
   readonly name: string
   /** Whether this page can answer this domain's calls at all right now. */
@@ -115,7 +105,7 @@ export interface ChannelDomain<Call extends ChannelCall, Outcome = ChannelOutcom
    * @param claimed - the host's acknowledgement, after the claim round trip.
    * @returns either a serialized body or an outcome, and where it settles.
    */
-  answer(call: Call, claimed: ClaimAck): Promise<ChannelAnswer<Outcome>>
+  answer(call: Call, claimed: ClaimAck): Promise<ChannelAnswer>
 }
 
 /** One domain's place in the channel: what its seat offers, and when it leaves. */
@@ -150,22 +140,15 @@ type Posted<T> =
 /**
  * Post one document to a channel route.
  *
- * A refusal and a post that never landed are different endings, and only the
- * statuses in {@link ROUTE_REFUSAL_STATUSES} are the first: the route answers
- * this exact document with one of those however many times it is sent, so there
- * is nothing to gain by sending it again. Every other ending, the rest of the
- * 4xx range included, says nothing about the document and is worth one more
- * try, and treating one as final would end a call the next post would have
- * completed. That list's documentation names what answers the rest.
+ * Only the statuses in {@link ROUTE_REFUSAL_STATUSES} are a refusal: the route
+ * answers this exact document with one of those however often it is sent.
+ * Every other ending, the rest of the 4xx range included, is undelivered and
+ * worth another try.
  *
- * The address is resolved here rather than written into the route constants,
- * because the two halves need different ones: the node half registers these
- * routes at the server root, and a deployment publishing the console under a
- * path prefix has a reverse proxy strip that prefix before the request arrives.
- * The browser is therefore the half that has to put it back, which it does by
- * posting the document-relative form of the route: the served index's
- * `<base href="./">` resolves it under whatever prefix the page was loaded
- * from.
+ * The node half registers the routes at the server root and a reverse proxy in
+ * front of a prefixed console strips the prefix, so the browser posts the
+ * document-relative form of the route, which the served index's
+ * `<base href="./">` resolves under the prefix the page was loaded from.
  * @param route - the route to post to, as the node half registers it.
  * @param body - the document, already serialized.
  * @returns what the post ended as.
@@ -190,18 +173,13 @@ function delay(ms: number): Promise<void> {
 }
 
 /**
- * Post one answer back, trying a second time when the first post never lands.
- *
- * A call that was claimed and then answered nowhere is the worst ending
- * available: it holds its whole report deadline and the model is told the
- * console went quiet. One retry covers a dropped request; past that the host's
- * own deadline is the right place for it to end. A report the route refused is
- * not that ending and is not sent again — the second post would carry the same
- * document to the same check.
+ * Post one answer back, once more when the first post never lands: a claimed
+ * call answered nowhere holds its whole report deadline. A refused report is
+ * not sent again, since the second post would meet the same check.
  * @param route - the route this call settles on, as the node half registers it.
  * @param body - the answer, as the domain serialized it.
  */
-async function reportRead(route: string, body: string): Promise<void> {
+async function postAnswer(route: string, body: string): Promise<void> {
   if ((await post<ReportAck>(route, body)).kind !== 'undelivered') return
   await delay(CLAIM_RETRY_MS)
   await post<ReportAck>(route, body)
@@ -225,24 +203,16 @@ export class ContentChannel {
    * @param domain - the domain: which calls it answers, and how.
    * @returns the seat's offering point, and the parking call that ends it.
    */
-  join<Call extends ChannelCall, Outcome = ChannelOutcome>(
-    domain: ChannelDomain<Call, Outcome>,
-  ): ChannelSeat<Call> {
+  join<Call extends ChannelCall>(domain: ChannelDomain<Call>): ChannelSeat<Call> {
     const started = new Set<string>()
     const tabId = this.tabId
     let held: ChannelDemand<Call> = { calls: [], openCalls: [] }
 
     /**
-     * Whether the call is still one this seat holds.
-     *
-     * It is what ends a bid: the result reached the log while the seat waited —
-     * every ending puts one there, the host's own claim timeout included — or
-     * the column this call was read through left the seat, or the seat itself
-     * parked. A clock cannot stand in for that: a call that asks the user
-     * something registers its wait only after the person answers, and a seat
-     * that gave up after the host's claim window would have stopped bidding
-     * seconds before that, leaving the model told that no console is open with
-     * the console in front of the user the whole time.
+     * Whether the call is still one this seat holds, which is what ends a bid:
+     * its result reached the log, its column left the seat, or the seat parked.
+     * A call that asks the user something registers its wait only after the
+     * person answers, so no clock shorter than {@link MAX_BID_MS} can stand in.
      * @param callId - the call being bid for.
      * @returns whether this seat still holds it.
      */
@@ -282,11 +252,8 @@ export class ContentChannel {
      * @param call - the call this seat offered.
      */
     const answer = async (call: Call): Promise<void> => {
-      // A tab the user is looking at bids first. Both tabs hold the same seats
-      // and either can answer, so this orders them rather than silencing one: a
-      // window another window covers, a locked screen and a tab in the
-      // background all report `hidden`, and none of the three means the console
-      // is not there.
+      // A covered window, a locked screen and a background tab all report
+      // `hidden`; each still holds a console that can answer.
       if (document.visibilityState !== 'visible') await delay(HIDDEN_CLAIM_GRACE_MS)
       const claimed = await claim(call.callId)
       if (claimed === undefined) {
@@ -298,27 +265,19 @@ export class ContentChannel {
       }
       const answer = await domain.answer(call, claimed)
       const route = answer.route ?? CONTENT_REPORT_ROUTE
-      // Composed here for a domain with nothing to weigh: the call id and the
-      // tab posting are this channel's, and a domain that repeated them would
-      // be a second place they could drift.
       const body = answer.kind === 'body'
         ? answer.body
         : JSON.stringify({ callId: call.callId, tabId, outcome: answer.outcome })
-      await reportRead(route, body)
+      await postAnswer(route, body)
     }
 
     return {
       offer: (demand: ChannelDemand<Call>): void => {
         held = demand
-        // A call that has left the list has settled and cannot come back, so the
-        // memory of having taken it up is dropped with it — a tab left open for
-        // a long session would otherwise accumulate one id per call it ever saw.
-        // This runs before the guard below: a seat that cannot answer still has
-        // to forget, or a call it gave up on stays skipped on the frame that
-        // carries it again. The list it is pruned against is every session's,
-        // not the answerable ones': a call being answered when its session left
-        // this seat is still that answer's, and forgetting it here would spawn a
-        // second one.
+        // A call off the list has settled and cannot come back. Pruned before
+        // the readiness guard, so a seat that cannot answer still forgets, and
+        // against every session's open calls, so a call still being answered
+        // after its session left this seat is not taken up a second time.
         const open = new Set(demand.openCalls)
         for (const callId of started) {
           if (!open.has(callId)) started.delete(callId)

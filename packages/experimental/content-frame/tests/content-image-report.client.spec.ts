@@ -19,6 +19,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import type { AttachmentStore, ImageAttachmentRef, SaveImageAttachment } from '@deepseek-ai/dsh-attachment'
 import { settleImageReport, storeCapture } from '../src/access/image-report.ts'
 import { PendingCalls, type CallTimeouts } from '../src/access/pending.ts'
+import { MEMBER } from './fixtures/member-table.client.ts'
 import { imageStoreRefusal } from '../src/access/text.ts'
 import type { ImageCapture, ReadOutcome } from '../src/access/wire.ts'
 
@@ -172,7 +173,7 @@ describe('delivering one picture report to the call waiting for it', () => {
     attachments: AttachmentStore,
   ): Promise<{ accepted: boolean; settled: unknown }> {
     const pending = new PendingCalls()
-    const waiting = pending.open('call_1', SessionId('session_1'), new AbortController().signal, SLOW)
+    const waiting = pending.open('call_1', SessionId('session_1'), new AbortController().signal, SLOW, MEMBER)
     await claimed(pending)
     const ack = await settleImageReport(attachments, pending, { callId: 'call_1', tabId: TAB, capture: report })
     return { accepted: ack.accepted, settled: await waiting }
@@ -208,7 +209,7 @@ describe('delivering one picture report to the call waiting for it', () => {
   it('takes nothing and stores nothing for a call another tab claimed', async () => {
     const { attachments, saved } = store()
     const pending = new PendingCalls()
-    const waiting = pending.open('call_1', SessionId('session_1'), new AbortController().signal, SLOW)
+    const waiting = pending.open('call_1', SessionId('session_1'), new AbortController().signal, SLOW, MEMBER)
     await claimed(pending)
     const ack = await settleImageReport(attachments, pending, { callId: 'call_1', tabId: 'tab_2', capture: CAPTURE })
     expect(ack).toEqual({ accepted: false })
@@ -223,7 +224,7 @@ describe('delivering one picture report to the call waiting for it', () => {
   it('stores one object for two posts racing the same waiting call', async () => {
     const { attachments, saved } = store()
     const pending = new PendingCalls()
-    const waiting = pending.open('call_1', SessionId('session_1'), new AbortController().signal, SLOW)
+    const waiting = pending.open('call_1', SessionId('session_1'), new AbortController().signal, SLOW, MEMBER)
     await claimed(pending)
     // Both posts pass the same lookup; only one of them may reach the store,
     // because a call has one settlement and this store collects nothing — the
@@ -250,7 +251,7 @@ describe('delivering one picture report to the call waiting for it', () => {
       },
     } as unknown as AttachmentStore
     const pending = new PendingCalls()
-    const waiting = pending.open('call_1', SessionId('session_1'), new AbortController().signal, SLOW)
+    const waiting = pending.open('call_1', SessionId('session_1'), new AbortController().signal, SLOW, MEMBER)
     await claimed(pending)
     const held = settleImageReport(attachments, pending, { callId: 'call_1', tabId: TAB, capture: CAPTURE })
     // The window a lookup alone leaves open: the call is still waiting and its
@@ -267,14 +268,14 @@ describe('delivering one picture report to the call waiting for it', () => {
   it('holds the reservation for one call rather than for its id', async () => {
     const { attachments, saved } = store()
     const pending = new PendingCalls()
-    const first = pending.open('call_1', SessionId('session_1'), new AbortController().signal, SLOW)
+    const first = pending.open('call_1', SessionId('session_1'), new AbortController().signal, SLOW, MEMBER)
     await claimed(pending)
     expect(await settleImageReport(attachments, pending, { callId: 'call_1', tabId: TAB, capture: CAPTURE }))
       .toEqual({ accepted: true })
     expect(await first).toMatchObject({ kind: 'reported' })
     // A settled call leaves the table, and the reservation goes with it: the
     // same id opened again is a call whose settlement is there to be taken.
-    const second = pending.open('call_1', SessionId('session_1'), new AbortController().signal, SLOW)
+    const second = pending.open('call_1', SessionId('session_1'), new AbortController().signal, SLOW, MEMBER)
     await claimed(pending)
     expect(await settleImageReport(attachments, pending, { callId: 'call_1', tabId: TAB, capture: CAPTURE }))
       .toEqual({ accepted: true })
@@ -293,7 +294,7 @@ describe('delivering one picture report to the call waiting for it', () => {
       },
     } as unknown as AttachmentStore
     const pending = new PendingCalls()
-    const waiting = pending.open('call_1', SessionId('session_1'), new AbortController().signal, SLOW)
+    const waiting = pending.open('call_1', SessionId('session_1'), new AbortController().signal, SLOW, MEMBER)
       .then(() => { order.push('settled') })
     await claimed(pending)
     await settleImageReport(attachments, pending, { callId: 'call_1', tabId: TAB, capture: CAPTURE })

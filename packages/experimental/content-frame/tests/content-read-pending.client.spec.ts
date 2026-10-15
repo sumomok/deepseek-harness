@@ -13,6 +13,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { PendingCalls, type CallSettlement, type CallTimeouts } from '../src/access/pending.ts'
+import { MEMBER } from './fixtures/member-table.client.ts'
 import { HIDDEN_CLAIM_GRACE_MS, PREFERRED_TAB_WINDOW_MS, type ReadOutcome } from '../src/access/wire.ts'
 
 const TIMEOUTS: CallTimeouts = { claimTimeoutMs: 3000, answerTimeoutMs: 15000, pinMs: 300000 }
@@ -35,7 +36,7 @@ afterEach(() => {
 
 /** Open one wait and hand back the promise plus a way to see it settle. */
 function open(callId: string, sessionId = 'session_1'): Promise<CallSettlement> {
-  return table.open(callId, SessionId(sessionId), aborter.signal, TIMEOUTS)
+  return table.open(callId, SessionId(sessionId), aborter.signal, TIMEOUTS, MEMBER)
 }
 
 describe('the claim window', () => {
@@ -49,7 +50,7 @@ describe('the claim window', () => {
   it('hands the claiming tab the entry the column had in front when the wait opened', async () => {
     // The wait opens once the call has been approved, so this is the entry the
     // user was looking at when they agreed; the seat holds the column to it.
-    const settled = table.open('call_1', SessionId('session_1'), aborter.signal, TIMEOUTS, { id: 'home', title: 'Home' })
+    const settled = table.open('call_1', SessionId('session_1'), aborter.signal, TIMEOUTS, MEMBER, { id: 'home', title: 'Home' })
     expect(await table.claim({ callId: 'call_1', tabId: 'tab_a' }))
       .toEqual({ claimed: true, page: { id: 'home', title: 'Home' } })
     table.report({ callId: 'call_1', tabId: 'tab_a', outcome: OUTCOME })

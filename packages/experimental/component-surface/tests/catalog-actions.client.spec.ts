@@ -608,11 +608,11 @@ describe('a data page reporting back', () => {
     ['a delete counting part of a record', DATA_PAGE_DELETED_ID, { succeeded: 1.5, failed: 0, names: [] }, 'refused'],
     ['a delete carrying the ids it deleted by', DATA_PAGE_DELETED_ID, { succeeded: 1, failed: 0, names: [], ids: ['41'] }, 'refused'],
     ['a delete carrying the records it deleted', DATA_PAGE_DELETED_ID, { succeeded: 1, failed: 0, names: [], deleted: [{ zh_label: 'A-1' }] }, 'refused'],
-    ['a batch edit naming every field a save reports', DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 2, failed: 0, names: [], fields: Array.from({ length: MAX_DATA_PAGE_SAVED_FIELDS }, (_unused, index) => `f${index}`) }, 'accepted'],
-    ['a batch edit naming one field more', DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 2, failed: 0, names: [], fields: Array.from({ length: MAX_DATA_PAGE_SAVED_FIELDS + 1 }, (_unused, index) => `f${index}`) }, 'too-large'],
-    ['a batch edit naming a field outside the field alphabet', DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 2, failed: 0, names: [], fields: ['1st'] }, 'refused'],
-    ['a batch edit naming no fields at all', DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 2, failed: 0, names: [] }, 'refused'],
-    ['a batch edit carrying the values it wrote', DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 2, failed: 0, names: [], fields: ['status'], values: { status: '启用' } }, 'refused'],
+    ['a batch edit naming every field a save reports', DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 2, names: [], fields: Array.from({ length: MAX_DATA_PAGE_SAVED_FIELDS }, (_unused, index) => `f${index}`) }, 'accepted'],
+    ['a batch edit naming one field more', DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 2, names: [], fields: Array.from({ length: MAX_DATA_PAGE_SAVED_FIELDS + 1 }, (_unused, index) => `f${index}`) }, 'too-large'],
+    ['a batch edit naming a field outside the field alphabet', DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 2, names: [], fields: ['1st'] }, 'refused'],
+    ['a batch edit naming no fields at all', DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 2, names: [] }, 'refused'],
+    ['a batch edit carrying the values it wrote', DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 2, names: [], fields: ['status'], values: { status: '启用' } }, 'refused'],
   ])('judges %s: %s', (_case, actionId, payload, verdict) => {
     expect(accepts(DATA_PAGE_ID, actionId, payload)).toBe(verdict)
   })
@@ -824,29 +824,24 @@ describe('the data page\'s own accounts', () => {
   })
 
   it('says which records a batch edit changed and the names of the fields it changed, never what it wrote', () => {
-    expect(page(DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 2, failed: 0, names: ['a', 'b'], fields: ['status'] })).toEqual({
+    expect(page(DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 2, names: ['a', 'b'], fields: ['status'] })).toEqual({
       text: 'The user changed 2 records of "device" at once in content panel entry "devices" ("设备列表"), on the 完整数据页 '
         + 'block "block": "a", "b"; fields changed: status.',
       summary: '用户在「设备列表」里批量修改了 2 条',
     })
-    expect(page(DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 2, failed: 0, names: ['a', 'b'], fields: [] })?.text)
+    expect(page(DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 2, names: ['a', 'b'], fields: [] })?.text)
       .toBe('The user changed 2 records of "device" at once in content panel entry "devices" ("设备列表"), on the 完整数据页 '
         + 'block "block": "a", "b".')
-    expect(page(DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 7, failed: 1, names: FIVE_NAMES, fields: ['status', 'owner'] })?.text)
+    expect(page(DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 7, names: FIVE_NAMES, fields: ['status', 'owner'] })?.text)
       .toBe('The user changed 7 records of "device" at once in content panel entry "devices" ("设备列表"), on the 完整数据页 '
-        + 'block "block": "a", "b", "c", "d", "e" and 2 more; fields changed: status, owner. 1 could not be changed.')
-    expect(page(DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 1, failed: 0, names: [], fields: ['status'] })?.text)
+        + 'block "block": "a", "b", "c", "d", "e" and 2 more; fields changed: status, owner.')
+    expect(page(DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 1, names: [], fields: ['status'] })?.text)
       .toBe('The user changed 1 record of "device" at once in content panel entry "devices" ("设备列表"), on the 完整数据页 '
         + 'block "block"; fields changed: status.')
   })
 
-  it('says a batch edit that changed nothing changed nothing, and reports a batch edit of no record to nobody', () => {
-    expect(page(DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 0, failed: 3, names: [], fields: ['status'] })).toEqual({
-      text: 'The user tried to change 3 records of "device" at once in content panel entry "devices" ("设备列表"), on the '
-        + '完整数据页 block "block", and none was changed.',
-      summary: '用户在「设备列表」里批量修改没有成功（3 条）',
-    })
-    expect(page(DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 0, failed: 0, names: [], fields: [] })).toBeUndefined()
+  it('reports a batch edit of no record to nobody', () => {
+    expect(page(DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 0, names: [], fields: [] })).toBeUndefined()
   })
 
   it('reads a backend cell back on one line, the way every other account does', () => {
@@ -895,7 +890,6 @@ describe('the data page\'s ceilings against the action ceiling', () => {
     const deleted = documentBytes(DATA_PAGE_DELETED_ID, { succeeded: Number.MAX_SAFE_INTEGER, failed: Number.MAX_SAFE_INTEGER, names })
     const batch = documentBytes(DATA_PAGE_BATCH_MODIFIED_ID, {
       succeeded: Number.MAX_SAFE_INTEGER,
-      failed: Number.MAX_SAFE_INTEGER,
       names,
       fields: Array.from({ length: DATA_PAGE_REPORT_LIMITS.savedFields }, (_unused, index) =>
         `${'f'.repeat(MAX_FIELD_NAME_LENGTH - 2)}${String(index).padStart(2, '0')}`),
@@ -1137,17 +1131,17 @@ describe('the declarations the drawing row holds itself to', () => {
   it('bound a delete and a batch edit by the same names, counts and fields the drawing row cuts to', () => {
     // Both reports are read off the page's own records by that row, which cuts
     // the names and the fields to its own record of these declarations.
-    for (const actionId of [DATA_PAGE_DELETED_ID, DATA_PAGE_BATCH_MODIFIED_ID]) {
+    const countFields = [[DATA_PAGE_DELETED_ID, ['succeeded', 'failed']], [DATA_PAGE_BATCH_MODIFIED_ID, ['succeeded']]] as const
+    for (const [actionId, fieldNames] of countFields) {
       const schema = payloadSchema(DATA_PAGE_ID, actionId)
       const names = declared(schema['names']?.schema, 'array')
-      const counts = [declared(schema['succeeded']?.schema, 'number'), declared(schema['failed']?.schema, 'number')]
+      const counts = fieldNames.map(field => declared(schema[field]?.schema, 'number'))
       expect([actionId, names.maxItems, declared(names.item, 'string').maxLength, ...counts.map(count => [count.integer, count.min, count.max])])
         .toEqual([
           actionId,
           DATA_PAGE_REPORT_LIMITS.namedRows,
           DATA_PAGE_REPORT_LIMITS.cellLength,
-          [true, 0, DATA_PAGE_REPORT_LIMITS.number],
-          [true, 0, DATA_PAGE_REPORT_LIMITS.number],
+          ...fieldNames.map(() => [true, 0, DATA_PAGE_REPORT_LIMITS.number]),
         ])
     }
     const fields = declared(payloadSchema(DATA_PAGE_ID, DATA_PAGE_BATCH_MODIFIED_ID)['fields']?.schema, 'array')

@@ -20,14 +20,10 @@ import { en } from '../src/client/locales.ts'
 import type { ComponentActionHandler, ComponentRendererProps } from '../src/client/renderer.ts'
 import type { VueInstance } from '../src/client/vue-shim.ts'
 import { defineTable, drain, flush, seen, settleProgress, STORED_TOKEN, StubRequest } from './fixtures/crud-backend.client.ts'
+import { BASE_PATH, basePathRead } from './fixtures/base-path.client.ts'
+import { instanceOf } from './fixtures/kit-blocks.client.ts'
 
-/** What the base-path read answers with, per case: a path, or a refusal. */
-let basePath: Promise<string> = Promise.resolve('/probe-base/')
-
-vi.mock('../src/client/data-page-settings.ts', () => ({
-  dataPageBasePathReady: (): Promise<string> => basePath,
-  settleDataPageBasePath: (): Promise<string> => basePath,
-}))
+vi.mock('../src/client/data-page-settings.ts', () => import('./fixtures/base-path.client.ts'))
 
 const t: ComponentRendererProps['t'] = makeTranslate(en)
 
@@ -48,7 +44,7 @@ beforeAll(() => {
 })
 
 beforeEach(() => {
-  basePath = Promise.resolve('/probe-base/')
+  basePathRead.answer = Promise.resolve(BASE_PATH)
   localStorage.removeItem('userInfo')
   seen.length = 0
 })
@@ -83,11 +79,7 @@ function draw(props: Record<string, unknown>, onAction = vi.fn<ComponentActionHa
  */
 async function cardOf(container: HTMLElement): Promise<VueInstance & { $props: Record<string, unknown> }> {
   await vi.waitFor(() => { expect(container.querySelector('[data-toy-crud-box]')).not.toBeNull() })
-  const box = container.querySelector('[data-toy-crud-box]') as HTMLElement
-  const rootEl = box.firstElementChild?.firstElementChild as HTMLElement & { __vue__?: VueInstance }
-  let instance = rootEl.__vue__ as VueInstance
-  while (instance.$options.name !== 'ToyInfoCard') instance = instance.$children[0] as VueInstance
-  return instance as VueInstance & { $props: Record<string, unknown> }
+  return instanceOf(container, 'ToyInfoCard') as VueInstance & { $props: Record<string, unknown> }
 }
 
 describe('toy.info-card', () => {
@@ -97,7 +89,7 @@ describe('toy.info-card', () => {
     const { view, onAction } = draw({})
     const card = await cardOf(view.container)
     await drain()
-    expect(view.container.querySelector('[data-info-card-idle]')?.textContent).toBe(en['infoCard.idle'])
+    expect(view.container.querySelector('[data-part-line="idle"]')?.textContent).toBe(en['infoCard.idle'])
     expect(card.$props['record']).toBeUndefined()
     expect(seen).toEqual([])
     expect(cookie).not.toHaveBeenCalled()
@@ -111,7 +103,7 @@ describe('toy.info-card', () => {
     const card = await cardOf(view.container)
     expect(card.$props['record']).toEqual(record)
     expect(card.$props['infoCardTabs']).toEqual(['attributes'])
-    expect(view.container.querySelector('[data-info-card-idle]')).toBeNull()
+    expect(view.container.querySelector('[data-part-line="idle"]')).toBeNull()
     await vi.waitFor(() => { expect(onAction).toHaveBeenCalledWith('card-open', { name: '甲', type: META }) })
     await drain()
     // Whatever the card fetched for the record went under the base path with the visitor's own token.
@@ -129,7 +121,7 @@ describe('toy.info-card', () => {
     await vi.waitFor(() => { expect(onAction).toHaveBeenLastCalledWith('card-open', { name: '甲', type: META }) })
     redraw(Object.freeze({}))
     await vi.waitFor(() => { expect(onAction).toHaveBeenLastCalledWith('card-close', {}) })
-    expect(view.container.querySelector('[data-info-card-idle]')?.textContent).toBe(en['infoCard.idle'])
+    expect(view.container.querySelector('[data-part-line="idle"]')?.textContent).toBe(en['infoCard.idle'])
     expect(onAction).toHaveBeenCalledTimes(3)
   })
 
@@ -161,17 +153,17 @@ describe('toy.info-card', () => {
 
   it('mounts nothing before the base path is in force, and says so either way', async () => {
     let release: (path: string) => void = () => {}
-    basePath = new Promise((resolve) => { release = resolve })
+    basePathRead.answer = new Promise((resolve) => { release = resolve })
     const waiting = draw({})
-    expect(waiting.view.container.querySelector('[data-info-card-stalled="waiting"]')?.textContent).toBe(en['infoCard.preparing'])
+    expect(waiting.view.container.querySelector('[data-part-line="waiting"]')?.textContent).toBe(en['infoCard.preparing'])
     expect(waiting.view.container.querySelector('[data-toy-crud-box]')).toBeNull()
     release('/probe-base/')
     await cardOf(waiting.view.container)
     cleanup()
-    basePath = Promise.reject(new Error('component-kit: answered 503'))
+    basePathRead.answer = Promise.reject(new Error('component-kit: answered 503'))
     const failed = draw({ record: { id: '1', name: '甲', type: 'probe_card_unreached' } })
     await vi.waitFor(() => {
-      expect(failed.view.container.querySelector('[data-info-card-stalled="failed"]')?.textContent).toBe(en['infoCard.unavailable'])
+      expect(failed.view.container.querySelector('[data-part-line="failed"]')?.textContent).toBe(en['infoCard.unavailable'])
     })
     await flush()
     // Read by the record's own table rather than by counting requests: the

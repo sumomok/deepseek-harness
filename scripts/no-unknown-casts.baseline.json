@@ -1176,15 +1176,6 @@
   "packages/experimental/component-surface/tests/component-extractor.client.spec.ts": {
     "8ab27e347ac61fc5530266e6ae998764c210b61c61619ececfd9cc2e0f558f86": 1
   },
-  "packages/experimental/component-surface/tests/component-surface-composition.client.spec.tsx": {
-    "3bb7819efc4b84e9ca16d55d976e4d7c3155c65f3ad4b3d9d42e1a6dcb471427": 1
-  },
-  "packages/experimental/component-surface/tests/component-surface-mismatch.client.spec.tsx": {
-    "bf2191b97afd5d649013f438f1fae8388817695cb665c0870a860ae284165d3e": 1
-  },
-  "packages/experimental/component-surface/tests/component-surface.client.spec.tsx": {
-    "42b6bbdbed1a1a30d756a5cf362fcf37f64f55736c6c67ffc97602b8ece674af": 1
-  },
   "packages/experimental/component-surface/tests/composition.client.spec.ts": {
     "59c63f734e8bba862325f776e3fcbebd78a84cfb4161f8df41c216950d9bf351": 1,
     "8ab27e347ac61fc5530266e6ae998764c210b61c61619ececfd9cc2e0f558f86": 1
@@ -1261,12 +1252,6 @@
     "59c63f734e8bba862325f776e3fcbebd78a84cfb4161f8df41c216950d9bf351": 1,
     "8ab27e347ac61fc5530266e6ae998764c210b61c61619ececfd9cc2e0f558f86": 1,
     "a7ad4a3ba7e0f0e5089e282f4dc96a3b0ad5c7af98d1162c9e170d37951a4b26": 1
-  },
-  "packages/experimental/content-frame/tests/content-cross-session.client.spec.tsx": {
-    "327bc7fc02cb95fdaa766c21ac858e0e013b7b9b7ef530c3f4e2a16f1968b41e": 1
-  },
-  "packages/experimental/content-frame/tests/content-frame.client.spec.tsx": {
-    "8aaaa730f675fbb5ba1a07843474b49b88e480f933e8bc7b0a0696977e4e98e9": 1
   },
   "packages/experimental/content-frame/tests/content-image-report.client.spec.ts": {
     "6bdd3b3e88d1ad8e9851f7559d245433fc8ceb723c0d14cefe8f3b34470182a6": 1,

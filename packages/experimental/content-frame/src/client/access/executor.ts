@@ -13,12 +13,6 @@
  * element's own window, not of the top one, so an element inside a nested
  * same-origin frame is measured where it actually lives.
  *
- * Visibility orders the bidding rather than gating it. A tab the user is not
- * looking at holds the same mounted frames and the same live documents, so it
- * bids too, after {@link HIDDEN_CLAIM_GRACE_MS} — long enough for a tab that is
- * in front to have bid first, short enough that a console nobody is looking at
- * still answers rather than leaving the call to the host's claim timeout.
- *
  * A read waits twice before it walks anything: for a document that is still
  * loading, and then for a loaded document to stop changing (`../perception/
  * settle.ts`). Each spends its own share of the report deadline, and the
@@ -28,7 +22,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import type { MutableRefObject } from 'react'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
-import { ContentChannel, type ChannelCall, type ChannelDomain } from './channel.ts'
+import type { ChannelCall, ChannelDomain, ContentChannel } from './channel.ts'
 import {
   ACT_RUN_SHARE, CONTENT_ACT_TOOL_NAME, CONTENT_IMAGE_ROUTE,
   CONTENT_READ_ATTRS_TOOL_NAME, CONTENT_READ_DOM_CONTENT_TOOL_NAME, CONTENT_READ_DOM_TOOL_NAME,
@@ -77,23 +71,6 @@ const NO_ENTRY_REASON = 'the content column is empty'
 
 /** Reason for an outcome whose model-facing sentence the tool composes instead. */
 const NOT_A_PAGE_REASON = 'the entry in front is not a page'
-
-/**
- * The channel this page load answers content calls through when a seat is
- * mounted without one.
- *
- * One per page load, and the instance `content-frame`'s client entry provides
- * as `ctx.contentTabChannel`: the tab id it mints is the identity the host pins
- * a session's calls to, so a second instance would make the same seats bid
- * against each other and would settle a report under an identity its claim did
- * not carry. A seat is handed the provided instance and reads its identity off
- * it; this constant is what a seat mounted without one joins, and the tab
- * {@link TAB_ID} names.
- */
-export const PAGE_CHANNEL = new ContentChannel()
-
-/** This page load's identity, which is what a session's calls are pinned to. */
-export const TAB_ID = PAGE_CHANNEL.tabId
 
 /**
  * The window an element's own styles belong to.
@@ -188,8 +165,6 @@ export interface ContentReadSeat {
   tables: MutableRefObject<Map<string, RefTable>>
   /** The node half's two values; absent turns the reader off entirely. */
   access: ContentFrameAccessSettings | undefined
-  /** This tab's id. */
-  tabId: string
   /**
    * The browser's own drawing, which a picture read exports one element
    * through. Injected for the reason `./capture.ts` states: every decision an
@@ -219,13 +194,13 @@ interface Report {
  * `TextEncoder` counts what goes on the wire, so this is the same byte-by-byte
  * total the route arrives at. The seat weighs and posts this one string, so the
  * document held against the route's bound is the document sent to it.
- * @param seat - the seat the read ran on, for the tab id the report carries.
+ * @param tabId - the tab the report is posted from, the channel's own identity.
  * @param callId - the call being answered.
  * @param outcome - what the call ended as.
  * @returns the report as it goes on the wire.
  */
-function reportOf(seat: ContentReadSeat, callId: string, outcome: ChannelOutcome): Report {
-  return weighed({ callId, tabId: seat.tabId, outcome })
+function reportOf(tabId: string, callId: string, outcome: ChannelOutcome): Report {
+  return weighed({ callId, tabId, outcome })
 }
 
 /**
@@ -235,13 +210,13 @@ function reportOf(seat: ContentReadSeat, callId: string, outcome: ChannelOutcome
  * The document differs because the route does: what a picture read posts is a
  * capture carrying bytes, and the arm the call settles as is composed on the
  * host once those bytes are stored.
- * @param seat - the seat the read ran on, for the tab id the report carries.
+ * @param tabId - the tab the report is posted from, the channel's own identity.
  * @param callId - the call being answered.
  * @param capture - the pixels, or the failure in their place.
  * @returns the report as it goes on the wire.
  */
-function captureOf(seat: ContentReadSeat, callId: string, capture: ImageReport): Report {
-  return weighed({ callId, tabId: seat.tabId, capture })
+function captureOf(tabId: string, callId: string, capture: ImageReport): Report {
+  return weighed({ callId, tabId, capture })
 }
 
 /**
@@ -497,6 +472,7 @@ function wideMessage(request: ContentReadingRequest, chars: number, budget: numb
  * column with nothing in it, a frame out of reach, a page still loading and a
  * page still drawing are the same four answers for every one of them.
  * @param seat - the seat as it stands now, for the frames it holds.
+ * @param tabId - the tab the report is posted from.
  * @param session - the column this call is against, absent when this seat no
  * longer holds it.
  * @param request - the pending call: what it asks of the page, and the id the
@@ -506,11 +482,12 @@ function wideMessage(request: ContentReadingRequest, chars: number, budget: numb
  */
 async function readPage(
   seat: ContentReadSeat,
+  tabId: string,
   session: SeatSession | undefined,
   request: ContentReadingRequest,
   access: ContentFrameAccessSettings,
 ): Promise<Report> {
-  const report = (outcome: ChannelOutcome): Report => reportOf(seat, request.callId, outcome)
+  const report = (outcome: ChannelOutcome): Report => reportOf(tabId, request.callId, outcome)
   const ready = await prepare(seat, session, access.readTimeoutMs)
   if (ready.kind === 'failed') return report(ready.outcome)
   // A loaded document is not a drawn one: an application that just changed
@@ -578,6 +555,7 @@ async function readPage(
  * settles ends as a refusal naming this picture rather than as the host's own
  * report deadline and its sentence about a console that went quiet.
  * @param seat - the seat as it stands now, for the frames it holds.
+ * @param tabId - the tab the report is posted from.
  * @param session - the column this call is against, absent when this seat no
  * longer holds it.
  * @param request - the pending call: the ref to export, and the id the report is posted under.
@@ -586,11 +564,12 @@ async function readPage(
  */
 async function readImage(
   seat: ContentReadSeat,
+  tabId: string,
   session: SeatSession | undefined,
   request: ContentReadImageRequest,
   access: ContentFrameAccessSettings,
 ): Promise<Report> {
-  const report = (capture: ImageReport): Report => captureOf(seat, request.callId, capture)
+  const report = (capture: ImageReport): Report => captureOf(tabId, request.callId, capture)
   const ready = await prepare(seat, session, access.readTimeoutMs)
   if (ready.kind === 'failed') return report(ready.outcome)
   // The same second wait every other read takes: an application that just
@@ -650,6 +629,7 @@ async function readImage(
  * refs it names are the ones a following call can use, and a call that changed
  * the page therefore never has to read it again to act on what it produced.
  * @param seat - the seat as it stands now, for the frames it holds.
+ * @param tabId - the tab the report is posted from.
  * @param session - the column this call is against, absent when this seat no
  * longer holds it.
  * @param request - the pending call: the steps to run, and the id the report is posted under.
@@ -660,12 +640,13 @@ async function readImage(
  */
 async function actOnPage(
   seat: ContentReadSeat,
+  tabId: string,
   session: SeatSession | undefined,
   request: ContentActRequest,
   access: ContentFrameAccessSettings,
   approved: ReadPage | undefined,
 ): Promise<Report> {
-  const report = (outcome: ChannelOutcome): Report => reportOf(seat, request.callId, outcome)
+  const report = (outcome: ChannelOutcome): Report => reportOf(tabId, request.callId, outcome)
   // Before anything is looked at, let alone pressed. The user agreed to these
   // steps on the entry that was in front while they were reading the request,
   // and the switcher strip is one click: a call that arrives to find another
@@ -754,10 +735,12 @@ async function actOnPage(
   }
 }
 
-/** One page call as this seat answers it: the call it was offered, and the pending request behind it. */
+/** One page call as this seat answers it: the call it was offered, the pending request behind it, and the reader's settings. */
 interface PageCall extends ChannelCall {
   /** The call as the projection published it, which is what says how to answer it. */
   readonly request: ContentAccessRequest
+  /** The node half's budget and deadlines, which a seat offers calls only while it holds. */
+  readonly access: ContentFrameAccessSettings
 }
 
 /**
@@ -769,34 +752,28 @@ interface PageCall extends ChannelCall {
  * every one of its tools composes for that, so the model is told what happened
  * rather than left waiting.
  * @param seat - the live seat, re-read when a claimed call runs.
+ * @param tabId - the identity of the channel the domain joins, which every report it posts carries.
  * @returns the domain to join to the channel.
  */
-function pageDomain(seat: MutableRefObject<ContentReadSeat>): ChannelDomain<PageCall> {
+function pageDomain(seat: MutableRefObject<ContentReadSeat>, tabId: string): ChannelDomain<PageCall> {
   return {
     name: 'page',
     ready: () => seat.current.access !== undefined,
     answer: async (call, claimed) => {
       const live = seat.current
-      const access = live.access
+      const { request, access } = call
       const session = sessionOf(live, call.sessionId)
-      // The deployment's reader is settled when the page boots, so a seat with
-      // none never offered a call; the answer keeps the arm total.
-      /* v8 ignore next -- an offered call only exists where `ready()` was true */
-      if (access === undefined) {
-        const lost = reportOf(live, call.request.callId, frameError(FRAME_LOST_MESSAGE))
-        return { kind: 'body', route: CONTENT_REPORT_ROUTE, body: lost.body }
-      }
-      if (call.request.tool === CONTENT_ACT_TOOL_NAME) {
-        const report = await actOnPage(live, session, call.request, access, claimed.page)
+      if (request.tool === CONTENT_ACT_TOOL_NAME) {
+        const report = await actOnPage(live, tabId, session, request, access, claimed.page)
         return { kind: 'body', route: CONTENT_REPORT_ROUTE, body: report.body }
       }
       // One call, one settling route: a picture read's failures travel the
       // picture route too, so no call id is ever raced by two routes.
-      if (call.request.tool === CONTENT_READ_IMAGE_TOOL_NAME) {
-        const report = await readImage(live, session, call.request, access)
+      if (request.tool === CONTENT_READ_IMAGE_TOOL_NAME) {
+        const report = await readImage(live, tabId, session, request, access)
         return { kind: 'body', route: CONTENT_IMAGE_ROUTE, body: report.body }
       }
-      const report = await readPage(live, session, call.request, access)
+      const report = await readPage(live, tabId, session, request, access)
       return { kind: 'body', route: CONTENT_REPORT_ROUTE, body: report.body }
     },
   }
@@ -817,13 +794,13 @@ function pageDomain(seat: MutableRefObject<ContentReadSeat>): ChannelDomain<Page
  * again, and each call is answered by background work nobody awaits. What this
  * hook owns is only when the seat's own list moved.
  * @param seat - what the seat currently holds; re-read live when a call runs.
- * @param channel - the page load's channel, injected for a case that drives one of its own.
+ * @param channel - the page load's channel, whose tab id every report this seat posts carries.
  */
-export function useContentRead(seat: ContentReadSeat, channel: ContentChannel = PAGE_CHANNEL): void {
+export function useContentRead(seat: ContentReadSeat, channel: ContentChannel): void {
   const live = useRef(seat)
   useEffect(() => { live.current = seat })
 
-  const domain = useMemo(() => pageDomain(live), [])
+  const domain = useMemo(() => pageDomain(live, channel.tabId), [channel])
   const joined = useMemo(() => channel.join(domain), [channel, domain])
 
   // A bid outlives nothing: parking drops the calls this seat was offering, and
@@ -831,11 +808,13 @@ export function useContentRead(seat: ContentReadSeat, channel: ContentChannel = 
   useEffect(() => () => { joined.park() }, [joined])
 
   useEffect(() => {
+    const access = seat.access
     joined.offer({
-      calls: seat.sessions.flatMap(session => session.pending.map(request => ({
+      calls: access === undefined ? [] : seat.sessions.flatMap(session => session.pending.map(request => ({
         callId: request.callId,
         sessionId: session.sessionId,
         request,
+        access,
       }))),
       openCalls: seat.openCalls,
     })
