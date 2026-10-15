@@ -5332,10 +5332,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ComponentActionNotice {\n    readonly text: string;\n    readonly summary: string;\n}',
   },
   {
-    name: 'ComponentCall',
-    declaration: 'export interface ComponentCall {\n    readonly id: string;\n    readonly title: string;\n    readonly spec: ComponentSpec;\n}',
-  },
-  {
     name: 'ComponentCatalog',
     declaration: 'export interface ComponentCatalog {\n    readonly entries: readonly ComponentCatalogEntry[];\n    readonly byId: ReadonlyMap<string, ComponentCatalogEntry>;\n    readonly maxSpecDepth: number;\n}',
   },
@@ -5358,10 +5354,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ComponentSource',
     declaration: 'export interface ComponentSource {\n    readonly package: string;\n    readonly version: string;\n}',
-  },
-  {
-    name: 'ComponentSpec',
-    declaration: 'export interface ComponentSpec {\n    readonly nodes: readonly ComponentNode[];\n    readonly layout?: LayoutNode;\n}',
   },
   {
     name: 'ComponentViewSource',
@@ -5774,10 +5766,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'EncodedImageAttachment',
     declaration: 'export interface EncodedImageAttachment {\n    mediaType: ImageMediaType;\n    data: string;\n    name?: string;\n}',
-  },
-  {
-    name: 'Entry',
-    declaration: 'export interface Entry {\n    readonly el: Element | undefined;\n    readonly line: () => string;\n}',
   },
   {
     name: 'EnumFieldSchema',
@@ -6234,30 +6222,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'KvUnitDescriptor',
     declaration: 'export interface KvUnitDescriptor {\n    readonly name: string;\n    readonly version: number;\n    readonly tables: readonly string[];\n    readonly hasGlobal: boolean;\n    readonly layout?: \'single\' | \'per-record\';\n    readonly compatibleVersions?: readonly number[];\n}',
-  },
-  {
-    name: 'LayoutBlock',
-    declaration: 'export interface LayoutBlock {\n    readonly node: \'component\';\n    readonly id: string;\n    readonly flex?: number;\n}',
-  },
-  {
-    name: 'LayoutChild',
-    declaration: 'export type LayoutChild = LayoutBlock | LayoutStack;',
-  },
-  {
-    name: 'LayoutDirection',
-    declaration: 'export type LayoutDirection = \'row\' | \'col\';',
-  },
-  {
-    name: 'LayoutGap',
-    declaration: 'export type LayoutGap = \'sm\' | \'md\' | \'lg\';',
-  },
-  {
-    name: 'LayoutNode',
-    declaration: 'export type LayoutNode = LayoutStack;',
-  },
-  {
-    name: 'LayoutStack',
-    declaration: 'export interface LayoutStack {\n    readonly node: \'stack\';\n    readonly dir: LayoutDirection;\n    readonly gap?: LayoutGap;\n    readonly wrap?: boolean;\n    readonly flex?: number;\n    readonly children: readonly LayoutChild[];\n}',
   },
   {
     name: 'LlmAdapter',

@@ -1187,7 +1187,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-experimental-component-surface`
 
 - `inject`: `tools`
-- `source`: [`packages/experimental/component-surface/src/index.ts:150`](../packages/experimental/component-surface/src/index.ts)
+- `source`: [`packages/experimental/component-surface/src/index.ts:152`](../packages/experimental/component-surface/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: the views this deployment offers the user, and whether a call may read its own rows. */
@@ -1250,6 +1250,20 @@ export interface Config {
    * pays the whole deadline.
    */
   dataPageLoadTimeoutMs?: number
+  /**
+   * How long a call of either of this row's channel tools waits for the tab
+   * showing this session to claim it before the model is told no console
+   * answered, in milliseconds.
+   */
+  actClaimTimeoutMs?: number
+  /**
+   * How long a claimed call waits for that tab to report, in milliseconds. It
+   * is the call's whole deadline: the steps a call runs, or the reading it
+   * composes, and the trip back are paid out of it. The steps of an
+   * `act_component` call run for three quarters of it at most, so the console
+   * stops acting before the host stops waiting.
+   */
+  actTimeoutMs?: number
 }
 
 /** One view a deployment configures, as `cordis.yml` writes it and before anything has judged it. */
@@ -1348,7 +1362,7 @@ export interface ServerAuthRequest {
 ## `@deepseek-ai/dsh-experimental-content-frame`
 
 - `inject`: `webServer`
-- `source`: [`packages/experimental/content-frame/src/index.ts:85`](../packages/experimental/content-frame/src/index.ts)
+- `source`: [`packages/experimental/content-frame/src/index.ts:86`](../packages/experimental/content-frame/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: the hosted application, and the pages the agent may show from it. */

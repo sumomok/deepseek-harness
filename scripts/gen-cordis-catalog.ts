@@ -185,6 +185,8 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
   pluginPackages: 'profile-boot-owned package resolver service used by optional consumers — packages/boot/app-boot/README.md owns this internal API',
   fileUpload: 'client-side browser upload service — packages/client/file-upload/README.md owns the API',
   componentRenderers: 'client-side renderer registry for the content column\'s component kind — packages/experimental/component-surface/README.md owns the API',
+  contentChannel: 'host call channel a sub-module of the content column\'s row installs, outside the root-index service classes the projection renders — packages/experimental/content-frame/README.md owns the API',
+  contentTabChannel: 'client-side call channel the content column\'s domains join in the browser — packages/experimental/content-frame/README.md owns the API',
   uiRenderer: 'client-side interface-typed browser service — packages/client/ui-renderer/README.md owns the API',
   uiSession: 'client-side Session source adapter — packages/client/ui-session/README.md owns the API',
   uiConversation: 'client-side Conversation registries and assembler — packages/client/ui-conversation/README.md owns the API',
