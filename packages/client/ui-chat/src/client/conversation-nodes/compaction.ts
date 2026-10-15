@@ -180,7 +180,8 @@ export const compactionDefinition: ConversationNodeDefinition<CompactionState> =
     if (state.failure !== undefined) {
       const event = state.failure.event
       const data: CompactionFailureChatData = { reason: failureReason(event) ?? null }
-      return chatNode(context, 'compaction-failure', event.seq, data)
+      // The notice stands outside both the step group and whole-Turn folding.
+      return chatNode(context, 'compaction-failure', event.seq, data, { groupTree: 'turn' })
     }
     // A window without the start carries no evidence that a bracket is open,
     // and no Context in that state ever published a Node, so returning null

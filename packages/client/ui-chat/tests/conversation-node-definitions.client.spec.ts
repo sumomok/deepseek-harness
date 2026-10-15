@@ -2956,6 +2956,15 @@ describe('built-in conversation node Definitions', () => {
     const failure = node(snapshot(value), 'compaction-failure')
     expect(failure?.data).toEqual({ reason: 'summarizer unavailable' })
     expect(failure?.anchorSeq).toBe(11)
+    expect(failure?.groupTree).toBe('turn')
+  })
+
+  it('keeps an automatic compaction failure between Tool steps out of their step group', () => {
+    const value = groupedAssembler(toolStepsAround([
+      at(10, 'compaction/start', { compactionId: 'compact-failed-between', turn: 1 }),
+      at(11, 'compaction/end', { compactionId: 'compact-failed-between', turn: 1, error: 'summarizer unavailable' }),
+    ]))
+    expect(stepLayout(value)).toEqual(['turn-process', ['tool-call'], 'compaction-failure', ['tool-call']])
   })
 
   it('shows a failure node for a bracket opened between turns rather than inside one', () => {
