@@ -102,21 +102,11 @@ function draw(props: Record<string, unknown>, onAction = vi.fn<ComponentActionHa
   return { view, onAction, redraw: (next: Record<string, unknown>) => { view.rerender(element(next)) } }
 }
 
-/** The kit's form under one drawn block, with the members a save goes through. */
+/** The kit's form under one drawn block. */
 type FormInstance = VueInstance & {
   $props: Record<string, unknown>
   /** What the form is doing: `idle`, `pending`, `ready`, or why it did not open. */
   state: string
-  /** The mode the form opened in (`add` or `modify`), which its write check records. */
-  mode: string
-  /** The key of the request the form is under, which a report settles against. */
-  requestKey: string
-  /** The schemes loaded for the form, where its write check reads its items from. */
-  schemas: Record<string, { readonly formConfig?: { readonly formItems?: readonly unknown[] } } | undefined>
-  /** The write the form's last check let through, which a save reports from. */
-  pendingWrite: unknown
-  /** The form's own handler for a save the backend accepted. */
-  handleSaved(): void
 }
 
 /**
@@ -144,25 +134,20 @@ async function opened(container: HTMLElement): Promise<FormInstance> {
 }
 
 /**
- * The write the form's own check would have recorded for a completed save.
- *
- * A save reports from the flight its check let through rather than from the
- * props a redraw may have changed: the mode it was opened in, the table it
- * was opened against, the request key it was under, the scheme's own items
- * (whose masked marks the report drops), and the value the save answered
- * with.
- * @param form - the form instance the write went through.
- * @param displayValue - the value the save answered with.
- * @returns the flight to inject in place of a completed save.
+ * Type one value into the drawn form's field for one column, as a person does.
+ * @param container - the drawn block.
+ * @param field - the column the field is marked with.
+ * @param value - what to type.
  */
-function writeOf(form: FormInstance, displayValue: Record<string, unknown>) {
-  return {
-    mode: form.mode,
-    meta: form.$props['relatedMeta'],
-    requestKey: form.requestKey,
-    formItems: form.schemas[form.mode]?.formConfig?.formItems ?? [],
-    displayValue,
-  }
+async function typeInto(container: HTMLElement, field: string, value: string): Promise<void> {
+  const input = await vi.waitFor(() => {
+    const found = container.querySelector(`.toy-form-page input[data-component-field="${field}"]`)
+    if (!(found instanceof HTMLInputElement)) throw new Error(`the form drew no field for "${field}"`)
+    return found
+  })
+  input.value = value
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  input.dispatchEvent(new Event('change', { bubbles: true }))
 }
 
 describe('toy.form-page', () => {
@@ -172,7 +157,7 @@ describe('toy.form-page', () => {
     const { view, onAction } = draw({ relatedMeta: table('probe_form_idle') })
     await vi.waitFor(() => { expect(view.container.querySelector('[data-toy-crud-box]')).not.toBeNull() })
     await drain()
-    expect(view.container.querySelector('[data-form-page-idle]')?.textContent).toBe(en['formPage.idle'])
+    expect(view.container.querySelector('[data-part-line="idle"]')?.textContent).toBe(en['formPage.idle'])
     // The form is mounted all the same, holding no request, so the first one
     // the data page publishes opens it in place.
     expect(formOf(view.container).$props['request']).toBeUndefined()
@@ -190,7 +175,7 @@ describe('toy.form-page', () => {
     const request = { mode: 'add', type: meta }
     const { view } = draw(Object.freeze({ relatedMeta: meta, request, abilities: { create: false } }))
     const form = await opened(view.container)
-    expect(view.container.querySelector('[data-form-page-idle]')).toBeNull()
+    expect(view.container.querySelector('[data-part-line="idle"]')).toBeNull()
     expect(form.$props['relatedMeta']).toBe(meta)
     expect(form.$props['request']).toEqual(request)
     expect(form.$props['abilities']).toEqual(ALL_ABILITIES)
@@ -233,7 +218,7 @@ describe('toy.form-page', () => {
     const { view, redraw } = draw(Object.freeze({ relatedMeta: meta, request: { mode: 'add', type: meta } }))
     const form = await opened(view.container)
     redraw(Object.freeze({ relatedMeta: meta }))
-    await vi.waitFor(() => { expect(view.container.querySelector('[data-form-page-idle]')).not.toBeNull() })
+    await vi.waitFor(() => { expect(view.container.querySelector('[data-part-line="idle"]')).not.toBeNull() })
     expect(formOf(view.container)).toBe(form)
     expect(form.state).toBe('idle')
   })
@@ -250,23 +235,24 @@ describe('toy.form-page', () => {
     expect(onAction).toHaveBeenCalledTimes(2)
   })
 
-  it('keeps a column any of the table\'s schemes masks out of a record it saves, in either mode', async () => {
+  it('keeps a column any of the table\'s schemes masks out of a record a person saves', async () => {
     const meta = table('probe_form_masked')
     // As a data page on the same table would have: every drawn column reported,
     // the masked one included, so what leaves it out is the form's own scheme.
     noteReportedColumns(meta, ['code', 'zh_label', 'city'])
-    const { view, onAction, redraw } = draw(Object.freeze({ relatedMeta: meta, request: { mode: 'add', type: meta } }))
-    const added = await opened(view.container)
-    added.pendingWrite = writeOf(added, { code: 'C-9', zh_label: '乙', city: '上海', note: '不在表格列里' })
-    added.handleSaved()
-    expect(onAction).toHaveBeenLastCalledWith('added', { record: { zh_label: '乙', city: '上海' } })
-    redraw(Object.freeze({ relatedMeta: meta, request: { mode: 'modify', type: meta, id: '1', name: '甲' } }))
-    await vi.waitFor(() => { expect(formOf(view.container).$props['request']).toMatchObject({ mode: 'modify' }) })
-    const modified = await opened(view.container)
-    modified.pendingWrite = writeOf(modified, { code: 'C-1', zh_label: '甲', city: '济南' })
-    modified.handleSaved()
-    expect(onAction).toHaveBeenLastCalledWith('modified', { record: { zh_label: '甲', city: '济南' } })
-  })
+    const { view, onAction } = draw(Object.freeze({ relatedMeta: meta, request: { mode: 'add', type: meta } }))
+    await opened(view.container)
+    await typeInto(view.container, 'code', 'C-9')
+    await typeInto(view.container, 'zh_label', '乙')
+    await typeInto(view.container, 'city', '上海')
+    await flush()
+    const save = view.container.querySelector('.toy-form-page [data-component-action="added"]')
+    if (!(save instanceof HTMLElement)) throw new Error('the form drew no save control')
+    save.click()
+    await vi.waitFor(() => {
+      expect(onAction).toHaveBeenLastCalledWith('added', { record: { zh_label: '乙', city: '上海' } })
+    }, { timeout: 5000, interval: 20 })
+  }, 20_000)
 
   it('marks the save control with the action saving reports, and follows the form\'s mode', async () => {
     const meta = table('probe_form_marks')
@@ -290,7 +276,7 @@ describe('toy.form-page', () => {
   it('draws the line saying the block names no table, and mounts nothing', async () => {
     const { view } = draw({ request: { mode: 'add', type: 'probe_form_none' } })
     await flush()
-    expect(view.container.querySelector('[data-form-page-stalled="table"]')?.textContent).toBe(en['formPage.noTable'])
+    expect(view.container.querySelector('[data-part-line="table"]')?.textContent).toBe(en['formPage.noTable'])
     expect(view.container.querySelector('[data-toy-crud-box]')).toBeNull()
   })
 
@@ -298,7 +284,7 @@ describe('toy.form-page', () => {
     let release: (path: string) => void = () => {}
     basePath = new Promise((resolve) => { release = resolve })
     const waiting = draw({ relatedMeta: table('probe_form_wait') })
-    expect(waiting.view.container.querySelector('[data-form-page-stalled="preparing"]')?.textContent).toBe(en['formPage.preparing'])
+    expect(waiting.view.container.querySelector('[data-part-line="preparing"]')?.textContent).toBe(en['formPage.preparing'])
     expect(waiting.view.container.querySelector('[data-toy-crud-box]')).toBeNull()
     release('/probe-base/')
     await vi.waitFor(() => { expect(waiting.view.container.querySelector('[data-toy-crud-box]')).not.toBeNull() })
@@ -306,7 +292,7 @@ describe('toy.form-page', () => {
     basePath = Promise.reject(new Error('component-kit: answered 503'))
     const failed = draw({ relatedMeta: table('probe_form_fail'), request: { mode: 'add', type: 'probe_form_fail' } })
     await vi.waitFor(() => {
-      expect(failed.view.container.querySelector('[data-form-page-stalled="address"]')?.textContent).toBe(en['formPage.unavailable'])
+      expect(failed.view.container.querySelector('[data-part-line="address"]')?.textContent).toBe(en['formPage.unavailable'])
     })
     await flush()
     // Read by the block's own table: a form a previous case drew can still

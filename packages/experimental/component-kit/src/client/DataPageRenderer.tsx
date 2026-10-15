@@ -119,15 +119,10 @@ import { useEffect, useMemo, useRef } from 'react'
 import {
   DataPage,
   noteReportedColumns,
-  type CrudQuerySuccessPayload,
   type CrudTableCellClickPayload,
   type DataPageAccessDeniedPayload,
   type DataPageAuthFailedPayload,
-  type DataPageBatchModifySavedPayload,
-  type DataPageDeleteSavedPayload,
   type DataPageExportTaskPayload,
-  type DataPageFormOpenPayload,
-  type DataPageInfoCardOpenPayload,
   type DataPageLoadPayload,
   type ToyRow,
 } from '@sumomok/toy-crud-kit'
@@ -156,9 +151,9 @@ import {
   type OpenedRecord,
   type ReportedColumn,
 } from './data-page-read.ts'
-import { useBasePathState, useContainedComponent } from './crud-box.ts'
+import { reportOnce, useBasePathState, useContainedComponent } from './crud-box.ts'
 import { useAbilities } from './use-abilities.ts'
-import { keepMarked, markDataPage } from './marks.ts'
+import { markDataPage, useKeptMarks } from './marks.ts'
 import type { DataPageAbilityTable } from '../route.ts'
 import type { VueEventHandlers } from './vue2-bridge.tsx'
 import css from './DataPageRenderer.module.css'
@@ -225,27 +220,14 @@ interface PublishedValues {
 }
 
 /**
- * What one placing call's block has already told the agent, and published for
- * the blocks beside it, so a redraw of the same call does not tell it again.
- *
- * Keyed by the block's property record, which the placement package hands over
- * unchanged for the life of one call and replaces for the next — so a later
- * call under the same ids starts with nothing reported, and a block the column
- * dropped and drew again finds what it said before. The published values live
- * here for the same reason: the placement package keeps them for the call, not
- * for one mount, so a delete after a redraw still finds the value it withdraws.
+ * What one placing call's block has read and published, kept for the call
+ * rather than for one mount, the way `crud-box.ts` keeps what it reported: the
+ * placement package keeps a published value for the call, so a delete after a
+ * redraw still finds the value it withdraws.
  */
 interface ReportMemory {
   /** The columns whose values a row report may carry: the page's last reported columns, less the masked ones. */
   columns: readonly ReportedColumn[]
-  /** The last load report, serialized. */
-  load?: string
-  /** The last query report, serialized. */
-  query?: string
-  /** The last refusal report, serialized. */
-  denied?: string
-  /** The last refused-sign-in report, serialized. */
-  authFailed?: string
   /** What this block has published and not withdrawn. */
   readonly published: PublishedValues
 }
@@ -268,6 +250,8 @@ function memoryOf(props: Readonly<Record<string, unknown>>): ReportMemory {
 
 /** What the listener map reads at the moment an event arrives. */
 interface DataPageEventContext {
+  /** The block's property record, which what it reported is remembered by. */
+  readonly props: Readonly<Record<string, unknown>>
   /** Where a gesture goes. */
   readonly onAction: ComponentActionHandler
   /** Where a value the blocks beside this one read goes. */
@@ -278,25 +262,6 @@ interface DataPageEventContext {
   readonly cardInPage: boolean
   /** What this placing call's block has already reported and published. */
   readonly memory: ReportMemory
-}
-
-/**
- * Report one gesture unless this placing call's block has reported the same one.
- * @param context - the block's event context.
- * @param field - which memory the report is held in.
- * @param actionId - the action to report.
- * @param payload - what to report.
- */
-function reportOnce(
-  context: DataPageEventContext,
-  field: 'load' | 'query' | 'denied' | 'authFailed',
-  actionId: string,
-  payload: Readonly<Record<string, unknown>>,
-): void {
-  const signature = JSON.stringify(payload)
-  if (context.memory[field] === signature) return
-  context.memory[field] = signature
-  context.onAction(actionId, payload)
 }
 
 /**
@@ -349,10 +314,20 @@ interface DataPageProps extends Pick<ComponentRendererProps, 'props' | 'onAction
   readonly vueProps: DataPageMountProps
 }
 
+/**
+ * Mark one drawn page's controls, with the custom operations the block declares.
+ * @param root - the block's subtree.
+ * @param vueProps - the page's properties, as the block is drawing it.
+ */
+function markPage(root: Element, vueProps: DataPageMountProps): void {
+  markDataPage(root, { custom: (vueProps.customOperations ?? []).map(operation => operation.name) })
+}
+
 /** The page itself, drawn once the base path its requests go under is in force. */
 function DataPageBlock({ props, vueProps, onAction, onOutput }: DataPageProps) {
   const memory = memoryOf(props)
   const eventContext = (): DataPageEventContext => ({
+    props,
     onAction,
     onOutput,
     meta: vueProps.relatedMeta,
@@ -367,12 +342,12 @@ function DataPageBlock({ props, vueProps, onAction, onOutput }: DataPageProps) {
     'access-denied': (payload: DataPageAccessDeniedPayload) => {
       const current = context.current
       const report = readAccessDenied(payload, current.meta)
-      if (report !== undefined) reportOnce(current, 'denied', DENIED_ACTION_ID, report)
+      if (report !== undefined) reportOnce(current.props, DENIED_ACTION_ID, DENIED_ACTION_ID, report, current.onAction)
     },
     'auth-failed': (payload: DataPageAuthFailedPayload) => {
       const current = context.current
       const report = readAuthFailed(payload)
-      if (report !== undefined) reportOnce(current, 'authFailed', AUTH_FAILED_ACTION_ID, report)
+      if (report !== undefined) reportOnce(current.props, AUTH_FAILED_ACTION_ID, AUTH_FAILED_ACTION_ID, report, current.onAction)
     },
     load: (payload: DataPageLoadPayload) => {
       const current = context.current
@@ -381,11 +356,13 @@ function DataPageBlock({ props, vueProps, onAction, onOutput }: DataPageProps) {
       // The page registered its own columns before raising this, so this
       // narrower list is the one it trims what it saves to.
       noteReportedColumns(current.meta, current.memory.columns.map(column => column.attr))
-      reportOnce(current, 'load', LOAD_ACTION_ID, loadReport(current.meta, columns, readGrantedRights(payload)))
+      const report = loadReport(current.meta, columns, readGrantedRights(payload))
+      reportOnce(current.props, LOAD_ACTION_ID, LOAD_ACTION_ID, report, current.onAction)
     },
-    'query-success': (payload: CrudQuerySuccessPayload) => {
+    'query-success': (payload: unknown) => {
+      const current = context.current
       const report = readQuery(payload)
-      if (report !== undefined) reportOnce(context.current, 'query', QUERY_ACTION_ID, report)
+      if (report !== undefined) reportOnce(current.props, QUERY_ACTION_ID, QUERY_ACTION_ID, report, current.onAction)
     },
     'table-cell-click': (payload: CrudTableCellClickPayload) => {
       const current = context.current
@@ -397,8 +374,8 @@ function DataPageBlock({ props, vueProps, onAction, onOutput }: DataPageProps) {
       const report = readSelection(rows, current.memory.columns)
       if (report !== undefined) current.onAction(SELECT_ACTION_ID, report)
     },
-    'form-open': (payload: DataPageFormOpenPayload) => { publishEditing(context.current, readEditing(payload)) },
-    'info-card-open': (payload: DataPageInfoCardOpenPayload) => {
+    'form-open': (payload: unknown) => { publishEditing(context.current, readEditing(payload)) },
+    'info-card-open': (payload: unknown) => {
       const current = context.current
       publishOpened(current, readOpened(payload))
       if (!current.cardInPage) return
@@ -418,13 +395,13 @@ function DataPageBlock({ props, vueProps, onAction, onOutput }: DataPageProps) {
       const current = context.current
       current.onAction(MODIFIED_ACTION_ID, readSaved(answer, current.memory.columns))
     },
-    'delete-save-success': (payload: DataPageDeleteSavedPayload) => {
+    'delete-save-success': (payload: unknown) => {
       const current = context.current
       const report = readDeleted(payload, current.memory.columns)
       if (report !== undefined) current.onAction(DELETED_ACTION_ID, report)
       withdrawDeleted(current, readDeletedIds(payload))
     },
-    'batch-modify-save-success': (payload: DataPageBatchModifySavedPayload) => {
+    'batch-modify-save-success': (payload: unknown) => {
       const current = context.current
       const report = readBatchModified(payload, current.memory.columns)
       if (report !== undefined) current.onAction(BATCH_MODIFIED_ACTION_ID, report)
@@ -441,21 +418,7 @@ function DataPageBlock({ props, vueProps, onAction, onOutput }: DataPageProps) {
     },
   }), [])
   const { box, host } = useContainedComponent({ component: DataPage, props: vueProps, on })
-  // Every control the page draws is marked with the action or key it carries,
-  // and every field input with the column its own label names. Kept on the
-  // contained box through a MutationObserver rather than one pass per commit,
-  // because the page draws on state of its own: a cell after a query and a
-  // dialog after a press are drawn afresh and have to be marked again. What is
-  // marked reads the block's current properties through a ref, the way every
-  // other effect that outlives its commit does: a placing call that changes
-  // the operations within one mount redraws the row's controls, and the pass
-  // that marks them must name them as the call now declares them.
-  const marking = useRef({ props: vueProps })
-  useEffect(() => { marking.current = { props: vueProps } })
-  useEffect(() => keepMarked(box.current as HTMLDivElement, (root) => {
-    const current = marking.current.props
-    markDataPage(root, { custom: (current.customOperations ?? []).map(operation => operation.name) })
-  }), [])
+  useKeptMarks(box, vueProps, markPage)
   return (
     <div ref={box} className={css.box}>
       <div ref={host} className={css.host} />

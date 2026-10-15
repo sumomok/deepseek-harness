@@ -1,27 +1,24 @@
 /**
  * What every block drawing a component of the vendored `@sumomok/toy-crud-kit`
- * shares: waiting for the base path its requests go under, and mounting the
- * component inside a box the kit's request layer and toasts are contained in.
+ * shares: waiting for the base path its requests go under, mounting the
+ * component inside a box the kit's request layer and toasts are contained in,
+ * and reporting a gesture once per placing call.
  *
- * Each of those components requests through the same `toy-core` layer — the
- * data page its scheme and rows, the form page its scheme and every save, the
- * info card its record — so each waits on the same read and is contained the
- * same way. The order is the whole point. The base path is applied by
- * `data-page-settings.ts` once the row's browser half has read it from the node
- * half, and a block mounts nothing until that read has settled, so no request
- * leaves under the kit's built-in default. Then `containCrud` marks the box the
- * component is mounted in, so the request layer's progress bar and overlay, and
- * the toasts a component raises, land inside that box rather than on the
- * document body; it runs from an effect declared before the bridge's mount
- * effect, which is what puts it before the component's first request. The
- * release is a second effect declared after the bridge's, because React runs
- * cleanups in declaration order and a component raises its last toasts while
- * Vue destroys it — the box has to outlive the component it contained.
+ * Each of those components requests through the same `toy-core` layer, so each
+ * mounts nothing until `data-page-settings.ts` has applied the base path the
+ * row's browser half read from the node half, and no request leaves under the
+ * kit's built-in default. `containCrud` then marks the box the component is
+ * mounted in, so the request layer's progress bar and overlay, and the toasts a
+ * component raises, land inside that box rather than on the document body. The
+ * box is contained before the component's first request and released only
+ * after Vue has destroyed the component, which raises its last toasts while it
+ * goes.
  * @module @deepseek-ai/dsh-experimental-component-kit/src/client/crud-box
  */
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { containCrud } from '@sumomok/toy-crud-kit'
 import { dataPageBasePathReady } from './data-page-settings.ts'
+import type { ComponentActionHandler } from './renderer.ts'
 import { useVueComponent, type VueBridgeOptions } from './vue2-bridge.tsx'
 
 /** Whether the base path the kit's requests go under has been applied. */
@@ -64,16 +61,46 @@ export interface ContainedComponent {
 export function useContainedComponent(options: VueBridgeOptions): ContainedComponent {
   const box = useRef<HTMLDivElement>(null)
   const release = useRef<() => void>()
-  // Declared before the bridge's mount effect, so the box is contained before
-  // the component is mounted and makes its first request.
+  // React runs effects and their cleanups in declaration order: contained
+  // before the bridge mounts the component, released after it destroys it.
   useEffect(() => { release.current = containCrud(box.current as HTMLDivElement) }, [])
   const host = useVueComponent<HTMLDivElement>(options)
-  // Declared after the bridge's mount effect, so this cleanup runs after the
-  // bridge's: released in the effect that contained the box, the box would
-  // stop being a box before the component's last toasts were raised, and they
-  // would land on the document body with nothing to adopt them. The release is
-  // set by the effect declared before this one, which is why it is there by
-  // the time this cleanup runs.
   useEffect(() => () => { (release.current as () => void)() }, [])
   return { box, host }
+}
+
+/**
+ * The last report each placing call's block made under each of its slots,
+ * serialized. Keyed by the block's property record, which the placement
+ * package hands over unchanged for the life of one call and replaces for the
+ * next: a block the column dropped and drew again finds what it said before,
+ * and a later call under the same ids starts with nothing reported.
+ */
+const REPORTED = new WeakMap<Readonly<Record<string, unknown>>, Map<string, string>>()
+
+/**
+ * Report one gesture unless this placing call's block last reported the same
+ * one under the same slot.
+ * @param props - the block's property record.
+ * @param slot - which of the block's remembered reports this one replaces.
+ * @param actionId - the action to report.
+ * @param payload - what to report.
+ * @param onAction - where it goes.
+ */
+export function reportOnce(
+  props: Readonly<Record<string, unknown>>,
+  slot: string,
+  actionId: string,
+  payload: Readonly<Record<string, unknown>>,
+  onAction: ComponentActionHandler,
+): void {
+  let held = REPORTED.get(props)
+  if (held === undefined) {
+    held = new Map()
+    REPORTED.set(props, held)
+  }
+  const signature = JSON.stringify([actionId, payload])
+  if (held.get(slot) === signature) return
+  held.set(slot, signature)
+  onAction(actionId, payload)
 }
