@@ -94,6 +94,8 @@ This section explains how the package wires the export control and points at the
 
 The package has two halves. The Host half ([`src/index.ts`](src/index.ts)) registers the `/export` command and contributes the exact `GET`/`HEAD /api/session.export` Fetch route to Connection; [`src/archive.ts`](src/archive.ts) builds the bounded ZIP stream. The browser half ([`src/client/index.ts`](src/client/index.ts)) provides the shared download controller and UI, and observes `command/executed` so only the submitting browser starts a download.
 
+The route serves a non-owner Peer, such as a console member, through its own [Connection](../../client/connection/README.md) access rule: [remote access](../../api/remote-access/README.md) must allow the action `/api/session.export` on the requested Session and, with `includeDescendants=true`, on every subagent descendant the archive would include. The requested Session is decided first; the lineage is read only when it is allowed. A missing `sessionId`, a Host without remote access or Session query, an unreadable lineage, or any denial answers 403 before any log is read. The owner's exports are unchanged.
+
 The Header’s More action uses the shared compact Button, with a 28px square target and the same radius and hover fill as the right-sidebar expand control.
 
 ### Download flow
@@ -148,6 +150,7 @@ These limits define when this package is a poor fit or needs special operational
 - **The whole archive is held in memory before it is saved** — the page assembles every received chunk into one `Blob`, which briefly costs twice the archive's size while the chunk list and the `Blob` coexist, so an export is bounded by the tab's memory rather than by free disk space. Session archives are megabyte-scale in practice; a multi-gigabyte tree is out of reach.
 - **A foreseeable tear costs the progress bar too** — a descendant the measuring pass also fails to read drops all three extent fields, so the bar is indeterminate from its first frame and the transfer still tears later.
 - **A mid-stream failure has no host-authored reason** — the archive's status and headers are already sent when a descendant log read fails, so the page can only report the browser's transport error. The host log carries the real cause.
+- **A non-owner export decides descendants once** — the access rule reads the lineage before the archive does, so a subagent Session created in between is archived without its own decision.
 - **An unreadable attachment is still announced at its recorded size** — measuring never opens a stored object, so an entry the stream turns out to record rather than carry is counted at the reference's byte length. The entry count stays exact; the two size fields read high by that attachment's size, so the page divides its received bytes by a wire estimate larger than the body it gets. The bar therefore advances more slowly than the transfer does and jumps to complete from wherever it had reached — the same direction as a generic text file, which is measured at its stored size and reaches the wire deflated.
 - **The first byte waits for the measurement** — the route walks the whole export before it answers, so time-to-first-byte grows with the number of sub-sessions. A session with none costs one extra lineage call and no extra log read.
 

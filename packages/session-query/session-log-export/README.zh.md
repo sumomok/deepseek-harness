@@ -94,6 +94,8 @@ Web bundle 将本包与 Connection、`dsh-commands`、`dsh-client-ui-commands` �
 
 本包分为两部分。Host 半包（[`src/index.ts`](src/index.ts)）注册 `/export` 命令，并向 Connection 贡献精确的 `GET`/`HEAD /api/session.export` Fetch 路由；[`src/archive.ts`](src/archive.ts) 构建有界 ZIP 流。浏览器半包（[`src/client/index.ts`](src/client/index.ts)）提供共享下载控制器和 UI，并观察 `command/executed`，因此只有提交命令的浏览器会启动下载。
 
+该路由通过它自己的 [Connection](../../client/connection/README.zh.md) 访问规则服务非 owner Peer（例如控制台成员）：[remote access](../../api/remote-access/README.zh.md) 必须在被请求的会话上放行 action `/api/session.export`，并在 `includeDescendants=true` 时在归档将包含的每个 subagent 后代会话上放行。先判定被请求的会话，放行后才读取谱系。缺 `sessionId`、Host 没有 remote access 或 Session query、谱系读不出或任一判定被拒时，在读取任何日志之前返回 403。owner 的导出不变。
+
 Header 的更多操作入口使用公共紧凑 Button，点击区域为 28px 正方形，与右侧栏展开控件共用圆角和 hover 底色。
 
 ### 下载流程
@@ -148,6 +150,7 @@ Host 路由是由该功能拥有的精确 Fetch 路由贡献。Connection 应用
 - **整个归档在保存前驻留内存**——页面把收到的每一块拼进一个 `Blob`，在数据块列表与 `Blob` 并存的瞬间会占用两倍归档大小，因此导出受标签页内存限制，而非受可用磁盘空间限制。实践中会话归档是兆字节量级；数 GB 的会话树无法处理。
 - **可预见的撕裂同时也让进度条失效**——测量那一遍同样读不出来的子会话会让三个规模字段一并缺席，因此进度条从第一帧起就是不确定态，而传输仍会在稍后撕裂。
 - **中途失败没有 Host 给出的原因**——子会话日志读取失败时，归档的状态码与响应头早已发出，页面只能报告浏览器的传输错误。真正的原因在 Host 日志里。
+- **非 owner 导出只判定一次后代**——访问规则先于归档读取谱系，所以在两次读取之间新建的 subagent 会话不经单独判定就进入归档。
 - **读不出来的附件仍按记录的大小声明**——测量从不打开已存储的对象，因此一个最终由流记录下来（而非携带）的条目，仍按引用记录的字节长度计入。条目数依旧准确；两个规模字段会高出那一个附件的大小，于是页面拿收到的字节去除以一个大于实际响应体的线上估算值。进度条因此走得比传输更慢，并从它停下的位置直接跳到完成——方向与「按存储大小计量、上线时已被 deflate 压过的通用文本文件」相同。
 - **首字节要等测量走完**——路由在应答前会把整次导出遍历一遍，因此首字节时延随子会话数量增长。没有子会话的会话只多付一次谱系调用，不多读任何日志。
 

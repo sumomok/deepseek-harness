@@ -14,7 +14,9 @@
   "references": [
     { "path": "../../../vendor/cordis" },
     { "path": "../../../vendor/schemastery" },
+    { "path": "../../api/remote-access/tsconfig.host.json" },
     { "path": "../../attachment/attachment" },
+    { "path": "../../client/connection/tsconfig.host.json" },
     { "path": "../../util/brand" },
     { "path": "../../core/session" },
     { "path": "../../interaction/commands" },

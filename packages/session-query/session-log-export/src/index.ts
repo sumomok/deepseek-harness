@@ -4,9 +4,12 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { CommandDefinitionId } from '@deepseek-ai/dsh-commands/brand'
 import Schema from '@deepseek-ai/schemastery'
 import { brandString } from '@deepseek-ai/dsh-brand'
+import type {} from '@deepseek-ai/dsh-api-remote-access'
 import type {} from '@deepseek-ai/dsh-attachment'
+import type { PeerScope } from '@deepseek-ai/dsh-client-connection'
 import type { CommandResult } from '@deepseek-ai/dsh-commands'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { SessionLineageNode } from '@deepseek-ai/dsh-session-query'
 import {
   DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
   flushLiveSessionLog,
@@ -75,6 +78,7 @@ interface SessionLogConnection {
       readonly methods: readonly ('GET' | 'HEAD')[]
       readonly requestBody: 'buffered'
       readonly fetch: (request: Request) => Promise<Response>
+      readonly serveNonOwner: (request: Request, peer: PeerScope) => Promise<Response>
     }): () => Promise<void>
   }
 }
@@ -98,21 +102,69 @@ export function apply(ctx: Context, config: Config = {}): void {
       ? REQUESTED
       : { kind: 'error', text: 'The Web /export command does not accept a path.' }),
   }), 'session-log-download: command')
+  const fetch = async (request: Request): Promise<Response> => {
+    const response = await sessionLogExportResponse(
+      ctx,
+      request,
+      config.compressionLevel ?? DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
+    )
+    if (request.method === 'GET') return response
+    await response.body?.cancel()
+    return new Response(null, { status: response.status, headers: response.headers })
+  }
   connectionOf(ctx).fetch.register({
     path: SESSION_LOG_EXPORT_PATH,
     methods: ['GET', 'HEAD'],
     requestBody: 'buffered',
-    fetch: async (request) => {
-      const response = await sessionLogExportResponse(
-        ctx,
-        request,
-        config.compressionLevel ?? DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
-      )
-      if (request.method === 'GET') return response
-      await response.body?.cancel()
-      return new Response(null, { status: response.status, headers: response.headers })
-    },
+    fetch,
+    serveNonOwner: async (request, peer) => await exportsAllowed(ctx, request, peer) ? fetch(request) : forbidden(),
   })
+}
+
+function forbidden(): Response {
+  return new Response('forbidden', { status: 403 })
+}
+
+/**
+ * Whether remote access allows a non-owner Peer to export what the request
+ * names: the action `SESSION_LOG_EXPORT_PATH` on the requested Session and,
+ * with `includeDescendants=true`, on every subagent descendant the archive
+ * would include. The requested Session is decided before any lineage read.
+ * @returns false for a missing `sessionId`, a Host without remote access or
+ * Session query, an unreadable lineage, or any denial.
+ */
+async function exportsAllowed(ctx: Context, request: Request, peer: PeerScope): Promise<boolean> {
+  const query = new URL(request.url).searchParams
+  const requested = query.get('sessionId')
+  const remoteAccess = ctx.get('remoteAccess')
+  if (requested === null || requested === '' || remoteAccess === undefined) return false
+  const allowed = (ids: readonly SessionId[]): boolean => remoteAccess.decide({
+    principal: peer.principal,
+    action: SESSION_LOG_EXPORT_PATH,
+    resources: ids.map(id => ({ kind: 'session', id })),
+  }).kind === 'allow'
+  const sessionId = brandString<SessionId>(requested)
+  if (!allowed([sessionId])) return false
+  if (query.get('includeDescendants') !== 'true') return true
+  const sessionQuery = ctx.get('sessionQuery')
+  if (sessionQuery === undefined) return false
+  let descendants: readonly SessionLineageNode[]
+  try {
+    descendants = (await sessionQuery.traceSession(sessionId, request.signal)).descendants
+  } catch {
+    // A lineage this route cannot read is not shown to be allowed; the owner's path reports such failures.
+    request.signal.throwIfAborted()
+    return false
+  }
+  const ids: SessionId[] = []
+  const collect = (nodes: readonly SessionLineageNode[]): void => {
+    for (const node of nodes) {
+      ids.push(node.session.header.id)
+      collect(node.descendants)
+    }
+  }
+  collect(descendants)
+  return ids.length === 0 || allowed(ids)
 }
 
 function connectionOf(ctx: Context): SessionLogConnection {
