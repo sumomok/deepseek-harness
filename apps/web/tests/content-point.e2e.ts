@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import type { Browser, Locator, Page, Route } from 'playwright'
 import { chromium } from 'playwright'
-import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, onTestFailed, vi } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
@@ -167,14 +167,15 @@ const chips = (page: Page): Promise<(string | null)[]> =>
   page.getByRole('group', { name: '待发送附件' }).locator('[data-reference-chip]').evaluateAll(nodes => nodes.map(node => node.getAttribute('title')))
 
 /**
- * Start a point from the button, once the guard the previous pick leaves on the page has ended: for a moment after a pick
- * the page swallows clicks, the button's among them.
+ * Start a point from the button. For 400 ms after a pick, extended by each click it swallows up to three seconds, the page
+ * swallows clicks, the button's among them; while no point runs, the button is clicked again every 600 ms until one does.
  * @param page - the page.
  */
 async function startPoint(page: Page): Promise<void> {
-  await page.waitForTimeout(800)
-  await pointButton(page).click()
-  await expect.poll(() => pointButton(page).getAttribute('aria-pressed'), { timeout: 5_000 }).toBe('true')
+  await vi.waitFor(async () => {
+    if (await pointButton(page).getAttribute('aria-pressed') !== 'true') await pointButton(page).click()
+    expect(await pointButton(page).getAttribute('aria-pressed')).toBe('true')
+  }, { timeout: 6_000, interval: 600 })
 }
 
 /**
@@ -334,10 +335,13 @@ describe.skipIf(MODE === 'record')('web e2e: 「指一下」 in the customer con
     }
     await page.screenshot({ path: join(SHOTS, '04-chips-page.png') })
 
-    // The last pick's guard swallows a key for a moment after it ends, as it does a click.
-    await page.waitForTimeout(800)
+    // The last pick's guard swallows a key for a moment after it ends, as it does a click: while the composer still holds
+    // the question, Enter is pressed again every 600 ms until the composer takes it.
     const settled = scaffold.whenTurnSettled(60_000)
-    await page.keyboard.press('Enter')
+    await vi.waitFor(async () => {
+      if (await input.textContent() === ASK_PROMPT) await page.keyboard.press('Enter')
+      expect(await input.textContent()).toBe('')
+    }, { timeout: 6_000, interval: 600 })
     await settled
     await page.screenshot({ path: join(SHOTS, '05-sent.png') })
 
