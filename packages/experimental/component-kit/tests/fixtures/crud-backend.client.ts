@@ -87,6 +87,19 @@ function schemeRow(meta: string, table: StubTable, schemaType: number): Record<s
 }
 
 /**
+ * Answer a row's delete or a batch edit: the kit writes one item per record and
+ * names each written record from the `rawValue` the answer carries back, so the
+ * answer carries back the request's own items.
+ * @param body - the write's body as JSON text.
+ * @returns the status and the body.
+ */
+function answerBatchWrite(body: string): [number, unknown] {
+  const sent = JSON.parse(body) as { readonly resObjList: readonly { readonly rawValue: unknown }[] }
+  const resObjList = sent.resObjList.map(item => ({ rawValue: item.rawValue }))
+  return [200, { code: 0, data: { resObjList, globalFailedInfo: null } }]
+}
+
+/**
  * Answer one request the way the deployment's backend does.
  * @param method - the request method.
  * @param url - the request URL, query included.
@@ -125,22 +138,8 @@ function route(method: string, url: string, body: string): [number, unknown] {
     const page = { total: rows.length, currentPage: 1, pageSize: 20 }
     return [200, { code: 0, data: { rawValue: rows, displayValue: rows, ref: [], page } }]
   }
-  const deleteWrite = /\/nrms-datamanagement\/api\/batchresources\/delete\/[^/?]+$/.exec(path)
-  if (method === 'POST' && deleteWrite !== null) {
-    // A row's own delete writes one item per record and names each deleted
-    // record from the `rawValue` its own answer carries back.
-    const sent = JSON.parse(body) as { readonly resObjList: readonly { readonly rawValue: unknown }[] }
-    const resObjList = sent.resObjList.map(item => ({ rawValue: item.rawValue }))
-    return [200, { code: 0, data: { resObjList, globalFailedInfo: null } }]
-  }
-  const editWrite = /\/nrms-datamanagement\/api\/batchresources\/[^/?]+$/.exec(path)
-  if (method === 'PUT' && editWrite !== null) {
-    // A batch edit writes one item per record and names each changed record
-    // from the `rawValue` its own answer carries back.
-    const sent = JSON.parse(body) as { readonly resObjList: readonly { readonly rawValue: unknown }[] }
-    const resObjList = sent.resObjList.map(item => ({ rawValue: item.rawValue }))
-    return [200, { code: 0, data: { resObjList, globalFailedInfo: null } }]
-  }
+  if (method === 'POST' && /\/nrms-datamanagement\/api\/batchresources\/delete\/[^/?]+$/.test(path)) return answerBatchWrite(body)
+  if (method === 'PUT' && /\/nrms-datamanagement\/api\/batchresources\/[^/?]+$/.test(path)) return answerBatchWrite(body)
   return [200, { code: 0, data: null }]
 }
 

@@ -82,7 +82,11 @@ defineTable(META, {
   rows: ROWS,
 })
 
-/** A table whose scheme masks one of its drawn columns, in its columns and in both of its forms. */
+/**
+ * A table whose scheme masks one of its drawn columns, in its columns and in
+ * both of its forms, and draws each row's name as the link that opens the
+ * record's card.
+ */
 const MASKED_META = 'probe_masked'
 
 /** One row of {@link MASKED_META} whose first unmasked cell is empty, so a name read through the mask would be its code. */
@@ -94,7 +98,7 @@ const MASKED_NAMED_ROW = { int_id: '2', code: 'C-2', zh_label: '乙设备', city
 defineTable(MASKED_META, {
   gridItems: [
     { relatedMetaAttr: 'code', alias: '编码', isShow: '1', showAsPass: 1 },
-    { relatedMetaAttr: 'zh_label', alias: '名称', isShow: '1' },
+    { relatedMetaAttr: 'zh_label', alias: '名称', isShow: '1', relatedComponent: 'display_default' },
     { relatedMetaAttr: 'city', alias: '城市', isShow: '1' },
   ],
   formItems: [
@@ -208,8 +212,9 @@ type PageInstance = VueInstance & {
   $props: Record<string, unknown>
   /**
    * The page's own handler for a relation link a person clicked, which opens
-   * its side card. The stub scheme draws no relation link, so a case that needs
-   * the card open calls the handler the link's click would.
+   * its side card. The demo device table's stub scheme draws no relation link,
+   * so a case on that table that needs the card open calls the handler the
+   * link's click would.
    */
   handleTableTransCellClick(payload: { readonly dataBase: unknown }): void
 }
@@ -942,46 +947,46 @@ describe('a column the table\'s scheme masks', () => {
 })
 
 describe('a delete and a batch edit a person performs on the page', () => {
-  it('reports a row deleted through the row\'s own bubble by its count and names, and withdraws the value naming it', async () => {
+  it('reports a row deleted through the row\'s own bubble by its count and names, and withdraws the record its name opened', async () => {
     const { view, onAction, onOutput } = draw(Object.freeze({
       relatedMeta: MASKED_META,
       metaLabel: '脱敏表',
       readOnly: false,
       toolbarButtons: ['search', 'clear'],
-      rowOperations: ['modify', 'delete'],
+      rowOperations: ['delete'],
       selectMode: 'checkbox',
+      regions: { infoCard: false },
+      infoCardLinks: true,
     }))
     await loaded(onAction)
-    // The row's delete control and the button answering its bubble are taken
-    // before the modify dialog opens, which draws over the row they belong to.
+    const name = await vi.waitFor(() => {
+      const found = inRow(view.container, '乙设备', 'a.trans')
+      if (found === undefined) throw new Error('the row drew no name link')
+      return found
+    })
+    fireEvent.click(name)
+    await vi.waitFor(() => {
+      expect(onOutput).toHaveBeenLastCalledWith('opened', { id: '2', name: '乙设备', type: MASKED_META })
+    }, { timeout: 5000, interval: 20 })
     const remove = await vi.waitFor(() => {
       const found = inRow(view.container, '乙设备', 'i.el-icon-delete')
       if (found === undefined) throw new Error('the row drew no delete control')
       return found
     })
+    fireEvent.click(remove)
     const answered = await vi.waitFor(() => {
       const found = inRow(view.container, '乙设备', 'button', '确定')
       if (found === undefined) throw new Error('the row drew no confirmation bubble')
       return found
     })
-    const edit = await vi.waitFor(() => {
-      const found = inRow(view.container, '乙设备', 'i.el-icon-edit')
-      if (found === undefined) throw new Error('the row drew no modify control')
-      return found
-    })
-    fireEvent.click(edit)
-    await vi.waitFor(() => {
-      expect(onOutput).toHaveBeenLastCalledWith('editing', { mode: 'modify', type: MASKED_META, id: '2', name: '乙设备' })
-    }, { timeout: 5000, interval: 20 })
     onAction.mockClear()
-    fireEvent.click(remove)
     fireEvent.click(answered)
     await vi.waitFor(() => {
       expect(onAction).toHaveBeenCalledWith('deleted', { succeeded: 1, failed: 0, names: ['乙设备'] })
     }, { timeout: 5000, interval: 20 })
-    // The deleted record is the one the modify dialog was opened on, so the
-    // value standing is withdrawn rather than left naming a record now gone.
-    expect(onOutput).toHaveBeenLastCalledWith('editing', undefined)
+    // The record the name opened is the one deleted, so it is withdrawn rather
+    // than left naming a record now gone.
+    expect(onOutput).toHaveBeenLastCalledWith('opened', undefined)
     // The scheme masks the row's code, and nothing the block reports carries it.
     expect(JSON.stringify(onAction.mock.calls)).not.toContain('C-2')
   }, 20_000)
