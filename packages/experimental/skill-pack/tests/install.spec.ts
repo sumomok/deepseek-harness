@@ -336,6 +336,14 @@ function packWith(name: string, pack: string[], views: Record<string, string>): 
 }
 
 describe('the views a delivery carries, checked before the root is replaced', () => {
+  it('refuses a delivery carrying a pack whose metadata is not a manifest, and writes nothing', async () => {
+    const base = await workspace()
+    const broken = [{ name: 'a', files: [{ path: 'SKILL.md', content: '---\nname: a\ndescription: d\n---\nA.' }] }]
+    await expect(syncPackRoot(join(base, 'packs'), { kind: 'packs', packs: broken }))
+      .rejects.toMatchObject({ refusal: 'pack-manifest', entry: 'a/SKILL.md' })
+    expect(await readdir(base)).toEqual([])
+  })
+
   it('refuses a delivery declaring a view file it does not carry, and leaves the root byte-identical', async () => {
     const base = await workspace()
     const root = join(base, 'packs')
