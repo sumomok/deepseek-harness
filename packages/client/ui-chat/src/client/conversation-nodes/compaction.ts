@@ -192,8 +192,12 @@ export const compactionDefinition: ConversationNodeDefinition<CompactionState> =
     // Both stop showing the row, and both keep publishing the same key hidden:
     // a live Context that already materialized the row may not withdraw it.
     const settled = bracketClosed(context) || bracketAbandoned(context)
-    const options = settled ? { visibility: 'hidden' as const } : {}
-    return chatNode(context, 'compaction-running', start.event.seq, null, options)
+    // The row ends the step run before it, so a folded step group never hides
+    // it; whole-Turn folding still includes it.
+    return chatNode(context, 'compaction-running', start.event.seq, null, {
+      groupTree: 'process',
+      ...settled ? { visibility: 'hidden' as const } : {},
+    })
   },
 }
 

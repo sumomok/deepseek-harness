@@ -23,6 +23,7 @@ import { compactionDefinition } from '../src/client/conversation-nodes/compactio
 import { unknownFallbackDefinition } from '../src/client/conversation-nodes/fallback.ts'
 import { nextStepInboxDefinition, nextTurnInboxDefinition } from '../src/client/conversation-nodes/inbox.ts'
 import { developerMessageDefinition, messageDefinition } from '../src/client/conversation-nodes/message.ts'
+import { processGroupDefinition } from '../src/client/conversation-nodes/process-groups.ts'
 import { inspectRequestPrompt } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { requestPromptDefinition, systemMessageDefinition } from '../src/client/conversation-nodes/request-prompt.ts'
 import { retryDefinition } from '../src/client/conversation-nodes/retry.ts'
@@ -184,6 +185,51 @@ function visibleNode(value: ChatSnapshot, kind: string): ChatConversationViewNod
 function live(value: ConversationNodeAssembler, entry: SessionEventLikeEntry): void {
   value.append(entry)
   value.flush()
+}
+
+/** The same assembly with the Chat plugin's registered step grouping. */
+function groupedAssembler(entries: readonly SessionEventLikeEntry[]): ConversationNodeAssembler {
+  const value = new ConversationNodeAssembler(new TestEventDefinitions(), new TestViewDefinitions(), {
+    entries: () => [processGroupDefinition],
+    forTarget: target => target === processGroupDefinition.target ? processGroupDefinition : undefined,
+  })
+  value.replaceWindow(entries, false)
+  value.activateTarget('chat')
+  return value
+}
+
+/**
+ * Read the grouped root sequence by kind: a root Node as its kind, a step
+ * group as the kinds of its members.
+ */
+function stepLayout(value: ConversationNodeAssembler): (string | string[])[] {
+  const current = snapshot(value)
+  const grouped = value.grouped('chat')
+  if (grouped === undefined) throw new Error('chat grouping was not registered')
+  const kindOf = (key: string): string => current.nodes.get(key)?.kind ?? key
+  return grouped.entries.map(entry => entry.kind === 'node'
+    ? kindOf(entry.key)
+    : (grouped.groupSource(entry.key).getSnapshot()?.members ?? []).map(member => kindOf(member.key)))
+}
+
+/** One open Turn whose two Tool-only steps surround `between`. */
+function toolStepsAround(between: readonly SessionLiveEventEntry[]): SessionLiveEventEntry[] {
+  const toolStep = (step: number, first: number, callId: string): SessionLiveEventEntry[] => [
+    at(first, 'step/start', { turn: 1, step }),
+    at(first + 1, 'assistant/message', { turn: 1, step, message: {
+      ...assistantMessage(`assistant-${callId}`, ''),
+      content: [{ type: 'tool-call', id: callId, name: 'read', arguments: '{}' }],
+    } }, { surfaceOp: 'append' }),
+    at(first + 2, 'tool/call', { turn: 1, step, callId, name: 'read', arguments: '{}' }),
+    at(first + 3, 'tool/result', { turn: 1, step, message: toolResult(callId, 'read done') }, { surfaceOp: 'append' }),
+    at(first + 4, 'step/end', { turn: 1, step }),
+  ]
+  return [
+    at(1, 'turn/start', { turn: 1 }),
+    ...toolStep(1, 2, 'call-before'),
+    ...between,
+    ...toolStep(2, 20, 'call-after'),
+  ]
 }
 
 function promptNodes(value: ChatSnapshot): ChatConversationViewNode[] {
@@ -2631,6 +2677,7 @@ describe('built-in conversation node Definitions', () => {
     const running = node(snapshot(value), 'compaction-running')
     expect(running?.anchorSeq).toBe(10)
     expect(running?.data).toBeNull()
+    expect(running?.groupTree).toBe('process')
     expect(node(snapshot(value), 'compaction')).toBeUndefined()
   })
 
@@ -2669,6 +2716,36 @@ describe('built-in conversation node Definitions', () => {
       shadowedItemCount: 3,
       shadowedTokenCount: 42,
     })
+    expect(node(snapshot(value), 'compaction')?.groupTree).toBeUndefined()
+  })
+
+  it('splits the step group around a running automatic compaction row until the row settles', () => {
+    const start = at(10, 'compaction/start', { compactionId: 'compact-between', turn: 1 })
+    expect(stepLayout(groupedAssembler(toolStepsAround([start]))))
+      .toEqual(['turn-process', ['tool-call'], 'compaction-running', ['tool-call']])
+
+    const cancelled = groupedAssembler(toolStepsAround([start, at(11, 'compaction/end', {
+      compactionId: 'compact-between',
+      turn: 1,
+      error: 'DeepSeek request aborted by caller: The user aborted a request.',
+    })]))
+    expect(stepLayout(cancelled)).toEqual(['turn-process', ['tool-call', 'tool-call']])
+
+    const landed = groupedAssembler(toolStepsAround([
+      start,
+      at(11, 'compaction/summary', {
+        compactionId: 'compact-between',
+        summary: [{ type: 'text', text: 'between summary' }],
+        shadowedSeqs: [3, 4, 5],
+        shadowedTokenCount: 42,
+      }),
+      at(12, 'user/message', {
+        ...textMessage('checkpoint-between', 'checkpoint'),
+        source: { kind: 'compact-checkpoint', compactionId: 'compact-between' },
+      }, { surfaceOp: { op: 'replace', startSeq: 3, endSeq: 5 } }),
+      at(13, 'compaction/end', { compactionId: 'compact-between', turn: 1 }),
+    ]))
+    expect(stepLayout(landed)).toEqual(['turn-process', ['tool-call', 'compaction', 'tool-call']])
   })
 
   it('hides the running row when the bracket is cancelled', () => {
