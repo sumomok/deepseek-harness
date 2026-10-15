@@ -299,6 +299,21 @@ describe('the field a step writes', () => {
     expect(document.querySelector('select')?.value).toBe('a')
   })
 
+  it('refuses an option the native select draws disabled rather than choosing it', async () => {
+    const drawn = drawEntry(`
+      <select data-component-field="kind">
+        <option value="a">Alpha</option><option value="b" disabled>Beta</option>
+      </select>
+    `)
+    const report = await run(args([{ action: 'set', name: 'kind', value: 'Beta' }]), drawn)
+    expect(report.steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'The field for "kind" has the option "Beta" disabled, so this call cannot choose it.',
+    }])
+    expect((document.querySelector('select') as HTMLSelectElement).value).toBe('a')
+  })
+
   it('fails the step when the control refuses the value rather than reporting a write that never happened', async () => {
     const drawn = drawEntry('<input type="number" data-component-field="count">')
     const report = await run(args([{ action: 'set', name: 'count', value: 'abc' }]), drawn)

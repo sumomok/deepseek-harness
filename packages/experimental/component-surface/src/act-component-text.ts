@@ -243,6 +243,17 @@ export function noOptionReason(name: string, value: string): string {
 }
 
 /**
+ * The sentence a console posts for a native select's option the block draws
+ * disabled, which no person could choose either.
+ * @param name - the column or property the step named.
+ * @param value - the option label the step named.
+ * @returns the model-facing sentence.
+ */
+export function disabledOptionReason(name: string, value: string): string {
+  return `The field for "${name}" has the option "${value}" disabled, so this call cannot choose it.`
+}
+
+/**
  * The sentence a console posts for a field whose value is chosen drawing more
  * than one option with the value as its label.
  * @param name - the column or property the step named.

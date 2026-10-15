@@ -27,8 +27,8 @@ import {
 } from '../act-component-call.ts'
 import {
   actComponentReportText, ambiguousFieldReason, ambiguousOptionReason, anotherEntryInFront, coveredReason,
-  disabledFieldReason, disabledReason, ENTRY_REDRAWN_REASON, missingTargetReason, noOptionReason,
-  NO_ENTRY_IN_FRONT, notWritableReason, notDrawnReason, optionNotTakenReason, OUT_OF_TIME_REASON,
+  disabledFieldReason, disabledOptionReason, disabledReason, ENTRY_REDRAWN_REASON, missingTargetReason,
+  noOptionReason, NO_ENTRY_IN_FRONT, notWritableReason, notDrawnReason, optionNotTakenReason, OUT_OF_TIME_REASON,
   readOnlyFieldReason, waitTimeoutReason,
 } from '../act-component-text.ts'
 import type { DrawnEntry } from './entry-container.ts'
@@ -113,13 +113,17 @@ function writeValue(el: Element, name: string, value: string): void {
  * @param select - the select.
  * @param name - the column or property the step named, for the refusals.
  * @param label - the option label the step named.
- * @throws {Error} when no option, or more than one, shows the label.
+ * @throws {Error} when no option, or more than one, shows the label, and when
+ * the one match is disabled.
  */
 function chooseOption(select: HTMLSelectElement, name: string, label: string): void {
   const matches = [...select.options].filter(option => optionLabel(option) === label)
   if (matches.length > 1) throw new Error(ambiguousOptionReason(name, label))
   const option = matches[0]
   if (option === undefined) throw new Error(noOptionReason(name, label))
+  // A disabled option is one a person cannot choose either, whatever the
+  // select's own state.
+  if (option.disabled) throw new Error(disabledOptionReason(name, label))
   option.selected = true
   announce(select)
 }
