@@ -683,6 +683,9 @@ describe('a field the entry draws as a select', () => {
  *   ask and then never answer, or answer with no suggestion, which closes the
  *   panel the way element-ui does. `opensOnAnswer` opens the panel when a late
  *   answer lands whether or not it was closed, as the vendored kit does.
+ *   `answers` gives the labels the block answers one query text with, an empty
+ *   list included, so a case can tell one query's answer from another's; a text
+ *   it does not list is answered the way `options` says.
  *   `queryDelayMs` is the block's own debounce, so the asking row is drawn
  *   that long after the typing; `askingMs` is how long that row stands before
  *   the answer lands, and 20ms by default. `inFlightMs` opens the case with a
@@ -702,12 +705,14 @@ function drawAutocomplete(
     readonly opensOnFocus?: boolean
     readonly opensOnAnswer?: boolean
     readonly answer?: 'never' | 'none'
+    readonly answers?: Readonly<Record<string, readonly string[]>>
     readonly queryDelayMs?: number
     readonly askingMs?: number
     readonly inFlightMs?: number | 'never'
   } = {},
 ): { drawn: DrawnEntry; autocomplete: HTMLElement; elInput: HTMLElement; input: HTMLInputElement; panel: HTMLElement; list: HTMLElement } {
-  const items = options.map(label => `<li role="option">${label}</li>`).join('')
+  const listed = (labels: readonly string[]): string => labels.map(label => `<li role="option">${label}</li>`).join('')
+  const items = listed(options)
   // The newlines give the mutation text nodes besides the row, which is what
   // exercises the branch `addedAskingRow` answers for a node that is not an
   // Element.
@@ -753,6 +758,11 @@ function drawAutocomplete(
       panel.style.display = ''
     }
   }
+  /** The answer to one query text: what `answers` lists for it, or `options`. */
+  const answerFor = (typed: string): string => {
+    const written = behavior.answers?.[typed]
+    return written === undefined ? items : listed(written)
+  }
   input.addEventListener('focus', () => { activated = true })
   // element-ui hears the Tab on the `.el-input` root, not on the input itself.
   elInput.addEventListener('keydown', (event) => {
@@ -775,7 +785,7 @@ function drawAutocomplete(
       return
     }
     panel.style.display = activated ? '' : 'none'
-    const asks = behavior.loading === true || behavior.answer !== undefined
+    const asks = behavior.loading === true || behavior.answer !== undefined || behavior.answers !== undefined
     const askingMs = behavior.askingMs ?? 20
     const startAsking = (): void => {
       if (asks) {
@@ -789,7 +799,10 @@ function drawAutocomplete(
         render()
       }
       if (behavior.answer === 'none') setTimeout(() => { answer('') }, askingMs)
-      else if (behavior.loading === true) setTimeout(() => { answer(items) }, askingMs)
+      else if (asks && behavior.answer !== 'never') {
+        const labels = behavior.answers === undefined ? items : answerFor(input.value)
+        setTimeout(() => { answer(labels) }, askingMs)
+      }
     }
     const queryDelayMs = behavior.queryDelayMs ?? 0
     if (queryDelayMs === 0) startAsking()
@@ -962,17 +975,40 @@ describe('a field the entry draws as an autocomplete', () => {
     // panel, so a close sent on the strength of the row having started would
     // be undone by that answer.
     const { drawn, elInput, input, panel } = drawAutocomplete(['核心'], {
-      opensOnFocus: true, loading: true, opensOnAnswer: true, askingMs: 10,
+      opensOnFocus: true, loading: true, opensOnAnswer: true, queryDelayMs: 15, askingMs: 10,
     })
     input.value = '林地一张图'
     input.focus()
     elInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: false }))
     const tabs: string[] = []
     elInput.addEventListener('keydown', (event) => { tabs.push(event.key) })
+    const started = performance.now()
     const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn)
     expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
+    // The row was recorded as it was added, not missed and waited out.
+    expect(performance.now() - started).toBeLessThan(600)
     await new Promise<void>((resolve) => { setTimeout(resolve, 40) })
     expect(tabs).toEqual(['Tab'])
+    expect(panel.style.display).toBe('none')
+  })
+
+  it('waits out the restored text\'s query whose asking row is drawn in a hidden panel', async () => {
+    // The row stands in a panel a Tab closed while the field kept its focus,
+    // where a look at what is drawn misses it: the close would then be sent
+    // before the answer that opens the panel again.
+    const { drawn, elInput, input, panel } = drawAutocomplete([], {
+      opensOnFocus: true, opensOnAnswer: true, queryDelayMs: 15, askingMs: 200,
+      answers: { 接入: [], 林地一张图: ['林地一张图'] },
+    })
+    input.value = '林地一张图'
+    input.focus()
+    elInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: false }))
+    const report = await run(args([{ action: 'set', name: 'topic', value: '接入' }]), drawn, 60_000)
+    expect(report.steps).toEqual([{ index: 1, status: 'failed', message: 'The field for "topic" has no option "接入".' }])
+    expect(input.value).toBe('林地一张图')
+    // The restored text's answer lands after the close: one sent before it
+    // would leave the panel the answer opened on screen.
+    await new Promise<void>((resolve) => { setTimeout(resolve, 250) })
     expect(panel.style.display).toBe('none')
   })
 

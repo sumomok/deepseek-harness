@@ -318,9 +318,7 @@ export function autocompleteOptions(autocomplete: Element, within: Element): Ele
 /**
  * Whether one autocomplete's list holds its asking row. Read off the subtree
  * rather than through {@link isDrawn}: element-ui keeps the row in a panel it
- * hid, because a Tab keydown closes the panel without taking the row away, and
- * a query still out is a query whose answer is not the one a step is waiting
- * for.
+ * hid, because a Tab keydown closes the panel without taking the row away.
  * @param autocomplete - the autocomplete element.
  * @returns whether the row is there.
  */

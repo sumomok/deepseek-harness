@@ -320,12 +320,14 @@ async function chooseSuggestion(
  * Writing non-empty text back starts a query, and the vendored kit opens the
  * panel on every answer, so the row the block draws while that query is out is
  * waited for, within the call's time, before closing. The panel is closed with
- * a Tab keydown sent to the `.el-input` element-ui hears it on, and not
- * bubbled: a listener outside the field still sees it in the capture phase,
- * which is how the console switches to its keyboard-operation styling, and a
- * query the restored text never answers keeps the report here until the call's
- * deadline. A blur would let the kit clear a value it holds no record for, and
- * an entry no longer in front is sent no key at all.
+ * a Tab keydown sent to the `.el-input` root element-ui hears it on — the root
+ * of a textarea field is `.el-textarea` — and not bubbled: a listener outside
+ * the field still sees it in the capture phase, which is how the console
+ * switches to its keyboard-operation styling and how a tooltip opened by a
+ * click is dismissed, and a query the restored text never answers keeps the
+ * report here until the call's deadline. A blur would let the kit clear a
+ * value it holds no record for, and an entry no longer in front is sent no key
+ * at all.
  * @param run - the call the step belongs to.
  * @param autocomplete - the autocomplete the field's control belongs to.
  * @param trigger - the field's control.
@@ -362,7 +364,7 @@ async function putBack(
   // Another entry may draw in the element this one held, and a key sent into
   // it would close whatever panel that entry has open.
   if (displacedReason(run) !== undefined) return
-  const field = trigger.closest('.el-input')
+  const field = trigger.closest('.el-input, .el-textarea')
   if (field === null) return
   field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: false }))
 }
