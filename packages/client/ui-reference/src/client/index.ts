@@ -20,7 +20,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ISessions, ReferentRef } from '@deepseek-ai/dsh-api-session-controller/client'
 import { relativeTime } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { UserTextNodeProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { FileReference, FolderReference, type FileReferenceInjected } from './FileReference.tsx'
@@ -32,7 +32,7 @@ import type {
 import { formatFileMention } from '@deepseek-ai/dsh-file-reference/grammar'
 import type { FileReferenceCandidate } from '@deepseek-ai/dsh-file-reference/types'
 import type { SessionReferenceMentionCandidate } from '@deepseek-ai/dsh-session-reference/types'
-import { abbreviateHomePath, fileAddressFor } from '@deepseek-ai/dsh-util-workspace-path'
+import { abbreviateHomePath, fileAddressFor, resolveWorkspacePath } from '@deepseek-ai/dsh-util-workspace-path'
 import { en, NS, zh, type ReferenceKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-api-session-controller/client' {
@@ -42,9 +42,9 @@ declare module '@deepseek-ai/dsh-api-session-controller/client' {
   }
 }
 
-/** Required services: the trigger registry, the Remote namespaces, and the copy. */
+/** Required services: the trigger registry, the Remote namespaces, the copy, and the reference-open seam. */
 export const inject = [
-  'inputTriggers', 'locale', 'sessions', 'remote', 'remote.fileReferences',
+  'inputTriggers', 'locale', 'sessions', 'referent', 'remote', 'remote.fileReferences',
   'remote.sessionReferenceResolver', 'sidebarRight', 'slots', 'uiConversation',
 ]
 
@@ -62,9 +62,18 @@ export function apply(ctx: ClientContext): void {
     yield ctx.slots.register({
       name: 'conversation.user.text.node', key: 'file', priority: 100, locale: NS,
       inject: (sessionId: UserTextNodeProps<'file'>['sessionId']): FileReferenceInjected => ({
+        // referent/open first: a listener may claim the click before the Sidebar opens the file.
         openFile: (path) => {
           const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
-          ctx.sidebarRight.openResource(fileAddressFor(sessionId, cwd, path))
+          const ref: ReferentRef = {
+            kind: 'file',
+            target: resolveWorkspacePath(cwd, path),
+            raw: path,
+            sessionId,
+            source: 'user-text.file-reference',
+            enteredAs: 'user-text',
+          }
+          return ctx.referent.open(ref, () => { ctx.sidebarRight.openResource(fileAddressFor(sessionId, cwd, path)) })
         },
       }),
     }, FileReference)

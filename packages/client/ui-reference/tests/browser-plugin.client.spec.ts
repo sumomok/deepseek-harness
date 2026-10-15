@@ -9,6 +9,7 @@ import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import { UiConversation } from '@deepseek-ai/dsh-client-ui-conversation/src/client/conversation/assembly.ts'
+import { ClientReferent, type ReferentRef } from '@deepseek-ai/dsh-api-session-controller/client'
 import { FileReference, FolderReference, type FileReferenceInjected } from '../src/client/FileReference.tsx'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { RemoteError, TestSessions } from '@deepseek-ai/dsh-client-test-runtime'
@@ -102,6 +103,7 @@ async function bench(
 ) {
   const ctx = new Context()
   ctx.provide('sidebarRight', { openResource: vi.fn() })
+  new ClientReferent(ctx)
   let source: InputTriggerSource | undefined
   ctx.provide('inputTriggers', {
     registerSource(candidate: InputTriggerSource) {
@@ -142,7 +144,7 @@ async function bench(
 describe('apply', () => {
   it('declares its services and releases the @ reference registration on disposal', async () => {
     expect(inject).toEqual([
-      'inputTriggers', 'locale', 'sessions', 'remote', 'remote.fileReferences',
+      'inputTriggers', 'locale', 'sessions', 'referent', 'remote', 'remote.fileReferences',
       'remote.sessionReferenceResolver', 'sidebarRight', 'slots', 'uiConversation',
     ])
     const { fiber } = await bench()
@@ -150,6 +152,7 @@ describe('apply', () => {
     const ctx = new Context()
     onTestFinished(() => ctx.fiber.dispose())
     ctx.provide('sidebarRight', { openResource: vi.fn() })
+    new ClientReferent(ctx)
     ctx.provide('inputTriggers', {
       registerSource(source: InputTriggerSource) {
         registered = source
@@ -683,11 +686,39 @@ describe('reference preview', () => {
     const entry = ctx.slots.entries('conversation.user.text.node').find(candidate => candidate.options.key === 'file')!
     const factory = entry.inject as NonNullable<typeof entry.inject> & ((id: SessionId) => FileReferenceInjected)
     const openResource = vi.spyOn(ctx.sidebarRight, 'openResource')
-    factory(session.sessionId).openFile('docs/a b.md')
-    factory(sid('other')).openFile('notes.md')
+    await factory(session.sessionId).openFile('docs/a b.md')
+    await factory(sid('other')).openFile('notes.md')
     expect(openResource.mock.calls).toEqual([
       ['dsh-resource://file/session/target/docs/a%20b.md'],
       ['dsh-resource://file/session/other/notes.md'],
+    ])
+  })
+
+  it('dispatches each inline file action through referent/open before the Sidebar default', async () => {
+    const { ctx, sessions } = await bench()
+    await sessions.add({ id: 'in-project', summary: { cwd: '/proj' } })
+    const entry = ctx.slots.entries('conversation.user.text.node').find(candidate => candidate.options.key === 'file')!
+    const factory = entry.inject as NonNullable<typeof entry.inject> & ((id: SessionId) => FileReferenceInjected)
+    const openResource = vi.spyOn(ctx.sidebarRight, 'openResource')
+    const seen: ReferentRef[] = []
+    ctx.on('referent/open', async (ref, next) => {
+      seen.push(ref)
+      // A listener claims the click by returning without next().
+      if (ref.raw !== 'claimed.md') await next()
+    })
+    await factory(sid('in-project')).openFile('claimed.md')
+    expect(openResource).not.toHaveBeenCalled()
+    await factory(sid('in-project')).openFile('docs/a b.md')
+    expect(openResource.mock.calls).toEqual([['dsh-resource://file/session/in-project/docs/a%20b.md']])
+    expect(seen).toEqual([
+      {
+        kind: 'file', target: '/proj/claimed.md', raw: 'claimed.md', sessionId: 'in-project',
+        source: 'user-text.file-reference', enteredAs: 'user-text',
+      },
+      {
+        kind: 'file', target: '/proj/docs/a b.md', raw: 'docs/a b.md', sessionId: 'in-project',
+        source: 'user-text.file-reference', enteredAs: 'user-text',
+      },
     ])
   })
 

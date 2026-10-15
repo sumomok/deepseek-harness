@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
@@ -53,5 +53,17 @@ describe('FileReference', () => {
     fireEvent.click(view.getAllByRole('button', { name: 'Close' }).at(-1)!)
     expect(view.queryByRole('dialog')).toBeNull()
     expect(view.getByRole('button', { name: 'a b.md' })).toBeTruthy()
+  })
+
+  it('shows the same local retry dialog when asynchronous navigation rejects', async () => {
+    const openFile = vi.fn<(path: string) => Promise<void>>()
+      .mockRejectedValueOnce(new Error('unavailable'))
+      .mockResolvedValueOnce(undefined)
+    const view = render(<FileReference {...props(openFile)} />)
+    fireEvent.click(view.getByRole('button', { name: 'a b.md' }))
+    expect((await view.findByRole('dialog', { name: 'Couldn’t open file' })).textContent).toContain('Couldn’t open “docs/a b.md”')
+    fireEvent.click(view.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => { expect(view.queryByRole('dialog')).toBeNull() })
+    expect(openFile.mock.calls).toEqual([['docs/a b.md'], ['docs/a b.md']])
   })
 })
