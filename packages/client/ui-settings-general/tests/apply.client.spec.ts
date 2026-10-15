@@ -229,7 +229,7 @@ describe('ui-settings-general apply', () => {
     })
     await vi.waitFor(() => {
       expect(c.ctx.locale.getSnapshot().active).toBe('en')
-      expect(generalLabel(c)).toBe('General')
+      expect(generalLabel(c)).toBe('General settings')
     })
     settings.describe.mockResolvedValue(ok({
       writable: true, hasDocument: false, namespaces: [localeView('zh', 2)],
