@@ -2492,7 +2492,7 @@ const DATA_PAGE_ACTIONS: readonly ComponentActionDefinition[] = [
     report: 'context',
     // Counts, names, and the names of the fields changed; the value written
     // into those fields is not reported. The page reports a batch edit only
-    // when every record changed, so there is no failed count.
+    // when every record changed.
     payloadSchema: {
       succeeded: { required: true, schema: DATA_PAGE_COUNT },
       names: { required: true, schema: DATA_PAGE_NAMED_RECORDS },
