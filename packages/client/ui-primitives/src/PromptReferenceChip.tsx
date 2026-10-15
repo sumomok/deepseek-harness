@@ -1,20 +1,20 @@
-// ReferenceChip: one prompt reference shown by its label alone, with the same
+// PromptReferenceChip: one prompt reference shown by its label alone, with the same
 // face in the composer attachment row, submission echoes, sent bubbles, and
 // queue rows. The label is the only reference field any of those surfaces reads.
 
 import clsx from 'clsx'
 import { IconCloseOutlineRegular } from './icons/index.tsx'
-import css from './ReferenceChip.module.css'
+import css from './PromptReferenceChip.module.css'
 
 /**
- * Render one reference chip.
+ * Render one prompt reference chip.
  * @param props.label - the reference label; also the hover title.
  * @param props.onActivate - optional chip action; the label becomes a button when present.
  * @param props.remove - optional in-chip remove button and its accessible name.
  * @param props.className - extra class for layout placement.
  * @returns the chip element.
  */
-export function ReferenceChip({ label, onActivate, remove, className }: {
+export function PromptReferenceChip({ label, onActivate, remove, className }: {
   label: string
   onActivate?: (() => void) | undefined
   remove?: { readonly label: string; readonly onRemove: () => void } | undefined

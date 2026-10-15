@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ReferenceChip, referenceLabelsOf } from '@deepseek-ai/dsh-client-ui-primitives'
+import { PromptReferenceChip, referenceLabelsOf } from '@deepseek-ai/dsh-client-ui-primitives'
 
 afterEach(cleanup)
 
-describe('ReferenceChip', () => {
+describe('PromptReferenceChip', () => {
   it('renders only its label, also as the hover title, with no controls by default', () => {
-    const { container } = render(<ReferenceChip label="新增" className="placed" />)
+    const { container } = render(<PromptReferenceChip label="新增" className="placed" />)
     const chip = container.querySelector('[data-reference-chip]')!
     expect(chip.textContent).toBe('新增')
     expect(chip.getAttribute('title')).toBe('新增')
@@ -18,7 +18,7 @@ describe('ReferenceChip', () => {
   it('offers the owner action on the label and removal inside the chip', () => {
     const onActivate = vi.fn()
     const onRemove = vi.fn()
-    const { container } = render(<ReferenceChip label="新增" onActivate={onActivate} remove={{ label: '移除「新增」', onRemove }} />)
+    const { container } = render(<PromptReferenceChip label="新增" onActivate={onActivate} remove={{ label: '移除「新增」', onRemove }} />)
     fireEvent.click(screen.getByRole('button', { name: '新增' }))
     expect(onActivate).toHaveBeenCalledOnce()
     const remove = screen.getByRole('button', { name: '移除「新增」' })
