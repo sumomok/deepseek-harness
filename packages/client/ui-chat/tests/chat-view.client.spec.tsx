@@ -3725,6 +3725,15 @@ describe('ChatView', () => {
     expect(view.container.querySelectorAll('h1')).toHaveLength(2)
   })
 
+  it('names the viewed Session in a settled assistant image\'s file URL', () => {
+    const h = makeHarness({ nodes: [assistant(2, '![diagram](/work/graph.png)')] })
+    const view = render(<h.ChatView {...h.props} />)
+    const url = new URL(view.getByAltText('diagram').getAttribute('src')!)
+    expect(url.pathname).toBe('/api/file')
+    expect(url.searchParams.get('path')).toBe('/work/graph.png')
+    expect(url.searchParams.get('sessionId')).toBe(SID)
+  })
+
   it('streaming partial frames update the tail without replacing a sibling Tool row', () => {
     const h = makeHarness({
       nodes: [user(1, 'q'), assistant(2, 'old answer'), toolResult(3, 'a')],

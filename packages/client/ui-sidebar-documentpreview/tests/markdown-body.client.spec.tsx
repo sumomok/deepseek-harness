@@ -41,6 +41,7 @@ describe('MarkdownBody', () => {
       .toBe('/work/guide/images/a.png')
     expect(new URL(view.getByAltText('absolute').getAttribute('src')!).searchParams.get('path')).toBe('/tmp/a.png')
     expect(new URL(view.getByAltText('relative').getAttribute('src')!).protocol).toBe(new URL(base).protocol)
+    expect(new URL(view.getByAltText('absolute').getAttribute('src')!).searchParams.get('sessionId')).toBe('markdown')
     expect(view.getByAltText('external').getAttribute('src')).toBe('https://example.test/a.png')
     fireEvent.error(view.getByAltText('relative'))
     expect(view.getByText('relative').tagName).toBe('SPAN')
