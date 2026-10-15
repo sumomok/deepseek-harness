@@ -232,7 +232,8 @@ export const commandDefinition: ConversationNodeDefinition<CommandState> = {
     // command/done; the recovered turn's closer is the only record of that.
     const exited = unsettled && inInterruptedTurn(context.start?.location)
     const data: ManualCompactionChatData = { command: state.command, compaction, waiting: unsettled && !exited, exited }
-    return chatNode(context, 'manual-compaction', compaction?.seq ?? state.command.seq, data)
+    // The card stands outside both the step group and whole-Turn folding.
+    return chatNode(context, 'manual-compaction', compaction?.seq ?? state.command.seq, data, { groupTree: 'turn' })
   },
 }
 

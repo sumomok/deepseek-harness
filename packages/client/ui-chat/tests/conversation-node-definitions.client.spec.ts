@@ -2879,6 +2879,7 @@ describe('built-in conversation node Definitions', () => {
       at(10, 'command/run', { commandId: 'cmd-wait', name: 'compact', args: '' }),
     ], true)
     expect((node(snapshot(waiting), 'manual-compaction')?.data as ManualCompactionChatData).waiting).toBe(true)
+    expect(node(snapshot(waiting), 'manual-compaction')?.groupTree).toBe('turn')
 
     const opened = assembler([
       at(10, 'command/run', { commandId: 'cmd-wait', name: 'compact', args: '' }),
@@ -2891,6 +2892,14 @@ describe('built-in conversation node Definitions', () => {
       at(11, 'command/done', { commandId: 'cmd-wait', kind: 'error', text: 'Compaction cancelled.' }),
     ], true)
     expect((node(snapshot(settled), 'manual-compaction')?.data as ManualCompactionChatData).waiting).toBe(false)
+  })
+
+  it('keeps a /compact card between Tool steps out of their step group, unlike other commands', () => {
+    const run = (name: string) => at(10, 'command/run', { commandId: `cmd-${name}`, name, args: '' })
+    expect(stepLayout(groupedAssembler(toolStepsAround([run('compact')]))))
+      .toEqual(['turn-process', ['tool-call'], 'manual-compaction', ['tool-call']])
+    expect(stepLayout(groupedAssembler(toolStepsAround([run('help')]))))
+      .toEqual(['turn-process', ['tool-call', 'command', 'tool-call']])
   })
 
   describe('a manual compaction whose Host exited while it waited', () => {
