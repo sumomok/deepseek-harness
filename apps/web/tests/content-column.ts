@@ -29,13 +29,14 @@ import { newEnglishPage, REPO_ROOT } from './support.ts'
  * The preset a content-column scenario that must not reach past the column is
  * composed from: a persona, and no tools at all.
  *
- * Every model tool in the Web profile comes from a preset —
+ * The Web profile's file, shell, and search tools come from a preset —
  * `packages/bundle/web-app/cordis.patch.yml` disables all of its `tool-*` rows
  * and the `standard` preset mounts them again behind the preset realm — so a
  * profile patch layer cannot take `bash` or `read_image` away from a scenario;
  * naming a preset that never mounts them is what does. What the session is
- * left with is the host plane's own contributions, which for this composition
- * is the content column: `content_show` and the reads and steps the
+ * left with is the host plane's own contributions: the base bundle's
+ * `working_directory` tool, which {@link CONTENT_COLUMN_TOOLS_OVERLAY} disables,
+ * and the content column, `content_show` and the reads and steps the
  * `content-frame` row registers. A scenario about what a page draws must not be
  * able to answer by shelling out, and a recording that installs packages over
  * the network is not a recording anything can replay.
@@ -49,11 +50,26 @@ export const CONTENT_COLUMN_PRESET: PresetDefinition = {
     id: 'persona',
     name: '@deepseek-ai/dsh-persona',
     config: {
-      prefix: 'You are an assistant powered by the {{model}} model, working with the user in a console.'
-        + ' Your working directory is {{cwd}}.',
+      prefix: 'You are an assistant powered by the {{model}} model, working with the user in a console.',
     },
   }],
 }
+
+/**
+ * The patch layer disabling the base bundle's `tool-working-directory` row,
+ * which offers every session the `working_directory` tool from the host plane,
+ * outside any preset; the console bundle disables the same row.
+ */
+export const CONTENT_COLUMN_TOOLS_OVERLAY = join(REPO_ROOT, 'apps/web/tests/content-column-tools.overlay.yml')
+
+/**
+ * What a scenario offering the model the content column's tools only passes:
+ * {@link CONTENT_COLUMN_PRESET} and {@link CONTENT_COLUMN_TOOLS_OVERLAY}.
+ */
+export const CONTENT_COLUMN_COMPOSITION = {
+  preset: CONTENT_COLUMN_PRESET,
+  layers: [CONTENT_COLUMN_TOOLS_OVERLAY],
+} as const satisfies Pick<ContentColumnScenario, 'preset' | 'layers'>
 
 /**
  * The customer console's own Agent preset, restated from the `preset-console`
@@ -102,9 +118,9 @@ export const CONSOLE_PRESET: PresetDefinition = {
 
 /**
  * The patch layer restating the console bundle's rows that change the system
- * prompt outside its presets: no `harness:source` or `app:web-surface` section
- * from `web-runtime`, no `ui-deliverables` section about `present`, and no
- * harness identity sentence from `system-prompt`.
+ * prompt or the tool list outside its presets: no `harness-dev-context`
+ * sections, no `ui-deliverables` section about `present`, no harness identity
+ * sentence from `system-prompt`, and no `working_directory` tool.
  */
 export const CONSOLE_PROMPT_OVERLAY = join(REPO_ROOT, 'apps/web/tests/console-prompt.overlay.yml')
 

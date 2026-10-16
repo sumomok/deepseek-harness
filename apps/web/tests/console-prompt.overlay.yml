@@ -1,10 +1,14 @@
-# The console bundle's rows that change the system prompt outside its Agent
-# presets, restated from `packages/experimental/console-profile/cordis.patch.yml`
-# for the content-read scenarios composed from `CONSOLE_PRESET`: the
-# `web-runtime` row registers no `harness:source` or `app:web-surface` section,
-# `ui-deliverables`, whose section tells the model when to call `present`, is
-# disabled, and `system-prompt` omits the fixed harness identity sentence.
-# `console-preset.spec.ts` checks that the three rows match the bundle's.
+# The console bundle's rows that change the system prompt or the tool list
+# outside its Agent presets, restated from
+# `packages/experimental/console-profile/cordis.patch.yml` for the content-read
+# scenarios composed from `CONSOLE_PRESET`: `web-runtime` carries the bundle's
+# `surfaceContext`, `harness-dev-context`, whose rows register the
+# `harness:source` and `app:web-surface` sections and their runtime-context
+# lines, is disabled, `ui-deliverables`, whose section tells the model when to
+# call `present`, is disabled, `system-prompt` omits the fixed harness identity
+# sentence, and `tool-working-directory`, which offers every session the
+# `working_directory` tool, is disabled. `console-preset.spec.ts` checks that
+# the five rows match the bundle's.
 #
 # The scaffold re-applies `web-runtime` with its own `openBrowser` and
 # `printUrl` and carries over the `surfaceContext` this layer composes, so the
@@ -13,12 +17,17 @@
   config:
     surfaceContext: false
 
+- id: harness-dev-context
+  disabled: true
+
 - id: ui-deliverables
   disabled: true
 
 - id: system-prompt
   config:
     includeHarnessIdentity: false
-    personaSuffix: Your working directory is {{cwd}}.
     personaPrefix: >-
       You are a coding agent powered by the {{model}} model.
+
+- id: tool-working-directory
+  disabled: true

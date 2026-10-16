@@ -12,10 +12,12 @@
  * its schema defaults.
  *
  * The same lanes compose `CONSOLE_PROMPT_OVERLAY`, which restates the bundle's
- * three rows that change the system prompt outside the presets: `web-runtime`'s
- * `surfaceContext`, the `ui-deliverables` disable, and the `system-prompt` row
- * without the harness identity sentence. Each must match the bundle's row, or
- * the pinned `web-content-console` prompt is one no console deployment sends.
+ * five rows that change the system prompt or the tool list outside the
+ * presets: `web-runtime`'s `surfaceContext`, the `harness-dev-context`,
+ * `ui-deliverables`, and `tool-working-directory` disables, and the
+ * `system-prompt` row without the harness identity sentence. Each must match
+ * the bundle's row, or the pinned `web-content-console` prompt and tools are
+ * ones no console deployment sends.
  */
 
 import { readFileSync } from 'node:fs'
@@ -76,8 +78,9 @@ describe('the console e2e prompt layer', () => {
   const bundle = new Map(rowsOf(CONSOLE_PATCH).flatMap(entry => entry.id === undefined ? [] : [[entry.id, entry] as const]))
   const layer = rowsOf(CONSOLE_PROMPT_OVERLAY)
 
-  it('patches only the web-runtime, ui-deliverables, and system-prompt rows', () => {
-    expect(layer.map(entry => entry.id)).toEqual(['web-runtime', 'ui-deliverables', 'system-prompt'])
+  it('patches only the web-runtime, harness-dev-context, ui-deliverables, system-prompt, and tool-working-directory rows', () => {
+    expect(layer.map(entry => entry.id))
+      .toEqual(['web-runtime', 'harness-dev-context', 'ui-deliverables', 'system-prompt', 'tool-working-directory'])
   })
 
   it('carries the bundle\'s surface-context choice', () => {
@@ -86,9 +89,9 @@ describe('the console e2e prompt layer', () => {
     expect(own?.config?.surfaceContext).toBe(bundle.get('web-runtime')?.config?.surfaceContext)
   })
 
-  it('disables ui-deliverables as the bundle does', () => {
-    expect(bundle.get('ui-deliverables')?.disabled).toBe(true)
-    expect(layer.find(entry => entry.id === 'ui-deliverables')?.disabled).toBe(true)
+  it.each(['harness-dev-context', 'ui-deliverables', 'tool-working-directory'])('disables %s as the bundle does', (id) => {
+    expect(bundle.get(id)?.disabled).toBe(true)
+    expect(layer.find(entry => entry.id === id)?.disabled).toBe(true)
   })
 
   it('restates the bundle\'s system-prompt row, without the harness identity sentence', () => {

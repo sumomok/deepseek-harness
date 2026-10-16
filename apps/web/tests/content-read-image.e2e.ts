@@ -50,7 +50,8 @@ import {
   recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import {
-  COMPOSER, CONTENT_COLUMN_PRESET, FRAME_DIR, fixtureFor, isRecorded, lastAnswerText, openContentColumn, recordedUserPrompts, toolResults,
+  COMPOSER, CONTENT_COLUMN_COMPOSITION, FRAME_DIR, fixtureFor, isRecorded, lastAnswerText, openContentColumn,
+  recordedUserPrompts, toolResults,
 } from './content-column.ts'
 import { saveFailureShot } from './support.ts'
 
@@ -106,7 +107,7 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent looks at a p
       events: sessionEvents,
       overlay: OVERLAY,
       model: ROUTE,
-      preset: CONTENT_COLUMN_PRESET,
+      ...CONTENT_COLUMN_COMPOSITION,
     }))
   }, 180_000)
 

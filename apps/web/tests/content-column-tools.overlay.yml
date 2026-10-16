@@ -1,0 +1,7 @@
+# The base bundle's `tool-working-directory` row offers every session the
+# `working_directory` tool from the host plane, outside any Agent preset. The
+# content-column scenarios composed from `CONTENT_COLUMN_PRESET` offer the model
+# the content column's tools only, so this layer disables the row, as the
+# console bundle does.
+- id: tool-working-directory
+  disabled: true
