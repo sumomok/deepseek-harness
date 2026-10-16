@@ -126,7 +126,11 @@ export type PeerAdmission =
  * authentication, so it can refuse a request but never admit one those checks
  * refused. It runs synchronously inside {@link HostConnectionHandle.admit} and
  * must answer the same for the same headers, because route handlers may admit
- * one request more than once.
+ * one request more than once. Connection cannot tell a header a login proxy
+ * set from one the client sent, so an admitter that recognizes the caller from
+ * a request header trusts only a header that a proxy in front of the Host
+ * removes from every client request before setting it, and the Host is
+ * reachable only through that proxy.
  * @param request - headers of the HTTP or upgrade request.
  * @returns a live Peer, created through {@link HostConnectionHandle.createPeer}
  * with the principal the request speaks for, the owner principal included;
