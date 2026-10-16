@@ -331,6 +331,22 @@ export async function findWithheldDirectories(
 }
 
 /**
+ * The installed copies of withheld packages under `root`, at any depth: the
+ * [[findWithheldDirectories]] matches that sit at `node_modules/<name>` for
+ * one of `names`. The deploy nests the installation's own dependencies under
+ * `node_modules/@deepseek-ai/dsh/node_modules`, so a withheld bundle can sit
+ * there instead of at the top level. A directory that only shares the
+ * unscoped name is not a copy and is left for the staging check to report.
+ * @param root - the staged tree to search.
+ * @param names - the scoped package names to look for.
+ * @returns each copy's directory relative to `root`, with `/` separators, sorted.
+ */
+export async function withheldPackageCopies(root: string, names: readonly string[]): Promise<string[]> {
+  const found = await findWithheldDirectories(root, names)
+  return found.filter(path => names.some(name => path === `node_modules/${name}` || path.endsWith(`/node_modules/${name}`)))
+}
+
+/**
  * Packages the payload must carry exactly one copy of. `@deepseek-ai/cordis`
  * is the framework every built-in plugin names as a peer, and the server
  * closure gets it from the repository's `vendor/cordis` workspace package,

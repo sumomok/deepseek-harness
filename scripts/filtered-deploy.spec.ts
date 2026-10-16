@@ -1,5 +1,5 @@
 /**
- * The deploy command line both packaging pipelines begin with, and the check
+ * The deploy command line the desktop packaging pipeline begins with, and the check
  * that covers what its unused-patch flag stops pnpm from reporting.
  * @module
  */
@@ -8,7 +8,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { filteredDeployArgs, STAGED_PATCHES, verifyStagedPatches } from './filtered-deploy.ts'
+import { DEPLOY_PNPM, filteredDeployArgs, STAGED_PATCHES, verifyStagedPatches } from './filtered-deploy.ts'
 
 const created: string[] = []
 
@@ -38,7 +38,7 @@ describe('filteredDeployArgs', () => {
   it('deploys the named package with the destination last', () => {
     const args = filteredDeployArgs('@deepseek-ai/dsh-desktop-server', '/tmp/staging/server')
 
-    expect(args.slice(0, 5)).toEqual(['--filter', '@deepseek-ai/dsh-desktop-server', 'deploy', '--legacy', '--prod'])
+    expect(args.slice(1, 6)).toEqual(['--filter', '@deepseek-ai/dsh-desktop-server', 'deploy', '--legacy', '--prod'])
     expect(args.at(-1)).toBe('/tmp/staging/server')
   })
 
@@ -48,6 +48,11 @@ describe('filteredDeployArgs', () => {
     expect(args).toContain('--config.node-linker=hoisted')
     expect(args).toContain('--config.auto-install-peers=false')
     expect(args).toContain('--config.link-workspace-packages=true')
+  })
+
+  it('runs under the pinned deploy release without switching to the repository\'s pnpm', () => {
+    expect(DEPLOY_PNPM).toBe('pnpm@11.7.0')
+    expect(filteredDeployArgs('@deepseek-ai/dsh-desktop-server', '/tmp/staging/server')[0]).toBe('--pm-on-fail=ignore')
   })
 
   it('allows unused patches, which is what lets a filtered deploy resolve at all', () => {

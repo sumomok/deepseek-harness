@@ -1,12 +1,7 @@
 /**
- * The `pnpm deploy` command line the packaging pipelines stage a closure with,
- * and the patched packages a staged closure must still carry.
- *
- * Two pipelines deploy one workspace package's production closure into a
- * staging directory — `apps/desktop-shell/scripts/package.ts` for the desktop
- * client's embedded server, `scripts/build-exe-for-python-sdk.ts` for the
- * Python runtime's executable — and both need the same flags and the same
- * check afterwards, so both are decided here.
+ * The `pnpm deploy` command line `apps/desktop-shell/scripts/package.ts`
+ * stages the desktop client's embedded server closure with, and the patched
+ * packages a staged closure must still carry.
  * @module
  */
 
@@ -15,16 +10,29 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 /**
- * The arguments `pnpm` is run with to deploy one workspace package's
- * production closure.
+ * The pnpm release that runs the deploy, through `pnpm dlx`. It is the release
+ * that staged rc.38, not the repository's `packageManager`: pnpm 11.28.5's
+ * legacy deploy injects `@deepseek-ai/dsh` as a directory with its own nested
+ * `node_modules`, places required peers only beside the copies that resolve
+ * them, and links every other workspace project into the deploy root, while
+ * the staging steps after it (withheld packages, placeholders, the
+ * production-dependency check, the Windows variants) read one flat
+ * `node_modules`. This version is retired once the staging accepts that
+ * injected layout.
+ */
+export const DEPLOY_PNPM = 'pnpm@11.7.0'
+
+/**
+ * The arguments {@link DEPLOY_PNPM} is run with to deploy one workspace
+ * package's production closure.
  *
  * `--config.allow-unused-patches=true` is what lets a **filtered** deploy run
  * at all. pnpm applies the root `patchedDependencies` to a deploy as it does
  * to an install, and refuses one whose resolution leaves a patch matching
  * nothing (`ERR_PNPM_UNUSED_PATCH`). No closure deployed here contains every
  * patched package — `electron-updater` is a dependency of the Electron shell
- * and enters neither the desktop server closure nor the Python runtime
- * closure — so without the flag both pipelines fail on their first step.
+ * and does not enter the desktop server closure — so without the flag the
+ * deploy fails on its first step.
  *
  * The flag is one boolean for the whole deploy rather than a per-patch
  * exemption: it masks every patch this deploy leaves unused, including one
@@ -33,12 +41,17 @@ import { join } from 'node:path'
  * `allowUnusedPatches` unset on purpose — and a patch whose package IS in the
  * closure is still applied, still fails the deploy when it cannot be, and is
  * checked in the staged tree by {@link verifyStagedPatches}.
+ *
+ * The arguments start with `--pm-on-fail=ignore` because they are run by
+ * {@link DEPLOY_PNPM}, not by the repository's own pnpm: without it that
+ * pnpm reads the root `packageManager` and switches to that version.
  * @param rootPackage - the workspace package whose closure is deployed.
  * @param destination - the staging directory the closure is deployed into.
  * @returns the argument list, destination last, as `pnpm` takes it.
  */
 export function filteredDeployArgs(rootPackage: string, destination: string): string[] {
   return [
+    '--pm-on-fail=ignore',
     '--filter', rootPackage, 'deploy', '--legacy', '--prod',
     '--config.node-linker=hoisted',
     '--config.auto-install-peers=false',

@@ -12,7 +12,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   findPackageCopies, findWithheldDirectories, loadFailureLines, missingProductionDependencies, placeholderBundleProblems,
   placeholderManifest, placeholderProblems, RETIRED_GUARD_WARNING, SINGLE_COPY_PACKAGES, singleCopyProblems,
-  stagedBootEnv, stagedServerEnv, verifyDesktopLayer, verifyHeldSocketBoot, WITHHELD_PACKAGES, writePlaceholders,
+  stagedBootEnv, stagedServerEnv, verifyDesktopLayer, verifyHeldSocketBoot, WITHHELD_PACKAGES, withheldPackageCopies,
+  writePlaceholders,
 } from '../scripts/staged-boot-gate.ts'
 import { PLACEHOLDER_BUNDLES } from '../src/profile-seed.ts'
 import { SERVER_LOG_ENV } from '../src/server.ts'
@@ -205,6 +206,41 @@ describe('findWithheldDirectories', () => {
   it('ignores a file of that name', async () => {
     const root = tree(['node_modules/@deepseek-ai'], ['node_modules/@deepseek-ai/dsh-experimental-auto-review'])
     expect(await findWithheldDirectories(root, WITHHELD_PACKAGES)).toEqual([])
+  })
+})
+
+describe('withheldPackageCopies', () => {
+  const roots: string[] = []
+  afterEach(() => {
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+  })
+
+  /**
+   * A staged tree holding the given directories.
+   * @param dirs - directories to create, relative to the root.
+   * @returns the tree's root.
+   */
+  function tree(dirs: readonly string[]): string {
+    const root = mkdtempSync(join(tmpdir(), 'staged-boot-gate-'))
+    roots.push(root)
+    for (const dir of dirs) mkdirSync(join(root, dir), { recursive: true })
+    return root
+  }
+
+  it('returns the top-level copy and the copy nested in the installation\'s own node_modules', async () => {
+    const nested = 'node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-experimental-session-search'
+    const root = tree(['node_modules/@deepseek-ai/dsh-experimental-inspector/lib', `${nested}/lib`])
+    expect(await withheldPackageCopies(root, WITHHELD_PACKAGES)).toEqual([
+      'node_modules/@deepseek-ai/dsh-experimental-inspector', nested,
+    ])
+  })
+
+  it('leaves a directory that only shares the unscoped name', async () => {
+    const root = tree([
+      'node_modules/@deepseek-ai/dsh/lib/dsh-experimental-session-search',
+      'node_modules/@other/dsh-experimental-session-search',
+    ])
+    expect(await withheldPackageCopies(root, WITHHELD_PACKAGES)).toEqual([])
   })
 })
 

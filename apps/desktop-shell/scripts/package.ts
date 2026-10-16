@@ -1,9 +1,10 @@
 /**
  * Desktop packaging pipeline. Stages the embedded server by `pnpm deploy` of
  * the apps/desktop-server manifest (the python/sdk-runtime staging recipe:
- * legacy hoisted deploy, restore hoists the legacy deployer leaves behind,
- * materialize every symlink), stages a real Node runtime per platform, then
- * runs electron-builder for the requested targets.
+ * legacy hoisted deploy run by pnpm 11.7.0, restore hoists the legacy deployer
+ * leaves behind, restore the workspace's development installation, materialize
+ * every symlink), stages a real Node runtime per platform, then runs
+ * electron-builder for the requested targets.
  *
  * The repository build embeds the desktop's browser title, and a run whose
  * client artifacts lack it stops before staging, `--skip-repo-build` included
@@ -38,7 +39,7 @@ import { pipeline } from 'node:stream/promises'
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
 import { parseArgs } from 'node:util'
 import { fileURLToPath } from 'node:url'
-import { filteredDeployArgs, verifyStagedPatches } from '../../../scripts/filtered-deploy.ts'
+import { DEPLOY_PNPM, filteredDeployArgs, verifyStagedPatches } from '../../../scripts/filtered-deploy.ts'
 import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, PLACEHOLDER_BUNDLES, seedBuiltinBundles } from '../src/profile-seed.ts'
 import { SERVER_LOG_ENV } from '../src/server.ts'
 import { auditArtifacts, expectedArtifacts, type ArtifactFile } from './artifact-names.ts'
@@ -51,7 +52,7 @@ import {
   findWithheldDirectories, INSTALLATION_PACKAGE, loadFailureLines, missingProductionDependencies, placeholderBundleProblems,
   placeholderProblems, RETIRED_GUARD_WARNING, SINGLE_COPY_PACKAGES, singleCopyProblems,
   stagedBootEnv, stagedServerEnv, verifyDesktopLayer, verifyHeldSocketBoot,
-  WITHHELD_PACKAGES, writePlaceholders,
+  WITHHELD_PACKAGES, withheldPackageCopies, writePlaceholders,
 } from './staged-boot-gate.ts'
 import { verifyNsisIntegrity } from './nsis-integrity.ts'
 import { verifyStagedOfficeEngines } from './office-engine-gate.ts'
@@ -546,8 +547,8 @@ async function verifyStaging(): Promise<void> {
   if (launcherProblems.length > 0) {
     throw new Error(`package: the staged pnpm launchers are not what the payload ships:\n  ${launcherProblems.join('\n  ')}`)
   }
-  // Found at any depth rather than at the path `withholdPackages` removes: a
-  // copy hoisting nests under another package would otherwise ship unnoticed.
+  // Found by unscoped name at any depth, wider than the copies
+  // `withholdPackages` removes, so any other directory of that name fails here.
   const withheld = await findWithheldDirectories(SERVER_STAGING, WITHHELD_PACKAGES, PLACEHOLDER_BUNDLES)
   if (withheld.length > 0) {
     throw new Error(`package: staged server carries withheld package directories:\n  ${withheld.join('\n  ')}`)
@@ -580,18 +581,17 @@ async function verifyStaging(): Promise<void> {
 }
 
 /**
- * Remove the packages the payload withholds ([[WITHHELD_PACKAGES]]) from the
- * staged tree's top-level `node_modules`, where the hoisted deploy places
- * every package of the closure, and write the placeholders of
- * [[PLACEHOLDER_BUNDLES]] in their place. Runs before the payload inventory is
- * taken, so the payload gate never sees them as removed.
+ * Remove every installed copy of the packages the payload withholds
+ * ([[WITHHELD_PACKAGES]]) from the staged tree, at the top level or nested in
+ * the installation's own `node_modules` ([[withheldPackageCopies]]), and write
+ * the placeholders of [[PLACEHOLDER_BUNDLES]] into the top-level
+ * `node_modules`. Runs before the payload inventory is taken, so the payload
+ * gate never sees them as removed.
  */
 async function withholdPackages(): Promise<void> {
-  for (const name of WITHHELD_PACKAGES) {
-    const dir = join(SERVER_STAGING, 'node_modules', name)
-    if (!existsSync(dir)) continue
-    await rm(dir, { recursive: true, force: true })
-    console.log(`package: withheld ${name} from the staged server`)
+  for (const path of await withheldPackageCopies(SERVER_STAGING, WITHHELD_PACKAGES)) {
+    await rm(join(SERVER_STAGING, path), { recursive: true, force: true })
+    console.log(`package: withheld ${path} from the staged server`)
   }
   await writePlaceholders(SERVER_STAGING, PLACEHOLDER_BUNDLES)
   console.log(`package: wrote the placeholders of ${PLACEHOLDER_BUNDLES.join(', ')}`)
@@ -1108,8 +1108,15 @@ async function main(buildHome: string): Promise<void> {
       throw new Error(`package: refusing to clear staging dir ${SERVER_STAGING}.`)
     }
     await rm(SERVER_STAGING, { recursive: true, force: true })
-    await withWorkspaceStateGuard(() => run('deploy server closure', 'pnpm', filteredDeployArgs(DEPLOY_ROOT_PACKAGE, SERVER_STAGING)))
-    await restoreLegacyHoists()
+    try {
+      await withWorkspaceStateGuard(() => run('deploy server closure', 'pnpm', ['dlx', DEPLOY_PNPM, ...filteredDeployArgs(DEPLOY_ROOT_PACKAGE, SERVER_STAGING)]))
+      await restoreLegacyHoists()
+    } finally {
+      // The legacy deploy installs the workspace for production and removes the
+      // node_modules of workspace projects in the closure (apps/cli among them);
+      // restoreLegacyHoists reads what it left beside the deploy source first.
+      await run('restore development dependencies', 'pnpm', ['install', '--offline', '--frozen-lockfile', '--prod=false', '--ignore-scripts'])
+    }
     await materializeStagedLinks()
     await prunePlatformBuilds()
     await stageWindowsVariants()
