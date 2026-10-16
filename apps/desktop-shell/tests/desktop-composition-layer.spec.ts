@@ -2,7 +2,7 @@
  * The rows a desktop profile ends up with, composed from the real layers a
  * launch applies rather than from a description of them.
  *
- * The layer patches seven rows and inserts three of its own.
+ * The layer patches nine rows and inserts three of its own.
  * `session-query-sqlite` opts into full-text search: dsh-base and dsh-web-app
  * both ship it off and
  * `apps/cli/tests/lazy-search-startup.compat.spec.ts` pins them that way, so
@@ -706,10 +706,18 @@ describe('the composed telemetry rows', () => {
       expect(entry(desktop, id).config).toEqual(entry(below, id).config)
     }
   })
+
+  it('switches the account sign-in rows off without replacing their config', () => {
+    for (const id of ['ui-settings-account', 'account-controller']) {
+      expect(entry(below, id).disabled).not.toBe(true)
+      expect(entry(desktop, id).disabled).toBe(true)
+      expect(entry(desktop, id).config).toEqual(entry(below, id).config)
+    }
+  })
 })
 
 describe('the desktop composition layer as a whole', () => {
-  it('changes exactly seven rows, adds its own three, and nothing else', () => {
+  it('changes exactly nine rows, adds its own three, and nothing else', () => {
     const changed = desktop.filter((row) => {
       const before = below.find(candidate => candidate.id === row.id)
       return before === undefined || JSON.stringify(before) !== JSON.stringify(row)
@@ -717,8 +725,9 @@ describe('the desktop composition layer as a whole', () => {
     // Sorted, because the order these come back in is the order dsh-base
     // happens to list them and carries nothing about this layer.
     expect(changed.map(row => row.id).sort()).toEqual([
-      'desktop-brand', 'desktop-product-telemetry', 'desktop-server-log', 'llm-deepseek', 'llm-permission-gateway',
-      'plugin-manager', 'product-analytics', 'session-query-sqlite', 'tool-session-query', 'vision-switch',
+      'account-controller', 'desktop-brand', 'desktop-product-telemetry', 'desktop-server-log', 'llm-deepseek',
+      'llm-permission-gateway', 'plugin-manager', 'product-analytics', 'session-query-sqlite', 'tool-session-query',
+      'ui-settings-account', 'vision-switch',
     ])
   })
 

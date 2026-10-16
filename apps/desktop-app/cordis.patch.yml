@@ -224,6 +224,23 @@
 - id: product-analytics
   disabled: true
 
+# DeepSeek account sign-in stays off. dsh-web-app mounts `ui-settings-account`
+# — the sidebar account launcher, the Account settings section, and the
+# sign-in step of model onboarding — for every client, and
+# `account-controller`, the `account` Remote that section calls. A sign-in
+# sends the person to DeepSeek Platform and keeps a Platform credential that
+# later requests use. This product ships with no traffic to DeepSeek that the
+# person did not set up, so both rows are off; model onboarding then shows the
+# API-key editor, the `settings.models.sign-in` slot's fallback. Nothing else
+# injects the `account` Remote. dsh-base's `deepseek-account` and
+# `llm-deepseek-account` rows stay as upstream ships them: they reach Platform
+# only for a credential that is already stored.
+- id: ui-settings-account
+  disabled: true
+
+- id: account-controller
+  disabled: true
+
 # The sidebar brand row: the fish logo at 30px where ui-sidebar asks for 24,
 # and the product name, 北冥 in Chinese and Beiming in English, at 18px. This
 # package's browser half occupies `sidebar.brand.mark` and `sidebar.brand.name`,
