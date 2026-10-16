@@ -78,7 +78,7 @@ interface ContentSurfaceEntry {
   /** One line naming the entry in the switcher strip. */
   readonly title: string
   /** Kind-owned plain JSON its renderer consumes; opaque to the column. */
-  readonly payload: unknown
+  readonly payload: JsonValue
 }
 ```
 

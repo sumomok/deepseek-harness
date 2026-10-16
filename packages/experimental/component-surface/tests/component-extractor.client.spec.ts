@@ -16,6 +16,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import SessionStore from '@deepseek-ai/dsh-session'
@@ -287,7 +288,10 @@ describe('one stored component record', () => {
   ])('answers with an unreadable entry for %s', (_case, stored) => {
     // The cast is the erased call the router actually makes: `resolve` gets the
     // stored value back with nothing between it and the checkpoint.
-    expect(componentExtractor(KIT_CATALOG).resolve(stored as ComponentSurfaceData))
-      .toEqual({ title: '无法显示的内容', payload: undefined })
+    const resolved = componentExtractor(KIT_CATALOG).resolve(stored as ComponentSurfaceData)
+    expect(resolved).toEqual({ title: '无法显示的内容', payload: null })
+    // The view parses every payload as JSON before it leaves the host, so an
+    // answer outside JSON would fail the whole view, not this entry.
+    expect(z.json().safeParse(resolved.payload).success).toBe(true)
   })
 })

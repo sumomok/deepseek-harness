@@ -113,7 +113,7 @@ export function componentExtractor(catalog: ComponentCatalog): ContentSurfaceExt
       // A record with no spec still becomes an entry rather than nothing: the
       // extractor contract has no "skip" answer, and a payload the seat refuses
       // is already one sentence in the column.
-      if (record === undefined) return { title: UNREADABLE_TITLE, payload: undefined }
+      if (record === undefined) return { title: UNREADABLE_TITLE, payload: null }
       return { title: record.title, payload: { spec: record.spec } satisfies ComponentSurfacePayload }
     },
   }

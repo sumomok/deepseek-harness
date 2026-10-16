@@ -9,6 +9,8 @@
  * @module @deepseek-ai/dsh-experimental-content-surface/types
  */
 
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
@@ -119,7 +121,7 @@ export interface ContentSurfaceEntry {
   /** One line naming the entry in the switcher strip. */
   readonly title: string
   /** Kind-owned plain JSON its renderer consumes; opaque to the column. */
-  readonly payload: unknown
+  readonly payload: JsonValue
 }
 
 /** Whole current value of the `contentSurface` projection. */

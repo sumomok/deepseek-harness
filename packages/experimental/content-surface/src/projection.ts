@@ -30,6 +30,7 @@ import { z as zod } from 'zod'
 import type { ZodType } from 'zod'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 // Type-only: pulls this package's own `contentSurface` projection declarations.
 import type {
   ContentSurfaceEntry, ContentSurfaceFold, ContentSurfaceRecord, ContentSurfaceSelection, ContentSurfaceView,
@@ -187,7 +188,10 @@ function resolveView(state: ContentSurfaceFold, extractors: readonly ErasedExtra
       const extractor = byKind.get(record.kind)
       if (extractor === undefined) return []
       const resolved = extractor.resolve(record.data)
-      return [{ kind: record.kind, entryId: record.entryId, seq: record.seq, title: resolved.title, payload: resolved.payload }]
+      // `viewSchema` parses every payload as JSON before the value leaves the
+      // host, so an extractor that resolves anything else fails there.
+      const payload = resolved.payload as JsonValue
+      return [{ kind: record.kind, entryId: record.entryId, seq: record.seq, title: resolved.title, payload }]
     })
     // Newest first: the column shows entries[0] until the user picks another.
     .sort((left, right) => right.seq - left.seq)

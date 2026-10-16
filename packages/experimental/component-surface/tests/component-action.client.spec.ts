@@ -129,7 +129,7 @@ async function setup(ghost?: { data: unknown }): Promise<Context> {
       // Over an entry an accepted call already recorded, so the row's own
       // rule — no entry without a call — still holds while its data does not.
       read: event => (event.type === 'command/run' ? { entryId: 'budget', data: ghost.data } : undefined),
-      resolve: () => ({ title: '确认删除', payload: undefined }),
+      resolve: () => ({ title: '确认删除', payload: null }),
     }
     ctx.contentSurface.register(rogue)
   }
