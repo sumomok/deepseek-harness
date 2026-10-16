@@ -24,9 +24,11 @@ fork 保留三个补丁，每个都是上游未提供的接缝，其余一律使
 
 ### 准入接缝与 socket 事件（`connection-member-peers`）
 
-`ctx.connection.peers` 含 `admitWith(admitter)` 与 `requireAdmitter`。`admitWith` 安装唯一的同步 `PeerAdmitter`；第二次安装抛错，注册是安装方 fiber 的 effect。`admit(request)` 先跑 Connection 自己的信任检查，再跑浏览器 cookie 或 API Cookie 认证；任一不过的请求按上游拒绝，不调用准入器。装着准入器时，每个已认证请求（包括 `/connect` 签发的 API Cookie）都代表准入器返回的 Peer，通常是经 `createPeer({ principal })` 创建的 Peer。准入器的 401 或 403 即为拒绝；答 `undefined` 或返回已释放的 Peer 时以 401 拒绝，并记日志、不含请求头的值。保留 owner 权限的操作者由准入器返回 owner Peer；不经准入器，任何请求都拿不到 owner 权限。
+`ctx.connection.peers` 含 `admitWith(admitter)` 与 `requireAdmitter`。`admitWith` 安装唯一的同步 `PeerAdmitter`；第二次安装抛错，注册是安装方 fiber 的 effect。`admit(request)` 先跑 Connection 自己的信任检查，再跑浏览器 cookie 或 API Cookie 认证；任一不过的请求按上游拒绝，不调用准入器。装着准入器时，每个已认证请求（包括 `/connect` 签发的 API Cookie）都代表准入器返回的 Peer，通常是经 `createPeer({ principal })` 创建的 Peer。准入器的 401 或 403 即为拒绝；答 `undefined`、返回已释放的 Peer 或抛出异常时以 401 拒绝，并记日志、不含请求头的值。保留 owner 权限的操作者由准入器返回 owner Peer；不经准入器，任何请求都拿不到 owner 权限。
 
 Config 字段 `requireAdmitter`（默认 `false`）在没有安装准入器时以 401 拒绝每个已认证请求，覆盖准入器插件 apply 之前与其重启期间的窗口。`peers.requireAdmitter` 报告解析后的值，准入器插件据此在缺少它时拒绝启动。`requestRejection()` 对已准入的非 owner Peer 答 403，因为它把关的路由（如 open-in-app 与 inspector 的裸路由）不做其他访问检查。
+
+装着准入器时，`/connect` 签发的 API Cookie 仍指向它自己的凭据记录，升级照上游认领该记录：同一 Cookie 上的第二条 socket 以 409 拒绝，socket 释放时删除该记录并释放其 owner API Peer，从不释放成员 Peer。装着准入器或设置了 `requireAdmitter` 时，`/connect` 至多保留 `maxUnclaimedApiPeers` 个没有 socket 认领的凭据（默认 64），超出时让最早的退役；否则任何持有启动令牌的成员每兑换一次就多留一个 owner API Peer，直到 Host 关闭。
 
 Gateway 的 Remote 流服务器在 socket 绑定到其存活 Peer 之后通告 `remote-stream/socket-opened(peer, socketId)`，在 socket 关闭且其流结束之后通告 `remote-stream/socket-closed(peer, socketId)`。`RemoteSocketId` 是取自进程级计数器的 branded 标识，不上线路。监听器抛错会被记录，不影响 socket。
 
@@ -40,7 +42,7 @@ owner 的 `$events` 流照上游收到每个 waterfall。`interactions: 'answer'
 
 ### 带自身访问规则的精确路由（`connection-fetch-guard`）
 
-`ConnectionFetchRoute.serveNonOwner(request, peer)` 是路由自身的访问规则。共享 Fetch handler 把存活非 owner Peer 的每个请求交给它而不是 `fetch`，该 Peer 已释放时答 401，未声明规则的路由保持上游的 403。规则以路由路径为动作调用 `remoteAccess.decide()`，被拒或宿主没有 remote access 时答 403。
+`ConnectionFetchRoute.serveNonOwner(request, peer)` 是路由自身的访问规则。共享 Fetch handler 把存活非 owner Peer 的每个请求交给它而不是 `fetch`，该 Peer 已释放时答 401，未声明规则的路由保持上游的 403。规则以路由路径为动作调用 `remoteAccess.decide()`，每次调用至少列出一个资源，因为不列资源的请求会被 remote access 放行；被拒或宿主没有 remote access 时答 403。规则判定所用的值与路由随后服务时使用的值出自对请求的同一次解析，所以重复的查询参数无法让判定看到一个会话、读写落到另一个会话。
 
 三条路由声明了规则。原始上传（`/api/session/uploadFileBinary`）在读取请求体之前判定其指明的 `sessionId`。会话日志导出判定所请求的会话，带后代时还判定将纳入的每个后代。`/api/file` 只读取 `sessionId` 所指会话工作区内的文件：remote access 必须对该会话允许 `/api/file`；工作区取会话 header 的 `cwd`，来自活会话或 `sessionPersistence.stat`；工作区与请求路径经 `ctx.fs.resolve` 解析为真实路径，`ctx.fs.contains` 必须判定文件在其内，读取使用同一个已解析目标。Chat 与文档预览在文件 URL 中指明当前查看的会话。
 
@@ -52,7 +54,15 @@ owner 的 `$events` 流照上游收到每个 waterfall。`interactions: 'answer'
 
 ### 控制台的义务
 
-控制台插件经 `PrincipalMap` 声明合并声明其成员 principal 种类，注册其 remote-access 策略，安装准入器把已登录成员映射到 `createPeer({ principal })` Peer、把操作者映射到 owner Peer，设置 `requireAdmitter: true`，并依据 socket 事件关闭空闲成员 Peer。其策略在每位成员的会话上列出 Remote 端点、成员应答的审批与提问对应的 `event:<name>` 动作，以及路由路径 `/api/file`、上传路径与导出路径。经 `probeTargets` 的引用探测需要 `global` 角色。这些补丁的早期 fork 形态（成员 Peer 保存在 Connection 内、`remote/invoke` waterfall、`connection/fetch` waterfall 与投递过滤器）已退役；基于它构建的控制台必须迁移到上述形态。
+控制台插件经 `PrincipalMap` 声明合并声明其成员 principal 种类，注册其 remote-access 策略，安装准入器把已登录成员映射到 `createPeer({ principal })` Peer、把操作者映射到 owner Peer，设置 `requireAdmitter: true`，并依据 socket 事件关闭空闲成员 Peer。其策略在每位成员的会话上列出 Remote 端点、成员应答的审批与提问对应的 `event:<name>` 动作，以及路由路径 `/api/file`、上传路径与导出路径。经 `probeTargets` 的引用探测需要 `global` 角色。
+
+子代理的审批或提问是子会话的 waterfall，其帧的 `agentId` 是子会话的 id。只有 policy 把该子会话也绑给成员时，成员才收得到、答得了。
+
+准入器凭控制台登录代理设置的请求头识别成员，代理先删掉客户端发来的同名头再设置；Host 只能经该代理访问。Connection 分不清代理设置的头与伪造的头。
+
+`/api/file` 把成员限定在会话 `cwd` 解析出的真实路径之内，所以只有 `cwd` 来自控制台时这一限定才成立。上游 `session/create` 接受调用方传入的 `cwd`，所以控制台的 policy 拒绝成员带 `cwd` 的 `session/create`，只留下控制台管理的 `workspaceId`，或者其 condition 在解析出真实路径之后判定 `cwd`；字面前缀判定会被指向外部的符号链接绕过。
+
+上游 `workspaceFiles/read`、`readBytes` 与 `stat` 也能读工作区之外的文件，只有 `list` 限定在工作区内。授给成员就多出一条读取宿主任意可读文件的路径，所以控制台的 policy 不把它们授给成员，或者只在一个按解析后真实路径判定所请求路径的 condition 下授予。文档预览经 `workspaceFiles/read` 读取，所以不授予它也就不提供预览。
 
 ### 退役
 
@@ -74,6 +84,8 @@ owner 的 `$events` 流照上游收到每个 waterfall。`interactions: 'answer'
 
 **让 `/connect` 的 API Cookie 绕过准入器。** 控制台登录代理把启动令牌交给每个通过登录门的成员，这条路径会为任何成员造出 owner Peer。
 
+**按存活时间而不是数量限制未认领的 `/connect` 凭据。** 时间上限只能通过兑换速率间接限制凭据数量，还会让仅用 HTTP 的调用方仍在用的凭据过期；数量上限与速率无关，只让最早的凭据退役。
+
 **对所有非 owner 解除 waterfall 禁令。** 成员会收到并应答其他每位成员会话的审批；改由策略按会话判定。
 
 **策略变化时补投挂起的 waterfall。** remote access 没有为此提供投递时的通知，而重连已经能收到策略当前允许的每个挂起 waterfall。
@@ -91,6 +103,7 @@ owner 的 `$events` 流照上游收到每个 waterfall。`interactions: 'answer'
 - **`requireAdmitter: false` 时，移除准入器会重新对每个已认证浏览器开放 owner 准入**；成员部署将其设为 `true`。
 - **`requireAdmitter: true` 而没有准入器时，拒绝每个已认证请求**，直到装上准入器。
 - **Connection 不回收成员 Peer**：空闲关闭由准入器插件负责。
-- **成员读文件有残余竞态**：在包含判定与打开之间把工作区内一个已解析的目录换成符号链接，读取会跟随该链接；利用它需要对工作区有写权限。
+- **装着准入器时，一个 API Cookie 只服务一条 socket**：其上的第二条 socket 得到 409；仅用 HTTP 的调用方的凭据在出现 `maxUnclaimedApiPeers` 个更新的未认领凭据后退役。
+- **成员读文件有两项残余**：在包含判定与打开之间把工作区内一个已解析的目录换成符号链接，读取会跟随该链接；工作区内一个指向工作区外文件的硬链接不需要竞态就能通过判定。两者都需要对工作区有写权限。
 - **未带会话构造的图片 URL 对成员被拒**，显示其 alt 文本。
 - **成员离线时其审批等待**，与上游 owner 的情形相同，直到其 Agent Context 或 signal 结束它。

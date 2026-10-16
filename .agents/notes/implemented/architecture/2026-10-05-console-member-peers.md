@@ -24,9 +24,11 @@ The fork keeps three patches, each a seam upstream does not provide, and uses up
 
 ### Admission seam and socket events (`connection-member-peers`)
 
-`ctx.connection.peers` holds `admitWith(admitter)` and `requireAdmitter`. `admitWith` installs the sole synchronous `PeerAdmitter`; a second installation throws, and the registration is an effect of the installing fiber. `admit(request)` runs Connection's own trust check, then the browser cookie or API Cookie authentication; a request that fails either is refused as upstream and the admitter is not called. With an admitter installed, every authenticated request, including the API Cookie that `/connect` issued, speaks for the Peer the admitter returns, normally one created by `createPeer({ principal })`. The admitter's 401 or 403 is the refusal; an `undefined` answer or a disposed Peer is refused with 401 and logged without header values. An operator who keeps owner access receives an owner Peer from the admitter; no request reaches owner authority without it.
+`ctx.connection.peers` holds `admitWith(admitter)` and `requireAdmitter`. `admitWith` installs the sole synchronous `PeerAdmitter`; a second installation throws, and the registration is an effect of the installing fiber. `admit(request)` runs Connection's own trust check, then the browser cookie or API Cookie authentication; a request that fails either is refused as upstream and the admitter is not called. With an admitter installed, every authenticated request, including the API Cookie that `/connect` issued, speaks for the Peer the admitter returns, normally one created by `createPeer({ principal })`. The admitter's 401 or 403 is the refusal; an `undefined` answer, a disposed Peer, or a thrown exception is refused with 401 and logged without header values. An operator who keeps owner access receives an owner Peer from the admitter; no request reaches owner authority without it.
 
 The Config field `requireAdmitter` (default `false`) refuses every authenticated request with 401 while no admitter is installed, which covers the window before the admitter's plugin applies and while it restarts. `peers.requireAdmitter` reports the resolved value, so the admitter's plugin can refuse to start without it. `requestRejection()` answers 403 for an admitted non-owner Peer, because the routes it gates, such as open-in-app and the inspector's bare routes, run no other access check.
+
+Under an admitter the API Cookie that `/connect` issued still names its own credential record, and an upgrade claims that record as upstream does: a second socket on the Cookie is refused with 409, and the socket's release deletes the record and disposes its owner API Peer, never the member Peer. While an admitter is installed or `requireAdmitter` is set, `/connect` keeps at most `maxUnclaimedApiPeers` credentials that no socket has claimed, 64 by default, and retires the oldest beyond that; any member holding the launch token could otherwise add one owner API Peer per exchange for the Host's lifetime.
 
 The Gateway's Remote stream server announces `remote-stream/socket-opened(peer, socketId)` after a socket is bound to its live Peer and `remote-stream/socket-closed(peer, socketId)` after the socket has closed and its streams have settled. `RemoteSocketId` is a branded identity from a process-wide counter that never crosses the wire. A throwing listener is logged and does not reach the socket.
 
@@ -40,7 +42,7 @@ Upstream provides no equivalent: non-owner waterfall delivery and answers are re
 
 ### Exact routes with their own access rule (`connection-fetch-guard`)
 
-`ConnectionFetchRoute.serveNonOwner(request, peer)` is a route's own access rule. The shared Fetch handler hands it every request of a live non-owner Peer in place of `fetch`, answers 401 when that Peer is disposed, and keeps upstream's 403 for a route that declares none. A rule asks `remoteAccess.decide()` with the route path as the action and answers 403 when refused or when the Host has no remote access.
+`ConnectionFetchRoute.serveNonOwner(request, peer)` is a route's own access rule. The shared Fetch handler hands it every request of a live non-owner Peer in place of `fetch`, answers 401 when that Peer is disposed, and keeps upstream's 403 for a route that declares none. A rule asks `remoteAccess.decide()` with the route path as the action, lists at least one resource in each call because remote access allows a request that lists none, and answers 403 when refused or when the Host has no remote access. A rule decides on the same parse of the request that the route then serves, so a repeated query parameter cannot name one Session to the decision and another to the read or write.
 
 Three routes declare one. The raw upload (`/api/session/uploadFileBinary`) decides the `sessionId` it names before reading the body. The Session-log export decides the requested Session and, with descendants, every descendant it would include. `/api/file` reads only a file inside the workspace of the Session named in `sessionId`: remote access must allow `/api/file` on that Session; the workspace is the Session header's `cwd` from the live Session or `sessionPersistence.stat`; the workspace and the requested path are resolved to real paths through `ctx.fs.resolve`, `ctx.fs.contains` must place the file inside, and the read uses that resolved target. Chat and the document preview name the viewed Session in their file URLs.
 
@@ -52,7 +54,15 @@ Upstream provides no equivalent: the shared Fetch handler refuses every non-owne
 
 ### Console obligations
 
-The console's plugin declares its member principal kind through `PrincipalMap` declaration merging, registers its remote-access policy, installs the admitter that maps a signed-in member to a `createPeer({ principal })` Peer and the operator to an owner Peer, sets `requireAdmitter: true`, and closes idle member Peers from the socket events. Its policy lists, on each member's Sessions, the Remote endpoints, the `event:<name>` actions of the approvals and questions members answer, and the route paths `/api/file`, the upload path, and the export path. Reference probing through `probeTargets` needs a `global` role. An earlier fork form of these patches, with member Peers kept inside Connection, a `remote/invoke` waterfall, a `connection/fetch` waterfall, and a delivery filter, is retired; a console built on it must migrate to the form above.
+The console's plugin declares its member principal kind through `PrincipalMap` declaration merging, registers its remote-access policy, installs the admitter that maps a signed-in member to a `createPeer({ principal })` Peer and the operator to an owner Peer, sets `requireAdmitter: true`, and closes idle member Peers from the socket events. Its policy lists, on each member's Sessions, the Remote endpoints, the `event:<name>` actions of the approvals and questions members answer, and the route paths `/api/file`, the upload path, and the export path. Reference probing through `probeTargets` needs a `global` role.
+
+A subagent's approval or question is a waterfall of the child Session, whose frame carries the child Session's id as `agentId`. A member receives and answers it only when the policy binds that child Session to the member as well.
+
+The admitter recognizes a member from a request header that the console's login proxy sets after removing any copy the client sent, and the Host is reachable only through that proxy; Connection cannot tell a proxy-set header from a forged one.
+
+`/api/file` confines a member to the Session's `cwd` resolved to its real path, so the confinement holds only while that `cwd` comes from the console. Upstream `session/create` accepts the caller's `cwd`, so the console's policy refuses a member's `session/create` that names a `cwd`, leaving only console-managed `workspaceId`s, or its condition decides the `cwd` on its resolved real path; a literal prefix check is passed by a symbolic link that points outside.
+
+Upstream `workspaceFiles/read`, `readBytes`, and `stat` read files outside the workspace as well; only `list` is confined to it. Granting them to a member opens another path to every file the Host can read, so the console's policy withholds them from members or grants them only under a condition that decides the requested path on its resolved real path. The document preview reads through `workspaceFiles/read`, so withholding it also withholds the preview.
 
 ### Retirement
 
@@ -74,6 +84,8 @@ The console's plugin declares its member principal kind through `PrincipalMap` d
 
 **Letting the `/connect` API Cookie bypass the admitter.** The console's login proxy hands the launch token to every member past its login gate, so that path would mint an owner Peer for any member.
 
+**Bounding unclaimed `/connect` credentials by age instead of count.** A time limit bounds their number only through the exchange rate, and expires a credential an HTTP-only caller still uses; a count bound holds regardless of rate and retires only the oldest.
+
 **Lifting the waterfall block for every non-owner.** A member would receive and answer the approvals of every other member's Sessions; the policy decides per Session instead.
 
 **Re-delivering pending waterfalls when a policy changes.** Remote access exposes no delivery-time notification for it, and a reconnect already receives every pending waterfall the policy now allows.
@@ -91,6 +103,7 @@ The console's plugin declares its member principal kind through `PrincipalMap` d
 - **With `requireAdmitter: false`, removing the admitter reopens owner admission** for every authenticated browser; a member deployment sets it to `true`.
 - **`requireAdmitter: true` without an admitter refuses every authenticated request** until one is installed.
 - **Member Peers are not reclaimed by Connection**: the admitter's plugin owns idle closing.
-- **A member's file read has a residual race**: replacing an already resolved directory inside the workspace with a symbolic link between the containment check and the open makes the read follow the link; exploiting it requires write access to the workspace.
+- **Under an admitter, one API Cookie serves one socket**: a second socket on it receives 409, and an HTTP-only caller's credential is retired once `maxUnclaimedApiPeers` newer unclaimed credentials exist.
+- **A member's file read has two residuals**: replacing an already resolved directory inside the workspace with a symbolic link between the containment check and the open makes the read follow the link, and a hard link inside the workspace to a file outside it passes the check with no race. Both require write access to the workspace.
 - **An image URL built without a Session is refused for a member** and shows its alt text.
 - **A member's approval waits while that member is offline**, as an owner's does upstream, until its Agent Context or signal ends it.
