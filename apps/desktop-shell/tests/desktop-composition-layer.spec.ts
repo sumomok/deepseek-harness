@@ -305,11 +305,11 @@ describe('the session tools in composed sessions', () => {
     const children: Scope[] = []
     await root.plugin({
       inject: ['systemPrompt', 'tools'],
-      apply: (ctx: Context) => {
+      apply: async (ctx: Context) => {
         const open = createScope(ctx, { agent: 'child' }, { parent: presetKey })
-        applyChildComposition(open.ctx, { ctx: agent.ctx } as Agent, { persona: 'You review one file.' })
+        await applyChildComposition(open.ctx, { ctx: agent.ctx } as Agent, { persona: 'You review one file.' })
         const narrowed = createScope(ctx, { agent: 'narrowed-child' }, { parent: presetKey })
-        applyChildComposition(narrowed.ctx, { ctx: agent.ctx } as Agent, { toolFilter: { allow: ['session_trace'] } })
+        await applyChildComposition(narrowed.ctx, { ctx: agent.ctx } as Agent, { toolFilter: { allow: ['session_trace'] } })
         children.push(open, narrowed)
       },
     })
@@ -660,9 +660,9 @@ describe('the protected-directories section in composed sessions', () => {
     let child: Scope | undefined
     await root.plugin({
       inject: ['systemPrompt'],
-      apply: (ctx: Context) => {
+      apply: async (ctx: Context) => {
         child = createScope(ctx, { agent: 'child' }, { parent: presetKey })
-        applyChildComposition(child.ctx, { ctx: agent.ctx } as Agent, { persona: 'You review one file.' })
+        await applyChildComposition(child.ctx, { ctx: agent.ctx } as Agent, { persona: 'You review one file.' })
       },
     })
     if (child === undefined) throw new Error('the child was not composed')
