@@ -210,7 +210,7 @@ describe('Session Controller access', () => {
     ])
   })
 
-  it('logs accepted prompt references on the user message source after the caller', async () => {
+  it('logs accepted prompt references on the user message source after the principal', async () => {
     const { ctx, as } = await harness()
     const adapter = new MockAdapter([textResponse('guest reply'), textResponse('owner reply')])
     ctx.llm.registerAdapter(['mock'], adapter)
