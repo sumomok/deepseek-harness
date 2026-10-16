@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   ComposerAttachment, ComposerAttachmentsProps, ComposerImageAttachment,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { IconCloseFillRegular, ReferenceChip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCloseFillRegular, PromptReferenceChip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { AttachmentRail } from '../AttachmentRail.tsx'
 import type { AttachmentRailItem } from '../AttachmentRail.tsx'
 import { DropOverlay } from '../DropOverlay.tsx'
@@ -55,7 +55,7 @@ export function ComposerAttachments({
               const attachment = item.attachment
               if (attachment.kind === 'reference') {
                 return (
-                  <ReferenceChip
+                  <PromptReferenceChip
                     label={attachment.label}
                     onActivate={attachment.activate}
                     remove={{

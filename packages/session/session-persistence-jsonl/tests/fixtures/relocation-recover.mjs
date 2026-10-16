@@ -7,7 +7,7 @@
  */
 
 import { Context } from '@deepseek-ai/cordis'
-import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 
 const [root, compression, id, cwd] = process.argv.slice(2)
 const ctx = new Context()

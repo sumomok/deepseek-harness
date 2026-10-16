@@ -24,8 +24,6 @@
   config:
     provider: spawn
     toolName: subagent
-    backgroundMode: one-shot
-    enableRunInBackground: false
     maxDepth: 1
 
 # This composition is the corpus's coverage of the DeepSeek upload path, so it

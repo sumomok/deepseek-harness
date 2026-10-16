@@ -8,7 +8,7 @@ Status: implemented
 
 桌面发布有两个步骤落在跑它的脚本之外,而且两者失效的方式相同——悄无声息,而且是朝着「看起来没问题」的方向。
 
-**没有任何东西给发布出去的 commit 打 tag。**`desktop-v0.1.0-rc.14` 到 `desktop-v0.1.0-rc.19` 全是事后手工打的,打在当时仓库恰好停在的那个位置上。`apps/desktop/scripts/publish-update.ts` 上传产物、重写清单、回读清单并清理更新源,然后就停了:一个已发布的构建,在有人想起来敲那两条 git 命令之前,没有任何东西指向它的源码出处。忘了打 tag 没有任何东西会报,于是「发布了什么」这份记录取决于发版的人记不记得。桌面应用是 `private` 的,不进任何 registry,所以仓库的发布工作流也没有一个管得着它([私有 app](2026-08-20-private-apps-are-not-release-members.zh.md))。
+**没有任何东西给发布出去的 commit 打 tag。**`desktop-v0.1.0-rc.14` 到 `desktop-v0.1.0-rc.19` 全是事后手工打的,打在当时仓库恰好停在的那个位置上。`apps/desktop/scripts/publish-update.ts` 上传产物、重写清单、回读清单并清理更新源,然后就停了:一个已发布的构建,在有人想起来敲那两条 git 命令之前,没有任何东西指向它的源码出处。忘了打 tag 没有任何东西会报,于是「发布了什么」这份记录取决于发版的人记不记得。桌面应用是 `private` 的,不进任何 registry,所以仓库的发布工作流也没有一个管得着它。
 
 **一次打包运行可以只构建半个发布,还以 0 退出。**`apps/desktop/scripts/package.ts` 里的 `parseCli` 在两个平台参数都不给时,从 `process.platform === 'darwin'` 推断出 `--mac`,而 `--win` 从来不会被推断出来。于是在 macOS 主机上直接跑 `pnpm --filter @deepseek-ai/dsh-desktop run package` 只会构建 mac 产物。运行的收尾是列出 `dist-app` 里以 `.dmg`、`.zip`、`.exe` 结尾的文件——而 `dist-app` 从不清空,于是上一个版本的 Windows 安装程序也在那张列表里,带着上一个版本的名字,顶着 `products in apps/desktop/dist-app` 这个标题。一个没有 Windows 构建的发布,打印出来的形状和完整的发布一模一样。rc.19 就是这么打包出来的。
 

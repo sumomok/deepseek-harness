@@ -23,6 +23,7 @@ import { compactionDefinition } from '../src/client/conversation-nodes/compactio
 import { unknownFallbackDefinition } from '../src/client/conversation-nodes/fallback.ts'
 import { nextStepInboxDefinition, nextTurnInboxDefinition } from '../src/client/conversation-nodes/inbox.ts'
 import { developerMessageDefinition, messageDefinition } from '../src/client/conversation-nodes/message.ts'
+import { processGroupDefinition } from '../src/client/conversation-nodes/process-groups.ts'
 import { inspectRequestPrompt } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { requestPromptDefinition, systemMessageDefinition } from '../src/client/conversation-nodes/request-prompt.ts'
 import { retryDefinition } from '../src/client/conversation-nodes/retry.ts'
@@ -184,6 +185,51 @@ function visibleNode(value: ChatSnapshot, kind: string): ChatConversationViewNod
 function live(value: ConversationNodeAssembler, entry: SessionEventLikeEntry): void {
   value.append(entry)
   value.flush()
+}
+
+/** The same assembly with the Chat plugin's registered step grouping. */
+function groupedAssembler(entries: readonly SessionEventLikeEntry[]): ConversationNodeAssembler {
+  const value = new ConversationNodeAssembler(new TestEventDefinitions(), new TestViewDefinitions(), {
+    entries: () => [processGroupDefinition],
+    forTarget: target => target === processGroupDefinition.target ? processGroupDefinition : undefined,
+  })
+  value.replaceWindow(entries, false)
+  value.activateTarget('chat')
+  return value
+}
+
+/**
+ * Read the grouped root sequence by kind: a root Node as its kind, a step
+ * group as the kinds of its members.
+ */
+function stepLayout(value: ConversationNodeAssembler): (string | string[])[] {
+  const current = snapshot(value)
+  const grouped = value.grouped('chat')
+  if (grouped === undefined) throw new Error('chat grouping was not registered')
+  const kindOf = (key: string): string => current.nodes.get(key)?.kind ?? key
+  return grouped.entries.map(entry => entry.kind === 'node'
+    ? kindOf(entry.key)
+    : (grouped.groupSource(entry.key).getSnapshot()?.members ?? []).map(member => kindOf(member.key)))
+}
+
+/** One open Turn whose two Tool-only steps surround `between`. */
+function toolStepsAround(between: readonly SessionLiveEventEntry[]): SessionLiveEventEntry[] {
+  const toolStep = (step: number, first: number, callId: string): SessionLiveEventEntry[] => [
+    at(first, 'step/start', { turn: 1, step }),
+    at(first + 1, 'assistant/message', { turn: 1, step, message: {
+      ...assistantMessage(`assistant-${callId}`, ''),
+      content: [{ type: 'tool-call', id: callId, name: 'read', arguments: '{}' }],
+    } }, { surfaceOp: 'append' }),
+    at(first + 2, 'tool/call', { turn: 1, step, callId, name: 'read', arguments: '{}' }),
+    at(first + 3, 'tool/result', { turn: 1, step, message: toolResult(callId, 'read done') }, { surfaceOp: 'append' }),
+    at(first + 4, 'step/end', { turn: 1, step }),
+  ]
+  return [
+    at(1, 'turn/start', { turn: 1 }),
+    ...toolStep(1, 2, 'call-before'),
+    ...between,
+    ...toolStep(2, 20, 'call-after'),
+  ]
 }
 
 function promptNodes(value: ChatSnapshot): ChatConversationViewNode[] {
@@ -675,6 +721,62 @@ describe('built-in conversation node Definitions', () => {
       expect(input, test.name).toMatchObject({ data: { waking: test.waking, source: { kind: 'schedule' } } })
       expect(current.order.includes(input!.key), test.name).toBe(test.waking)
     }
+  })
+
+  it('opens exchanges only for human input claimed for Step 1; every other input stays an input', () => {
+    const human = textMessage('block-human', 'first task')
+    const steer = textMessage('block-steer', 'adjust course')
+    const notice = { ...textMessage('block-notice', 'background work finished'), source: { kind: 'schedule' } }
+    const idle = textMessage('block-idle', 'next task')
+    const bottomTurns = (current: ChatSnapshot): number[] => [...new Set(current.order.flatMap((key) => {
+      const location = current.nodes.get(key)?.location
+      return current.nodes.bottomSource(key).getSnapshot() && (location?.kind === 'turn' || location?.kind === 'step')
+        ? [location.turn.turn]
+        : []
+    }))]
+    const inputs = (current: ChatSnapshot) => current.order
+      .map(key => current.nodes.get(key))
+      .filter(candidate => candidate?.kind === 'user' || candidate?.kind === 'steering' || candidate?.kind === 'turn-trigger')
+      .map(candidate => [candidate?.kind, candidate?.groupTree ?? null])
+    const value = assembler([
+      at(1, 'agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [human] }),
+      at(2, 'turn/start', { turn: 1 }),
+      at(3, 'agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] }),
+      at(4, 'step/start', { turn: 1, step: 1 }),
+      at(5, 'user/message', human, { surfaceOp: 'append' }),
+      at(6, 'step/end', { turn: 1, step: 1 }),
+      at(7, 'agent/inbox/spliced', { target: 'next-step', start: 0, inserted: [steer] }),
+      at(8, 'agent/inbox/spliced', { target: 'next-step', start: 0, removedCount: 1, inserted: [] }),
+      at(9, 'step/start', { turn: 1, step: 2 }),
+      at(10, 'user/message', steer, { surfaceOp: 'append' }),
+      at(11, 'assistant/message', { turn: 1, step: 2, message: assistantMessage('block-answer-1', 'done') }, { surfaceOp: 'append' }),
+      at(12, 'step/end', { turn: 1, step: 2 }),
+      at(13, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
+      // The host assembles the system prompt between the waking claim and Step 1.
+      at(14, 'agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [notice] }),
+      at(15, 'turn/start', { turn: 2 }),
+      at(16, 'agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] }),
+    ])
+    expect(inputs(snapshot(value))).toEqual([['user', 'exchange'], ['steering', 'input']])
+    expect(bottomTurns(snapshot(value))).toEqual([1, 2])
+
+    value.append(at(17, 'step/start', { turn: 2, step: 1 }))
+    value.append(at(18, 'user/message', notice, { surfaceOp: 'append' }))
+    value.append(at(19, 'assistant/message', { turn: 2, step: 1, message: assistantMessage('block-answer-2', 'noted') }, { surfaceOp: 'append' }))
+    value.append(at(20, 'step/end', { turn: 2, step: 1 }))
+    value.append(at(21, 'turn/end', { turn: 2, reason: { kind: 'completed' } }))
+    value.flush()
+    expect(inputs(snapshot(value))).toEqual([['user', 'exchange'], ['steering', 'input'], ['turn-trigger', 'input']])
+    expect(bottomTurns(snapshot(value))).toEqual([1, 2])
+
+    value.append(at(22, 'agent/inbox/spliced', { target: 'next-step', start: 0, inserted: [idle] }))
+    value.append(at(23, 'turn/start', { turn: 3 }))
+    value.append(at(24, 'agent/inbox/spliced', { target: 'next-step', start: 0, removedCount: 1, inserted: [] }))
+    value.append(at(25, 'step/start', { turn: 3, step: 1 }))
+    value.append(at(26, 'user/message', idle, { surfaceOp: 'append' }))
+    value.flush()
+    expect(inputs(snapshot(value)).at(-1)).toEqual(['steering', 'exchange'])
+    expect(bottomTurns(snapshot(value))).toEqual([3])
   })
 
   it('replays pending splice chains and scopes steering to the current claim', () => {
@@ -1438,6 +1540,7 @@ describe('built-in conversation node Definitions', () => {
         isError: true,
         error: { name: 'AutoReviewDeniedError', code: 'AUTO_REVIEW_DENIED', reason: 'blocked' },
         content: [{ type: 'text', text: 'contents' }],
+        meta: { cwd: '/selected', path: '/selected/README.md' },
       }),
       at(16, 'tool/result', {
         turn: 2,
@@ -1450,6 +1553,7 @@ describe('built-in conversation node Definitions', () => {
       {
         kind: 'tool-result', callId: 'child', parentCallId: 'history-root', call: { name: 'read' },
         error: { name: 'AutoReviewDeniedError', code: 'AUTO_REVIEW_DENIED', reason: 'blocked' },
+        meta: { cwd: '/selected', path: '/selected/README.md' },
       },
     ])
 
@@ -1472,6 +1576,7 @@ describe('built-in conversation node Definitions', () => {
       {
         kind: 'tool-result', callId: 'child', parentCallId: 'history-root', call: { name: 'read' },
         error: { name: 'AutoReviewDeniedError', code: 'AUTO_REVIEW_DENIED', reason: 'blocked' },
+        meta: { cwd: '/selected', path: '/selected/README.md' },
       },
     ])
 
@@ -2572,6 +2677,7 @@ describe('built-in conversation node Definitions', () => {
     const running = node(snapshot(value), 'compaction-running')
     expect(running?.anchorSeq).toBe(10)
     expect(running?.data).toBeNull()
+    expect(running?.groupTree).toBe('process')
     expect(node(snapshot(value), 'compaction')).toBeUndefined()
   })
 
@@ -2610,6 +2716,36 @@ describe('built-in conversation node Definitions', () => {
       shadowedItemCount: 3,
       shadowedTokenCount: 42,
     })
+    expect(node(snapshot(value), 'compaction')?.groupTree).toBeUndefined()
+  })
+
+  it('splits the step group around a running automatic compaction row until the row settles', () => {
+    const start = at(10, 'compaction/start', { compactionId: 'compact-between', turn: 1 })
+    expect(stepLayout(groupedAssembler(toolStepsAround([start]))))
+      .toEqual(['turn-process', ['tool-call'], 'compaction-running', ['tool-call']])
+
+    const cancelled = groupedAssembler(toolStepsAround([start, at(11, 'compaction/end', {
+      compactionId: 'compact-between',
+      turn: 1,
+      error: 'DeepSeek request aborted by caller: The user aborted a request.',
+    })]))
+    expect(stepLayout(cancelled)).toEqual(['turn-process', ['tool-call', 'tool-call']])
+
+    const landed = groupedAssembler(toolStepsAround([
+      start,
+      at(11, 'compaction/summary', {
+        compactionId: 'compact-between',
+        summary: [{ type: 'text', text: 'between summary' }],
+        shadowedSeqs: [3, 4, 5],
+        shadowedTokenCount: 42,
+      }),
+      at(12, 'user/message', {
+        ...textMessage('checkpoint-between', 'checkpoint'),
+        source: { kind: 'compact-checkpoint', compactionId: 'compact-between' },
+      }, { surfaceOp: { op: 'replace', startSeq: 3, endSeq: 5 } }),
+      at(13, 'compaction/end', { compactionId: 'compact-between', turn: 1 }),
+    ]))
+    expect(stepLayout(landed)).toEqual(['turn-process', ['tool-call', 'compaction', 'tool-call']])
   })
 
   it('hides the running row when the bracket is cancelled', () => {
@@ -2743,6 +2879,7 @@ describe('built-in conversation node Definitions', () => {
       at(10, 'command/run', { commandId: 'cmd-wait', name: 'compact', args: '' }),
     ], true)
     expect((node(snapshot(waiting), 'manual-compaction')?.data as ManualCompactionChatData).waiting).toBe(true)
+    expect(node(snapshot(waiting), 'manual-compaction')?.groupTree).toBe('turn')
 
     const opened = assembler([
       at(10, 'command/run', { commandId: 'cmd-wait', name: 'compact', args: '' }),
@@ -2755,6 +2892,14 @@ describe('built-in conversation node Definitions', () => {
       at(11, 'command/done', { commandId: 'cmd-wait', kind: 'error', text: 'Compaction cancelled.' }),
     ], true)
     expect((node(snapshot(settled), 'manual-compaction')?.data as ManualCompactionChatData).waiting).toBe(false)
+  })
+
+  it('keeps a /compact card between Tool steps out of their step group, unlike other commands', () => {
+    const run = (name: string) => at(10, 'command/run', { commandId: `cmd-${name}`, name, args: '' })
+    expect(stepLayout(groupedAssembler(toolStepsAround([run('compact')]))))
+      .toEqual(['turn-process', ['tool-call'], 'manual-compaction', ['tool-call']])
+    expect(stepLayout(groupedAssembler(toolStepsAround([run('help')]))))
+      .toEqual(['turn-process', ['tool-call', 'command', 'tool-call']])
   })
 
   describe('a manual compaction whose Host exited while it waited', () => {
@@ -2820,6 +2965,15 @@ describe('built-in conversation node Definitions', () => {
     const failure = node(snapshot(value), 'compaction-failure')
     expect(failure?.data).toEqual({ reason: 'summarizer unavailable' })
     expect(failure?.anchorSeq).toBe(11)
+    expect(failure?.groupTree).toBe('turn')
+  })
+
+  it('keeps an automatic compaction failure between Tool steps out of their step group', () => {
+    const value = groupedAssembler(toolStepsAround([
+      at(10, 'compaction/start', { compactionId: 'compact-failed-between', turn: 1 }),
+      at(11, 'compaction/end', { compactionId: 'compact-failed-between', turn: 1, error: 'summarizer unavailable' }),
+    ]))
+    expect(stepLayout(value)).toEqual(['turn-process', ['tool-call'], 'compaction-failure', ['tool-call']])
   })
 
   it('shows a failure node for a bracket opened between turns rather than inside one', () => {
@@ -3178,4 +3332,28 @@ it('retains a sign-out cancellation notice when reopening a partial turn', () =>
   expect(node(snapshot(value), 'turn-error')?.data).toMatchObject({
     code: 'ACCOUNT_SIGNED_OUT', message: 'Stopped because you signed out of DeepSeek.',
   })
+})
+
+it('reports a turn closed after its process exited as a stopped turn', () => {
+  const value = assembler([
+    at(7, 'turn/end', { turn: 1, reason: { kind: 'interrupted' } }),
+  ], true)
+  expect(node(snapshot(value), 'turn-error')?.data).toMatchObject({
+    code: 'INTERRUPTED', message: 'The DSH process exited before this turn finished.',
+  })
+})
+
+it('reports an interrupted ending on a turn observed from its start', () => {
+  const value = assembler([
+    at(1, 'turn/start', { turn: 1 }),
+    at(2, 'turn/end', { turn: 1, reason: { kind: 'interrupted' } }),
+  ])
+  expect(node(snapshot(value), 'turn-error')?.data).toMatchObject({ seq: 2, turn: 1, code: 'INTERRUPTED' })
+})
+
+it('keeps user cancellations and forked endings free of a failure row', () => {
+  for (const reason of [{ kind: 'aborted', reason: { kind: 'user' } }, { kind: 'forked' }] as const) {
+    const value = assembler([at(7, 'turn/end', { turn: 1, reason })], true)
+    expect(node(snapshot(value), 'turn-error')).toBeUndefined()
+  }
 })

@@ -24,7 +24,7 @@ import {
   SessionAlreadyOwnedError, SessionFormatUnsupportedError, SessionPersistenceCorruptionError,
   SessionPersistenceNotFoundError, type SessionHandle, type SessionPersistence, type SessionPersistenceSnapshot,
 } from '@deepseek-ai/dsh-session-persistence'
-import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import {
   encodeSegment, generationLogFilename, parseGenerationLogFilename, projectKey, scanLog, sessionDir, toHeaderLine,
   type JsonlCompression,
@@ -270,6 +270,12 @@ const TARGET_CWD = '/work/target'
 const THIRD_CWD = '/work/third'
 
 /**
+ * The JSONL backend's private loader for a historical generation, reached only
+ * to pin that a refused relocation prepares no migration.
+ */
+type MigrationLoader = SessionPersistence & { loadStoredMigration: (...args: never[]) => Promise<unknown> }
+
+/**
  * Store one current session at SOURCE_CWD with two retained prior generations,
  * create its target directory, and return a plan to move it to `targetCwd`.
  */
@@ -437,26 +443,54 @@ describe.each(['none', 'zstd'] as const)('JsonlSessionPersistence.relocate (%s)'
     expect(moved.header).toMatchObject({ isSeeded: true, parentSession: 'seed-parent', cwd: TARGET_CWD })
   })
 
-  it('publishes the current successor of a historical session first and moves its generations byte- and inode-identical', async () => {
-    const root = await freshRoot()
-    const id = SessionId('historical')
-    const sourceDir = sessionDir(root, SOURCE_CWD, id)
-    const v3 = join(sourceDir, generationLogFilename(3, compression))
+  /** Store one finished v3 session at SOURCE_CWD and return its generation path. */
+  async function historicalSession(root: string, id: SessionId): Promise<string> {
+    const v3 = join(sessionDir(root, SOURCE_CWD, id), generationLogFilename(3, compression))
     const rows = [
       { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
       { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
-    await mkdir(sourceDir, { recursive: true })
+    await mkdir(dirname(v3), { recursive: true })
     const first = `${JSON.stringify({ type: 'session', version: 3, id, createdAt: 1, cwd: SOURCE_CWD, isSeeded: false, delegationDepth: 0 })}\n`
     const body = rows.map(row => `${JSON.stringify(row)}\n`).join('')
     await writeFile(v3, compression === 'none' ? first + body : Buffer.concat([await compressZstdFrame(first), await compressZstdFrame(body)]))
+    return v3
+  }
+
+  it('refuses a historical session without changing its files, and moves it byte- and inode-identical once a write open migrated it', async () => {
+    const root = await freshRoot()
+    const id = SessionId('historical')
+    const v3 = await historicalSession(root, id)
+    const sourceDir = dirname(v3)
+    const targetDir = sessionDir(root, TARGET_CWD, id)
     const original = await fingerprint(v3)
     const ctx = await mount(root, compression)
     const restored = (await readEvents(ctx.sessionPersistence, id)).events
+    const listener = vi.fn()
+    ctx.on('session-persistence/relocated', listener)
+    // The refusal judges the stored format before it reads the log, so it prepares no migration.
+    const prepareMigration = vi.spyOn(ctx.sessionPersistence as MigrationLoader, 'loadStoredMigration')
 
+    const refusal = await ctx.sessionPersistence.relocate!(id, TARGET_CWD).catch((caught: unknown) => caught)
+
+    expect(refusal).toBeInstanceOf(Error)
+    expect((refusal as Error).message).toContain(`session "${id}" is stored in log format v3`)
+    expect((refusal as Error).message).toContain('open the session once')
+    expect((refusal as Error).message).toContain('then restart the host and relocate the session before anything resumes it')
+    expect(prepareMigration).not.toHaveBeenCalled()
+    expect(await fingerprint(v3)).toEqual(original)
+    expect((await readdir(sourceDir)).filter(name => name !== LEASE_FILENAME)).toEqual([basename(v3)])
+    expect(await exists(dirname(targetDir))).toBe(false)
+    await assertNoResidue(root)
+    // The refusal precedes the no-op for the stored cwd.
+    await expect(ctx.sessionPersistence.relocate!(id, SOURCE_CWD)).rejects.toThrow(`session "${id}" is stored in log format v3`)
+    expect(await fingerprint(v3)).toEqual(original)
+    expect(listener).not.toHaveBeenCalled()
+    expect(await ctx.sessionPersistence.stat(id)).toMatchObject({ header: { cwd: SOURCE_CWD }, formatStatus: 'migration-required' })
+
+    await (await ctx.sessionPersistence.open(id, 'write')).close()
     await ctx.sessionPersistence.relocate!(id, TARGET_CWD)
 
-    const targetDir = sessionDir(root, TARGET_CWD, id)
     expect((await readdir(targetDir)).filter(name => name !== LEASE_FILENAME).sort())
       .toEqual([generationLogFilename(3, compression), generationLogFilename(SESSION_FORMAT_VERSION, compression)].sort())
     expect(await fingerprint(join(targetDir, generationLogFilename(3, compression)))).toEqual(original)
@@ -464,11 +498,31 @@ describe.each(['none', 'zstd'] as const)('JsonlSessionPersistence.relocate (%s)'
       .toMatchObject({ version: SESSION_FORMAT_VERSION, cwd: TARGET_CWD })
     expect(await exists(sourceDir)).toBe(false)
     expect((await readEvents(ctx.sessionPersistence, id)).events).toEqual(restored)
+    expect(listener).toHaveBeenCalledOnce()
+  })
+
+  it('leaves the migration preparation of a read open in flight when it refuses the historical session', async () => {
+    const root = await freshRoot()
+    const id = SessionId('historical')
+    const v3 = await historicalSession(root, id)
+    const ctx = await mount(root, compression)
+    let refusal: unknown
+    // The read open's preparation reads the generation after it registers; the refused move runs at that read.
+    interleave('open', path => path === v3, async () => {
+      refusal = await ctx.sessionPersistence.relocate!(id, TARGET_CWD).catch((caught: unknown) => caught)
+    })
+
+    const read = await readEvents(ctx.sessionPersistence, id)
+
+    expect((refusal as Error).message).toContain(`session "${id}" is stored in log format v3`)
+    expect(read.events).toHaveLength(2)
   })
 
   /**
    * Store a historical parent and its historical subagent child at
-   * SOURCE_CWD, then read the parent once so its preparation is memoized.
+   * SOURCE_CWD, publish the child's current successor through a write open
+   * (a historical child refuses to move), then read the parent once so its
+   * preparation is memoized.
    */
   async function historicalFamily() {
     const root = await freshRoot()
@@ -487,6 +541,11 @@ describe.each(['none', 'zstd'] as const)('JsonlSessionPersistence.relocate (%s)'
     await write(parent, SOURCE_CWD, [], false)
     await write('child', SOURCE_CWD, [{ type: 'subagent/descriptor', seq: 0, time: 2, data: { version: 3, mode: 'continuable', provider: 'spawn', label: 'old child' } }], true)
     const ctx = await mount(root, compression)
+    const child = join(sessionDir(root, SOURCE_CWD, SessionId('child')), generationLogFilename(3, compression))
+    const stored = await fingerprint(child)
+    await expect(ctx.sessionPersistence.relocate!(SessionId('child'), TARGET_CWD)).rejects.toThrow('is stored in log format v3')
+    expect(await fingerprint(child)).toEqual(stored)
+    await (await ctx.sessionPersistence.open(SessionId('child'), 'write')).close()
     const catalog = (await readEvents(ctx.sessionPersistence, parent)).events
     return { ctx, parent, catalog }
   }
@@ -2067,6 +2126,8 @@ describe('a relocation past its commit point', () => {
     expect(snapshot.header).toEqual({ ...before.header, cwd: TARGET_CWD })
     expect(snapshot.revision).not.toBe(before.revision)
     expect(snapshot.revision).toMatch(/^relocated:/)
+    // A relocation moves only the current format.
+    expect(snapshot.formatStatus).toBe('current')
     expect(seen).toEqual([snapshot])
     expect(warn).toHaveBeenCalledWith(expect.stringContaining(`its new location could not be read: ${reason}`))
   })

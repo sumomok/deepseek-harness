@@ -78,7 +78,7 @@ describe('ui-settings-general shell', () => {
   }, COLD_BOOT_TIMEOUT_MS)
 
   it('declares its services', () => {
-    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote', 'remote.settings', 'configForms', 'shortcuts'])
+    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote', 'remote.settings', 'configForms', 'shortcuts', 'modules'])
   })
 
   it('occupies sidebar.settings, declared by ui-sidebar, and declares every child slot', async ({ start }) => {
@@ -127,9 +127,7 @@ describe('ui-settings-general shell', () => {
     expect(rows.find(row => row.id === 'models')?.label).toBe('Shadow')
   })
 
-  it('shows Account first in Desktop while signed in and removes it on sign-out', async ({ start }) => {
-    vi.stubGlobal('dshDesktop', {})
-    onTestFinished(() => { vi.unstubAllGlobals() })
+  it('shows Account first only while signed in and removes it on sign-out', async ({ start }) => {
     const c = await start()
     const { sections } = injectedOf(c).hooks
     await c.mock.streams.opened('account/watch', 1)

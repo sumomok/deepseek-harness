@@ -43,6 +43,7 @@ import { TestRemote } from './remote.ts'
 import { TestSessions } from './sessions.ts'
 import { TestWorkspaces } from './workspaces.ts'
 import type { Stabilizer } from './fixtures.ts'
+import { allowAllAccessPlugin } from './access.ts'
 
 export type { UseSession } from '@deepseek-ai/dsh-client-ui-session/client'
 export { domSnapshotSerializer, registerDomSnapshotSerializer } from './snapshot.ts'
@@ -58,6 +59,8 @@ export type {
   FixtureSnapshot, SessionBehaviorOverrides, SessionFixture, SessionFixtureSnapshot, Stabilizer,
 } from './fixtures.ts'
 export { makeTranslate } from './translate.ts'
+export { allowAllAccess, allowAllAccessPlugin } from './access.ts'
+export type { AccessStandardProps } from './access.ts'
 export { usePinnedBrowserLanguages } from './locale-env.ts'
 
 /**
@@ -289,6 +292,7 @@ export class SlotTestRuntime {
     const fiber = ctx.plugin(SlotRegistry)
     await fiber.await()
     const runtime = new SlotTestRuntime(ctx, ctx.get('slots') as SlotRegistry)
+    await ctx.plugin(allowAllAccessPlugin).await()
     await ctx.plugin({ inject: [...uiSessionInject], apply: applyUiSession }).await()
     return runtime
   }

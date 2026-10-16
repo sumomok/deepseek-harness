@@ -24,9 +24,9 @@ Status: implemented
 
 **卡片显示等待状态，并用读者的语言。** 命令 Definition 折叠关联的 `compaction/start`；在它到来之前，未结算的 `/compact` 卡显示 `等待压缩…` / `Waiting to compact…`，之后显示 `正在压缩…`。Host 进程在请求等待时退出，就不会有 `command/done`；上游的孤儿卡只持续几秒，这里的等待可长达整个轮次。重新加载时，agent-loop 的恢复会为崩溃留下的开放轮次追加（session-query 的冷读会合成）一条原因为 `interrupted` 的 `turn/end`，循环在运行中从不发出这个原因。`command/run` 位于这样的轮次、尚未结算、且没有关联的 `compaction/start` 时，卡片结算为 `压缩没有完成（应用中途退出）` / `Compaction did not finish (the app exited)`。`aborted` 轮次不算：Stop 的 `command/done` 紧跟在它的 `turn/end` 之后。Host 的固定英文结果文本从不依赖 cordis 的 `@deepseek-ai/dsh-command-compact/result-text` 叶模块导出；客户端 bundle 不能导入这个值，所以 `chat/compact-result.ts` 重述这张表，`satisfies typeof COMPACT_RESULT_TEXT` 在 Host 文本改变时让构建失败。
 
-**压缩相关的行位于两层折叠之外。** `process-groups.ts` 把 `manual-compaction` 列为独立根，`contract/turn-process.ts` 把它列入已完成轮次整轮折叠之外的类别。自动压缩失败行经 `auto-compaction-policy-seat` 得到同样两处登记。
+**压缩相关的行位于两层折叠之外。** `command.ts` 的命令 Definition 把 `/compact` 卡片的分组树位置声明为 `turn`，与 `turn-error` 声明的位置相同：卡片结束前面的步骤组，并位于已完成轮次的整轮折叠之外。自动压缩失败行经 `auto-compaction-policy-seat` 得到同样的声明。
 
-**为什么是核心补丁。** 引擎监听器、Service Definition 与消费方都在上游包里，两处折叠集合是 `ui-chat` 内部的常量。提供时机的一方必须同时随桌面线与控制台线出货；本仓库之外的包只能到达桌面。
+**为什么是核心补丁。** 引擎监听器、Service Definition 与消费方都在上游包里，`/compact` 卡片的分组树位置由 `ui-chat` 自己的命令 Definition 声明，插件改不了。提供时机的一方必须同时随桌面线与控制台线出货；本仓库之外的包只能到达桌面。
 
 ## 考虑过的替代方案
 

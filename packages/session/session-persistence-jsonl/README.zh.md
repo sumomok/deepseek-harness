@@ -46,6 +46,7 @@ kind: "package-reference"
 |---|---|---|
 | `root` | 必填 | 所有会话文件的根目录 |
 | `compression` | `'zstd'` | 物理编码：`'zstd'` 带校验和帧，或 `'none'` 换行分隔 UTF-8 文本 |
+| `listConcurrency` | `3` | 同时进行的目录、header 与 stat 读取上限，由该后端所有并发的列举共用 |
 
 实时事件的写入批处理不是配置：批处理窗口是该 seam 在每个写句柄内部的调度策略。
 
@@ -79,9 +80,15 @@ kind: "package-reference"
 
 当前代际扫描器在处理可恢复尾部之前，执行当前编解码器所有者的结构准入检查。已退役的必需 PTC 标签与 `request/header.header.system` 即使出现在较早的畸形行之后也会导致文件被拒绝；恢复绝不将它们作为普通损坏尾部数据截断。
 
+卸载后端时，会先等待经由 `sessionPersistence` 注入所触发的消费者卸载，再移除实时事件监听器、排空并关闭剩余句柄。消费者必须在该注入作用域中注册清理；无依赖关系的作用域，以及显式关闭的 Session 或句柄，各自遵循其生命周期。通过代码挂载时，使用插件命名空间（`import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'`）调用 `ctx.plugin`，并通过 `ctx.sessionPersistence` 访问存储。
+
 ### 读取日志
 
+已实体化的 `stat` 与 `list` 快照在转换后的逻辑 `header` 之外，通过 `formatStatus` 保留格式 catalog 的头部分类。只读准备不会改变所选历史版本；发布后继之后，状态才变为 `current`。尚未实体化的待定 Session 省略 `formatStatus`。
+
 `open(id, 'read'|'write')` 选择最高规范 generation。当前格式输入走普通快速路径。对于历史输入，只读 open 会单遍解码并迁移源、校验当前逻辑结果，然后在不发布后继的情况下返回。写 open 会在可用时复用按 revision 为键的 preparation，否则执行同一套 preparation，再按有界分片编码同目录临时文件、在 Worker Thread 中校验、复查源修订，并在返回前以不覆盖方式发布当前后继。源保持逐字节不变。如果源在 preparation 后发生变化，该次写 open 会失败，已经返回给读方的逻辑历史不会被替换；后续写 open 会针对新的 revision 重新执行 preparation。后端在 memo 化前冻结已解码的 event graph，并在此时将其标记为 `shared-frozen`；每个嵌套对象和数组都会冻结，句柄读取和 slice 即使为空也保留该状态。只有尚未实体化的 pending 空日志报告 `detached`。`stat(id)` 与 `list()` 只选择并转换最高 generation 的 header，不读取事件行，也不启动迁移；快照携带所选文件的 `sizeBytes` 与尽力而为的修订号。当前格式修订号标识该文件；历史格式修订号还包含持久化根目录中所选文件的指纹，因此子日志变化会使缓存的逻辑事件失效。指纹只读取文件系统元数据；无关变化也会保守地使历史修订号失效。一次 `list()` 为其历史条目共用一个全库指纹。选择 `compression: 'none'` 后，日志是外部读取方可直接消费的换行分隔文本；压缩默认值必须经后端读取。
+
+校验只有在 Worker 自然以退出码 0 结束后，才接受其成功响应。并发配额一直保留到该次退出；取消或 Worker 错误会先终止并等待 Worker 退出，再使校验失败。
 
 历史正文准备通过 [V3→V4](../session-format-v3-to-v4/README.zh.md) 补齐父目录：从 header 找到候选直属子 Session，通过历史编解码器逐个读取其自身 descriptor，保留紧凑证据与来源修订。此过程不准备子目录，也不发布子后继。不可读或不支持的 header（包括损坏的 Zstandard header 帧）不参与发现，也不出现在 `list()` 中。直接访问损坏的压缩 header 仍会失败；header 的 I/O 错误与取消错误继续传播。子日志解码或 descriptor 字段失败会产生带子路径的警告；父目录没有完整条目时，通过 `subagent/catalog` 保留 header 身份信息。健康子项和已有父目录项仍可使用。打开损坏子 Session 时仍报告该子会话的错误。缺失、不支持或多个 descriptor 同样生成模式未知的目录项，不编造标签。已发布的未知条目仍可浏览；读取子历史时会重试实际日志，并从有效 descriptor 确定模式。准备返回、复用与发布前会重新检查成员集合及已检查来源的修订，也包括读取失败的子日志，使修复后的子日志能够使旧准备缓存失效。来源变化时只读打开重试一次，写打开拒绝发布。取消仍会中止操作。当前 V4 打开跳过发现，并在暴露事件前校验目录字段、唯一性及当前投递归属。
 
@@ -90,7 +97,7 @@ kind: "package-reference"
 <a id="relocating-a-session"></a>
 ### 迁移会话位置
 
-`relocate(id, cwd)` 把已存会话移到 `sessionDir(root, cwd, id)`，并替换其 header cwd。它取得进程内写认领以及源、目标两个目录的写锁，因此任何进程中的写入方都会让它以 `SessionAlreadyOwnedError` 拒绝，读句柄则可以保持打开。活着的 Agent 在其宿主停止前一直持有会话的写句柄，所以本进程写句柄造成的拒绝会说明：重启宿主，并在任何东西恢复该会话之前搬迁。历史格式会话先得到当前格式后继，发布方式与写 open 完全相同。随后后端在目标位置旁写出改写后的当前 generation——新的 header 记录、源文件旧 header 之后的已提交字节，以及从撕裂尾部恢复出的记录——并在 Worker Thread 中校验；Worker 判定副本不合格时以 `SessionPersistenceCorruptionError` 拒绝搬迁，Worker 未作判定就失败时以点名暂存副本的错误拒绝。保留的前几代以隐藏名移入目标目录，源当前 generation 被隐藏，发布新的当前 generation 即为提交点；此后前几代恢复原名，源目录被删除，只有含不认识文件的目录会保留并报告。源与目标位于不同文件系统、目标已含已存日志、或目标项目目录或会话目录是发现过程不列出的符号链接时，在移动任何会话文件之前拒绝；拒绝时删除本次搬迁建出的目标会话目录，而本次建出的目标项目目录保留。目标 cwd 规范化后的项目目录与源相同时，原地改写当前 generation。
+`relocate(id, cwd)` 把已存会话移到 `sessionDir(root, cwd, id)`，并替换其 header cwd。它取得进程内写认领以及源、目标两个目录的写锁，因此任何进程中的写入方都会让它以 `SessionAlreadyOwnedError` 拒绝，读句柄则可以保持打开。活着的 Agent 在其宿主停止前一直持有会话的写句柄，所以本进程写句柄造成的拒绝会说明：重启宿主，并在任何东西恢复该会话之前搬迁。最高一代是历史格式的会话在读取日志之前就以 `Error` 拒绝：会话第一次写 open 时发布当前格式后继，所以消息说明先打开一次会话，再重启宿主，并在任何东西恢复它之前搬迁。随后后端在目标位置旁写出改写后的当前 generation——新的 header 记录、源文件旧 header 之后的已提交字节，以及从撕裂尾部恢复出的记录——并在 Worker Thread 中校验；Worker 判定副本不合格时以 `SessionPersistenceCorruptionError` 拒绝搬迁，Worker 未作判定就失败时以点名暂存副本的错误拒绝。保留的前几代以隐藏名移入目标目录，源当前 generation 被隐藏，发布新的当前 generation 即为提交点；此后前几代恢复原名，源目录被删除，只有含不认识文件的目录会保留并报告。源与目标位于不同文件系统、目标已含已存日志、或目标项目目录或会话目录是发现过程不列出的符号链接时，在移动任何会话文件之前拒绝；拒绝时删除本次搬迁建出的目标会话目录，而本次建出的目标项目目录保留。目标 cwd 规范化后的项目目录与源相同时，原地改写当前 generation。
 
 除非其他写入方在此期间以同一 id 存下会话（见下文），每一步都对所有读方保持两条事实，包括不支持 relocate 的构建：至多一个目录含该会话的规范 generation，且最高一代的 header cwd 指向该目录。在隐藏源与发布目标之间会话不存在：`stat` 报告会话不存在，`list` 不列出它，`open` 以 `SessionPersistenceNotFoundError` 拒绝。在源被隐藏前一刻已定位到源的 `open` 或句柄读取会重新定位会话，在新位置读取它；会话不存在时以 `SessionPersistenceNotFoundError` 拒绝。根目录下的 `.relocate.<sha256>.json` 意图记录点名两个目录，直到搬迁落定。只有持有意图所点名两个目录之锁的一方才会恢复或删除意图，并在持锁后再读一次意图。relocate 先取得会话所在目录的锁，再落定该会话遗留的意图，发布自己的意图时不替换已有意图，因此在它取锁之前退出的搬迁留下的意图会被落定，而不会被覆盖。后端的第一次操作会恢复已退出进程留下的每条意图：目标当前 generation 不存在时回滚；存在且是被搬日志的延续时补完，即暂存副本还在时它以暂存副本开头，否则它的 header 记录除 cwd 外与被隐藏的源当前 generation 的逐字段相同，且它 header 之后的字节以该 generation 在 header 之后的已提交字节（意图里记录的长度）开头；与存储矛盾、或其目录被其他持有者占用的意图会保留并报告。任何恢复都不发事件：后端第一次操作时的恢复不发，relocate 落定意图时也不发。搬迁成功后，释放锁之后用 `ctx.parallel` 分发 `session-persistence/relocated`，等所有监听器结束后才返回；抛错或拒绝的监听器不影响其他监听器，搬迁仍然成功，每个失败的监听器记一条警告。目标发布之后搬迁即生效：之后失败的清理步骤或对已搬会话快照的读取只记警告，快照读取失败时返回搬迁后的 header 与一个任何 `stat` 都不会返回的 revision。
 
@@ -112,7 +119,7 @@ relocate 删除源目录时连同其持有的锁文件一起删除，因此写 o
 
 ### 设计理念
 
-该后端拥有自己完整的存储运行时（`src/storage.ts`）：`JsonlSessionHandle` 承载逐句柄修改链、带固定批处理窗口与 single-flight 排空的已路由实时事件缓冲、单调读取与幂等 close；一个 tracker 持有进程内单写者认领、teardown 清扫所遍历的打开句柄集合，以及后端自己的会话监听器所路由进的已创建但未实体化待定会话。历史正文读取共享每个 Session 唯一的一次 Decode/Migrate preparation，按 revision 为键的有界 memo 让紧接的观察到恢复交接复用该解析；backend 在 memo 化前只对每个 event graph 深度冻结一次，因此后续 handle read 无需复制或再次冻结。只有写 open 才发布准备好的后继。本包有意只暴露默认插件导出与配置类型——具体类不是具名导出，因此消费方只耦合 `ctx.sessionPersistence`，其可观察行为由共享 seam 测试套件（`runPersistenceContract`/`runLiveWritePathContract`）钉住。物理修订号组合 device、inode、size 与纳秒时间戳，供准备缓存、稳定读取重试及发布检查使用。历史格式的公开修订号还加入所选路径排序后及其物理修订号的 SHA-256 指纹；锁文件与保留但未被选中的代际不参与计算。
+该后端拥有自己完整的存储运行时（`src/storage.ts`）：`JsonlSessionHandle` 承载逐句柄修改链、带固定批处理窗口与 single-flight 排空的已路由实时事件缓冲、单调读取与幂等 close；一个 tracker 持有进程内单写者认领、teardown 清扫所遍历的打开句柄集合，以及后端自己的会话监听器所路由进的已创建但未实体化待定会话。历史正文读取共享每个 Session 唯一的一次 Decode/Migrate preparation，按 revision 为键的有界 memo 让紧接的观察到恢复交接复用该解析；backend 在 memo 化前只对每个 event graph 深度冻结一次，因此后续 handle read 无需复制或再次冻结。只有写 open 才发布准备好的后继。本包暴露插件导出与配置类型——具体类是私有的，因此消费方只耦合 `ctx.sessionPersistence`，其可观察行为由共享 seam 测试套件（`runPersistenceContract`/`runLiveWritePathContract`）钉住。物理修订号组合 device、inode、size 与纳秒时间戳，供准备缓存、稳定读取重试及发布检查使用。历史格式的公开修订号还加入所选路径排序后及其物理修订号的 SHA-256 指纹；锁文件与保留但未被选中的代际不参与计算。
 
 ### 物理编码
 
@@ -175,9 +182,11 @@ JSONL 存储不修改实时请求前缀。只有重建历史、当前 envelope �
 - **压缩文件不能直接按行读取**——使用后端加载；或在写入新根前选择 `compression: 'none'`，供外部行读取方使用。
 - **除 relocate 在目标持久后删除源副本外，不删除会话文件**——日志在 `root` 下累积，直到外部移除；seam 无删除接口。搬到另一个项目目录后，源项目目录留在原处，没有其他内容时为空。
 - **搬迁后的前几代保留旧 header cwd**——只要当前 generation 存在，它们就不会被读取；手工删除当前 generation 会选中 header 指向另一目录的前一代，此后列出根目录会失败。搬迁期间会话短暂占用两倍空间。
+- **relocate 只搬当前格式的会话**——最高一代是历史格式的会话要先打开一次，由此发布当前格式后继；打开它的宿主在停止前一直以写模式持有它，所以搬迁之前要重启宿主。
 - **恢复分不清没有事件的被搬会话与 `createdAt` 相同的同 id 会话**——搬迁在源被隐藏、暂存副本已不在时停下后，恢复接受这样的目标当前 generation：其 header 记录除 cwd 外与被隐藏的源逐字段相同，且其后的字节以源的已提交字节开头。没有事件的会话没有可比较的字节，所以在目标处存下、header 只有 cwd 不同（`createdAt` 精确到毫秒也相同）的同 id 会话会被当作被搬会话：恢复把搬迁补完到它上面，并删除被隐藏的源。
 - **看到搬迁中的会话不存在的 create 仍可能存下第二份**——`create` 在调用时检查 id，在第一次 append 时才存储。看到会话不存在、而第一次 append 发生在后端查找同 id 会话之后（这次查找先于发布目标或恢复源）的 create，会让该 id 出现在两个目录，此后列出根目录会失败，与两个进程在不同 cwd 下用同一 id 创建时相同。
 - **每会话一个活动写入方**——写句柄认领在所属后端实例内排除第二个写入方，内核锁（`session.lock` 上的非阻塞 `flock(2)`；Windows 上为由该路径派生的命名内核信号量，零文件系统足迹）排除其他所有实例与进程；锁在以写模式打开既有产物时立即获取，新建会话则仅在首次实体化写入之前获取，因此未实体化的会话不留任何文件系统足迹。崩溃持有者的锁随其进程消亡，会话立即可再写入，而活着但卡死的持有者会阻塞写入方直到其进程退出（POSIX 上删除锁文件即放弃该排他；释放本身从不删除它，只有锁的持有者会删除它，且是连同它正在删除的会话目录一起删除）。发生过 relocate 之后，该排他还要求写入该根目录的每个进程都运行在取锁后再次解析会话的构建：没有这一检查的构建可能锁住 relocate 已删除的目录，并在新位置的写入方旁边追加。咨询式 `flock` 在部分网络文件系统（NFSv3）上不可靠，Windows 信号量名按登录会话隔离。
+- **根作用域的并发卸载不保证顺序**——Cordis 可能在提供者等待消费者清理前，已将正在卸载的消费者移出注册表。此处的依赖顺序仅覆盖移除该提供者所触发的消费者卸载。
 - **POSIX 实体化需要硬链接支持**——第一次 append 使用 `link()`，使同 id 竞态失败而不覆盖已提交日志；Windows 使用无替换 write-through rename。
 - **POSIX 写入需要匹配的预编译系统 addon**——[`node-addon-system`](../../../native/system/README.zh.md) 提供异步 flock，无须在用户侧编译。addon 缺失时拒绝写入所有权；Windows 保留其信号量实现。
 

@@ -3,6 +3,7 @@ import { lazy, Suspense, useMemo } from 'react'
 import type { ReactNode } from 'react'
 import { MarkdownText, type MarkdownLabels, type MarkdownPathImages } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
+import { parseFileAddress } from '@deepseek-ai/dsh-util-workspace-path'
 import type { DocumentPreviewProps } from '../document/contract.ts'
 import { splitFrontmatter } from './frontmatter.ts'
 import type { FrontmatterFieldsProps } from './frontmatter-fields.tsx'
@@ -33,9 +34,11 @@ export type MarkdownBodyProps = DocumentPreviewProps & PropsLocale<'documentMark
  */
 export function MarkdownBody({ content, resourceAddress, useResource, t }: MarkdownBodyProps): ReactNode {
   const absolutePath = useResource<'file'>(resourceAddress).value?.absolutePath
+  const address = parseFileAddress(resourceAddress)
+  const sessionId = address?.scope === 'session' ? address.sessionId : undefined
   const pathImages = useMemo<MarkdownPathImages>(() => ({
-    resolve: value => markdownImageUrl(document.baseURI, absolutePath, value),
-  }), [absolutePath])
+    resolve: value => markdownImageUrl(document.baseURI, absolutePath, value, sessionId),
+  }), [absolutePath, sessionId])
   const copyLabel = t('code.copy')
   const copiedLabel = t('code.copied')
   const footnotes = t('footnotes')

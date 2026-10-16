@@ -56,7 +56,7 @@ The plugin injects `storageDomain`, `sessionProjections`, and `sessions`. The ge
 
 Three mandatory points always write: session creation persists the seed-derived cut, `turn/end` persists the value that listing reads want, and session disposal persists the final live cut. Between them, the configured count and interval throttles write as events accumulate. Every write atomically replaces the session's complete record through the domain write chain; a failure logs a warning and keeps the cache stale, and the next write self-heals.
 
-A `session-persistence/relocated` event writes once more: when the stored record's lifecycle (`createdAt`, `cwd`, `isSeeded`) matches the header before the move, at the current or a predecessor format generation, the record takes the new cwd and keeps its rows, because a move leaves every event unchanged. Listing reads for the moved session therefore keep their cached values. This write is fail-soft as well.
+A `session-persistence/relocated` event writes once more: when the stored record's lifecycle (`createdAt`, `cwd`, `isSeeded`) matches the header before the move, at the current or a predecessor format generation, the record takes the new cwd. A move leaves every event unchanged and a unit's `apply` never reads the header, so the record keeps each row whose unit's `init` returns the same value for the headers before and after the move. It drops a row whose unit starts from the header cwd, such as the working directory, and a row of a unit not registered at the move; those values fold again from the log. Listing reads for the moved session therefore keep the cached values that do not start from the cwd, such as the title. This write is fail-soft as well.
 
 ### Reading cached values
 

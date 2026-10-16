@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-**一个 ROOT 作用域的 cordis waterfall 事件 `referent/open` 是所有引用点击共同经过的唯一拦截点。** 它声明在 `packages/api/session-controller/src/client/referent.ts`，并从该包的 `client` 出口导出。派发点先跑这条 waterfall，再回落到自己既有的打开动作，因此树中任何位置的监听者都能拦下一次点击而可点元素本身无须知道监听者存在，之后新增的可点元素只要派发就自动可拦截，不必再造自己的缝隙。当前两处派发点都在 `ui-chat` 的 `apply.ts`——`openFile` 闭包（`source: 'chat-view.openFile'`，`enteredAs: 'structured'`）与[chat 正文 referents 缝隙](2026-09-01-chat-prose-referents-seam-port.zh.md)的 span 打开器（`source: 'chat-prose'`，`enteredAs: 'model-text'`）——`ui-chat` 在其 `apply.ts` 的 `inject` 列表里声明了 `'referent'`。
+**一个 ROOT 作用域的 cordis waterfall 事件 `referent/open` 是所有引用点击共同经过的唯一拦截点。** 它声明在 `packages/api/session-controller/src/client/referent.ts`，并从该包的 `client` 出口导出。派发点先跑这条 waterfall，再回落到自己既有的打开动作，因此树中任何位置的监听者都能拦下一次点击而可点元素本身无须知道监听者存在，之后新增的可点元素只要派发就自动可拦截，不必再造自己的缝隙。两处派发点在 `ui-chat` 的 `apply.ts`——`openFile` 闭包（`source: 'chat-view.openFile'`，`enteredAs: 'structured'`）与[chat 正文 referents 缝隙](2026-09-01-chat-prose-referents-seam-port.zh.md)的 span 打开器（`source: 'chat-prose'`，`enteredAs: 'model-text'`）。第三处是已发送用户文本里的文件引用：`ui-reference` 的 `src/client/index.ts` 给 `conversation.user.text.node` 注入的打开动作以 `source: 'user-text.file-reference'`、`enteredAs: 'user-text'` 派发，默认动作是在右侧 Sidebar 打开文件。两个包都在各自的 `inject` 列表里声明了 `'referent'`。
 
 **`ReferentKindMap` 经声明合并可扩展，预置 `file`、`dir`、`url` 三种。** 要打开新类型目标的包通过声明合并往这张表里加键，而不是去加宽 `referent.ts`，与 `ContentBlockMap` 的词表增长方式一致。因此监听者对 `kind` 做 switch 时必须带一个有文档说明的 `default` 分支，绝不用 `assertNever`：这个联合类型是跨包边界增长的，对着比运行时构建更窄的 `ReferentKindMap` 编译出来的监听者会收到叫不出名字的 kind，此时经 `next()` 转交这次点击才是正确答案。
 
@@ -40,7 +40,7 @@ Status: implemented
 
 ## 后果
 
-`packages/api/session-controller/tests/referent.client.spec.ts` 钉住这条缝隙：无监听者时的默认动作、认领的监听者压住默认动作、经 `next()` 的转交、由外向内的注册顺序与 `prepend`、经 `ctx.effect` 的 disposer 摘除监听者、同步抛出与 promise 拒绝两条回落路径及其日志、转交之后才抛错时默认动作不重跑的保证，以及未识别的 `kind` 走转交而不是抛错。其 `ClientReferent` 代码块覆盖注册为 `ctx.referent`、默认与认领两条路径上与自由函数的一致性、派发用的是调用方 context 而非构造时的 context，以及所属 fiber 卸载时的注销。`packages/client/ui-chat/tests/apply-inject.client.spec.tsx` 钉住派发点：各自产出的确切 `ReferentRef`、工作区根目录以 `kind: 'dir'` 到达而其余路径一律 `kind: 'file'`，以及未被认领时回落到 `openWorkspacePath`、回落到 `window.open`、回落到 composer 的 not-found 提示。
+`packages/api/session-controller/tests/referent.client.spec.ts` 钉住这条缝隙：无监听者时的默认动作、认领的监听者压住默认动作、经 `next()` 的转交、由外向内的注册顺序与 `prepend`、经 `ctx.effect` 的 disposer 摘除监听者、同步抛出与 promise 拒绝两条回落路径及其日志、转交之后才抛错时默认动作不重跑的保证，以及未识别的 `kind` 走转交而不是抛错。其 `ClientReferent` 代码块覆盖注册为 `ctx.referent`、默认与认领两条路径上与自由函数的一致性、派发用的是调用方 context 而非构造时的 context，以及所属 fiber 卸载时的注销。`packages/client/ui-chat/tests/apply-inject.client.spec.tsx` 钉住派发点：各自产出的确切 `ReferentRef`、工作区根目录以 `kind: 'dir'` 到达而其余路径一律 `kind: 'file'`，以及未被认领时回落到 `openWorkspacePath`、回落到 `window.open`、回落到 composer 的 not-found 提示。`packages/client/ui-reference/tests/browser-plugin.client.spec.ts` 钉住用户文本的派发：它产出的、目标已按工作区解析的 `ReferentRef`，认领的监听者压住 Sidebar 打开，以及转交的监听者到达该默认动作。
 
 `packages/test-support/client-runtime` 的 `SlotTestRuntime` 挂载的是生产实现 `ClientReferent` 而不是测试替身：它是一个无状态的派发薄封装，因此每个测试台都能获得真实的 `referent/open` waterfall 行为，也不必再维护一个需要同步跟进的桩件。
 

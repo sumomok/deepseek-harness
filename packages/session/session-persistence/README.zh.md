@@ -62,6 +62,8 @@ await ctx.sessionPersistence.flush()                           // backend-wide d
 
 ### 失败与恢复
 
+对于版本化产物，`stat` 与 `list` 通过 `formatStatus` 暴露 `current` 或 `migration-required`。独立的 `header` 仍是当前逻辑元数据。该状态描述存储，不描述内存准备或迁移任务；没有这项信息的提供方省略该字段。
+
 当前构建无法忠实解读的存储日志会被拒绝，并返回指明拒绝方向的错误，绝不会被误读。`SessionHandle` 只暴露由 `SESSION_FORMAT_VERSION` 标识的当前逻辑记录；提供方必须在返回句柄前转换任何受支持的历史存储，随产品交付的 JSONL 提供方会通过静态 catalog 迁移受支持的历史代际。更新的格式会要求操作者升级 harness。本构建不认识的事件类型会被拒绝，除非其信封标记为 `ignorable`；已提交前缀中的损坏以 `SessionPersistenceCorruptionError` 拒绝。
 
 -----
@@ -86,7 +88,7 @@ await ctx.sessionPersistence.flush()                           // backend-wide d
 - **持久性。** `append` 尽力而为地持久化；`flush`——逐句柄或服务级——是承诺存储并同时把空会话实体化的屏障。
 - **遇到未知或无效格式时拒绝读取。** `validateStoredEvents` 拒绝未知事件词汇与已废弃的预发布形态；`assertVersion` 拒绝外来格式版本。
 - **每个后端实例单写者。** 提供方的进程内认领在 `create`/`open('write')` 时取得，在句柄关闭时释放。
-- **可选的 relocate。** 后端可以实现 `relocate(id, cwd)`：把已存会话移到另一个 cwd 对应的存储位置，只替换 header 的 cwd，id、谱系、inherited cut、事件与 seq 都不变。会话被写句柄或 pending create 占用时拒绝；已存 cwd 已等于 `cwd` 时不做任何改动；释放写所有权后用 `ctx.parallel` 分发 `session-persistence/relocated`，等所有监听器结束后才返回；抛错或拒绝的监听器记一条警告，不影响其他监听器，搬迁仍然成功。恢复中断的搬迁时不发该事件。读句柄可以保持打开：会话在两个位置之间不存在时，`open` 与访问存储的句柄读取以 `SessionPersistenceNotFoundError` 拒绝；在搬迁前一刻已定位到旧位置的 `open` 或读取会重新定位会话。调用方先判断 `typeof ctx.sessionPersistence.relocate === 'function'`。
+- **可选的 relocate。** 后端可以实现 `relocate(id, cwd)`：把已存会话移到另一个 cwd 对应的存储位置，只替换 header 的 cwd，id、谱系、inherited cut、事件与 seq 都不变。它不追加任何事件：经 `working-directory/change` 事件改过有效目录的会话，保留最后记录的目录，只有该目录不存在时 working-directory 服务才把它换成新的 cwd；其他会话从新的 cwd 开始。要把有效目录一起搬时，由调用方恢复会话后调用 `ctx.workingDirectory.set`。会话被写句柄或 pending create 占用时拒绝；已存日志是历史格式时拒绝，会话第一次写 open 会迁移它；已存 cwd 已等于 `cwd` 时不做任何改动；释放写所有权后用 `ctx.parallel` 分发 `session-persistence/relocated`，等所有监听器结束后才返回；抛错或拒绝的监听器记一条警告，不影响其他监听器，搬迁仍然成功。恢复中断的搬迁时不发该事件。读句柄可以保持打开：会话在两个位置之间不存在时，`open` 与访问存储的句柄读取以 `SessionPersistenceNotFoundError` 拒绝；在搬迁前一刻已定位到旧位置的 `open` 或读取会重新定位会话。调用方先判断 `typeof ctx.sessionPersistence.relocate === 'function'`。
 
 ### 源码地图
 

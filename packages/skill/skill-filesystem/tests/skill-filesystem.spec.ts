@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   chmod, lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, symlink, writeFile,
 } from 'node:fs/promises'
@@ -255,6 +255,28 @@ describe('FileSystemSkillProvider', () => {
     })
     expect(await isolated.skills.list({ cwd: project })).toEqual([])
     await isolated.fiber.dispose()
+  })
+
+  it('treats an empty DSH_CLAUDE_HOME as unset and scans the operating-system home\'s Claude Code root', async () => {
+    const home = await tempDir('skill-blank-claude-home')
+    const cwd = await tempDir('skill-blank-claude-cwd')
+    await writeSkill(join(home, '.claude/skills'), 'home-claude', 'home claude skill')
+    await writeSkill(join(cwd, 'skills'), 'cwd-skills', 'cwd skill')
+    vi.stubEnv('HOME', home)
+    vi.stubEnv('USERPROFILE', home)
+    vi.stubEnv('DSH_CLAUDE_HOME', '')
+    const workingDirectory = vi.spyOn(process, 'cwd').mockReturnValue(cwd)
+    onTestFinished(() => {
+      workingDirectory.mockRestore()
+      vi.unstubAllEnvs()
+    })
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
+    const listed = (await ctx.skills.list()).map(skill => [skill.name, skill.source])
+    expect(listed).toContainEqual(['home-claude', 'user-claude'])
+    expect(listed.map(([name]) => name)).not.toContain('cwd-skills')
+    await ctx.fiber.dispose()
   })
 
   it('keeps one root per directory when a linked root duplicates another', async () => {

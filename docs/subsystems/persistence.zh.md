@@ -156,7 +156,7 @@ interface SessionHeader {
   readonly id: SessionId
   /** Non-negative safe-integer Unix epoch milliseconds when the session was created. */
   readonly createdAt: number
-  /** Absolute working directory of the session: where it was created, or the target of its latest relocate (if any). */
+  /** Absolute directory of the session's original project: where it was created, or the target of its latest relocate (if any). */
   readonly cwd?: string
   /** The session this one was forked from (seed lineage), if any. */
   readonly parentSession?: SessionId
@@ -188,7 +188,7 @@ interface SessionHeader {
 
 ## 格式拒绝：本构建无法可靠读取的日志
 
-后端用 `SessionFormatUnsupportedError` 拒绝无法可靠解读的日志，它与 `SessionPersistenceCorruptionError` 区分，因为数据没有损坏。`stat` 与 `list` 会对最高规范 generation 分类，并在不读取或改变正文的前提下转换受支持的历史 header。历史 `open` 会共享每个 Session 唯一的一次 migration preparation，再返回当前逻辑值，并保持每个源路径、字节与 inode 不变。JSONL 的 `relocate` 遇到最高 generation 为历史格式的会话时，先以同样方式发布 current successor，再把保留的各 generation 改名移入目标目录，字节与 inode 不变。JSONL provider 直接从该内存结果返回读句柄而不发布；写 open 则在持有单写者 claim 与文件 lease 时复用 preparation、排他发布最终 current generation，随后才返回可写句柄。即使仍有较旧的可读 generation，最高的未来 generation 仍会导致拒绝。当前格式恢复会保留已安装扩展和带 `ignorable: true` 的未知事件；历史 v0/v1/v2 迁移则会拒绝未知类型，即使它带有 ignorable 标记。后端为每个会话保留独立文件时，消息附上选定的原始日志路径。仓库外后端必须在自己的物理格式入口提供等价的仅当前句柄值与方向感知拒绝。[已发布格式迁移决策](../../.agents/notes/implemented/architecture/2026-08-31-released-session-format-migrations.zh.md)负责迁移链与不可变发布规则。
+后端用 `SessionFormatUnsupportedError` 拒绝无法可靠解读的日志，它与 `SessionPersistenceCorruptionError` 区分，因为数据没有损坏。`stat` 与 `list` 会对最高规范 generation 分类，并在不读取或改变正文的前提下转换受支持的历史 header。历史 `open` 会共享每个 Session 唯一的一次 migration preparation，再返回当前逻辑值，并保持每个源路径、字节与 inode 不变。JSONL 的 `relocate` 在读取之前就拒绝最高 generation 为历史格式的会话；写 open 发布 current successor 之后，搬迁把保留的各 generation 改名移入目标目录，字节与 inode 不变。JSONL provider 直接从该内存结果返回读句柄而不发布；写 open 则在持有单写者 claim 与文件 lease 时复用 preparation、排他发布最终 current generation，随后才返回可写句柄。即使仍有较旧的可读 generation，最高的未来 generation 仍会导致拒绝。当前格式恢复会保留已安装扩展和带 `ignorable: true` 的未知事件；历史 v0/v1/v2 迁移则会拒绝未知类型，即使它带有 ignorable 标记。后端为每个会话保留独立文件时，消息附上选定的原始日志路径。仓库外后端必须在自己的物理格式入口提供等价的仅当前句柄值与方向感知拒绝。[已发布格式迁移决策](../../.agents/notes/implemented/architecture/2026-08-31-released-session-format-migrations.zh.md)负责迁移链与不可变发布规则。
 
 ## `CreateSessionOptions`：seed 与元数据
 
@@ -313,6 +313,8 @@ type SessionPersistenceRevision = Branded<'SessionPersistenceRevision'>
 interface SessionPersistenceSnapshot {
   /** Detached metadata for one stored session. */
   readonly header: SessionHeader
+  /** Header-only format classification; absent without versioned artifact metadata. */
+  readonly formatStatus?: 'current' | 'migration-required'
   /** Opaque change token; see {@link SessionPersistence.stat}. */
   readonly revision: SessionPersistenceRevision
   /** Logical event count, when the backend can provide it cheaply from metadata; otherwise absent. */
@@ -420,7 +422,10 @@ abstract list(options?: SessionPersistenceListOptions): Promise<readonly Session
  * events, and seqs stay unchanged; the returned snapshot carries a new
  * revision. When the stored cwd already equals `cwd` (exact string
  * comparison) nothing changes, no event fires, and the current snapshot
- * returns, so a caller that crashed may repeat the call. Pass exactly the
+ * returns, so a caller that crashed may repeat the call; a stored log in a
+ * historical format is refused before this comparison. A caller can first
+ * test `stat(id).formatStatus === 'migration-required'` to know whether the
+ * session must be migrated by an open before it can move. Pass exactly the
  * cwd later resumes will pass: resume compares cwd strings exactly.
  *
  * Optional: callers test `typeof ctx.sessionPersistence.relocate ===
@@ -456,7 +461,9 @@ abstract list(options?: SessionPersistenceListOptions): Promise<readonly Session
  *   move, or an unfinished earlier move of the same session is malformed or
  *   contradicts the storage; when a move stays unfinished, the message
  *   names the backend's record of it.
- * @throws {Error} when the source and target locations are on different
+ * @throws {Error} when the stored log is in a historical format, which
+ *   the session's first write open migrates (the message says when a move
+ *   can succeed), when the source and target locations are on different
  *   filesystems, when the target location is one the backend's discovery
  *   does not list (for the JSONL backend, a symbolic link), or when the
  *   verification of the rewritten log fails without judging it.

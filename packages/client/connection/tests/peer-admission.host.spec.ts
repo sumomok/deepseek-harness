@@ -1,4 +1,4 @@
-/** Member Peer admission: the installed admitter decides every HTTP and upgrade request after Connection's own checks. */
+/** Peer admission: an installed admitter decides every authenticated HTTP and upgrade request after Connection's own checks. */
 import { request as httpRequest } from 'node:http'
 import { Context } from '@deepseek-ai/cordis'
 import WebServer from '@deepseek-ai/dsh-host-webserver'
@@ -17,14 +17,20 @@ import {
 } from '../src/index.ts'
 import { provideBrowserCredentials } from './browser-credentials.ts'
 
+declare module '@deepseek-ai/dsh-typert-protocol' {
+  interface PrincipalMap {
+    /** Test-only non-owner caller of the Connection admission specs. */
+    'connection-test-member': { readonly kind: 'connection-test-member'; readonly member: string }
+  }
+}
+
 /** The four ways a request reaches Host code: shared-channel interceptor, dedicated channel, exact Fetch route, upgrade. */
 type ProbePath = 'interceptor' | 'channel' | 'exact' | 'upgrade'
 
 interface Mounted {
   readonly ctx: Context
-  readonly connectionFiber: ReturnType<Context['plugin']>
-  /** Peers each probe handler received, in arrival order. */
-  readonly seen: Array<{ readonly path: ProbePath; readonly peer: PeerScope }>
+  /** Peers each probe handler received, in arrival order; an exact route receives none. */
+  readonly seen: Array<{ readonly path: ProbePath; readonly peer: PeerScope | undefined }>
   /** `error`-level log lines written while the root is mounted. */
   readonly errors: string[]
   readonly port: number
@@ -41,6 +47,7 @@ const PROBE_CHANNEL = '/probe-rpc'
 const PROBE_ENDPOINT = 'peer/check'
 const PROBE_EXACT = `${API_PATH}/peer.exact`
 const PROBE_UPGRADE = '/probe.upgrade'
+const SECRET_COOKIE_VALUE = 'cookie-value-that-must-not-be-logged'
 
 async function mount(config?: ConnectionConfig): Promise<Mounted> {
   const ctx = new Context()
@@ -48,14 +55,11 @@ async function mount(config?: ConnectionConfig): Promise<Mounted> {
   const errors: string[] = []
   ctx.logger.exporter({
     levels: { default: 3 },
-    export: (message) => { if (message.type === 'error') errors.push(String(message.args[0])) },
+    export: (message) => { if (message.type === 'error') errors.push(message.args.map(String).join(' ')) },
   })
   await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 })
   provideBrowserCredentials(ctx)
-  const connectionFiber = ctx.plugin({ inject: [...inject], apply }, config)
-  await connectionFiber
-  // Stands in for the deployment's route guard: with member admission on, an unguarded exact route or channel answers 503.
-  ctx.on('connection/fetch', (_call, next) => next())
+  await ctx.plugin({ inject: [...inject], apply }, config)
   const seen: Mounted['seen'][number][] = []
   const answer = async (path: ProbePath, peer: PeerScope): Promise<{ ok: true; value: null }> => {
     seen.push({ path, peer })
@@ -68,12 +72,12 @@ async function mount(config?: ConnectionConfig): Promise<Mounted> {
     path: PROBE_EXACT,
     methods: ['GET'],
     requestBody: 'buffered',
-    fetch: async (_request, peer) => {
-      seen.push({ path: 'exact', peer })
+    fetch: async () => {
+      seen.push({ path: 'exact', peer: undefined })
       return new Response('exact')
     },
   })
-  // The Gateway's upgrade route admits through the same call before binding a socket to the Peer.
+  // Gateway's upgrade route admits through the same call before binding a socket to the Peer.
   ctx.effect(() => ctx.webServer.registerUpgrade({
     path: PROBE_UPGRADE,
     handler: (req, socket) => {
@@ -83,10 +87,12 @@ async function mount(config?: ConnectionConfig): Promise<Mounted> {
       socket.end(`HTTP/1.1 ${String(status)} Probe\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`)
     },
   }), 'peer-admission spec: upgrade probe')
-  return { ctx, connectionFiber, seen, errors, port: ctx.webServer.port, cookie: browserCookie(ctx) }
+  const port = ctx.webServer.port
+  if (port === undefined) throw new Error('peer-admission fixture has no listening port')
+  return { ctx, seen, errors, port, cookie: browserCookie(ctx) }
 }
 
-/** Exchange the process token for the loopback authority's Cookie header. */
+/** Exchange the process token for the loopback authority's browser Cookie header. */
 function browserCookie(ctx: Context): string {
   const target = new URL(ctx.connection.authenticatedUrl(`http://127.0.0.1:${String(ctx.webServer.port)}`))
   let setCookie: string | undefined
@@ -108,18 +114,30 @@ async function probeAll(mounted: Mounted, headers: Record<string, string>): Prom
   }
   const json = { ...headers, 'content-type': 'application/json' }
   return {
-    interceptor: await send(mounted.port, `${API_PATH}/${PROBE_ENDPOINT}`, 'POST', json, JSON.stringify(envelope)),
-    channel: await send(mounted.port, `${PROBE_CHANNEL}/${PROBE_ENDPOINT}`, 'POST', json, JSON.stringify(envelope)),
-    exact: await send(mounted.port, PROBE_EXACT, 'GET', headers),
+    interceptor: (await send(mounted.port, `${API_PATH}/${PROBE_ENDPOINT}`, 'POST', json, JSON.stringify(envelope))).status,
+    channel: (await send(mounted.port, `${PROBE_CHANNEL}/${PROBE_ENDPOINT}`, 'POST', json, JSON.stringify(envelope))).status,
+    exact: (await send(mounted.port, PROBE_EXACT, 'GET', headers)).status,
     upgrade: await upgrade(mounted.port, headers),
   }
 }
 
-function send(port: number, path: string, method: string, headers: Record<string, string>, body?: string): Promise<number> {
+function send(
+  port: number,
+  path: string,
+  method: string,
+  headers: Record<string, string>,
+  body?: string,
+): Promise<{ readonly status: number; readonly setCookie: readonly string[]; readonly location: string | undefined }> {
   return new Promise((resolve, reject) => {
     const request = httpRequest({ host: '127.0.0.1', port, path, method, headers }, (response) => {
       response.resume()
-      response.on('end', () => { resolve(response.statusCode ?? 0) })
+      response.on('end', () => {
+        resolve({
+          status: response.statusCode ?? 0,
+          setCookie: response.headers['set-cookie'] ?? [],
+          location: response.headers.location,
+        })
+      })
     })
     request.on('error', reject)
     request.end(body)
@@ -143,60 +161,142 @@ function upgrade(port: number, headers: Record<string, string>): Promise<number>
   })
 }
 
-const ALL_OK: Record<ProbePath, number> = { interceptor: 200, channel: 200, exact: 200, upgrade: 204 }
-const ALL_UNAUTHORIZED: Record<ProbePath, number> = { interceptor: 401, channel: 401, exact: 401, upgrade: 401 }
-
-function trustRequest(mounted: Mounted): ConnectionTrustRequest {
-  return { headers: { host: `127.0.0.1:${String(mounted.port)}`, cookie: mounted.cookie } }
+/** Exchange the process launch token at `/connect` for an API Cookie header, as an API caller does. */
+async function apiCookie(mounted: Mounted): Promise<string> {
+  const target = new URL(mounted.ctx.connection.authenticatedUrl(`http://127.0.0.1:${String(mounted.port)}/connect`))
+  const connected = await send(mounted.port, `${target.pathname}${target.search}`, 'GET', {})
+  expect(connected.status).toBe(302)
+  expect(connected.location).toBe('./api/remote.mux')
+  const cookie = connected.setCookie[0]?.split(';', 1)[0]
+  if (cookie === undefined) throw new Error('peer-admission fixture did not receive an API cookie')
+  return cookie
 }
 
-describe('Connection member Peer admission', () => {
-  it('admits every path as the operator while no admitter is installed', async () => {
+const ALL_OK: Record<ProbePath, number> = { interceptor: 200, channel: 200, exact: 200, upgrade: 204 }
+const ALL_UNAUTHORIZED: Record<ProbePath, number> = { interceptor: 401, channel: 401, exact: 401, upgrade: 401 }
+const ALL_FORBIDDEN: Record<ProbePath, number> = { interceptor: 403, channel: 403, exact: 403, upgrade: 403 }
+/** A non-owner Peer reaches the interceptor, channels, and upgrades; the shared handler refuses it the exact route. */
+const MEMBER_OK: Record<ProbePath, number> = { interceptor: 200, channel: 200, exact: 403, upgrade: 204 }
+
+function trustRequest(mounted: Mounted, cookie = mounted.cookie): ConnectionTrustRequest {
+  return { headers: { host: `127.0.0.1:${String(mounted.port)}`, cookie } }
+}
+
+function member(mounted: Mounted, name: string): PeerScope {
+  return mounted.ctx.connection.createPeer({ principal: { kind: 'connection-test-member', member: name } })
+}
+
+/** The API credential records `/connect` published and Connection still holds, oldest first. */
+function apiRecords(mounted: Mounted): ReadonlyArray<{ readonly peer: PeerScope }> {
+  // The records are private; their count is the resource the bound limits.
+  const records = Reflect.get(mounted.ctx.connection, 'apiPeers') as ReadonlyMap<string, { readonly peer: PeerScope }>
+  return [...records.values()]
+}
+
+async function apiCookies(mounted: Mounted, count: number): Promise<string[]> {
+  const cookies: string[] = []
+  for (let index = 0; index < count; index += 1) cookies.push(await apiCookie(mounted))
+  return cookies
+}
+
+describe('Connection Peer admission', () => {
+  it('admits every path as browserPeer while no admitter is installed', async () => {
     const mounted = await mount()
     const { connection } = mounted.ctx
 
     expect(await probeAll(mounted, { cookie: mounted.cookie })).toEqual(ALL_OK)
-    expect(mounted.seen.map(entry => entry.path)).toEqual(['interceptor', 'channel', 'exact', 'upgrade'])
-    for (const entry of mounted.seen) expect(entry.peer).toBe(connection.operator)
+    expect(mounted.seen.map(entry => [entry.path, entry.peer])).toEqual([
+      ['interceptor', connection.browserPeer], ['channel', connection.browserPeer], ['exact', undefined], ['upgrade', connection.browserPeer],
+    ])
     expect(connection.requestRejection(trustRequest(mounted))).toBeUndefined()
-    // A carrier that dispatches the shared handler directly, naming no Peer, also speaks for the operator.
-    const direct = await connection.createSharedFetchHandler(API_PATH).fetch(new Request(`http://127.0.0.1${PROBE_EXACT}`))
-    expect(direct.status).toBe(200)
-    expect(mounted.seen.at(-1)?.peer).toBe(connection.operator)
-    expect(connection.peers.list()).toEqual([])
     expect(connection.peers.requireAdmitter).toBe(false)
     expect(mounted.errors).toEqual([])
   })
 
-  it('hands the admitted member Peer to every path and to requestRejection callers', async () => {
+  it('hands the Peer the admitter returns to every path and refuses it the exact route and requestRejection', async () => {
     const mounted = await mount()
     const { connection } = mounted.ctx
-    const member = connection.peers.open()
-    const admitter = vi.fn<PeerAdmitter>(() => member)
+    const alice = member(mounted, 'alice')
+    const admitter = vi.fn<PeerAdmitter>(() => alice)
     connection.peers.admitWith(admitter)
 
-    expect(await probeAll(mounted, { cookie: mounted.cookie })).toEqual(ALL_OK)
-    expect(mounted.seen.map(entry => entry.path)).toEqual(['interceptor', 'channel', 'exact', 'upgrade'])
-    for (const entry of mounted.seen) expect(entry.peer).toBe(member)
+    expect(await probeAll(mounted, { cookie: mounted.cookie })).toEqual(MEMBER_OK)
+    expect(mounted.seen.map(entry => entry.path)).toEqual(['interceptor', 'channel', 'upgrade'])
+    for (const entry of mounted.seen) expect(entry.peer).toBe(alice)
     expect(admitter).toHaveBeenCalledTimes(4)
-    expect(connection.admit(trustRequest(mounted))).toEqual({ peer: member })
-    expect(connection.requestRejection(trustRequest(mounted))).toBeUndefined()
-    expect(connection.peers.get(member.id)).toBe(member)
-    expect(connection.peers.list()).toEqual([member])
-    expect(connection.peers.get(connection.operator.id)).toBeUndefined()
+    expect(connection.admit(trustRequest(mounted))).toEqual({ peer: alice })
+    // Routes gated by requestRejection bypass every access check, so a non-owner Peer is refused there.
+    expect(connection.requestRejection(trustRequest(mounted))).toBe(403)
   })
 
-  it('refuses with 401 and calls no handler when the admitter names no member', async () => {
+  it('admits an owner Peer the admitter maps the operator to on every path', async () => {
     const mounted = await mount()
     const { connection } = mounted.ctx
-    connection.peers.admitWith(() => undefined)
+    const operator = connection.createPeer({ principal: { kind: 'owner' } })
+    connection.peers.admitWith(() => operator)
+
+    expect(await probeAll(mounted, { cookie: mounted.cookie })).toEqual(ALL_OK)
+    expect(mounted.seen.map(entry => entry.peer)).toEqual([operator, operator, undefined, operator])
+    expect(connection.requestRejection(trustRequest(mounted))).toBeUndefined()
+  })
+
+  it('refuses with 401 and logs without header values when the admitter returns no Peer or a disposed one', async () => {
+    const mounted = await mount()
+    const { connection } = mounted.ctx
+    const released = member(mounted, 'released')
+    await released.dispose()
+    let returned: PeerScope | undefined = undefined
+    connection.peers.admitWith(() => returned)
+    const headers = { cookie: `${mounted.cookie}; other=${SECRET_COOKIE_VALUE}` }
+
+    expect(await probeAll(mounted, headers)).toEqual(ALL_UNAUTHORIZED)
+    expect(connection.requestRejection(trustRequest(mounted))).toBe(401)
+    expect(mounted.errors[0]).toContain('named no Peer')
+    returned = released
+    expect(connection.admit(trustRequest(mounted))).toEqual({ rejection: 401 })
+    expect(mounted.errors.at(-1)).toContain('returned a disposed Peer')
+    expect(mounted.seen).toEqual([])
+    expect(mounted.errors.join('\n')).not.toContain(SECRET_COOKIE_VALUE)
+    expect(mounted.errors.join('\n')).not.toContain(mounted.cookie.split('=', 2)[1]!)
+  })
+
+  it('refuses every authenticated path with 401 and logs without header values when the admitter throws', async () => {
+    const mounted = await mount()
+    const { connection } = mounted.ctx
+    // The thrown message quotes the request headers, as a parse failure in an admitter can.
+    connection.peers.admitWith((request) => { throw new SyntaxError(`unreadable identity in ${JSON.stringify(request.headers)}`) })
+    const headers = { cookie: `${mounted.cookie}; other=${SECRET_COOKIE_VALUE}` }
+
+    expect(await probeAll(mounted, headers)).toEqual(ALL_UNAUTHORIZED)
+    expect(mounted.seen).toEqual([])
+    expect(mounted.errors).toHaveLength(4)
+    for (const error of mounted.errors) expect(error).toBe('client-connection: the Peer admitter threw SyntaxError; refusing the request with 401')
+  })
+
+  it('answers requestRejection 401 when the admitter throws', async () => {
+    const mounted = await mount()
+    const { connection } = mounted.ctx
+    connection.peers.admitWith(() => { throw new Error(`admitter failed on ${SECRET_COOKIE_VALUE}`) })
+
+    expect(connection.requestRejection(trustRequest(mounted))).toBe(401)
+    expect(connection.admitConnection(trustRequest(mounted))).toEqual({ rejection: 401 })
+    expect(mounted.errors.join('\n')).not.toContain(SECRET_COOKIE_VALUE)
+    expect(mounted.errors[0]).toBe('client-connection: the Peer admitter threw Error; refusing the request with 401')
+  })
+
+  it('refuses every authenticated path with 401 and logs only the type of a thrown value that is not an Error', async () => {
+    const mounted = await mount()
+    const { connection } = mounted.ctx
+    const cookie = await apiCookie(mounted)
+    connection.peers.admitWith(() => { throw `unreadable identity in ${SECRET_COOKIE_VALUE}` })
 
     expect(await probeAll(mounted, { cookie: mounted.cookie })).toEqual(ALL_UNAUTHORIZED)
-    expect(mounted.seen).toEqual([])
+    expect(await probeAll(mounted, { cookie })).toEqual(ALL_UNAUTHORIZED)
     expect(connection.requestRejection(trustRequest(mounted))).toBe(401)
-    expect(connection.admit(trustRequest(mounted))).toEqual({ rejection: 401 })
-    expect(mounted.errors).toHaveLength(6)
-    expect(mounted.errors[0]).toContain('named no member')
+    expect(connection.admitConnection(trustRequest(mounted, cookie))).toEqual({ rejection: 401 })
+    expect(mounted.seen).toEqual([])
+    expect(mounted.errors).toHaveLength(10)
+    for (const error of mounted.errors) expect(error).toBe('client-connection: the Peer admitter threw string; refusing the request with 401')
   })
 
   it('passes the admitter refusal status through', async () => {
@@ -205,8 +305,7 @@ describe('Connection member Peer admission', () => {
     let verdict: 401 | 403 = 403
     connection.peers.admitWith(() => verdict)
 
-    expect(await probeAll(mounted, { cookie: mounted.cookie }))
-      .toEqual({ interceptor: 403, channel: 403, exact: 403, upgrade: 403 })
+    expect(await probeAll(mounted, { cookie: mounted.cookie })).toEqual(ALL_FORBIDDEN)
     expect(connection.requestRejection(trustRequest(mounted))).toBe(403)
     verdict = 401
     expect(connection.requestRejection(trustRequest(mounted))).toBe(401)
@@ -214,66 +313,69 @@ describe('Connection member Peer admission', () => {
     expect(mounted.errors).toEqual([])
   })
 
-  it('runs the Host/Origin checks and browser authentication before the admitter', async () => {
+  it('runs the Host/Origin checks and authentication before the admitter', async () => {
     const mounted = await mount()
     const { connection } = mounted.ctx
-    const member = connection.peers.open()
-    const admitter = vi.fn<PeerAdmitter>(() => member)
+    const admitter = vi.fn<PeerAdmitter>(() => member(mounted, 'alice'))
     connection.peers.admitWith(admitter)
 
-    expect(await probeAll(mounted, { host: 'other.example', cookie: mounted.cookie }))
-      .toEqual({ interceptor: 403, channel: 403, exact: 403, upgrade: 403 })
+    expect(await probeAll(mounted, { host: 'other.example', cookie: mounted.cookie })).toEqual(ALL_FORBIDDEN)
     expect(connection.requestRejection({ headers: { host: 'other.example', cookie: mounted.cookie } })).toBe(403)
     expect(await probeAll(mounted, {})).toEqual(ALL_UNAUTHORIZED)
+    expect(await probeAll(mounted, { cookie: 'dsh-forged=1' })).toEqual(ALL_UNAUTHORIZED)
     expect(connection.requestRejection({ headers: { host: `127.0.0.1:${String(mounted.port)}` } })).toBe(401)
     expect(admitter).not.toHaveBeenCalled()
     expect(mounted.seen).toEqual([])
   })
 
-  it('refuses a released Peer, the operator, and a Peer it did not open with 401', async () => {
+  it('sends the API Cookie that /connect exchanged for the launch token through the admitter too', async () => {
     const mounted = await mount()
     const { connection } = mounted.ctx
-    const released = connection.peers.open()
-    const live = connection.peers.open()
-    // Same id and scope as a live member, but not the object open() returned.
-    const impostor: PeerScope = { id: live.id, ctx: live.ctx, dispose: () => live.dispose() }
-    let returned: PeerScope = released
-    connection.peers.admitWith(() => returned)
+    const cookie = await apiCookie(mounted)
+    // Without an admitter the API Cookie is an owner API Peer, so it is a valid credential.
+    const apiAdmission = connection.admit(trustRequest(mounted, cookie))
+    expect('peer' in apiAdmission && apiAdmission.peer.principal).toEqual({ kind: 'owner' })
 
-    const disposing = released.dispose()
-    expect(connection.peers.get(released.id)).toBeUndefined()
-    expect(connection.peers.list()).toEqual([live])
-    expect(connection.admit(trustRequest(mounted))).toEqual({ rejection: 401 })
-    await disposing
-    expect(await probeAll(mounted, { cookie: mounted.cookie })).toEqual(ALL_UNAUTHORIZED)
-    returned = connection.operator
-    expect(connection.admit(trustRequest(mounted))).toEqual({ rejection: 401 })
-    returned = impostor
-    expect(connection.admit(trustRequest(mounted))).toEqual({ rejection: 401 })
-    returned = live
-    expect(connection.admit(trustRequest(mounted))).toEqual({ peer: live })
+    const admitter = vi.fn<PeerAdmitter>(() => undefined)
+    const remove = connection.peers.admitWith(admitter)
+    expect(await probeAll(mounted, { cookie })).toEqual(ALL_UNAUTHORIZED)
+    expect(connection.admit(trustRequest(mounted, cookie))).toEqual({ rejection: 401 })
+    expect(connection.admitConnection(trustRequest(mounted, cookie))).toEqual({ rejection: 401 })
+    expect(connection.requestRejection(trustRequest(mounted, cookie))).toBe(401)
+    expect(admitter).toHaveBeenCalledTimes(7)
+
+    // A fresh /connect exchange while the admitter refuses still yields no owner admission.
+    const fresh = await apiCookie(mounted)
+    expect(connection.admit(trustRequest(mounted, fresh))).toEqual({ rejection: 401 })
     expect(mounted.seen).toEqual([])
-    expect(mounted.errors.at(-1)).toContain('did not open or that is released')
+
+    await remove()
+    const alice = member(mounted, 'alice')
+    connection.peers.admitWith(() => alice)
+    expect(await probeAll(mounted, { cookie: fresh })).toEqual(MEMBER_OK)
+    for (const entry of mounted.seen) expect(entry.peer).toBe(alice)
+    const socket = connection.admitConnection(trustRequest(mounted, fresh))
+    expect('peer' in socket && socket.peer).toBe(alice)
   })
 
   it('accepts one admitter at a time and removes it with its registration', async () => {
     const mounted = await mount()
     const { ctx } = mounted
-    const member = ctx.connection.peers.open()
-    const remove = ctx.connection.peers.admitWith(() => member)
+    const alice = member(mounted, 'alice')
+    const remove = ctx.connection.peers.admitWith(() => alice)
     expect(() => ctx.connection.peers.admitWith(() => undefined)).toThrow('a Peer admitter is already installed')
-    expect(ctx.connection.admit(trustRequest(mounted))).toEqual({ peer: member })
+    expect(ctx.connection.admit(trustRequest(mounted))).toEqual({ peer: alice })
     await remove()
-    expect(ctx.connection.admit(trustRequest(mounted))).toEqual({ peer: ctx.connection.operator })
+    expect(ctx.connection.admit(trustRequest(mounted))).toEqual({ peer: ctx.connection.browserPeer })
 
     const owner = ctx.plugin({
       inject: ['connection'],
-      apply: (pluginCtx: Context) => { pluginCtx.connection.peers.admitWith(() => member) },
+      apply: (pluginCtx: Context) => { pluginCtx.connection.peers.admitWith(() => alice) },
     })
     await owner
-    expect(ctx.connection.admit(trustRequest(mounted))).toEqual({ peer: member })
+    expect(ctx.connection.admit(trustRequest(mounted))).toEqual({ peer: alice })
     await owner.dispose()
-    expect(ctx.connection.admit(trustRequest(mounted))).toEqual({ peer: ctx.connection.operator })
+    expect(ctx.connection.admit(trustRequest(mounted))).toEqual({ peer: ctx.connection.browserPeer })
   })
 
   it('validates requireAdmitter as a boolean that defaults to false', () => {
@@ -282,255 +384,154 @@ describe('Connection member Peer admission', () => {
     expect(() => Config({ requireAdmitter: 'yes' } as never)).toThrow()
   })
 
-  it('refuses every path with 401 while requireAdmitter is set and no admitter is installed', async () => {
+  it('validates maxUnclaimedApiPeers as a positive integer that defaults to 64', () => {
+    expect(Config({}).maxUnclaimedApiPeers).toBe(64)
+    expect(Config({ maxUnclaimedApiPeers: 1 }).maxUnclaimedApiPeers).toBe(1)
+    for (const invalid of [0, 1.5, -1]) expect(() => Config({ maxUnclaimedApiPeers: invalid })).toThrow()
+  })
+
+  it('claims the API Cookie a socket presents under an admitter and ends that credential with the socket', async () => {
+    const mounted = await mount({ requireAdmitter: true })
+    const { connection } = mounted.ctx
+    const alice = member(mounted, 'alice')
+    connection.peers.admitWith(() => alice)
+    const cookie = await apiCookie(mounted)
+    const [record] = apiRecords(mounted)
+
+    const socket = connection.admitConnection(trustRequest(mounted, cookie))
+    if (!('peer' in socket)) throw new Error('the admitter admits the socket')
+    expect(socket.peer).toBe(alice)
+    const second = connection.admitConnection(trustRequest(mounted, cookie))
+    expect('rejection' in second && second.rejection).toBe(409)
+    expect(connection.admit(trustRequest(mounted, cookie))).toEqual({ peer: alice })
+
+    await socket.release()
+    expect(connection.admit(trustRequest(mounted, cookie))).toEqual({ rejection: 401 })
+    expect(apiRecords(mounted)).toEqual([])
+    expect(record!.peer.signal.aborted).toBe(true)
+    // The member Peer belongs to the admitter, not to the credential.
+    expect(alice.signal.aborted).toBe(false)
+  })
+
+  it('keeps at most maxUnclaimedApiPeers API Cookies without a socket while requireAdmitter is set or an admitter decides', async () => {
+    const mounted = await mount({ requireAdmitter: true, maxUnclaimedApiPeers: 4 })
+    const { connection } = mounted.ctx
+    const early = await apiCookies(mounted, 6)
+    const retired = apiRecords(mounted)[0]!
+    expect(apiRecords(mounted)).toHaveLength(4)
+    expect(retired.peer.signal.aborted).toBe(false)
+
+    const alice = member(mounted, 'alice')
+    connection.peers.admitWith(() => alice)
+    const cookies = await apiCookies(mounted, 25)
+    expect(apiRecords(mounted)).toHaveLength(4)
+    expect(retired.peer.signal.aborted).toBe(true)
+    for (const cookie of [...early, ...cookies.slice(0, 21)]) {
+      expect(connection.admit(trustRequest(mounted, cookie))).toEqual({ rejection: 401 })
+    }
+    for (const cookie of cookies.slice(21)) expect(connection.admit(trustRequest(mounted, cookie))).toEqual({ peer: alice })
+
+    // A credential a socket claimed is not retired by later exchanges.
+    const newest = cookies.at(-1)
+    if (newest === undefined) throw new Error('the fixture exchanged 25 API Cookies')
+    const claimed = connection.admitConnection(trustRequest(mounted, newest))
+    expect('peer' in claimed && claimed.peer).toBe(alice)
+    await apiCookies(mounted, 4)
+    expect(apiRecords(mounted)).toHaveLength(5)
+    expect(connection.admit(trustRequest(mounted, newest))).toEqual({ peer: alice })
+  })
+
+  it('keeps at most maxUnclaimedApiPeers API Cookies without a socket while an admitter decides and requireAdmitter is unset', async () => {
+    const mounted = await mount({ maxUnclaimedApiPeers: 3 })
+    const { connection } = mounted.ctx
+    const alice = member(mounted, 'alice')
+    connection.peers.admitWith(() => alice)
+    const cookies = await apiCookies(mounted, 5)
+
+    expect(apiRecords(mounted)).toHaveLength(3)
+    for (const cookie of cookies.slice(0, 2)) expect(connection.admit(trustRequest(mounted, cookie))).toEqual({ rejection: 401 })
+    for (const cookie of cookies.slice(2)) expect(connection.admit(trustRequest(mounted, cookie))).toEqual({ peer: alice })
+  })
+
+  it('logs a retired API credential whose Peer fails to dispose and keeps that credential refused', async () => {
+    const mounted = await mount({ requireAdmitter: true, maxUnclaimedApiPeers: 1 })
+    const { connection } = mounted.ctx
+    const oldest = await apiCookie(mounted)
+    const [record] = apiRecords(mounted)
+    if (record === undefined) throw new Error('the fixture exchanged one API Cookie')
+    const dispose = record.peer.dispose.bind(record.peer)
+    const failure = new Error('fixture API Peer disposal failure')
+    vi.spyOn(record.peer, 'dispose').mockImplementationOnce(async () => {
+      await dispose()
+      throw failure
+    })
+    const newest = await apiCookie(mounted)
+
+    await vi.waitFor(() => {
+      expect(mounted.errors).toEqual([`client-connection: disposing a retired API Peer failed ${String(failure)}`])
+    })
+    expect(apiRecords(mounted).map(entry => entry.peer)).not.toContain(record.peer)
+    const alice = member(mounted, 'alice')
+    connection.peers.admitWith(() => alice)
+    expect(connection.admit(trustRequest(mounted, oldest))).toEqual({ rejection: 401 })
+    expect(connection.admit(trustRequest(mounted, newest))).toEqual({ peer: alice })
+  })
+
+  it('keeps every API Cookie /connect exchanged while no admitter is installed and requireAdmitter is unset', async () => {
+    const mounted = await mount({ maxUnclaimedApiPeers: 2 })
+    const { connection } = mounted.ctx
+    const cookies = await apiCookies(mounted, 5)
+    expect(apiRecords(mounted)).toHaveLength(5)
+    for (const cookie of cookies) {
+      const admission = connection.admit(trustRequest(mounted, cookie))
+      expect('peer' in admission && admission.peer.principal).toEqual({ kind: 'owner' })
+    }
+    const [oldest] = cookies
+    if (oldest === undefined) throw new Error('the fixture exchanged 5 API Cookies')
+    const socket = connection.admitConnection(trustRequest(mounted, oldest))
+    if (!('peer' in socket)) throw new Error('the owner API Peer owns its socket')
+    expect(socket.peer).toBe(apiRecords(mounted)[0]!.peer)
+    const second = connection.admitConnection(trustRequest(mounted, oldest))
+    expect('rejection' in second && second.rejection).toBe(409)
+    await socket.release()
+    expect(connection.admit(trustRequest(mounted, oldest))).toEqual({ rejection: 401 })
+    expect(apiRecords(mounted)).toHaveLength(4)
+  })
+
+  it('refuses every authenticated path with 401 while requireAdmitter is set and no admitter is installed', async () => {
     const mounted = await mount({ requireAdmitter: true })
     const { ctx } = mounted
     const { connection } = ctx
     expect(connection.peers.requireAdmitter).toBe(true)
-    // Index authorization still accepts the browser cookie.
+    // Index authorization still accepts the browser cookie, and /connect still exchanges the launch token.
     const index = { method: 'GET', url: '/', headers: trustRequest(mounted).headers }
     expect(connection.authorizeIndex(index, { writeHead() {}, end() {} })).toBe(true)
+    const cookie = await apiCookie(mounted)
 
     expect(await probeAll(mounted, { cookie: mounted.cookie })).toEqual(ALL_UNAUTHORIZED)
+    expect(await probeAll(mounted, { cookie })).toEqual(ALL_UNAUTHORIZED)
     expect(connection.requestRejection(trustRequest(mounted))).toBe(401)
     expect(connection.admit(trustRequest(mounted))).toEqual({ rejection: 401 })
-    expect(await probeAll(mounted, { host: 'other.example', cookie: mounted.cookie }))
-      .toEqual({ interceptor: 403, channel: 403, exact: 403, upgrade: 403 })
+    expect(connection.admitConnection(trustRequest(mounted, cookie))).toEqual({ rejection: 401 })
+    expect(await probeAll(mounted, { host: 'other.example', cookie: mounted.cookie })).toEqual(ALL_FORBIDDEN)
     expect(mounted.seen).toEqual([])
 
-    const member = connection.peers.open()
-    const remove = connection.peers.admitWith(() => member)
-    expect(await probeAll(mounted, { cookie: mounted.cookie })).toEqual(ALL_OK)
-    expect(mounted.seen.map(entry => entry.peer)).toEqual([member, member, member, member])
+    const alice = member(mounted, 'alice')
+    const remove = connection.peers.admitWith(() => alice)
+    expect(await probeAll(mounted, { cookie: mounted.cookie })).toEqual(MEMBER_OK)
+    expect(mounted.seen.map(entry => entry.peer)).toEqual([alice, alice, alice])
     await remove()
     expect(await probeAll(mounted, { cookie: mounted.cookie })).toEqual(ALL_UNAUTHORIZED)
-    expect(connection.requestRejection(trustRequest(mounted))).toBe(401)
 
     const owner = ctx.plugin({
       inject: ['connection'],
-      apply: (pluginCtx: Context) => { pluginCtx.connection.peers.admitWith(() => member) },
+      apply: (pluginCtx: Context) => { pluginCtx.connection.peers.admitWith(() => alice) },
     })
     await owner
-    expect(connection.admit(trustRequest(mounted))).toEqual({ peer: member })
+    expect(connection.admit(trustRequest(mounted))).toEqual({ peer: alice })
     await owner.dispose()
     expect(connection.admit(trustRequest(mounted))).toEqual({ rejection: 401 })
-    expect(mounted.seen).toHaveLength(4)
+    expect(mounted.seen).toHaveLength(3)
     expect(mounted.errors).toEqual([])
-  })
-
-  it('emits one opened and one closed event per member Peer, the closed one after its scope is released, and none for the operator', async () => {
-    const mounted = await mount()
-    const { ctx } = mounted
-    let scopeReleased = false
-    const events: Array<{
-      readonly kind: 'opened' | 'closed'
-      readonly peer: PeerScope
-      readonly listed: boolean
-      readonly scopeReleased: boolean
-    }> = []
-    ctx.on('connection/peer-opened', (peer) => {
-      events.push({ kind: 'opened', peer, listed: ctx.connection.peers.get(peer.id) === peer, scopeReleased })
-    })
-    ctx.on('connection/peer-closed', (peer) => {
-      events.push({ kind: 'closed', peer, listed: ctx.connection.peers.get(peer.id) === peer, scopeReleased })
-    })
-
-    const member = ctx.connection.peers.open()
-    expect(events).toEqual([{ kind: 'opened', peer: member, listed: true, scopeReleased: false }])
-    member.ctx.effect(() => () => { scopeReleased = true }, 'peer-admission spec: member registration')
-    await Promise.all([member.dispose(), member.dispose(), member.dispose()])
-    await member.dispose()
-    expect(events).toEqual([
-      { kind: 'opened', peer: member, listed: true, scopeReleased: false },
-      { kind: 'closed', peer: member, listed: false, scopeReleased: true },
-    ])
-
-    await ctx.connection.operator.dispose()
-    expect(events).toHaveLength(2)
-  })
-
-  it('closes every open member Peer when Connection unloads', async () => {
-    const mounted = await mount()
-    const { ctx } = mounted
-    const closed: PeerScope[] = []
-    ctx.on('connection/peer-closed', (peer) => { closed.push(peer) })
-    const first = ctx.connection.peers.open()
-    const second = ctx.connection.peers.open()
-    await second.dispose()
-
-    await mounted.connectionFiber.dispose()
-    expect(closed).toEqual([second, first])
-  })
-
-  it('logs a throwing lifecycle listener instead of failing open() or dispose()', async () => {
-    const mounted = await mount()
-    const { ctx } = mounted
-    ctx.on('connection/peer-opened', () => { throw new Error('fixture opened listener') })
-    ctx.on('connection/peer-closed', () => { throw new Error('fixture closed listener') })
-
-    const member = ctx.connection.peers.open()
-    expect(ctx.connection.peers.list()).toEqual([member])
-    await expect(member.dispose()).resolves.toBeUndefined()
-    expect(mounted.errors).toEqual([
-      'client-connection: a connection/peer-opened listener threw',
-      'client-connection: a connection/peer-closed listener threw',
-    ])
-  })
-
-  it('reports member admission on while an admitter is installed or requireAdmitter is set, read at each access', async () => {
-    const open = await mount()
-    const peers = open.ctx.connection.peers
-    expect(peers.memberAdmission).toBe(false)
-    const remove = peers.admitWith(() => undefined)
-    expect(peers.memberAdmission).toBe(true)
-    await remove()
-    expect(peers.memberAdmission).toBe(false)
-
-    const required = await mount({ requireAdmitter: true })
-    expect(required.ctx.connection.peers.memberAdmission).toBe(true)
-  })
-
-  describe('refuses with 401, without running the target, a request whose member Peer is released after admission', () => {
-    const UPLOAD = `${API_PATH}/peer.upload`
-    const envelope: ClientRequest = { type: 'client-request', rpcId: RpcId('probe'), method: PROBE_ENDPOINT, payload: {} }
-
-    /** Mount with a buffered POST exact route and a member admitter; returns the member. */
-    interface MemberMount {
-      readonly mounted: Mounted
-      readonly member: PeerScope
-      readonly admitter: ReturnType<typeof vi.fn<PeerAdmitter>>
-    }
-
-    async function mountMember(): Promise<MemberMount> {
-      const mounted = await mount()
-      mounted.ctx.connection.fetch.register({
-        path: UPLOAD,
-        methods: ['POST'],
-        requestBody: 'buffered',
-        fetch: async (_request, peer) => {
-          mounted.seen.push({ path: 'exact', peer })
-          return new Response('uploaded')
-        },
-      })
-      const member = mounted.ctx.connection.peers.open()
-      const admitter = vi.fn<PeerAdmitter>(() => member)
-      mounted.ctx.connection.peers.admitWith(admitter)
-      return { mounted, member, admitter }
-    }
-
-    /** Send the first half of a POST body, then the rest once `finish()` is called. */
-    function startPartial(
-      port: number,
-      path: string,
-      cookie: string,
-      body: string,
-    ): { readonly status: Promise<number>; readonly finish: () => void } {
-      let request!: ReturnType<typeof httpRequest>
-      const status = new Promise<number>((resolve, reject) => {
-        request = httpRequest({
-          host: '127.0.0.1',
-          port,
-          path,
-          method: 'POST',
-          headers: { cookie, 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(body)) },
-        }, (response) => {
-          response.resume()
-          response.on('end', () => { resolve(response.statusCode ?? 0) })
-        })
-        request.on('error', reject)
-      })
-      const half = Math.floor(body.length / 2)
-      request.write(body.slice(0, half))
-      return { status, finish: () => { request.end(body.slice(half)) } }
-    }
-
-    it.each([
-      { path: 'exact', url: UPLOAD, body: JSON.stringify({ fill: 'x'.repeat(4096) }) },
-      { path: 'channel', url: `${PROBE_CHANNEL}/${PROBE_ENDPOINT}`, body: JSON.stringify(envelope) },
-      { path: 'interceptor', url: `${API_PATH}/${PROBE_ENDPOINT}`, body: JSON.stringify(envelope) },
-    ] as const)('$path: released while the bridge buffers the body', async ({ url, body }) => {
-      const { mounted, member, admitter } = await mountMember()
-      const pending = startPartial(mounted.port, url, mounted.cookie, body)
-      await vi.waitFor(() => { expect(admitter).toHaveBeenCalledTimes(1) })
-      await member.dispose()
-      pending.finish()
-
-      expect(await pending.status).toBe(401)
-      expect(mounted.seen).toEqual([])
-    })
-
-    it('exact route: released while a connection/request listener awaits before next()', async () => {
-      const { mounted, member } = await mountMember()
-      mounted.ctx.on('connection/request', async (_request, _response, next) => {
-        await member.dispose()
-        await next()
-      })
-
-      expect(await send(mounted.port, UPLOAD, 'POST', { cookie: mounted.cookie, 'content-type': 'application/json' }, '{}')).toBe(401)
-      expect(mounted.seen).toEqual([])
-    })
-
-    it.each([
-      { path: 'exact', url: UPLOAD, body: '{}' },
-      { path: 'channel', url: `${PROBE_CHANNEL}/${PROBE_ENDPOINT}`, body: JSON.stringify(envelope) },
-    ] as const)('$path: released while a connection/fetch listener awaits before next()', async ({ url, body }) => {
-      const { mounted, member } = await mountMember()
-      const answers: number[] = []
-      mounted.ctx.on('connection/fetch', async (_call, next) => {
-        await member.dispose()
-        const response = await next()
-        answers.push(response.status)
-        return response
-      })
-
-      expect(await send(mounted.port, url, 'POST', { cookie: mounted.cookie, 'content-type': 'application/json' }, body)).toBe(401)
-      expect(answers).toEqual([401])
-      expect(mounted.seen).toEqual([])
-    })
-
-    it('refuses a Peer that Connection did not create, with no admitter installed', async () => {
-      const mounted = await mount()
-      const member = mounted.ctx.connection.peers.open()
-      // Same id as a live member, but not the object `peers.open()` returned.
-      const foreign: PeerScope = { id: member.id, ctx: member.ctx, dispose: () => member.dispose() }
-      const shared = mounted.ctx.connection.createSharedFetchHandler(API_PATH)
-      const exact = await shared.fetch(new Request(`http://127.0.0.1${PROBE_EXACT}`), foreign)
-      const intercepted = await shared.fetch(new Request(`http://127.0.0.1${API_PATH}/${PROBE_ENDPOINT}`, {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(envelope),
-      }), foreign)
-
-      expect([exact.status, intercepted.status]).toEqual([401, 401])
-      expect(mounted.seen).toEqual([])
-      expect(mounted.ctx.connection.peers.memberAdmission).toBe(false)
-    })
-
-    it('refuses a Peer carrying the operator\'s id and scope that is not connection.operator', async () => {
-      const mounted = await mount()
-      const { connection } = mounted.ctx
-      const forged: PeerScope = { id: connection.operator.id, ctx: connection.operator.ctx, dispose: () => connection.operator.dispose() }
-      const shared = connection.createSharedFetchHandler(API_PATH)
-      const exact = await shared.fetch(new Request(`http://127.0.0.1${PROBE_EXACT}`), forged)
-      const intercepted = await shared.fetch(new Request(`http://127.0.0.1${API_PATH}/${PROBE_ENDPOINT}`, {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(envelope),
-      }), forged)
-
-      expect([exact.status, intercepted.status]).toEqual([401, 401])
-      expect(mounted.seen).toEqual([])
-      expect(connection.peers.memberAdmission).toBe(false)
-    })
-
-    it('lets a live member and the operator through on the same paths', async () => {
-      const { mounted, member } = await mountMember()
-      const headers = { cookie: mounted.cookie, 'content-type': 'application/json' }
-      expect(await send(mounted.port, UPLOAD, 'POST', headers, '{}')).toBe(200)
-      expect(await send(mounted.port, `${PROBE_CHANNEL}/${PROBE_ENDPOINT}`, 'POST', headers, JSON.stringify(envelope))).toBe(200)
-      expect(await send(mounted.port, `${API_PATH}/${PROBE_ENDPOINT}`, 'POST', headers, JSON.stringify(envelope))).toBe(200)
-      expect(mounted.seen.map(entry => entry.peer)).toEqual([member, member, member])
-      // A shell-owned carrier naming no Peer speaks for the operator, which Connection releases only when it unloads.
-      const direct = await mounted.ctx.connection.createSharedFetchHandler(API_PATH)
-        .fetch(new Request(`http://127.0.0.1${UPLOAD}`, { method: 'POST', body: '{}' }))
-      expect(direct.status).toBe(200)
-      expect(mounted.seen.at(-1)?.peer).toBe(mounted.ctx.connection.operator)
-    })
   })
 })

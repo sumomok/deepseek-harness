@@ -21,9 +21,9 @@ type VerificationResponse =
  * The Worker ran the verification and reported its failure: the generation
  * does not decode to the expected id and event count, or the Worker could not
  * read it. Every other rejection of {@link verifyCurrentGenerationInWorker} is
- * a cancellation or a failure of the Worker itself (a startup error, an exit
- * before reporting, an invalid response, or a failed termination) and says
- * nothing about the generation.
+ * a cancellation or a failure of the Worker itself (a Worker `error` event,
+ * an exit before reporting, a nonzero exit after reporting, an invalid
+ * response, or a failed termination) and says nothing about the generation.
  */
 export class JsonlVerificationRejectedError extends Error {
   override readonly name = 'JsonlVerificationRejectedError'
@@ -115,7 +115,7 @@ function workerSpawn(request: VerificationRequest): { readonly entry: string | U
  * @param expectedEventCount - exact logical event count expected after decoding.
  * @param expectedPrefix - verified physical prefix; an append tail may be present and is not validated.
  * @param signal - optional cancellation for scheduler wait and Worker execution.
- * @returns stable physical identity and digest observed by the worker.
+ * @returns the worker's physical identity and digest after its natural zero exit.
  * @throws {JsonlVerificationRejectedError} when the Worker rejects the generation.
  */
 export function verifyCurrentGenerationInWorker(
@@ -153,6 +153,7 @@ function runVerificationWorker(
   const worker = new Worker(entry, options)
   return new Promise((resolve, reject) => {
     let settled = false
+    let success: Extract<VerificationResponse, { ok: true }> | undefined
     const cleanup = (): void => {
       signal?.removeEventListener('abort', abort)
     }
@@ -182,16 +183,20 @@ function runVerificationWorker(
         fail(error)
         return
       }
-      settled = true
-      cleanup()
-      void worker.terminate().then(
-        () => { resolve(response.result) },
-        (error: unknown) => { reject(error instanceof Error ? error : new Error(String(error))) },
-      )
+      success = response
     })
     worker.once('error', fail)
     worker.once('exit', (code) => {
-      if (!settled) fail(new Error(`migration verifier exited before reporting a result (code ${code})`))
+      if (settled) return
+      settled = true
+      cleanup()
+      if (success === undefined) {
+        reject(new Error(`migration verifier exited before reporting a result (code ${code})`))
+      } else if (code !== 0) {
+        reject(new Error(`migration verifier exited after reporting a result (code ${code})`))
+      } else {
+        resolve(success.result)
+      }
     })
     const abort = (): void => { fail(verifierAbortError(signal)) }
     signal?.addEventListener('abort', abort, { once: true })

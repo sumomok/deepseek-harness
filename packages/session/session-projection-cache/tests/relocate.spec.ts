@@ -1,7 +1,9 @@
 /**
  * SessionProjectionCache on `session-persistence/relocated`: a record bound
- * to the moved lifecycle is rebound to the new cwd with its rows unchanged,
- * so header-only listing reads keep serving it.
+ * to the moved lifecycle is rebound to the new cwd and keeps the rows whose
+ * unit starts from the same value under both headers, so header-only listing
+ * reads keep serving them; a row whose unit starts from the header cwd is
+ * dropped and folds again from the log.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -11,7 +13,7 @@ import { dirname, join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { z } from 'zod'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId, SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
-import type { SessionHeader } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
@@ -29,9 +31,11 @@ import type { CheckpointRecord } from '../src/spec.ts'
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionStateMap {
     title: string | null
+    workingDirectory: string | null
   }
   interface SessionProjectionMap {
     title: string | null
+    workingDirectory: string | null
   }
 }
 
@@ -44,6 +48,16 @@ const titleUnit = {
   wire: { viewSchema: z.string().nullable(), view: state => state },
   stateVersion: 1,
 } satisfies ProjectionDefinition<'title', string | null>
+
+/** Mirrors the shipped working-directory unit: its state starts from the header cwd. */
+const directoryUnit = {
+  key: 'workingDirectory',
+  stateSchema: z.string().nullable(),
+  init: header => header.cwd ?? null,
+  apply: (state, event) => event.type === 'working-directory/change' ? event.data.cwd : state,
+  wire: { viewSchema: z.string().nullable(), view: state => state },
+  stateVersion: 1,
+} satisfies ProjectionDefinition<'workingDirectory', string | null>
 
 const ID = SessionId('relocated')
 const FROM = '/projects/old'
@@ -80,12 +94,12 @@ async function storedRecord(root: string): Promise<CheckpointRecord> {
 }
 
 /** Boot the cache over a json-backed domain, optionally seeded with one stored record for {@link ID}. */
-async function boot(identity?: CheckpointRecord['identity']) {
+async function boot(identity?: CheckpointRecord['identity'], stored: CheckpointRecord['rows'] = rows) {
   const root = await mkdtemp(join(tmpdir(), 'dsh-projcache-relocate-'))
   roots.push(root)
   if (identity !== undefined) {
     await mkdir(dirname(recordPath(root)), { recursive: true })
-    await writeFile(recordPath(root), JSON.stringify({ version: projectionCacheDomainSpec.version, record: { identity, rows } }))
+    await writeFile(recordPath(root), JSON.stringify({ version: projectionCacheDomainSpec.version, record: { identity, rows: stored } }))
   }
   const ctx = new Context()
   contexts.push(ctx)
@@ -95,6 +109,7 @@ async function boot(identity?: CheckpointRecord['identity']) {
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
   ctx.sessionProjections.register(titleUnit)
+  ctx.sessionProjections.register(directoryUnit)
   await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000 })
   const puts: string[] = []
   ctx.on('domain/changed', (change) => {
@@ -121,6 +136,30 @@ describe('SessionProjectionCache on session-persistence/relocated', () => {
     expect(await storedRecord(root)).toEqual({ identity: identityAt(TO), rows })
   })
 
+  it('drops the rows whose unit starts from another value under the moved header, so the cwd folds from the log again', async () => {
+    const moved: CheckpointRecord['rows'] = {
+      ...rows,
+      workingDirectory: { ver: 1, seq: SessionSeq(4), val: FROM },
+      unregistered: { ver: 1, seq: SessionSeq(4), val: 'unit absent at the move' },
+    }
+    const { ctx, root, cache, puts, relocate } = await boot(identityAt(FROM), moved)
+    expect(cache.cachedSnapshot(headerAt(FROM))?.values).toEqual({ title: 'kept title', workingDirectory: FROM })
+
+    await relocate(headerAt(FROM))
+    await vi.waitFor(() => { expect(puts).toEqual([ID]) })
+
+    expect(await storedRecord(root)).toEqual({ identity: identityAt(TO), rows })
+    expect(cache.cachedSnapshot(headerAt(TO))).toEqual({ asOfSeq: 4, values: { title: 'kept title' } })
+    // The log of the moved session: five events, none of them a working-directory change.
+    const log: SessionEvent[] = Array.from({ length: 5 }, (_, seq) => (
+      { type: 'turn/start', seq: SessionSeq(seq), time: seq, data: { turn: seq + 1 } }
+    ))
+    const rebuilt = ctx.sessionProjections.restore({}, log, SessionLogOffset(0), headerAt(TO), SessionLogOffset(0))
+    expect(cache.coldSnapshot(headerAt(TO), SessionLogOffset(0), log).values.workingDirectory)
+      .toBe(rebuilt.snapshot.values.workingDirectory)
+    expect(rebuilt.snapshot.values.workingDirectory).toBe(TO)
+  })
+
   it('rebinds a predecessor record so its title hint survives the move', async () => {
     const { root, cache, puts, relocate } = await boot(identityAt(FROM, SESSION_FORMAT_VERSION - 1))
 
@@ -129,6 +168,16 @@ describe('SessionProjectionCache on session-persistence/relocated', () => {
 
     expect(cache.cachedPredecessorTitle(headerAt(TO))).toEqual({ asOfSeq: 4, values: { title: 'kept title' } })
     expect((await storedRecord(root)).identity).toEqual(identityAt(TO, SESSION_FORMAT_VERSION - 1))
+  })
+
+  it('compares initial values at the unseeded cut for a record stored before the cut was recorded', async () => {
+    const { inheritedEventCount: _cut, ...uncut } = identityAt(FROM, SESSION_FORMAT_VERSION - 1)
+    const { root, puts, relocate } = await boot(uncut, { ...rows, workingDirectory: { ver: 1, seq: SessionSeq(4), val: FROM } })
+
+    await relocate(headerAt(FROM))
+    await vi.waitFor(() => { expect(puts).toEqual([ID]) })
+
+    expect(await storedRecord(root)).toEqual({ identity: { ...uncut, cwd: TO }, rows })
   })
 
   it('leaves a record of another lifecycle and an absent record unwritten', async () => {

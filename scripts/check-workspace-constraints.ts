@@ -11,6 +11,10 @@ import { pathToFileURL } from 'node:url'
 import { load as loadYaml } from 'js-yaml'
 import {
   isPublicExperimentalPackageDirectory,
+  isExperimentalPackageName,
+  hasExperimentalPackageReference,
+  EXPERIMENTAL_PACKAGE_NAME_EXCEPTIONS,
+  EXPERIMENTAL_PACKAGE_NAME_PREFIX,
   PRIVATE_EXPERIMENTAL_PACKAGE_DIRECTORIES,
 } from './experimental-package-policy.ts'
 import { hasTypertRemoteNavigation, isForbiddenPublicationFile } from './publication-payload.ts'
@@ -53,14 +57,18 @@ const publicationSourceAllowlist: Readonly<Record<string, readonly string[]>> = 
 const publishedRepositoryUrl = 'git+https://github.com/deepseek-ai/deepseek-harness.git'
 /** Packages that participate in the experimental policy. */
 const experimentalPackageDirectory = /^packages\/experimental\/[^/]+$/
-/** npm namespace reserved for experimental packages. */
-const experimentalPackageNamePrefix = '@deepseek-ai/dsh-experimental-'
-/** Ordinary directories whose packages this repository publishes: one release member each. */
-const standardReleaseMemberDirectory = /^(?:packages\/(?!experimental\/)[^/]+\/[^/]+|apps\/(?!desktop(?:-host)?$)[^/]+|vendor\/[^/]+)$/
+/** Private reference tool run from the repository; it publishes no files. */
+const pluginMarketGeneratorDirectory = 'apps/plugin-market-generator'
+/**
+ * Ordinary directories whose packages this repository publishes: one release member each. The reference plugin
+ * market generator is a private repository tool, not a published application.
+ */
+const standardReleaseMemberDirectory = new RegExp(
+  `^(?:packages/(?!experimental/)[^/]+/[^/]+|apps/(?!desktop(?:-host)?$|${pluginMarketGeneratorDirectory.slice('apps/'.length)}$)[^/]+|vendor/[^/]+)$`,
+  'u',
+)
 /** Installable application assembled by electron-builder rather than published to npm. */
 const desktopApplicationDirectory = 'apps/desktop'
-/** Product assemblies: each either publishes to npm or ships inside a client build. */
-const appDirectory = /^apps\/[^/]+$/
 const localArtifactDirs = new Set(['node_modules'])
 const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh': ['lib/*.js', 'lib/types/*.d.ts'],
@@ -170,6 +178,10 @@ export function readWorkspaceManifests(repositoryRoot: string): WorkspaceManifes
 }
 
 const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
+  // CUA publishes its client API and attributed native source for local macOS builds.
+  '@deepseek-ai/dsh-cua': ['lib/api.js', 'lib/bridge.js', 'lib/native-client.js', 'lib/protocol.js'],
+  '@deepseek-ai/dsh-experimental-cua-macos': ['native/bin', 'native/Package.swift', 'native/Sources', 'native/tests/swift', 'native/tests/test_swift.py', 'native/LICENSE.cua-driver', 'native/upstream.json', 'native/README.md', 'native/README.zh.md', 'native/protocol.schema.json'],
+  '@deepseek-ai/dsh-webhook-github': ['examples/github-review/cordis.yml', 'examples/github-review/github-ready-review-rule.mjs'],
   // Owned Worker bundles import this public bootstrap before their business entry.
   '@deepseek-ai/dsh-app-boot': ['lib/worker/profile-resolution-bootstrap.js'],
   // Statically linked client libraries keep their stylesheets next to the emitted
@@ -188,8 +200,8 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   // The CPython side ships as source .py files, published as-is rather than built.
   '@deepseek-ai/dsh-experimental-ptc-runtime-python': ['py/**/*.py'],
   '@deepseek-ai/dsh-experimental-speech-to-text-sensevoice': ['runtime/assets.json'],
-  // The isolated Node bootstrap is a separately launched bundle.
-  '@deepseek-ai/dsh-ptc-runtime-node': ['lib/process.js'],
+  // Node execution modes each launch a separately bundled bootstrap.
+  '@deepseek-ai/dsh-ptc-runtime-node': ['lib/process.js', 'lib/persistent-process.js'],
   // The Inspector owns a Worker and a mirrored frontend outside package export paths.
   '@deepseek-ai/dsh-experimental-inspector': ['lib/client.*.js', 'lib/worker.js', 'lib/devtools/**'],
   // Creator's composition guidance travels with the declaration package.
@@ -200,6 +212,9 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   // The JSONL backend resolves its private verification Worker relative to
   // import.meta.url; it is shipped without a public package subpath.
   '@deepseek-ai/dsh-session-persistence-jsonl': ['lib/worker.cjs'],
+  // The plugin market parses fetched indexes in a private Worker resolved
+  // relative to import.meta.url; it is shipped without a public package subpath.
+  '@deepseek-ai/dsh-plugin-market': ['lib/worker.cjs'],
   // The argv-prefix runner entry ships beside the lib as its own bundle;
   // sandbox-local resolves it through the package's ./runner export. tsdown
   // also shares its generated FFI code through a hashed runtime chunk.
@@ -254,6 +269,7 @@ export function expectedDshPackageFiles(manifest: PackageManifest): readonly str
     const target = exportDefault(manifest, resource)
     if (target?.startsWith('./') && target.endsWith('.json')) localeFiles.add(target.slice(2))
   }
+  const browserClient = exportDefault(manifest, './client')
   const bundle = manifest.dsh?.bundle
   const bundleFiles = bundle === undefined ? [] : bundlePatchFiles(bundle).map(file => file.replace(/^\.\//, ''))
   const extras = [
@@ -277,11 +293,11 @@ export function expectedDshPackageFiles(manifest: PackageManifest): readonly str
     // Keyed on the artifact path, like ./client below.
     ...exportDefault(manifest, './worker') === './lib/worker.cjs' ? ['lib/worker.cjs'] : [],
     ...exportDefault(manifest, './worker') === './lib/worker.js' ? ['lib/worker.js'] : [],
-    // UI plugin packages ship their browser bundle beside the node lib
-    // (single-artifact ruling: dist/ retired, ./client resolves lib/client.js).
-    // Keyed on the artifact path, not the subpath name: a package's ./client is
-    // a browser-safe source channel, not a bundle.
-    ...exportDefault(manifest, './client') === './lib/client.js' ? ['lib/client.js'] : [],
+    // Only physical browser bundles need a publication entry; a ./client
+    // subpath may instead expose a browser-safe emitted source tree.
+    ...browserClient === './lib/client.js' ? ['lib/client.js'] : [],
+    ...browserClient === './lib/client.browser.js' ? ['lib/client.browser.js'] : [],
+    ...exportCondition(manifest, './client', 'node') === './lib/client.node.js' ? ['lib/client.node.js'] : [],
     // runtime's shell-held loader subpath ships as its own bundle beside the client half.
     ...exportDefault(manifest, './loader') === './lib/loader.js' ? ['lib/loader.js'] : [],
     // A store subpath ships its own bundle (single-entry builds; no shared chunk).
@@ -336,6 +352,12 @@ function exportDefault(manifest: PackageManifest, subpath: string): string | und
   return typeof target === 'string' ? target : undefined
 }
 
+/** Exact named condition target of an export entry. */
+function exportCondition(manifest: PackageManifest, subpath: string, condition: string): string | undefined {
+  const target = exportFields(manifest.exports?.[subpath])?.[condition]
+  return typeof target === 'string' ? target : undefined
+}
+
 /** Whether any export's runtime default points into the tsc-emitted lib/types tree. */
 function usesEmittedTreeDefaults(manifest: PackageManifest): boolean {
   return Object.keys(manifest.exports ?? {}).some(subpath =>
@@ -350,8 +372,9 @@ export function checkExperimentalManifest(
   if (!experimentalPackageDirectory.test(dir)) return []
   const label = manifest.name ?? dir
   const errors: string[] = []
-  if (manifest.name?.startsWith(experimentalPackageNamePrefix) !== true) {
-    errors.push(`${label}: experimental package name must start with ${JSON.stringify(experimentalPackageNamePrefix)}`)
+  if (manifest.name === undefined || !manifest.name.startsWith(EXPERIMENTAL_PACKAGE_NAME_PREFIX)
+    && manifest.name !== EXPERIMENTAL_PACKAGE_NAME_EXCEPTIONS[dir]) {
+    errors.push(`${label}: experimental package name must start with ${JSON.stringify(EXPERIMENTAL_PACKAGE_NAME_PREFIX)} or match its declared directory exception`)
   }
   if (isPublicExperimentalPackageDirectory(dir, privateDirectories)) {
     if (manifest.private === true) errors.push(`${label}: public experimental package must not set "private": true`)
@@ -365,7 +388,25 @@ export function checkExperimentalManifest(
   return errors
 }
 
+/**
+ * Reject missing, renamed, moved, or duplicated retained-name exceptions.
+ * @param manifests - every workspace manifest, with repository-relative directories.
+ * @returns Violations of the exact directory/name ownership declarations.
+ */
+export function checkExperimentalNameExceptions(manifests: readonly WorkspaceManifest[]): string[] {
+  const errors: string[] = []
+  for (const [dir, name] of Object.entries(EXPERIMENTAL_PACKAGE_NAME_EXCEPTIONS)) {
+    const owners = manifests.filter(entry => entry.manifest.name === name)
+    if (owners.length !== 1 || owners[0]?.dir !== dir) {
+      errors.push(`${dir}: retained experimental name ${name} must have exactly one workspace owner at this directory`)
+    }
+  }
+  return errors
+}
+
 function isReleaseMemberDirectory(dir: string): boolean {
+  // The SSH carrier is distributed as executable archives, never as an npm application.
+  if (dir === 'packages/ssh/ssh-helper-runtime') return false
   return standardReleaseMemberDirectory.test(dir) || isPublicExperimentalPackageDirectory(dir)
 }
 
@@ -392,59 +433,14 @@ export function checkDshFamilyVersion(manifest: PackageManifest, expected: strin
 }
 
 /**
- * Whether an app ships inside another artifact instead of publishing to npm.
- *
- * `apps/*` holds both kinds. `private` is the discriminator because it is also
- * what stops `npm publish` from ever uploading the package, so a manifest
- * cannot claim in-tree status here and still reach a registry.
- * @param entry - one workspace directory and its manifest.
- * @returns true for an `apps/*` package that declares `"private": true`.
- */
-function isPrivateApp({ dir, manifest }: WorkspaceManifest): boolean {
-  return appDirectory.test(dir) && manifest.private === true
-}
-
-/**
- * Private-app manifest requirements enforced in place of release metadata.
- *
- * The second rule keeps {@link appPackageFiles} authoritative over which apps
- * publish: without it, adding `"private": true` to a release member would
- * silently drop that member out of the release instead of failing here. It asks
- * this only of a directory {@link isReleaseMemberDirectory} still admits, so a
- * directory the release-member expression itself names as never published keeps
- * whatever files policy packs it into a client build.
- * @param entry - one workspace directory and its manifest.
- * @returns One error for each publication claim a never-published app makes.
- */
-export function checkPrivateAppManifest(entry: WorkspaceManifest): string[] {
-  if (!isPrivateApp(entry)) return []
-  const { dir, manifest } = entry
-  const label = manifest.name ?? dir
-  const errors: string[] = []
-  if (manifest.publishConfig !== undefined) errors.push(`${label}: private app must omit publishConfig`)
-  if (isReleaseMemberDirectory(dir) && manifest.name !== undefined && appPackageFiles[manifest.name] !== undefined) {
-    errors.push(`${label}: private app must not hold a publication files policy`)
-  }
-  return errors
-}
-
-/**
  * Check one workspace manifest against publication and dsh-package policy.
  * @param workspace - package directory and parsed manifest.
  * @returns path-qualified policy violations.
  */
 export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): string[] {
-  const privateApp = isPrivateApp({ dir, manifest })
-  const errors = [
-    ...checkExperimentalManifest({ dir, manifest }),
-    ...checkPrivateAppManifest({ dir, manifest }),
-  ]
+  const errors = checkExperimentalManifest({ dir, manifest })
   const label = manifest.name ?? dir
-  // A private app is outside the dsh release sequence and may carry its own
-  // product version instead: a packaged desktop shell publishes the version its
-  // update feed serves and an installed client compares against, so the shared
-  // family version cannot own it.
-  const familyVersionError = privateApp ? undefined : checkDshFamilyVersion(manifest, repositoryVersion)
+  const familyVersionError = checkDshFamilyVersion(manifest, repositoryVersion)
   if (familyVersionError !== undefined) errors.push(familyVersionError)
   const isNativePackageDir = dir.startsWith('native/system/packages/')
   const isPublicNativePackage = isNativePackageDir
@@ -464,7 +460,7 @@ export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): st
       || manifest.repository.directory !== expectedDirectory) {
       errors.push(`${label}: published Landlock package repository must use ${publishedRepositoryUrl} with directory ${expectedDirectory}`)
     }
-  } else if (isReleaseMemberDirectory(dir) && !privateApp) {
+  } else if (isReleaseMemberDirectory(dir)) {
     // Release members state that they are publishable: npm refuses a private
     // package, and the repository field is how a consumer finds the source of
     // the package it installed.
@@ -502,8 +498,7 @@ export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): st
     }
   }
 
-  if (dir.startsWith('apps/') && dir !== desktopApplicationDirectory && !privateApp
-    && manifest.name?.startsWith('@deepseek-ai/')) {
+  if (dir.startsWith('apps/') && dir !== desktopApplicationDirectory && dir !== pluginMarketGeneratorDirectory && manifest.name?.startsWith('@deepseek-ai/')) {
     const expectedFiles = appPackageFiles[manifest.name]
     if (expectedFiles === undefined) {
       errors.push(`${label}: app package has no publication files policy`)
@@ -613,8 +608,10 @@ export function checkExperimentalDependencyIsolation(
     if (!standardReleaseMemberDirectory.test(dir) && dir !== 'python/sdk-runtime') continue
     const offered = manifest.name === '@deepseek-ai/dsh' ? new Set(optionalBundles) : new Set<string>()
     for (const section of runtimeDependencySections) {
-      for (const name of Object.keys(manifest[section] ?? {})) {
-        if (!experimentalNames.has(name)) continue
+      for (const [name, range] of Object.entries(manifest[section] ?? {})) {
+        const experimental = experimentalNames.has(name) || isExperimentalPackageName(name)
+          || /^(?:npm:|workspace:)/.test(range) && hasExperimentalPackageReference(range)
+        if (!experimental) continue
         if (section === 'dependencies' && offered.has(name)) continue
         errors.push(`${manifest.name ?? dir}: ${section}.${name} must not reference an experimental package`)
       }
@@ -661,6 +658,7 @@ export function main(): void {
     ...checkRepositoryVersion(),
     ...workspaceManifests().flatMap(checkWorkspaceManifest),
     ...checkWorkspaceProtocol(manifests),
+    ...checkExperimentalNameExceptions(manifests),
     ...checkExperimentalDependencyIsolation(manifests),
     ...checkHierarchyShape(),
     ...collectProjectReferenceFaceViolations(root),
