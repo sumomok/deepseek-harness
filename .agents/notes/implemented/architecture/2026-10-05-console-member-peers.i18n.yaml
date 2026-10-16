@@ -3,47 +3,32 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-05-console-member-peers.md
 /agent-note-one-host-serving-several-members:
-  en: f13f63417e51d434
-  zh: dda72028bc02ef6b
+  en: e123e51215015e1c
+  zh: 03edba8e693ae2b9
 /agent-note-one-host-serving-several-members/problem:
-  en: 9fb7bf8927ad2002
-  zh: 57e7f4cb3be07f70
+  en: 794004705d83a4a8
+  zh: 0c0ebfb0331a83fe
 /agent-note-one-host-serving-several-members/decision:
-  en: a15c7c13f167e5ac
-  zh: 63bcc2ef60c2f344
-/agent-note-one-host-serving-several-members/decision/one-peer-per-member:
-  en: f23023c48913360b
-  zh: b8039b5f71dab9aa
-/agent-note-one-host-serving-several-members/decision/admission-and-default-deny:
-  en: 8738be2b4bad2b46
-  zh: 048225e3886c79ae
-/agent-note-one-host-serving-several-members/decision/admit-stays-synchronous:
-  en: ab14e30b4e2d36d4
-  zh: 2436e7e683a63256
-/agent-note-one-host-serving-several-members/decision/lifecycle-events:
-  en: 6fcfd5aae7b8634d
-  zh: 7dcebf8e5a8218a0
-/agent-note-one-host-serving-several-members/decision/the-peer-carries-no-identity:
-  en: afbb2f177bcd3136
-  zh: 5bdaa203ae43da57
-/agent-note-one-host-serving-several-members/decision/remote-calls-pass-through-remote-invoke:
-  en: b781f93dceb8fa77
-  zh: 33bd3eb1a358f3d3
-/agent-note-one-host-serving-several-members/decision/fetch-routes-and-channels-pass-through-connection-fetch:
-  en: 6505f8079acb98c4
-  zh: 886ea01c0d8f75de
-/agent-note-one-host-serving-several-members/decision/forwarded-events-pass-through-one-delivery-filter:
-  en: 85cf5365373ec958
-  zh: d2b59af04a584d9d
-/agent-note-one-host-serving-several-members/decision/without-an-admitter:
-  en: 6a2073ab99380fea
-  zh: 204796e4bc443f79
+  en: 1a547ee427fa532a
+  zh: cb41cc90438cf01f
+/agent-note-one-host-serving-several-members/decision/admission-seam-and-socket-events-connection-member-peers:
+  en: eeb733b57cd13616
+  zh: 46cbb534a956fff0
+/agent-note-one-host-serving-several-members/decision/member-waterfalls-remote-event-delivery-filter:
+  en: 117f35bff32cc2df
+  zh: 5fd820252ba33f6f
+/agent-note-one-host-serving-several-members/decision/exact-routes-with-their-own-access-rule-connection-fetch-guard:
+  en: 3c1f598e74593572
+  zh: bd79982efac67854
+/agent-note-one-host-serving-several-members/decision/console-obligations:
+  en: bbb322e2762f836b
+  zh: c9f62b03c5081f9e
 /agent-note-one-host-serving-several-members/decision/retirement:
-  en: 17046d3c94f33368
-  zh: 423c2b4b732647fd
+  en: cfd9069d5020cdce
+  zh: 2ee55d0515b8f8c0
 /agent-note-one-host-serving-several-members/alternatives-considered:
-  en: 748b7ffd134f9c06
-  zh: 4639940d9d6f9b69
+  en: efdbd16436c35f68
+  zh: b7f4cc92d1d50cf3
 /agent-note-one-host-serving-several-members/consequences:
-  en: 79a99b20c678ab83
-  zh: 505c69d7880fabaf
+  en: cb8e0d7c36b6455f
+  zh: b6fe0d4b8c0e4291
