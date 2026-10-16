@@ -1,7 +1,7 @@
 /** Peer admission through the assembled Host: socket lifecycle events, the admitter on every credential, and fail-closed admission. */
 import { once } from 'node:events'
 import { request as httpRequest } from 'node:http'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, type Fiber } from '@deepseek-ai/cordis'
 import RemoteAccessService from '@deepseek-ai/dsh-api-remote-access'
 import { apply as applyConnection, inject as connectionInject, type ConnectionConfig } from '@deepseek-ai/dsh-client-connection'
 import WebServer from '@deepseek-ai/dsh-host-webserver'
@@ -27,6 +27,8 @@ interface SocketEvent {
 
 interface Mounted {
   readonly ctx: Context
+  /** The Gateway plugin's fiber, disposed to unload the Gateway alone. */
+  readonly gateway: Fiber
   readonly events: SocketEvent[]
   /** `error`-level log lines written while the root is mounted. */
   readonly errors: string[]
@@ -64,7 +66,8 @@ async function mount(config?: ConnectionConfig): Promise<Mounted> {
   provideBrowserCredentials(ctx)
   await ctx.plugin(TypertRegistry)
   await ctx.plugin(RemoteAccessService)
-  await ctx.plugin(TypertGatewayService, {})
+  const gateway = ctx.plugin(TypertGatewayService, {})
+  await gateway
   await ctx.plugin({ inject: [...connectionInject], apply: applyConnection }, config)
   await ctx.plugin(PeerProbe)
   ctx.remoteAccess.registerPolicy('gateway-socket-member', {
@@ -85,7 +88,7 @@ async function mount(config?: ConnectionConfig): Promise<Mounted> {
     if (events.length >= count) return Promise.resolve()
     return new Promise((resolve) => { waiters.push({ count, resolve }) })
   }
-  return { ctx, events, errors, eventCount }
+  return { ctx, gateway, events, errors, eventCount }
 }
 
 function connect(ctx: Context, cookie = browserCookie(ctx)): WebSocket {
@@ -200,6 +203,38 @@ describe('Remote stream socket events', () => {
     expect(events).toEqual([
       { kind: 'opened', peer: alice, socketId: events[0]!.socketId },
       { kind: 'closed', peer: alice, socketId: events[0]!.socketId },
+    ])
+  })
+
+  it('announces socket-closed only after the socket has released its binding to the Peer', async () => {
+    const { ctx, eventCount } = await mount()
+    const alice = member(ctx, 'alice')
+    ctx.connection.peers.admitWith(() => alice)
+    const holdsBinding = (peer: PeerScope): boolean =>
+      peer.ctx.fiber.getEffects().some(effect => effect.label === 'api-gateway: Remote stream socket bound to its Peer')
+    const bound: boolean[] = []
+    ctx.on('remote-stream/socket-opened', (peer) => { bound.push(holdsBinding(peer)) })
+    ctx.on('remote-stream/socket-closed', (peer) => { bound.push(holdsBinding(peer)) })
+    const client = connect(ctx)
+    await once(client, 'open')
+    await eventCount(1)
+    client.close()
+    await eventCount(2)
+    expect(bound).toEqual([true, false])
+  })
+
+  it('announces socket-closed for every open socket when the Gateway unloads', async () => {
+    const { ctx, gateway, events, eventCount } = await mount()
+    const client = connect(ctx)
+    await once(client, 'open')
+    await eventCount(1)
+    const closed = once(client, 'close')
+    await gateway.dispose()
+    await closed
+    await eventCount(2)
+    expect(events).toEqual([
+      { kind: 'opened', peer: ctx.connection.browserPeer, socketId: events[0]!.socketId },
+      { kind: 'closed', peer: ctx.connection.browserPeer, socketId: events[0]!.socketId },
     ])
   })
 
