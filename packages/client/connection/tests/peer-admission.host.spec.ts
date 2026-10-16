@@ -417,11 +417,13 @@ describe('Connection Peer admission', () => {
     for (const cookie of cookies.slice(21)) expect(connection.admit(trustRequest(mounted, cookie))).toEqual({ peer: alice })
 
     // A credential a socket claimed is not retired by later exchanges.
-    const claimed = connection.admitConnection(trustRequest(mounted, cookies[24]!))
+    const newest = cookies.at(-1)
+    if (newest === undefined) throw new Error('the fixture exchanged 25 API Cookies')
+    const claimed = connection.admitConnection(trustRequest(mounted, newest))
     expect('peer' in claimed && claimed.peer).toBe(alice)
     await apiCookies(mounted, 4)
     expect(apiRecords(mounted)).toHaveLength(5)
-    expect(connection.admit(trustRequest(mounted, cookies[24]!))).toEqual({ peer: alice })
+    expect(connection.admit(trustRequest(mounted, newest))).toEqual({ peer: alice })
   })
 
   it('keeps every API Cookie /connect exchanged while no admitter is installed and requireAdmitter is unset', async () => {
@@ -433,13 +435,15 @@ describe('Connection Peer admission', () => {
       const admission = connection.admit(trustRequest(mounted, cookie))
       expect('peer' in admission && admission.peer.principal).toEqual({ kind: 'owner' })
     }
-    const socket = connection.admitConnection(trustRequest(mounted, cookies[0]!))
+    const [oldest] = cookies
+    if (oldest === undefined) throw new Error('the fixture exchanged 5 API Cookies')
+    const socket = connection.admitConnection(trustRequest(mounted, oldest))
     if (!('peer' in socket)) throw new Error('the owner API Peer owns its socket')
     expect(socket.peer).toBe(apiRecords(mounted)[0]!.peer)
-    const second = connection.admitConnection(trustRequest(mounted, cookies[0]!))
+    const second = connection.admitConnection(trustRequest(mounted, oldest))
     expect('rejection' in second && second.rejection).toBe(409)
     await socket.release()
-    expect(connection.admit(trustRequest(mounted, cookies[0]!))).toEqual({ rejection: 401 })
+    expect(connection.admit(trustRequest(mounted, oldest))).toEqual({ rejection: 401 })
     expect(apiRecords(mounted)).toHaveLength(4)
   })
 
