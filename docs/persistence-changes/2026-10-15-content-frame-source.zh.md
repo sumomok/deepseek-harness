@@ -28,19 +28,19 @@ baseline: false
 changes:
   - root: "event:agent/inbox/spliced"
     previous: "2026-10-09-content-point-source"
-    after: "8cde06df44b5be0083e91613574fe3a8ecd1f2c5aa16d10279ffb666eb13776c"
+    after: "da202589e73f3737cbc43bcca5ffae28378e33ae0c937a0b04035f6f9f4fda15"
     decision: same-version
   - root: "event:developer/message"
     previous: "2026-10-09-content-point-source"
-    after: "2df3c0ef4687316a392cca3ca96731b76b027ad146b40c2da52b3620b7451c6f"
+    after: "7011ee848ccb76d19a197b95ed03d7644d0af8e60347e32b17591a1311570ab2"
     decision: same-version
   - root: "event:session/title-llm-request"
     previous: "2026-10-09-content-point-source"
-    after: "09a7663822734b792c416edcc4b0e62c192b62f6c22c6a33b6932afa4d432927"
+    after: "bfe43be97603c26d8f4ac4c8d3d7119b4724f1fd4b9e1b930814f69477e76fb2"
     decision: same-version
   - root: "event:user/message"
     previous: "2026-10-09-content-point-source"
-    after: "1c11506f3fa8c453677331c4676965532de2fba767e7fa2c339bb9bfeb1290b2"
+    after: "e198badbd6923ea75cc046361878f7f14cb412dc7d94377b844d7ef1caeced1b"
     decision: same-version
 ```
 

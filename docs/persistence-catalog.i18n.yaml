@@ -96,11 +96,11 @@
   en: b12e5509e1d69d0b
   zh: b12e5509e1d69d0b
 /session-persistence-event-catalog/events/content-surface/content-surface-dismissed-log-only:
-  en: 32aafa8c26ff6de4
-  zh: fd5e6752c5b65611
+  en: 697e2098e2c5627f
+  zh: d3b535606e7705df
 /session-persistence-event-catalog/events/content-surface/content-surface-selected-log-only:
-  en: c6438fe30b078294
-  zh: 3154e876a712dde9
+  en: 4b67ff8ef20aa2b2
+  zh: 3177ce80a7bdff43
 /session-persistence-event-catalog/events/deliverables:
   en: 501dcee7db8f8117
   zh: 501dcee7db8f8117
@@ -1530,8 +1530,8 @@
   en: 2bce223901591acb
   zh: d6af5373dfdbd280
 /session-persistence-event-catalog/resolved-persistence-types/by-entryid-kind:
-  en: c8ca52cd0d8de7ad
-  zh: 7ae662ea35298d10
+  en: dea3c8beb3c5b988
+  zh: 21d5da67d81afae8
 /session-persistence-event-catalog/resolved-persistence-types/by-entryid-spec-title:
   en: 455c33a33062f814
   zh: 1865abeb5c221406

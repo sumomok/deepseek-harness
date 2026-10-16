@@ -708,7 +708,7 @@ Source: [`packages/experimental/component-surface/src/types.ts:43`](../packages/
 }
 ```
 
-Source: [`packages/experimental/content-surface/src/types.ts:24`](../packages/experimental/content-surface/src/types.ts)
+Source: [`packages/experimental/content-surface/src/types.ts:26`](../packages/experimental/content-surface/src/types.ts)
 
 <a id="content-surfaceselected--log-only"></a>
 
@@ -737,7 +737,7 @@ Source: [`packages/experimental/content-surface/src/types.ts:24`](../packages/ex
 }
 ```
 
-Source: [`packages/experimental/content-surface/src/types.ts:44`](../packages/experimental/content-surface/src/types.ts)
+Source: [`packages/experimental/content-surface/src/types.ts:46`](../packages/experimental/content-surface/src/types.ts)
 
 ### `deliverables/*`
 
@@ -6456,7 +6456,7 @@ Sources: [`packages/core/session/src/types.ts:364`](../packages/core/session/src
 
 SHA-256: `cf36a3cfab0454f4578f25ea237933bf9b99860dd237a6c16b856c9fcb179620`
 
-Sources: [`packages/experimental/content-surface/src/types.ts:24`](../packages/experimental/content-surface/src/types.ts) · [`packages/experimental/content-surface/src/types.ts:44`](../packages/experimental/content-surface/src/types.ts)
+Sources: [`packages/experimental/content-surface/src/types.ts:26`](../packages/experimental/content-surface/src/types.ts) · [`packages/experimental/content-surface/src/types.ts:46`](../packages/experimental/content-surface/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|

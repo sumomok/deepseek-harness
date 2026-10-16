@@ -29145,8 +29145,8 @@
       "digest": "cf36a3cfab0454f4578f25ea237933bf9b99860dd237a6c16b856c9fcb179620",
       "names": [],
       "sources": [
-        "packages/experimental/content-surface/src/types.ts:24",
-        "packages/experimental/content-surface/src/types.ts:44"
+        "packages/experimental/content-surface/src/types.ts:26",
+        "packages/experimental/content-surface/src/types.ts:46"
       ]
     },
     {

@@ -710,7 +710,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/experimental/content-surface/src/types.ts:24`](../packages/experimental/content-surface/src/types.ts)
+来源：[`packages/experimental/content-surface/src/types.ts:26`](../packages/experimental/content-surface/src/types.ts)
 
 <a id="content-surfaceselected--log-only"></a>
 
@@ -739,7 +739,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/experimental/content-surface/src/types.ts:44`](../packages/experimental/content-surface/src/types.ts)
+来源：[`packages/experimental/content-surface/src/types.ts:46`](../packages/experimental/content-surface/src/types.ts)
 
 ### `deliverables/*`
 
@@ -6458,7 +6458,7 @@ SHA-256: `e4c18e294232c3ba6c9f1999f168263cc55956147cfe4121720899be8e52edd1`
 
 SHA-256: `cf36a3cfab0454f4578f25ea237933bf9b99860dd237a6c16b856c9fcb179620`
 
-来源：[`packages/experimental/content-surface/src/types.ts:24`](../packages/experimental/content-surface/src/types.ts) · [`packages/experimental/content-surface/src/types.ts:44`](../packages/experimental/content-surface/src/types.ts)
+来源：[`packages/experimental/content-surface/src/types.ts:26`](../packages/experimental/content-surface/src/types.ts) · [`packages/experimental/content-surface/src/types.ts:46`](../packages/experimental/content-surface/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|

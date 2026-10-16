@@ -28,19 +28,19 @@ baseline: false
 changes:
   - root: "event:agent/inbox/spliced"
     previous: "2026-09-26-console-content-events"
-    after: "0390e0dc730dad0ec25fa43e28403fc9ad610d8d23a53601dfd107d36012e046"
+    after: "ce884812a97f5cee5460fa893035876a8a1ae9e5b8861f2711eef61982364b42"
     decision: same-version
   - root: "event:developer/message"
     previous: "2026-09-26-console-content-events"
-    after: "2669909f0621ab2da9f5d10d8ea3d93f890f867004fa5a368b18eb2e46887a98"
+    after: "0d71b7d96a005f4af80899b5b6a3554415dcd974a55b1fccd2a9bd30eae57efe"
     decision: same-version
   - root: "event:session/title-llm-request"
     previous: "2026-09-26-console-content-events"
-    after: "626e90e45ae1387304daf001c8008f84666f50229263c4623d42f2987d734a59"
+    after: "1fe8c85ceb6c97f7d5f26862d1e3d119986c697b5bf96d9e677c408cb40230e9"
     decision: same-version
   - root: "event:user/message"
     previous: "2026-09-26-console-content-events"
-    after: "61bf312402150b95890adb1f2cd41794732a7e891e48d22a116da790b3531ce4"
+    after: "018fae974b7119038daddbf1cbd530a804cb67453e673d74baa4b9885edc960f"
     decision: same-version
 ```
 

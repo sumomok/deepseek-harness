@@ -28,7 +28,7 @@ baseline: false
 changes:
   - root: "event:agent/inbox/spliced"
     previous: "2026-09-25-prompt-references"
-    after: "13990d298055a3296bf03f5945a5bc67147f28e3c81986be8a9e2d9e44620b68"
+    after: "f45c7e8ce2d54944b7e0db729401c780334f0b446aff0735a1a93be9e19ff235"
     decision: same-version
   - root: "event:content-component/resolved"
     previous: null
@@ -56,15 +56,15 @@ changes:
     decision: same-version
   - root: "event:developer/message"
     previous: "2026-09-25-prompt-references"
-    after: "53dcbe174677fb3aa04c4a56ee5ed9fd392e3954d1c0618d53444ceb3b1a0495"
+    after: "94b01d7af9b86920344e55d6c466a9d9969962ca0ee293f46d301ebff3d859f0"
     decision: same-version
   - root: "event:session/title-llm-request"
     previous: "2026-09-25-prompt-references"
-    after: "e4bbc373dca50ec970c7112801cb77e3233687c135e700dfe51ebea1e3e8b187"
+    after: "48024c7afd7a0fcd8e837e5227afd4b35d6e30427541ef708335a0444234b856"
     decision: same-version
   - root: "event:user/message"
     previous: "2026-09-25-prompt-references"
-    after: "d6c181927f267021214d1c415aa28abbddd3e344b1a33d810798868cfa25580d"
+    after: "1abed78cdbccf8753220e4039747a4f1dbf1718efd8409585387cc824e60a281"
     decision: same-version
 ```
 
