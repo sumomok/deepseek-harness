@@ -1001,6 +1001,15 @@
 - **状态**：在役（`product/server-console`）。核实依据：`console-profile` 的 `package.json` 以 `file:./vendor/haoran-dsh-auto-compact-0.5.1.tgz` 引入该插件，`content-point` 的 `package.json` 以 `file:./vendor/haoran-dsh-point-anchor-0.1.0.tgz` 引入该插件；`dsh-v0.2.1-alpha.1` 的 `OVERRIDES` 没有这两项。
 - **路径**：`scripts/gen-third-party-notices.ts`
 
+## tracked-file-list-buffer — 读全仓文件清单的三处 `git ls-files` 放宽输出上限
+
+- **改了什么**：`scripts/verify-public-repository-links.ts`、`scripts/verify-concrete-terms.ts`、`scripts/rescope-vendor.ts` 三处 `execFileSync('git', ['ls-files', '-z'], …)` 加 `maxBuffer: 16 * 1024 * 1024`，与同目录 `verify-no-unknown-casts.ts`、`lane-test-budget.spec.ts` 等脚本读 git 输出时的取值相同。
+- **为什么**：`execFileSync` 默认输出上限 1 MiB（1,048,576 字节）。并入 `dsh-v0.2.1-alpha.4` 后本线 `git ls-files -z` 输出 1,067,999 字节（同一时刻 `core-patches` 线头 981,233，`develop` 895,074），三处调用以 `ENOBUFS` 退出：`doc-sync` 的 public repository links 与 concrete terms 两项因此失败，`hygiene` 的 vendor rescope 在它原有的红之外多一处崩溃。
+- **要达到的效果**：三个门禁按文件内容判定，不因本线文件多而在读清单时崩溃。
+- **退役条件**：上游给这三处调用加输出上限，或本线文件清单回落到 1 MiB 以下（`git ls-files -z | wc -c`）；任一成立即把三处还原成上游文本。
+- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.1-alpha.4` 的三处调用都没有 `maxBuffer`；本线改后 `verify-public-repository-links` 与 `verify-concrete-terms` 退出 0。
+- **路径**：`scripts/rescope-vendor.ts` `scripts/verify-concrete-terms.ts` `scripts/verify-public-repository-links.ts`
+
 ## 历史轮次
 
 本线由 `core-patches-v1` 起逐轮变基而来，到 `core-patches-v11` 为止；此后改为合并上游发布。变基那些轮次的提交清单随变基作废，不在此登记；下面只留**今天仍然有效**的事实——重复踩会付代价的那些。删掉它们曾让这些事实在全仓没有第二个归宿。
