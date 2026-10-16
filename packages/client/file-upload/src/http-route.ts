@@ -26,6 +26,8 @@ export function handleFileUploadHttp(service: FileUploads, request: Request): Pr
 /**
  * Handle one authenticated raw-byte upload into the Session its caller read
  * from the request query, so an access rule stores into the Session it decided.
+ * Performs no access check: the caller is the owner, or has decided that the
+ * request's Peer may upload into `sessionId`.
  * @param service - Host upload service receiving streamed bytes.
  * @param request - authenticated HTTP request from Connection.
  * @param sessionId - the request's first `sessionId` query value, or null when it has none.
