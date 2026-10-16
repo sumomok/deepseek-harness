@@ -119,8 +119,8 @@
 # the account provider. The base bundle composes this row with no config, and
 # this row restates that `{}`, so config-editor refuses a write to any field.
 # Signing the Host in or out of a DeepSeek account over `account.*` is a
-# separate Remote surface this row does not touch (see the package README's
-# Known Limitations).
+# separate Remote surface this row does not touch; the profile patch disables
+# its `account-controller` row.
 - id: llm-deepseek-account
   name: '@deepseek-ai/dsh-llm-deepseek-account'
   config: {}

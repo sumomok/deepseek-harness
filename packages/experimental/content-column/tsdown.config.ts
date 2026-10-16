@@ -7,6 +7,6 @@
 import { clientBundle } from '../../client/tsdown.client.ts'
 
 export default clientBundle(
-  '@deepseek-ai/dsh-experimental-content-column',
+  import.meta.dirname,
   ['lib/types/index.js'],
 )

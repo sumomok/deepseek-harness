@@ -53,11 +53,14 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 | `page-refresh` | 插入，并写明它的默认配置：服务端换了构建后，已打开的页面重连时刷新一次，横幅提示连接断开；见 [`dsh-experimental-page-refresh`](../page-refresh/README.zh.md) |
 | `content-point` | 插入，没有配置：输入框「+」右侧的「指一下」按钮指内容栏或侧栏里的一处作为引用；这条消息进入的那一步之前，该行追加一条写进日志的消息，写出每一处的键行和显示文字；见 [`dsh-experimental-content-point`](../content-point/README.zh.md) |
 | `client-hmr` | 禁用：已打开的页面不再把新的插件包换进它正在运行的外壳。`pnpm run dev:web` 重新构建的插件包在宿主重启之前不会到达任何控制台页面，无论是已打开的还是新加载的；重新构建的外壳在下一次加载时就会服务出去，已打开的页面在下一次构建检查时刷新到这个外壳上，配的仍是旧插件包 |
-| `web-runtime` | 配置 `surfaceContext: false`，其余四个字段照抄 Web bundle 的值：模型请求里不再有 `harness:source` 段落（DeepSeek Harness 检出目录的路径）和 `app:web-surface` 段落（页面的本地 URL 与 `pnpm run dev:web`），shell 命令也拿不到 `DSH_WEB_URL`——只有 `bash` 与 `pwsh` 工具读它，而两个控制台预设都不提供这两个工具 |
+| `web-runtime` | 配置 `surfaceContext: false`，其余三个字段照抄 Web bundle 的值：shell 命令拿不到 `DSH_WEB_URL`——只有 `bash` 与 `pwsh` 工具读它，而两个控制台预设都不提供这两个工具 |
+| `harness-dev-context` | 禁用：模型请求里不再有 `harness:source` 段落（DeepSeek Harness 检出目录与工作目录不是一回事）和 `app:web-surface` 段落（「这个页面」指什么、Web 产物怎样重新构建），也没有写明检出目录路径与页面 URL 的两行运行时上下文 |
 | `ui-deliverables` | 禁用：它的提示词段落告诉模型何时调用 `present`，而两个控制台预设都不提供这个工具；这一段从此不进入任何模型请求，一起去掉的还有改动文件卡片（只在开启代码工作工具时绘制）、交付卡片、收尾回答里可点击的文件路径，以及它们打开的审阅标签页 |
-| `system-prompt` | 配置 `includeHarnessIdentity: false`，`personaPrefix` 与 `personaSuffix` 照抄 Web bundle 的值：模型请求不再以 `You are an AI agent powered by DeepSeek Harness.` 开头；有这句话时，客户问助手由什么驱动，助手会照着说出 DeepSeek Harness |
+| `system-prompt` | 配置 `includeHarnessIdentity: false`，`personaPrefix` 照抄 Web bundle 的值：模型请求不再以 `You are an AI agent powered by DeepSeek Harness.` 开头；有这句话时，客户问助手由什么驱动，助手会照着说出 DeepSeek Harness |
+| `tool-working-directory` | 禁用：base bundle 的 `working_directory` 工具，它改变会话的有效目录，技能与文件补全的根目录随之改变。控制台会话就在部署给它的工作区里工作；`working-directory` 服务保留，因为 `tool-fs` 与 `tool-skill` 经它解析路径 |
 | `ui-layout`、`ui-sidebar` | 禁用：它们的单一槽位由外壳与侧栏占用 |
 | `ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`、`ui-settings-models`、`ui-permission`、`ui-settings-session-log` | 禁用：内部术语、官方品牌与开发者界面 |
+| `ui-settings-account`、`account-controller` | 禁用：DeepSeek 账号登录的两半——带侧栏账号菜单的「账号」设置节，以及让 Host 登录一个 DeepSeek 账号、读取其余额的 `account.*` Remote 方法。客户部署在部署层固定自己的模型与凭据 |
 | `ui-settings-plugins`、`ui-settings-plugin-inventory` | 禁用：「设置 → 插件」分区及其唯一的标签页（Loader 清单）。设置外壳 `ui-settings-general` 保留 |
 | `plugin-manager`、`plugin-inventory`、`ui-plugin-manager`、`ui-settings-shell`、`ui-settings-agent-loop`、`ui-settings-subagent`、`ui-settings-web-search` | 禁用：插件管理。登录放行的每个访客都是 Host 的操作者，而 `pluginManager.installBundle`、`setBundleEnabled` 与 `setPluginEnabled` 会安装一个包，或开启一个 bundle，例如 Inspector——它的 CDP 目标在 Host 里执行代码。`plugin-inventory` 为两个插件页列出 Loader 的各行；`ui-plugin-manager` 是侧栏的插件页，控制台里没有任何东西打开它，它的 Host 一半会探测两个公共 npm 源；四个配置页只往这个页面里注册。会让这类改动实时生效的 `hmr` 行在下面被禁用 |
 | `hmr` | 禁用：`hmr` 没有 Remote 方法，但它在不重启的情况下让磁盘上的 profile 改动生效。`tool-fs` 在 `workspace-write` 下，靠被放行的访客给出的那一次审批，就准许了对工作区之外的写入，于是一次对 profile 补丁或 home 补丁的写入会变成下一次 profile 重载就运行的实时代码。禁用这一行后，这类改动只在下次 Host 重启时才生效；没有它，`config-editor` 仍自行保存并对账每次设置写入。这收窄了磁盘写入这条链，而不是写入本身 |
@@ -132,7 +135,7 @@ vendored 的 tarball 把它用到的 harness 包声明为可选 peer，而 pnpm 
 <a id="model-experience"></a>
 ## 模型体验
 
-间接地，经由它组合的行。`console` Agent 预设决定会话自己的工具：`read`、`write`、`edit`、`read_image`、`skill`、`ask_user_question` 与 `todo_write`，另有 host 平面的内容栏工具，它的 persona 前缀是客户助手的指令：用户问到的数据通过组件展示，不描述工作目录、工具或内部实现，提到表、字段、图层、条目和分类时用它们的中文显示名称，而不是表名、条目 id、编码或枚举值；用户看得到的一切都用中文书写，开场第一句话与思考过程也不例外，因为对话的过程行会显示思考过程。`auto-compact` 行决定模型历史何时被压缩：从第一次在请求之前已记录的历史就占用上下文窗口 60% 以上的模型请求起（一轮的第一次请求也算，它的检查不计入刚发出的消息），模型读到的是截成首尾两段的过长工具结果，不够时还有一段更早历史的摘要。`web-runtime` 行的 `surfaceContext: false` 与被禁用的 `ui-deliverables` 行让三段 Web bundle 内容不进入提示词：DeepSeek Harness 检出目录的路径、Web GUI 的本地 URL 及其重新构建说明，以及如何展示结果、何时调用 `present` 的指引；`system-prompt` 行的 `includeHarnessIdentity: false` 去掉点名 DeepSeek Harness 的固定句子，提示词由 persona 前缀开头。`console-mcp` 行把每个已配置服务器的工具以 `mcp__<服务器 id>__<工具>` 提供出来，列表为空时什么都不提供。`library-skills` 行把随包出厂的技能加入技能目录，禁用四个出厂预设去掉了会话本可以运行其下的其他全部工具集，其余每个被组合的插件各自拥有自己对模型可见的内容。
+间接地，经由它组合的行。`console` Agent 预设决定会话自己的工具：`read`、`write`、`edit`、`read_image`、`skill`、`ask_user_question` 与 `todo_write`，另有 host 平面的内容栏工具，它的 persona 前缀是客户助手的指令：用户问到的数据通过组件展示，不描述工作目录、工具或内部实现，提到表、字段、图层、条目和分类时用它们的中文显示名称，而不是表名、条目 id、编码或枚举值；用户看得到的一切都用中文书写，开场第一句话与思考过程也不例外，因为对话的过程行会显示思考过程。`auto-compact` 行决定模型历史何时被压缩：从第一次在请求之前已记录的历史就占用上下文窗口 60% 以上的模型请求起（一轮的第一次请求也算，它的检查不计入刚发出的消息），模型读到的是截成首尾两段的过长工具结果，不够时还有一段更早历史的摘要。被禁用的 `harness-dev-context` 与 `ui-deliverables` 两行让三段 Web bundle 内容不进入提示词——DeepSeek Harness 检出目录与工作目录不是一回事、Web GUI 是什么及怎样重新构建，以及如何展示结果、何时调用 `present` 的指引——也让检出目录路径与页面 URL 不进入运行时上下文；被禁用的 `tool-working-directory` 行不提供 `working_directory`，所以会话的目录始终是创建时那一个；`system-prompt` 行的 `includeHarnessIdentity: false` 去掉点名 DeepSeek Harness 的固定句子，提示词由 persona 前缀开头。`console-mcp` 行把每个已配置服务器的工具以 `mcp__<服务器 id>__<工具>` 提供出来，列表为空时什么都不提供。`library-skills` 行把随包出厂的技能加入技能目录，禁用四个出厂预设去掉了会话本可以运行其下的其他全部工具集，其余每个被组合的插件各自拥有自己对模型可见的内容。
 
 #### KV Cache 影响
 
@@ -147,13 +150,14 @@ vendored 的 tarball 把它用到的 harness 包声明为可选 peer，而 pnpm 
 - **客户看不到压缩摘要。** 压缩进行时，对话里显示 `ui-chat` 的「正在压缩…」（Compacting context…）。压缩落定后，这一轮的过程行里出现 `server-sidebar` 的「已压缩较早的对话」（Earlier conversation compacted），一次失败的尝试会单独显示一行「较早的对话压缩失败」（Couldn’t compact the earlier conversation）；两行都不显示计数或 token 数。一轮第一次请求之前的压缩，进行中与失败的行出现在客户刚发出的那条消息上方，因为那条消息要等压缩结束后才进入对话。没有哪一行能打开 `compaction-basic` 写下的摘要（它的摘要提示词要求用英文写），所以客户读不到模型用来代替较早对话的那段内容。两个预设都不组合 `command-compact`，所以斜杠菜单里没有 `/compact`；它的卡片会显示条数和 token 数，并能打开那段摘要。
 - **一轮开头的压缩进行时按停止，会丢掉刚发出的消息。** 一轮第一次请求之前的压缩，运行在 harness 把开启这一轮的那条消息从队列里取出之后、把它加进对话之前。压缩进行时按停止会取消摘要并结束这一轮，那条消息就此丢掉：它不会进入对话，也不会得到回答。这是 harness 自己的行为；在 60% 处压缩比后端自己的触发点更常碰到它。
 - **访客选不了语言、主题或任何其他偏好。** 锁把 Settings → General 原先提供的每一项偏好钉成整个部署一个值，页面只显示快捷键与当前版本。访客看到的是自己浏览器的语言与系统外观，访客选的任何东西都不会替别人保存。部署在自己的层里组合的、带 volatile 字段的行，在部署把它重述进锁之前，每位访客都能写。
-- **每个被放行的访客都是 Host 的操作者。** 连接层把每个带着登录 cookie 的 `/api` 请求都当作 Host 唯一的操作者放行，不按方法区分，所以组合提供的每个 Remote 方法都回应每个已登录访客。本 bundle 禁用了上表列出的 Host 管理行，所以插件管理、动态 Cordis 包、终端、provider 发现、目录浏览、「打开方式」、Office 渲染与目标都不回应任何访客，`hmr` 行也不再让磁盘上的 profile 改动实时生效；这一决定记录在 [Host 管理 Note](../../../.agents/notes/implemented/architecture/2026-10-04-console-drops-host-administration-surfaces.zh.md)。下面这些仍然够得着：
+- **每个被放行的访客都是 Host 的操作者。** 连接层把每个带着登录 cookie 的 `/api` 请求都当作 Host 唯一的操作者放行，不按方法区分，所以组合提供的每个 Remote 方法都回应每个已登录访客。本 bundle 禁用了上表列出的 Host 管理行，所以插件管理、动态 Cordis 包、终端、provider 发现、目录浏览、「打开方式」、Office 渲染、目标与 DeepSeek 账号登录都不回应任何访客，`hmr` 行也不再让磁盘上的 profile 改动实时生效；这一决定记录在 [Host 管理 Note](../../../.agents/notes/implemented/architecture/2026-10-04-console-drops-host-administration-surfaces.zh.md)。下面这些仍然够得着：
   - `/api/file` 提供 Host 文件系统 provider 能读的任何绝对路径，上限是 `attachments.imageLimits.maxImageBytes`（默认 20 MiB）；对话里的内联图片经它加载。
   - `workspaceFiles.read`、`readBytes` 与 `stat` 读取工作区之外的路径；右侧栏的文档标签页经它们读取，文件链接、工具行里的路径或技能引用都会打开这个标签页。
-  - `credentials.set` 与 `credentials.unset` 写入受管凭据存储，不返回任何值；部署从进程环境提供的引用会以 `credential/rejected` 回应。
+  - `credentials.set` 与 `credentials.unset` 写入受管凭据存储，不返回任何值。存储里的值优先于进程环境，所以对部署从环境提供的引用（包括 `DEEPSEEK_API_KEY`）的一次写入，会替换所有会话用的那个值，直到一次 `unset` 把它删掉。
   - `session.create` 接受任何绝对路径的 `cwd`，而 `workspace-write` 把这个会话的文件写入限制在那个目录与平台临时目录里；对 profile 补丁或 home 补丁的写入，需要被放行的访客给出那一次超出工作区的审批，而 `hmr` 被禁用后，它只在下次 Host 重启时才生效。
   - `session.*`、`workspace.*`、`job.*` 与 `subagents.*` 作用于 Host 服务的每个会话。
-  - `fileReferences.list` 列出一个会话目录下的名字；`account.*` 让 Host 登录一个 DeepSeek 账号，其 token 只发往该账号的推理源。
+  - `fileReferences.list` 列出一个会话目录下的名字。
+  - `/connect` 用启动令牌换取一个 API cookie 和一个 API Peer，其操作者权限与浏览器 cookie 相同；`server-base` 的登录代理把启动令牌交给它放行的每个访客，所以 `/connect` 够不着那个 cookie 够不着的东西。
   - 对锁没有钉住的 volatile 字段的设置写入，会被重新序列化进 profile 补丁并当场生效；新增或改动 `{ __jsExpr: … }` 节点的写入会被拒绝（核心补丁 `settings-expression-write-guard`）。仍可写的字段是侧栏保存的菜单、没有任何已组合的行会写的 `ui-settings-general.welcomeNoticeVersion`，以及 Web 上没有页面读取的 `ui-settings-account` 引导字段。
 - **`console` 预设保留文件工具。** `tool-fs` 让 agent 能把它提炼的技能写进 `<workspace>/.dsh/skills`，也让它能写 `permission` 预设沙箱放行的任何其他文件。
 - **远程面的 e2e 只探测 loopback 上的 HTTP 路径。** `server-sidebar.e2e.ts` 的 `remoteCall` 带登录 cookie 向 loopback 上的 `/api/<ns>/<method>` 发 POST，走过连接放行与 Gateway，但不经过 auth-gate 的 ownsHost 传输，也不打开 WebSocket 流路径；`workspaceFiles.changes` 与终端流这类流方法没有被探测，`directory-picker`、`open-in-app` 与 `llm-deepseek` 锁行只由 `tests/profile.spec.ts` 证明。Gateway 派发只取决于服务是否存在，所以被禁用的行在每条路径上都是关闭的；缺的是证明，不是关闭。

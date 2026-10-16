@@ -190,6 +190,19 @@ const GOAL_ROWS = [
 const LIVE_CONFIG_ROWS = [
   ['hmr', '@deepseek-ai/dsh-hmr'],
 ] as const
+/** The DeepSeek account surface: the Account settings section with the sidebar account menu, and the `account.*` Remote behind them. */
+const ACCOUNT_ROWS = [
+  ['ui-settings-account', '@deepseek-ai/dsh-client-ui-settings-account'],
+  ['account-controller', '@deepseek-ai/dsh-api-account-controller'],
+] as const
+/** The prompt sections and runtime-context lines that name the harness checkout and the page's URL. */
+const HARNESS_DEV_CONTEXT_ROWS = [
+  ['harness-dev-context', '@deepseek-ai/dsh-harness-dev-context'],
+] as const
+/** The `working_directory` tool, which changes a session's effective directory. */
+const WORKING_DIRECTORY_TOOL_ROWS = [
+  ['tool-working-directory', '@deepseek-ai/dsh-tool-working-directory'],
+] as const
 /** The preset a new session is pinned to, absent a stored `permission.defaultPreset`. */
 const PINNED_PRESET = 'workspace-write'
 
@@ -551,6 +564,21 @@ describe('the console layer over the shipped Web bundles', () => {
     // false under `dsh --profile`; `composeEntries` leaves it unevaluated, so it
     // is `not.toBe(true)` here the same way the plugin-manager row is.
     expectDisabledHereComposedThere(LIVE_CONFIG_ROWS)
+  })
+
+  it('turns DeepSeek account sign-in off by id, both halves, while the shipped Web bundle still composes them', () => {
+    expectDisabledHereComposedThere(ACCOUNT_ROWS)
+  })
+
+  it('turns the harness developer context off by id, while the shipped Web bundle still composes it', () => {
+    expectDisabledHereComposedThere(HARNESS_DEV_CONTEXT_ROWS)
+  })
+
+  it('turns the `working_directory` tool off by id and keeps the directory service the file and skill tools read', () => {
+    expectDisabledHereComposedThere(WORKING_DIRECTORY_TOOL_ROWS)
+    expect(rowOf(CONSOLE_PATCH, 'working-directory')).toBeUndefined()
+    expect(byId.get('working-directory')).toMatchObject({ name: '@deepseek-ai/dsh-working-directory' })
+    expect(byId.get('working-directory')?.disabled).not.toBe(true)
   })
 
   it('leaves the reminder tools and the clock row only in Agent presets it disables', () => {

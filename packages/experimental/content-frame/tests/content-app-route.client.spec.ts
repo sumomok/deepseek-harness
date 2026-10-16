@@ -147,8 +147,9 @@ async function loadComposition(withDefaultPage = true, withHomePage = false): Pr
   return context
 }
 
-/** GET (by default) one path against the running server. */
-async function request(port: number, path: string, init?: RequestInit): Promise<Answer> {
+/** GET (by default) one path against the running server; `port` is the server's own, absent until it listens. */
+async function request(port: number | undefined, path: string, init?: RequestInit): Promise<Answer> {
+  if (port === undefined) throw new Error('the web server is not listening')
   const response = await fetch(`http://127.0.0.1:${String(port)}${path}`, init)
   return {
     status: response.status,

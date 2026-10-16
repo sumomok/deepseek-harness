@@ -40,7 +40,7 @@
   name: '@deepseek-ai/dsh-system-prompt'
   config:
     personaPrefix: |
-      You are the console assistant powered by the {{model}} model. Your working directory is {{cwd}}.
+      You are the console assistant powered by the {{model}} model.
 
       Answer with what you did, briefly.
 
@@ -73,10 +73,6 @@
   name: '@deepseek-ai/dsh-tool-fs-search'
   disabled: true
 
-- id: tool-str-replace-editor
-  name: '@deepseek-ai/dsh-tool-str-replace-editor'
-  disabled: true
-
 - id: tool-jobs
   name: '@deepseek-ai/dsh-tool-jobs'
   disabled: true
@@ -101,10 +97,6 @@
   name: '@deepseek-ai/dsh-tool-workflow'
   disabled: true
 
-- id: tool-ralph
-  name: '@deepseek-ai/dsh-tool-ralph'
-  disabled: true
-
 - id: tool-subagent
   name: '@deepseek-ai/dsh-tool-subagent'
   disabled: true
@@ -119,6 +111,10 @@
 
 - id: tool-subagent-list-agents
   name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+  disabled: true
+
+- id: tool-working-directory
+  name: '@deepseek-ai/dsh-tool-working-directory'
   disabled: true
 
 - id: plan-mode

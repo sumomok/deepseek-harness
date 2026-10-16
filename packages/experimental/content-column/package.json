@@ -62,7 +62,6 @@
     "@deepseek-ai/dsh-experimental-content-surface": "workspace:*",
     "@deepseek-ai/dsh-experimental-server-layout": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
-    "@types/react": "~18.3.1",
     "react": "^18.2.0"
   },
   "files": [

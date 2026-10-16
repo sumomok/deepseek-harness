@@ -8,6 +8,6 @@
 import { clientBundle } from '../../client/tsdown.client.ts'
 
 export default clientBundle(
-  '@deepseek-ai/dsh-experimental-vue2-echarts-tool-poc',
+  import.meta.dirname,
   ['lib/types/index.js'],
 )
