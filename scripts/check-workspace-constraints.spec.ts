@@ -357,6 +357,18 @@ describe('package payload constraints', () => {
     expect(checkWorkspaceManifest({ dir: 'apps/other-tool', manifest })).not.toEqual([])
   })
 
+  it.each(['apps/desktop-app', 'apps/desktop-server', 'apps/desktop-shell', 'apps/pwa'])(
+    'exempts the private product app %s from release rules in its own directory only', (dir) => {
+      const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+      expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+      expect(checkWorkspaceManifest({ dir: 'apps/other-app', manifest })).toEqual(expect.arrayContaining([
+        expect.stringContaining('release member must not set "private": true'),
+        expect.stringContaining('app package has no publication files policy'),
+        expect.stringContaining('package.json version must match root version'),
+      ]))
+    },
+  )
+
   it('rejects locale publication entries without their resource exports', () => {
     const dir = 'packages/experimental/auto-review'
     const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
