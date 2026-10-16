@@ -53,7 +53,7 @@ const OPERATION_ACTION = 'operation'
 const BODY_WRAPPERS = ['.el-table__body-wrapper', '.el-table__fixed-body-wrapper'] as const
 
 /** The two wrappers it draws its headings in, likewise. */
-const HEADING_WRAPPERS = ['.el-table__header-wrapper', '.el-table__fixed-header-wrapper'] as const
+const HEADER_WRAPPERS = ['.el-table__header-wrapper', '.el-table__fixed-header-wrapper'] as const
 
 /**
  * One selector per wrapper, so a trailing descendant applies to each of them.
@@ -78,7 +78,7 @@ const SELECT_CONTROLS = [
 const ROW_CELLS = under(BODY_WRAPPERS, 'tbody td:not(.el-table-column--selection):not(.is-hidden)')
 
 /** The heading of every column the user may sort, in whichever wrapper draws it. */
-const SORT_HEADINGS = under(HEADING_WRAPPERS, 'th.is-sortable:not(.is-hidden)')
+const SORT_HEADINGS = under(HEADER_WRAPPERS, 'th.is-sortable:not(.is-hidden)')
 
 /** One row's operation cell, where its per-row buttons are drawn. */
 const OPERATION_CELLS = under(BODY_WRAPPERS, 'tbody td:not(.is-hidden) .column-operation')

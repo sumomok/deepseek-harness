@@ -33,7 +33,7 @@ const KINDS: Readonly<Record<string, string>> = {
 }
 
 /** The headings a dialog's name may be drawn by. */
-const HEADINGS = 'h1, h2, h3, h4, h5, h6, [role="heading"]'
+const DIALOG_NAME_ELEMENTS = 'h1, h2, h3, h4, h5, h6, [role="heading"]'
 
 /**
  * What one drawn element is, in the platform's own word for it.
@@ -163,7 +163,7 @@ function declaredName(el: Element, within: Element): string {
       if (named.getAttribute('id') === described) return named.textContent.trim()
     }
   }
-  const heading = el.querySelector(HEADINGS)
+  const heading = el.querySelector(DIALOG_NAME_ELEMENTS)
   return (heading?.textContent ?? '').trim()
 }
 
