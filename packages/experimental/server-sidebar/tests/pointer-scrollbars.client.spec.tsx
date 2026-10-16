@@ -94,6 +94,9 @@ function mountColumn(): { column: HTMLElement; quiet: () => boolean } {
       usePanelInfo={unusedHook}
       useSessionRetainInfo={unusedHook}
       useResource={unusedHook}
+      useRemoteAccess={unusedHook}
+      useSessionAccess={unusedHook}
+      useWorkspaceAccess={unusedHook}
       renderSlot={((_key: string, _owner: unknown, options?: { fallback?: ReactNode }) =>
         options?.fallback ?? <div data-testid="region" />) as ServerSidebarRootComponentProps['renderSlot']}
     />,

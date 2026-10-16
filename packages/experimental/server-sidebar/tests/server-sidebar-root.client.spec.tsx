@@ -194,6 +194,9 @@ function mount(overrides: Partial<Bench> = {}) {
       usePanelInfo={unusedHook}
       useSessionRetainInfo={unusedHook}
       useResource={unusedHook}
+      useRemoteAccess={unusedHook}
+      useSessionAccess={unusedHook}
+      useWorkspaceAccess={unusedHook}
       renderSlot={renderSlot}
     />
   )

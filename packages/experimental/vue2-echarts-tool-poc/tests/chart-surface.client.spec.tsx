@@ -27,7 +27,7 @@ const t: ChartSurfaceProps['t'] = makeTranslate(en)
 const OPTION = { series: [{ type: 'bar', data: [1, 2, 3] }] }
 
 /** One `chart` entry, as the column's projection publishes it. */
-function chartEntry(payload: unknown, title = 'Revenue'): ChartSurfaceProps['entry'] {
+function chartEntry(payload: ChartSurfaceProps['entry']['payload'], title = 'Revenue'): ChartSurfaceProps['entry'] {
   return { kind: 'chart', entryId: 'sales', seq: 4, title, payload }
 }
 
