@@ -66,6 +66,13 @@ const PEER_REQUIRED_HOST_EXPORTS = {
   '@deepseek-ai/dsh-scope': ['carrierKeyOf', 'createScope', 'scopeOf', 'scopeTarget'],
   '@deepseek-ai/dsh-session': ['SESSION_FORMAT_VERSION'],
   '@deepseek-ai/dsh-session-persistence': ['SessionPersistenceNotFoundError'],
+  // Console-line (product/server-console) Client/Host packages declare these providers as peers.
+  '@deepseek-ai/dsh-attachment': ['AttachmentError', 'AttachmentId', 'MAX_PROMPT_REFERENCES'],
+  '@deepseek-ai/dsh-experimental-biz-backend': ['BizBackendService', 'BizOperationRules', 'requireBizOperationRules'],
+  '@deepseek-ai/dsh-experimental-component-surface': ['COMPONENT_KIT_ENTRIES'],
+  '@deepseek-ai/dsh-experimental-vue2-echarts-poc': ['countSeriesPoints', 'SUPPORTED_SERIES_TYPES'],
+  '@deepseek-ai/dsh-llm': ['boundContextSummary', 'createUserMessage'],
+  '@deepseek-ai/dsh-tools': ['defineTool'],
 } as const satisfies HostDependencyExports
 
 /** Exact import specifier to reviewed runtime exports. */

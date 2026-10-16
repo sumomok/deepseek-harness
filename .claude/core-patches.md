@@ -893,14 +893,15 @@
 
 ## vendored-component-kit-gates — vendored 组件 tarball 与 Vue 2／element-ui 在上游门禁里的处理
 
-- **改了什么**：`scripts/gen-third-party-notices.{ts,spec.ts}` 的 `FIRST_PARTY` 改为带披露方式的映射并要求 `bundled-manifest` 载荷自带 `BUNDLED.json`，`OVERRIDES` 补 `randomcolor` 与 `element-ui`，`normalizeRepo` 处理 `git@host:` 与账户名；`scripts/publint-all.{ts,spec.ts}` 只对 `packages/experimental/` 豁免 publint 的 `LOCAL_DEPENDENCY`；`pnpm-workspace.yaml` 给 `vitepress-plugin-mermaid` 补 `vue ^3.5.13` peer、拒绝 `core-js` 安装脚本；`packages/client/ui-theme/tests/stylesheet-scan.ts` 把原样拷入的 element-ui 主题表排除在样式契约扫描之外。
+- **改了什么**：`scripts/gen-third-party-notices.{ts,spec.ts}` 的 `FIRST_PARTY` 改为带披露方式的映射并要求 `bundled-manifest` 载荷自带 `BUNDLED.json`，`OVERRIDES` 补 `randomcolor` 与 `element-ui`，`normalizeRepo` 处理 `git@host:` 与账户名；`scripts/browser-bundled-externals.ts` 把 `PRIVATE_EXPERIMENTAL_PACKAGE_DIRECTORIES` 列出的本线私有包的浏览器构建也算作分发；`scripts/publint-all.{ts,spec.ts}` 只对 `packages/experimental/` 豁免 publint 的 `LOCAL_DEPENDENCY`；`pnpm-workspace.yaml` 给 `vitepress-plugin-mermaid` 补 `vue ^3.5.13` peer、拒绝 `core-js` 安装脚本；`packages/client/ui-theme/tests/stylesheet-scan.ts` 把原样拷入的 element-ui 主题表排除在样式契约扫描之外。
 - **为什么**：本线组件行用 `file:` 引入仓外 tarball，把 Vue 2 与 element-ui 拉进工作区；上游这几道门禁按「仓内包从 registry 发布、第三方代码都在 lockfile」写死，插件层碰不到。
 - **要达到的效果**：vendored 第三方代码照样被披露（缺声明就报错），豁免只覆盖不发布的 `packages/experimental/`，文档站构建与 install 不受本线依赖影响，样式契约只管本产品自己写的样式表。
 - **退役条件**：`@sumomok/toy-*-kit` 改为 registry 包或移出本仓，且 Vue 2／element-ui 不再进入工作区；或上游门禁自己处理这些情况。
-- **状态**：在役（`product/server-console`）。核实依据：`component-kit` 仍以 `file:` 引入 `@sumomok/toy-crud-kit` 与 `@sumomok/toy-surface-kit`；`dsh-v0.2.1-alpha.1` 的 `FIRST_PARTY` 仍是名字集合、`OVERRIDES` 无 `element-ui` 与 `randomcolor`，`publint-all.ts` 无 `packages/experimental/` 豁免，`pnpm-workspace.yaml` 无 `vitepress-plugin-mermaid` 与 `core-js` 条目，`stylesheet-scan.ts` 不排除 element-ui 主题表。
+- **状态**：在役（`product/server-console`）。核实依据：`component-kit` 仍以 `file:` 引入 `@sumomok/toy-crud-kit` 与 `@sumomok/toy-surface-kit`；`dsh-v0.2.1-alpha.4` 的 `browser-bundled-externals.ts` 仍跳过所有 `private: true` 的包，`FIRST_PARTY` 仍是名字集合、`OVERRIDES` 无 `element-ui` 与 `randomcolor`，`publint-all.ts` 无 `packages/experimental/` 豁免，`pnpm-workspace.yaml` 无 `vitepress-plugin-mermaid` 与 `core-js` 条目，`stylesheet-scan.ts` 不排除 element-ui 主题表。
 - **本轮适配（`dsh-v0.2.1-alpha.1`）**：`gen-third-party-notices.ts` 一处冲突：上游在补丁行之后新增「Chrome DevTools frontend」一节（实验 Inspector 分发的 `chrome-devtools-frontend`），本族在同一位置渲染 `renderBundled(bundled)`；合并后 `renderBundled` 在前、上游那一节在后，再接 `renderClaudeDistribution`，`gen-third-party-notices` 重新生成的 `THIRD_PARTY_NOTICES.md` 两节都在。上游对 `browser.add('chrome-devtools-frontend')` 与 kit 仓库地址的改动自动合并。
 - **本轮适配（`dsh-v0.1.7-rc.2`）**：`gen-third-party-notices.ts` 的 `FIRST_PARTY` 改用上游的 `node-addon-system` 包名，`collectNpmDeps` 接上游的浏览器分层参数，`renderBundled` 放在 `renderClaudeDistribution` 之前；`stylesheet-scan.ts` 以上游 `packageFiles(accepts)` 为底接回排除；`publint-all.spec.ts` 的 vendored tarball 用例改为 await 上游的异步 `run`；桌面删除后 `OVERRIDES` 里 desktop-server tarball 的条目与 `node-pty` 覆盖一起删掉。第二轮删掉 `pnpm-workspace.yaml` `allowBuilds` 里的 `electron: set this to true or false`：它是删桌面外壳那次安装时 pnpm 写进去的占位行，随那次删除一起提交；删掉后清掉工作区安装状态重跑 `pnpm install --frozen-lockfile` 退出 0，不再需要 `--config.strict-dep-builds=false`。
-- **路径**：`packages/client/ui-theme/tests/stylesheet-scan.ts` `pnpm-workspace.yaml` `scripts/gen-third-party-notices.spec.ts` `scripts/gen-third-party-notices.ts` `scripts/publint-all.spec.ts` `scripts/publint-all.ts`
+- **本轮适配（`dsh-v0.2.1-alpha.4`）**：合并时 `publint-all.ts` 冲突：上游把浏览器包检查抽成独立模块并改为导入，本族的 `packages/experimental/` `LOCAL_DEPENDENCY` 豁免接在上游新结构上。合并之后 `verify-package-dependencies --fix`（见 `console-peer-required-host-exports`）把 `component-kit` 的两个 `@sumomok` tarball 与 `element-ui`、`vue`，`vue2-echarts-poc` 的 `echarts`、`vue`，`vue-ui-poc` 的 `vue`，`content-frame` 的 `dom-accessibility-api` 从 `dependencies` 移到 `devDependencies`（门禁要求 Client 构建输入只留开发依赖）；`gen-third-party-notices` 原先靠 `dependencies` 把它们列在运行时一栏，移动之后四个包落进「仅开发」一栏，而它们随控制台的浏览器包分发给访客。`scripts/browser-bundled-externals.ts` 的 `collectClientBundles` 原先跳过所有 `private: true` 的包，现在把 `PRIVATE_EXPERIMENTAL_PACKAGE_DIRECTORIES` 列出的本线目录也当作分发的浏览器构建来遍历；重新生成的 `THIRD_PARTY_NOTICES.md` 与移动之前逐字相同。
+- **路径**：`packages/client/ui-theme/tests/stylesheet-scan.ts` `pnpm-workspace.yaml` `scripts/browser-bundled-externals.ts` `scripts/gen-third-party-notices.spec.ts` `scripts/gen-third-party-notices.ts` `scripts/publint-all.spec.ts` `scripts/publint-all.ts`
 
 ## console-snapshot-lane — console 录制会话通道 snapshots/console
 
@@ -1009,6 +1010,15 @@
 - **退役条件**：上游给这三处调用加输出上限，或本线文件清单回落到 1 MiB 以下（`git ls-files -z | wc -c`）；任一成立即把三处还原成上游文本。
 - **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.1-alpha.4` 的三处调用都没有 `maxBuffer`；本线改后 `verify-public-repository-links` 与 `verify-concrete-terms` 退出 0。
 - **路径**：`scripts/rescope-vendor.ts` `scripts/verify-concrete-terms.ts` `scripts/verify-public-repository-links.ts`
+
+## console-peer-required-host-exports — 本线 Client/Host 包跨包取用的 Host 运行时导出归为 peer-required
+
+- **改了什么**：`scripts/package-dependency-policy.ts` 的 `PEER_REQUIRED_HOST_EXPORTS` 末尾加一段（一行注释点明属于本线）：`@deepseek-ai/dsh-attachment` 的 `AttachmentError`、`AttachmentId`、`MAX_PROMPT_REFERENCES`，`@deepseek-ai/dsh-experimental-biz-backend` 的 `BizBackendService`、`BizOperationRules`、`requireBizOperationRules`，`@deepseek-ai/dsh-experimental-component-surface` 的 `COMPONENT_KIT_ENTRIES`，`@deepseek-ai/dsh-experimental-vue2-echarts-poc` 的 `countSeriesPoints`、`SUPPORTED_SERIES_TYPES`，`@deepseek-ai/dsh-llm` 的 `boundContextSummary`、`createUserMessage`，`@deepseek-ai/dsh-tools` 的 `defineTool`。取用它们的是本线带 `dsh.client` 的六个包：`auth-gate`、`component-kit`、`component-surface`、`content-frame`、`content-point`、`vue2-echarts-tool-poc`，共 25 处导入。
+- **为什么**：`dsh-v0.2.1-alpha.4` 的 `verify-package-dependencies` 删掉了 `usesFlattenedPackageDependencies` 里对 `packages/experimental/` 的豁免，实验包与发布包受同一套依赖规则约束：Client/Host 包的 Host 面每个跨包运行时导入都要登记在 `SAFE_HOST_DEPENDENCY_EXPORTS` 或 `PEER_REQUIRED_HOST_EXPORTS`，否则报 `is not classified as safe or peer-required`。`SAFE_HOST_DEPENDENCY_EXPORTS` 的文档写明自动代理不得新增条目；上述提供方在这六个包里本来就声明在 `peerDependencies` 与 `devDependencies`，归为 peer-required 与现有声明一致。
+- **要达到的效果**：`verify-package-dependencies`（`check:ci:static` 与 `hygiene` 都跑）在本线不因未分类导入失败；分类之后门禁接着检查 manifest 分区，本线 12 个包的分区由门禁自带的 `--fix` 按上游规则重排（只在 `peerDependencies` 里、Host 面并不取用运行时值的工作区包改为只留 `devDependencies`，Client 构建输入改为只留 `devDependencies`），`pnpm-lock.yaml` 只有 importer 段的分区变化、没有版本变化，`docs/module-graph.*` 随之少掉这些包到只剩开发依赖的边。Client 构建输入移到 `devDependencies` 之后第三方声明的分栏由 `vendored-component-kit-gates` 接住。
+- **退役条件**：这些包移出本仓（仓外 tarball 引入），或上游给 `packages/experimental/` 下 `private: true` 的包恢复豁免，或上游自己给这些导出分类（届时取上游侧并删掉本段）。
+- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.1-alpha.4` 的 `PEER_REQUIRED_HOST_EXPORTS` 只有 `dsh-experimental-translator`、`dsh-scope`、`dsh-session`、`dsh-session-persistence` 四项，不含本段任何导出；加段并 `--fix` 之后本线 `verify-package-dependencies` 退出 0。
+- **路径**：`scripts/package-dependency-policy.ts`
 
 ## 历史轮次
 

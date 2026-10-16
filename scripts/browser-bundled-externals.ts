@@ -2,11 +2,12 @@
 
 import { globSync, readFileSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, resolve } from 'node:path'
+import { dirname, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Rolldown, type UserConfigExport } from 'tsdown'
 import ts from 'typescript'
 import { browserDependencyAnalysis } from '../apps/web/product-isolation.ts'
+import { PRIVATE_EXPERIMENTAL_PACKAGE_DIRECTORIES } from './experimental-package-policy.ts'
 
 interface Manifest {
   name: string
@@ -86,9 +87,12 @@ async function collectClientBundles(
   workspaceNames: ReadonlySet<string>,
   seen: Set<string>,
 ): Promise<void> {
+  // The console line's private packages ship their browser builds inside its deployments.
+  const deployed = new Set(PRIVATE_EXPERIMENTAL_PACKAGE_DIRECTORIES)
   for (const [manifestPath, manifest] of manifests) {
-    if (manifest.private === true || manifest.dsh?.client === undefined) continue
     const dir = dirname(manifestPath)
+    const shipped = manifest.private !== true || deployed.has(relative(root, dir).replaceAll('\\', '/'))
+    if (!shipped || manifest.dsh?.client === undefined) continue
     const loaded = await import(pathToFileURL(resolve(dir, 'tsdown.config.ts')).href) as { default: UserConfigExport }
     const factory = await loaded.default
     const configured = typeof factory === 'function' ? await factory({ env: {} }, { ci: false }) : factory
