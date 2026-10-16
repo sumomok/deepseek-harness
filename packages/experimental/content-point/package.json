@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-experimental-content-point",
   "description": "「指一下」: a composer button that points at a place in the console's content column or sidebar, files it as a prompt reference, and tells the model where the user pointed",
-  "version": "0.2.1-alpha.1",
+  "version": "0.2.1-alpha.4",
   "private": true,
   "repository": {
     "type": "git",
