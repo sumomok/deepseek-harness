@@ -20,6 +20,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 }
 
 const BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3])
+/** `alice-evil` shares the `alice` workspace's path as a string prefix but is a sibling directory. */
+const DIRECTORIES = ['alice', 'alice-evil', 'bob', 'outside']
 const sid = (value: string): SessionId => value as SessionId
 
 let base: string
@@ -27,8 +29,8 @@ const contexts: Context[] = []
 
 beforeEach(async () => {
   base = await realpath(await mkdtemp(join(tmpdir(), 'dsh-media-member-')))
-  for (const dir of ['alice', 'bob', 'outside']) await mkdir(join(base, dir))
-  for (const dir of ['alice', 'bob', 'outside']) await writeFile(join(base, dir, 'image.png'), BYTES)
+  for (const dir of DIRECTORIES) await mkdir(join(base, dir))
+  for (const dir of DIRECTORIES) await writeFile(join(base, dir, 'image.png'), BYTES)
 })
 
 afterEach(async () => {
@@ -79,6 +81,16 @@ async function fileAs(
   method = 'GET',
 ): Promise<{ readonly status: number; readonly bytes: Uint8Array }> {
   const query = new URLSearchParams({ path, ...(sessionId === undefined ? {} : { sessionId }) })
+  return fileQueryAs(connection, peer, query, method)
+}
+
+/** Request `/api/file` with a query whose parameters may repeat. */
+async function fileQueryAs(
+  connection: HostConnectionService,
+  peer: PeerScope,
+  query: URLSearchParams,
+  method = 'GET',
+): Promise<{ readonly status: number; readonly bytes: Uint8Array }> {
   const response = await connection.createSharedFetchHandler('/api').fetch(
     new Request(`http://host/api/file?${query.toString()}`, { method }), peer,
   )
@@ -126,6 +138,25 @@ describe('/api/file for non-owner Peers', () => {
     }
     expect(stat).not.toHaveBeenCalled()
     expect(read).not.toHaveBeenCalled()
+  })
+
+  it('refuses a member a sibling directory that shares its workspace path as a prefix', async () => {
+    const { connection } = await mount()
+    const alice = member(connection, 's1')
+    for (const method of ['GET', 'HEAD']) {
+      expect((await fileAs(connection, alice, join(base, 'alice-evil', 'image.png'), 's1', method)).status).toBe(403)
+    }
+  })
+
+  it('confines a member\'s read to the workspace of the sessionId value remote access decided', async () => {
+    const { connection } = await mount()
+    const alice = member(connection, 's1')
+    const repeated = (path: string, ...sessionIds: string[]): URLSearchParams =>
+      new URLSearchParams([['path', path], ...sessionIds.map(id => ['sessionId', id])])
+    expect((await fileQueryAs(connection, alice, repeated(join(base, 'bob', 'image.png'), 's1', 's2'))).status).toBe(403)
+    expect((await fileQueryAs(connection, alice, repeated(join(base, 'alice', 'image.png'), 's2', 's1'))).status).toBe(403)
+    expect(await fileQueryAs(connection, alice, repeated(join(base, 'alice', 'image.png'), 's1', 's2')))
+      .toEqual({ status: 200, bytes: BYTES })
   })
 
   it('follows symbolic links to their real path before deciding containment', async () => {
