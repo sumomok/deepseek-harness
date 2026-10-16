@@ -56,9 +56,12 @@ import type {
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only: pulls the SlotRegistry service merge (ctx.slots).
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-// Type-only: pulls ui-workspace's declarations of `workspace.toast` and
-// `workspace.toast.content`, and its ctx.uiWorkspace Context merge.
+// Type-only: pulls ui-workspace's ctx.uiWorkspace Context merge.
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
+// Type-only: ui-workspace declares `workspace.toast` and
+// `workspace.toast.content` in its toast contract, which the declarations of
+// its `/client` entry do not reach.
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/src/client/contract/toast.ts'
 import { REPLACING_PRIORITY } from './shadowed-overlay.ts'
 
 /** Hold of the two archive notices, which carry an action to react to; `ui-workspace` holds its own for the same 6 s. */
