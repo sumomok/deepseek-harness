@@ -915,6 +915,7 @@
 - **本轮适配（`dsh-v0.1.7-rc.2`）**：`snapshots/console/cordis.yml` 的 `system-prompt` 配置 `persona` 改为上游改名后的 `personaPrefix`。已录的 12 个场景夹具是 V4 之前录的：keyless 回放 12 个场景全部与期望输出不符，夹具头检查报「pinning fixture 必须恰好带一条 system 消息」；按本通道规则需要带 key 重录（`pnpm run test:snapshot:record`），本轮没有重录。
 - **本轮适配（`dsh-v0.1.7-rc.2` 第二轮）**：`docs/testing.{md,zh.md}` 里本线加的那一句撤回，两文件回到 `dsh-v0.1.7-rc.2` 版本：上游对该文件设了字数预算，加句后超限。通道目录与 profile 解耦的事实由 `scripts/session-snapshot-corpus.corpus.ts` 的 `profileByLane` 与 `snapshots/console/README.*` 承载。
 - **本轮适配（并入 `feat/skill-pack-v0`）**：`snapshots/console/cordis.yml` 随 skill-pack 线加 `console-mcp`（`servers: []`）与 `system-map` 两行；`show-crud-turn` 改名 `show-data-page-turn`，其 V4 日志按 skill-pack 的 V0 脚本无 key 重新生成，新场景 `system-map-turn` 首次生成 V4 日志，两者都是 `recording: authored`；十三个场景全部回放通过。
+- **本轮适配（`dsh-v0.2.1-alpha.4`）**：合并时 `scripts/session-snapshot-corpus.corpus.ts` 冲突：上游在 `sdk` 通道加了 `sdk-minimal` profile；本族的 `profileByLane` 保留，`sdk` 通道同时接受 `sdk` 与 `sdk-minimal`。上游在 runtime-context 里加了 `working-directory:current` 一节，`snapshots/console/cordis.yml` 随控制台组合去掉 `system-prompt` 的 `{{cwd}}` 句；十三个场景以 `DSH_SNAPSHOT=refresh` 无 key 刷新，每份 `session.v4.jsonl` 只变 runtime-context 那一行，`show-chart-turn/system-prompt.expected.md` 只少那一句；回放 20 个测试全部通过。
 - **路径**：`packages/test-support/session-snapshot/src/harness.ts` `packages/test-support/session-snapshot/src/suite.ts` `packages/test-support/session-snapshot/tests/harness.spec.ts` `packages/test-support/session-snapshot/tests/suite.spec.ts` `scripts/session-snapshot-corpus.corpus.ts`
 
 ## web-test-scaffold-console — web 测试脚手架的增补
