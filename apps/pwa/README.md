@@ -18,7 +18,7 @@ Remove it with `pnpm dsh plugin --profile web remove @deepseek-ai/dsh-pwa`.
 
 ## Phones need a route to the server
 
-The backend cannot run on a phone, so the phone client is this installable page served over the network. `dsh web` deliberately rejects `--host 0.0.0.0` (anyone reaching the port can run code as your user); [overlay/lan.patch.yml](overlay/lan.patch.yml) is the explicit opt-in that binds all interfaces anyway, for networks where every device is yours. Service-worker install additionally requires a secure context: `http://127.0.0.1` qualifies, a bare LAN `http://<ip>` does not — prefer a tailnet HTTPS route or a reverse proxy with a certificate; over plain LAN HTTP the page still works and Android falls back to a plain shortcut.
+The backend cannot run on a phone, so the phone client is this installable page served over the network. `dsh web` deliberately rejects a wildcard listener such as `--host 0.0.0.0` (anyone reaching the port can run code as your user); on a network where every device is yours, start it with `--host <this machine's LAN IPv4 address>` to bind that one interface, which the Host check accepts without a `--trusted-host` entry. Service-worker install additionally requires a secure context: `http://127.0.0.1` qualifies, a bare LAN `http://<ip>` does not — prefer a tailnet HTTPS route or a reverse proxy with a certificate; over plain LAN HTTP the page still works and Android falls back to a plain shortcut.
 
 ## Config
 

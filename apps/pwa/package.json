@@ -17,7 +17,6 @@
   "files": [
     "lib",
     "assets",
-    "overlay",
     "cordis.patch.yml"
   ],
   "dsh": {
