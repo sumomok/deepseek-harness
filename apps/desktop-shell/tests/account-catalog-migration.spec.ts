@@ -457,7 +457,8 @@ type ComposedRow = ReturnType<typeof composeEntries>[number]
  * @throws the error that plugin load fails with, `models is no longer configurable` while the field is present.
  */
 function loadAccountRow(row: ComposedRow): void {
-  resolveAccountOptions(plainAccountOptions(AccountConfig(row.config)))
+  // The Loader hands a row's `config` over untyped; the schema is what checks it.
+  resolveAccountOptions(plainAccountOptions(AccountConfig(row.config as Parameters<typeof AccountConfig>[0])))
 }
 
 describe('an rc.38 desktop profile', () => {
