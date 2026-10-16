@@ -37,4 +37,5 @@
 - text: {{clock}}
 - textbox "Message or run a task, / commands, @ files or sessions"
 - button "Add files or run commands"
+- button "Point"
 - button "Send message" [disabled]
