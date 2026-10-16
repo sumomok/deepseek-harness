@@ -24,7 +24,10 @@ function header(id: string): SessionHeader {
 }
 
 /** Subagent children per Session in the fixture corpus. */
-const CHILDREN: Readonly<Record<string, readonly string[]>> = { s1: ['s1a'], s2: ['s2a'] }
+const CHILDREN: Readonly<Record<string, readonly string[]>> = { s1: ['s1a'], s2: ['s2a'], s3: ['s3a', 's3b'] }
+
+/** The Session whose lineage the fixture's Session query cannot read. */
+const UNTRACEABLE = 's-untraceable'
 
 function lineage(id: string): { readonly session: { readonly header: SessionHeader }; readonly descendants: readonly unknown[] } {
   return { session: { header: header(id) }, descendants: (CHILDREN[id] ?? []).map(lineage) }
@@ -46,7 +49,12 @@ async function mount(): Promise<{
   roots.push(ctx)
   const opened: string[] = []
   ctx.provide('commands', { register: () => () => {} } as never)
-  ctx.provide('sessionQuery', { traceSession: async (id: SessionId) => lineage(String(id)) } as never)
+  ctx.provide('sessionQuery', {
+    traceSession: async (id: SessionId) => {
+      if (id === UNTRACEABLE) throw new Error('fixture lineage is unreadable')
+      return lineage(String(id))
+    },
+  } as never)
   ctx.provide('sessionPersistence', {
     stat: async (id: SessionId) => ({ header: header(String(id)) }),
     open: async (id: SessionId) => {
@@ -107,6 +115,24 @@ describe('Session-log export route for non-owner Peers', () => {
     expect(opened).toEqual([])
     expect(await exportAs(connection, member(connection, 's1', 's1a'), '?sessionId=s1&includeDescendants=true'))
       .toEqual({ status: 200, entries: [SESSION_LOG_FILENAME, `subagents/s1a/${SESSION_LOG_FILENAME}`] })
+  })
+
+  it('refuses a member\'s export with descendants when any one descendant is not granted', async () => {
+    const { connection, opened } = await mount()
+    for (const granted of [['s3', 's3a'], ['s3', 's3b']]) {
+      expect(await exportAs(connection, member(connection, ...granted), '?sessionId=s3&includeDescendants=true'))
+        .toEqual({ status: 403, entries: [] })
+    }
+    expect(opened).toEqual([])
+    expect(await exportAs(connection, member(connection, 's3', 's3a', 's3b'), '?sessionId=s3&includeDescendants=true'))
+      .toEqual({ status: 200, entries: [SESSION_LOG_FILENAME, `subagents/s3a/${SESSION_LOG_FILENAME}`, `subagents/s3b/${SESSION_LOG_FILENAME}`] })
+  })
+
+  it('refuses a member\'s export with descendants when the lineage cannot be read', async () => {
+    const { connection, opened } = await mount()
+    const alice = member(connection, UNTRACEABLE)
+    expect(await exportAs(connection, alice, `?sessionId=${UNTRACEABLE}&includeDescendants=true`)).toEqual({ status: 403, entries: [] })
+    expect(opened).toEqual([])
   })
 
   it.each([
