@@ -38,6 +38,7 @@
     "packages/extensions/ui-cordis/src/css-modules.d.ts",
     "packages/experimental/client-ui-agent-team/src/css-modules.d.ts",
     "packages/experimental/client-ui-claude-code-mods/src/css-modules.d.ts",
+    "packages/experimental/client-ui-cot-translation/src/css-modules.d.ts",
     "packages/experimental/client-ui-voice-input/src/css-modules.d.ts",
     "packages/experimental/inspector/src/css-modules.d.ts",
     "packages/experimental/session-inspector/src/css-modules.d.ts",
