@@ -47,7 +47,9 @@ slot 系统只接受 React 函数组件，因此 Vue 树通过 `Vue2Bridge`—�
 - **`EChartsOption`** —— 直通式图表：进去一份完整的 ECharts option，出来一份判定。props 是 `option`，以及可选的 `dark`、`capture`、`onVerdict`、`onCapture`。option 以 `notMerge` 应用且从不被检查，因此判断什么能安全绘制属于交出它的那一方。`setOption` 抛出时 `onVerdict` 同步答 `{ ok: false, error }`；引擎接受的文档则在其后第一个 `finished` 事件上答 `{ ok: true, seriesCount, pointCount }`。`capture` 多加一次 `getDataURL`，按每 CSS 像素两个设备像素读取，经 `onCapture` 恰在判定之前送出，好让消费方把两者一并发给宿主。像素翻倍是因为这张图是给模型回看的：在对话栏给图表的尺寸下，一比一的 PNG 会让坐标轴标签和图例条目糊到读不出来。
 - **`ChartPanel`** —— 建在 `EChartsBar` 之上的演示外壳，也是 placement 实际注册的组件。它从本包的 locale 座位解析文案，铺一组固定的七柱周数据，用「换一组数据」按钮替换它，并把最后点中的柱子作为 `selectedLabel` 递回去。每一次交互两个方向都在跨界：Vue 数点击，React 在它周围重渲染。
 
-`Vue2Bridge`、两个 Vue 组件（`EChartsBarChart`、`EChartsOptionChart`）与 `NS`（字典命名空间）同样导出，并附带 Vue 2.7 的 API 表面：`Vue` 加上 `defineComponent`、`h`、`ref`、`computed`、`watch`、`onMounted`、`onBeforeUnmount`、`nextTick`。
+`Vue2Bridge`、两个 Vue 组件（`EChartsBarChart`、`EChartsOptionChart`）与 `NS`（字典命名空间）同样导出，并附带 Vue 2.7 的 API 表面：`Vue` 加上 `defineComponent`、`h`、`ref`、`computed`、`watch`、`onMounted`、`onBeforeUnmount`、`nextTick`、`getCurrentInstance`、`markRaw`，以及 `vueInject`（Vue 的 `inject`）。
+
+Vue 的 `inject` 以 `vueInject` 的名字导出，因为入口自己的 `inject` 导出是插件的必需服务列表（`['locale']`），Cordis 加载插件时读取它。消费方从本模块 import `inject`，拿到的是这份列表，而不是 Vue 的函数。
 
 ### 支持的 series 集合
 

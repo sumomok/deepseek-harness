@@ -58,7 +58,11 @@ export {
   computed,
   default as Vue,
   defineComponent,
+  getCurrentInstance,
   h,
+  // Renamed: this module's own `inject` is the plugin's required-service list.
+  inject as vueInject,
+  markRaw,
   nextTick,
   onBeforeUnmount,
   onMounted,

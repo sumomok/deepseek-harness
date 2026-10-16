@@ -1,15 +1,22 @@
 /**
  * vue2-echarts-poc plugin halves: the browser entry's dictionary registration
  * against the real locale plugin (with fiber teardown proving removal — HMR
- * safety), and the inert node entry.
+ * safety), the browser entry's Vue 2.7 re-exports, and the inert node entry.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
+import {
+  getCurrentInstance as getCurrentInstanceFromVue,
+  inject as injectFromVue,
+  isReactive,
+  markRaw as markRawFromVue,
+  reactive,
+} from 'vue'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
-import { apply, inject } from '../src/client/index.ts'
+import { apply, getCurrentInstance, inject, markRaw, Vue, vueInject } from '../src/client/index.ts'
 import { apply as applyNode } from '../src/index.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
 
@@ -53,6 +60,32 @@ describe('vue2-echarts-poc browser half', () => {
 
   it('keeps the English dictionary key-identical to the Chinese source of truth', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
+  })
+})
+
+describe('vue2-echarts-poc browser Vue re-exports', () => {
+  it('re-exports the functions of the Vue runtime the bundle carries', () => {
+    expect(getCurrentInstance).toBe(getCurrentInstanceFromVue)
+    expect(markRaw).toBe(markRawFromVue)
+    expect(vueInject).toBe(injectFromVue)
+  })
+
+  it('gives a component setup its instance and keeps a raw object out of reactive state', () => {
+    const seen: { instance?: ReturnType<typeof getCurrentInstance>; plain?: object; raw?: object } = {}
+    // Vue 2.7 runs `setup` while it constructs the instance, so this DOM-free
+    // lane observes it without mounting.
+    const vm = new Vue({
+      setup() {
+        seen.instance = getCurrentInstance()
+        const state = reactive({ plain: { id: 1 }, raw: markRaw({ id: 2 }) })
+        seen.plain = state.plain
+        seen.raw = state.raw
+      },
+    })
+    expect(seen.instance?.proxy).toBe(vm)
+    expect(isReactive(seen.plain)).toBe(true)
+    expect(isReactive(seen.raw)).toBe(false)
+    vm.$destroy()
   })
 })
 
