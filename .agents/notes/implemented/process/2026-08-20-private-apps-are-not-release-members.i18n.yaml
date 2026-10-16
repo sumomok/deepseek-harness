@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-08-20-private-apps-are-not-release-members.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-20-private-apps-are-not-release-members.md
+/agent-note-private-apps-are-not-release-members:
+  en: ca99fc4e7ff3f512
+  zh: c8cecad2bec539f9
+/agent-note-private-apps-are-not-release-members/problem:
+  en: 2b1e797ad21ecf38
+  zh: b4661c1ddecf05b4
+/agent-note-private-apps-are-not-release-members/decision:
+  en: b199160c7299d8a5
+  zh: 9846843b5b1600fb
+/agent-note-private-apps-are-not-release-members/testing:
+  en: 2cbbaefeeffa1314
+  zh: 7ed02800694608fe
+/agent-note-private-apps-are-not-release-members/alternatives-considered:
+  en: 1a70dae8175f5535
+  zh: 48440bdd4d31057e
+/agent-note-private-apps-are-not-release-members/consequences:
+  en: 39030cfb3d60a44e
+  zh: 1f7cbb90dfad4e0b
