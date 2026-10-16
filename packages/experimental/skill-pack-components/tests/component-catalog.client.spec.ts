@@ -157,10 +157,10 @@ describe('the component catalog file', () => {
     const manifest = JSON.parse(await readFile(COMPONENT_KIT_MANIFEST, 'utf8')) as {
       name: string
       version: string
-      dependencies: Record<string, string>
+      devDependencies: Record<string, string>
     }
     expect(file.header.componentKit).toEqual({ package: manifest.name, version: manifest.version })
-    expect(manifest.dependencies['@sumomok/toy-crud-kit'])
+    expect(manifest.devDependencies['@sumomok/toy-crud-kit'])
       .toBe(`file:./vendor/sumomok-toy-crud-kit-${file.header.toyCrudKit.version}.tgz`)
     expect(file.header.toyCrudKit.package).toBe('@sumomok/toy-crud-kit')
   })

@@ -3,7 +3,7 @@
     "catalogFormat": 1,
     "componentKit": {
       "package": "@deepseek-ai/dsh-experimental-component-kit",
-      "version": "0.2.1-alpha.1"
+      "version": "0.2.1-alpha.4"
     },
     "toyCrudKit": {
       "package": "@sumomok/toy-crud-kit",
