@@ -270,6 +270,24 @@ describe('forwarded waterfalls for non-owner Peers', () => {
     }
   })
 
+  it('delivers no waterfall to a member whose only grant is on the global resource', async () => {
+    const globalAnswer: RemoteAccessBinding = {
+      role: { name: 'test:global-answer', resource: 'global', actions: [`event:${APPROVAL}`] },
+      resource: { kind: 'global' },
+    }
+    for (const agentResource of [false, true]) {
+      const mounted = await mount({ agentResource })
+      const { ctx } = mounted
+      mounted.grant('alice', globalAnswer)
+      const owner = await events(ctx, ctx.connection.browserPeer)
+      const alice = await events(ctx, member(ctx, 'alice'))
+      ask(mounted, APPROVAL, 's1')
+      expect(await frame(owner)).toMatchObject({ type: 'waterfall', event: APPROVAL })
+      await nothingQueued(alice)
+      for (const stream of [owner, alice]) await stream.close()
+    }
+  })
+
   it('replays a pending waterfall to a member that connects later only as the policy allows', async () => {
     const mounted = await mount()
     const { ctx } = mounted
