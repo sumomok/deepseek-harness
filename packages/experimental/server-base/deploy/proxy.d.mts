@@ -91,6 +91,8 @@ export interface Settings {
   assertion: { privateKey: KeyObject; deploymentId: string } | undefined
   /** DSH_LAUNCH_TOKEN_FILE, proxy mode only. */
   launchTokenFile: string | undefined
+  /** DSH_EXTRA_PREFIXES, proxy mode only; empty when unset. */
+  dshExtraPrefixes: readonly string[]
 }
 
 /**
@@ -102,9 +104,10 @@ export function requestPathname(url: string | undefined): string
 /**
  * Whether a request path belongs to the remote application.
  * @param pathname - request path, query stripped.
+ * @param extraPrefixes - DSH_EXTRA_PREFIXES, the prefixes dsh owns beyond the built-in list.
  * @returns true when the remote origin owns it.
  */
-export function isRemote(pathname: string): boolean
+export function isRemote(pathname: string, extraPrefixes: readonly string[]): boolean
 /** dsh paths the login gate lets through unchecked; the nginx template opens the same ones. */
 export const GATE_EXEMPT_EXACT: ReadonlySet<string>
 /** Path prefixes the login gate lets through unchecked, matching the prefix itself or a path continuing with a slash. */

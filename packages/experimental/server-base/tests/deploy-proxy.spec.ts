@@ -762,6 +762,19 @@ describe('configuration fails loud at start', () => {
     [{ ...base, AUTH_CHECK_REPLY: 'body' }, /AUTH_CHECK_REPLY/],
     [{ ...base, ALLOWED_TENANTS: ' , ,' }, /ALLOWED_TENANTS is set but lists no value/],
     [{ ...base, AUTH_CACHE_SECONDS: '-1' }, /AUTH_CACHE_SECONDS/],
+    [{ ...base, DSH_EXTRA_PREFIXES: ' , ' }, /DSH_EXTRA_PREFIXES is set but lists no value/],
+    [{ ...base, DSH_EXTRA_PREFIXES: 'map-component' }, /DSH_EXTRA_PREFIXES entry "map-component" must be a path/],
+    [{ ...base, DSH_EXTRA_PREFIXES: '/' }, /DSH_EXTRA_PREFIXES entry "\/" must be a path/],
+    [{ ...base, DSH_EXTRA_PREFIXES: '/map-component/' }, /DSH_EXTRA_PREFIXES entry "\/map-component\/" must be a path/],
+    [{ ...base, DSH_EXTRA_PREFIXES: '/map//component' }, /must be a path/],
+    [{ ...base, DSH_EXTRA_PREFIXES: '/map/../api' }, /must be a path/],
+    [{ ...base, DSH_EXTRA_PREFIXES: '/map component' }, /must be a path/],
+    [{ ...base, DSH_EXTRA_PREFIXES: '/plugins/map' }, /DSH_EXTRA_PREFIXES entry "\/plugins\/map" is already a dsh path/],
+    [{ ...base, DSH_EXTRA_PREFIXES: '/assets' }, /is already a dsh path/],
+    [{ ...base, DSH_EXTRA_PREFIXES: '/index.html' }, /is already a dsh path/],
+    [{ ...base, DSH_EXTRA_PREFIXES: '/map,/map' }, /DSH_EXTRA_PREFIXES entry "\/map" repeats or lies under another entry/],
+    [{ ...base, DSH_EXTRA_PREFIXES: '/map,/map/tiles' }, /"\/map\/tiles" repeats or lies under another entry/],
+    [{ PROXY_MODE: 'verify', AUTH_ORIGIN: 'http://127.0.0.1:9532', DSH_EXTRA_PREFIXES: '/map' }, /DSH_EXTRA_PREFIXES applies only in PROXY_MODE=proxy/],
   ])('refuses %j', (env, message) => {
     expect(() => readSettings(env, readKeyFile)).toThrow(message)
   })
@@ -784,8 +797,15 @@ describe('configuration fails loud at start', () => {
       authCacheSeconds: 30,
       assertion: undefined,
       claims: NO_CLAIMS_CHECKS,
+      dshExtraPrefixes: [],
     })
     expect(settings.authOrigin.href).toBe('http://127.0.0.1:9532/')
+  })
+
+  it('reads DSH_EXTRA_PREFIXES as a trimmed list, and leaves it empty in verify mode', () => {
+    expect(readSettings({ ...base, DSH_EXTRA_PREFIXES: ' /map-component , /a/b ' }, readKeyFile).dshExtraPrefixes).toEqual(['/map-component', '/a/b'])
+    expect(readSettings({ ...base, DSH_EXTRA_PREFIXES: '/mapper,/map' }, readKeyFile).dshExtraPrefixes).toEqual(['/mapper', '/map'])
+    expect(readSettings({ PROXY_MODE: 'verify', AUTH_ORIGIN: 'http://127.0.0.1:9532' }, readKeyFile).dshExtraPrefixes).toEqual([])
   })
 
   it('derives the default AUTH_ORIGIN from REMOTE_HOST and REMOTE_PORT, with an IPv6 address in brackets', () => {
@@ -797,15 +817,24 @@ describe('configuration fails loud at start', () => {
 describe('routing', () => {
   it('classifies the pathname dsh will route, after resolving dot segments', () => {
     expect(requestPathname('/plugins/../api/rpc?x=1')).toBe('/api/rpc')
-    expect(isRemote('/api/rpc')).toBe(false)
+    expect(isRemote('/api/rpc', [])).toBe(false)
     expect(isGateExempt('/api/rpc')).toBe(false)
-    expect(isRemote('/apis')).toBe(true)
-    expect(isRemote('/ini-web2/index.html')).toBe(true)
-    expect(isRemote('/open-in-app/apps')).toBe(false)
-    expect(isRemote('/favicon-dark.svg')).toBe(false)
+    expect(isRemote('/apis', [])).toBe(true)
+    expect(isRemote('/ini-web2/index.html', [])).toBe(true)
+    expect(isRemote('/open-in-app/apps', [])).toBe(false)
+    expect(isRemote('/favicon-dark.svg', [])).toBe(false)
     expect(isGateExempt('/favicon-dark.svg')).toBe(true)
     expect(isGateExempt('/component-kit/settings')).toBe(true)
     expect(isGateExempt('/component-kit/data')).toBe(false)
+  })
+
+  it('gives dsh the DSH_EXTRA_PREFIXES paths, matched as whole segments, and keeps them gated', () => {
+    expect(isRemote('/map-component/settings', [])).toBe(true)
+    expect(isRemote('/map-component/settings', ['/map-component'])).toBe(false)
+    expect(isRemote('/map-component', ['/map-component'])).toBe(false)
+    expect(isRemote('/map-components/settings', ['/map-component'])).toBe(true)
+    expect(isRemote('/ini-web2/index.html', ['/map-component'])).toBe(true)
+    expect(isGateExempt('/map-component/settings')).toBe(false)
   })
 
   it('exempts the same paths as the nginx template, whose prefix locations end in a slash', () => {
@@ -1046,6 +1075,23 @@ describe('proxy mode', () => {
     expect(lastMemberHeader(w.dsh.requests)).toBeUndefined()
     expect(await upgrade(w.port, '/api/remote.mux', LOGGED_IN)).toBe(101)
     expect(lastMemberHeader(w.dsh.upgrades)).toBeUndefined()
+  })
+
+  it('sends a DSH_EXTRA_PREFIXES path to dsh behind the login check, and to the remote application without the variable', async () => {
+    const w = await world({ DSH_EXTRA_PREFIXES: '/map-component' })
+    expect((await send(w.port, '/map-component/settings', FORGED_ONLY)).status).toBe(401)
+    expect(w.dsh.requests).toHaveLength(0)
+    expect((await send(w.port, '/map-component/settings', LOGGED_IN)).status).toBe(200)
+    expect(w.dsh.requests.at(-1)?.path).toBe('/map-component/settings')
+    expect(memberOf(lastMemberHeader(w.dsh.requests), w.clock)).toBe(MEMBER)
+    expect(await upgrade(w.port, '/map-component/live', LOGGED_IN)).toBe(101)
+    expect(w.dsh.upgrades.at(-1)?.path).toBe('/map-component/live')
+    expect(w.customer.requests.some(request => request.path.startsWith('/map-component'))).toBe(false)
+
+    const plain = await world()
+    expect((await send(plain.port, '/map-component/settings', LOGGED_IN)).status).toBe(200)
+    expect(plain.customer.requests.at(-1)?.path).toBe('/map-component/settings')
+    expect(plain.dsh.requests).toHaveLength(0)
   })
 
   it('forwards everything with the header stripped when the login gate is off', async () => {

@@ -111,8 +111,9 @@ nginx 与它的核验器都不在本地校验 token。nginx 把每个被拦请�
 | `MEMBER_ASSERTION_KEY_FILE` | 不设 | PEM 格式 Ed25519 私钥的路径；设了时闸门为成员断言签名。 |
 | `MEMBER_ASSERTION_DEPLOYMENT_ID` | 配了私钥时必填 | 断言的 `aud`。 |
 | `DSH_LAUNCH_TOKEN_FILE` | 不设 | 存放 dsh 启动 token 的文件；代理模式下设了时，在 `/` 被 dsh 拒绝的访客会被送去走 dsh 自己的 token 交换。 |
+| `DSH_EXTRA_PREFIXES` | 不设 | 逗号分隔的路径前缀，代理模式下也转给 dsh，和控制台自己的路径一样要过登录检查；用于从本仓库之外安装的 dsh 插件的路由根，例如 `/map-component`。每一项都是以斜杠开头、由普通路径段组成的路径，不以斜杠结尾，不落在 dsh 已有的任何路径上或其下，也不与别的项重复或嵌套。 |
 
-任何一个值无效，或者出现下面这些组合时，启动就以 1 退出，并在消息里写出变量名：有私钥而没有部署 id、有部署 id 而没有私钥、有私钥而 `LOGIN_GATE=off`（只有核验过的登录才指明成员）、`PROXY_MODE=verify` 而 `LOGIN_GATE=off`、私钥不是 Ed25519、`AUTH_CA_FILE` 配的是 http origin、允许名单里一项都没有。拼不成 http origin 的 `REMOTE_HOST` 按 `REMOTE_HOST` 报错，`AUTH_ORIGIN` 由它推出时也一样。监听失败同样以 1 退出：端口被占用或无权使用时写出 `PROXY_PORT`，地址不是本机地址或解析不了时写出 `PROXY_HOST`。
+任何一个值无效，或者出现下面这些组合时，启动就以 1 退出，并在消息里写出变量名：有私钥而没有部署 id、有部署 id 而没有私钥、有私钥而 `LOGIN_GATE=off`（只有核验过的登录才指明成员）、`PROXY_MODE=verify` 而 `LOGIN_GATE=off`、私钥不是 Ed25519、`AUTH_CA_FILE` 配的是 http origin、校验模式下设了 `DSH_EXTRA_PREFIXES`（这时由前置代理负责路由）、允许名单里一项都没有。拼不成 http origin 的 `REMOTE_HOST` 按 `REMOTE_HOST` 报错，`AUTH_ORIGIN` 由它推出时也一样。监听失败同样以 1 退出：端口被占用或无权使用时写出 `PROXY_PORT`，地址不是本机地址或解析不了时写出 `PROXY_HOST`。
 
 断言用非对称签名，是为了让 dsh 宿主只持有公钥：以宿主的 OS 用户运行的代码——agent 的文件工具，或者能读出宿主可读的任意路径（`/proc/<pid>/environ` 也在内）的 `/api/file`——读到公钥也伪造不了任何东西。这只在私钥文件对 dsh 宿主的 OS 用户不可读时成立，也就是这道闸以单独的 OS 用户或在单独的容器里运行；环境变量里只放私钥的路径，从不放私钥本身。闸门与 dsh 以同一个 OS 用户跑在同一个容器里的部署——托管的控制台眼下就是这样——不满足这个前提：能在宿主上执行代码的人读得到私钥文件，也读得到这个进程的环境。两者分开之前，那里的防伪造只靠网络：dsh 在容器内只监听 `127.0.0.1`，只有这个容器里的进程连得到它；这道闸会替换掉客户端发来的任何同名头；控制台预设也不组合任何 shell 工具。
 

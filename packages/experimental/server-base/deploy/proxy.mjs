@@ -118,6 +118,7 @@ import { pathToFileURL } from 'node:url'
  * @property {ClaimsPolicy} claims - the optional claims checks.
  * @property {{ privateKey: import('node:crypto').KeyObject, deploymentId: string } | undefined} assertion - the signing key and audience, when this deployment signs.
  * @property {string | undefined} launchTokenFile - DSH_LAUNCH_TOKEN_FILE, proxy mode only.
+ * @property {readonly string[]} dshExtraPrefixes - DSH_EXTRA_PREFIXES, proxy mode only; empty when unset.
  */
 
 /** Request header that carries the member assertion to dsh; console-members reads the same name. */
@@ -235,11 +236,13 @@ export function requestPathname(url) {
 /**
  * Whether a request path belongs to the remote application.
  * @param {string} pathname - request path, query stripped.
+ * @param {readonly string[]} extraPrefixes - DSH_EXTRA_PREFIXES, the prefixes dsh owns beyond the built-in list.
  * @returns {boolean} true when the remote origin owns it.
  */
-export function isRemote(pathname) {
+export function isRemote(pathname, extraPrefixes) {
   if (DSH_EXACT.has(pathname)) return false
-  return !DSH_PREFIXES.some(prefix => pathname === prefix || pathname.startsWith(prefix + '/'))
+  const owns = (/** @type {string} */ prefix) => pathname === prefix || pathname.startsWith(prefix + '/')
+  return !DSH_PREFIXES.some(owns) && !extraPrefixes.some(owns)
 }
 
 /**
@@ -632,6 +635,32 @@ function envList(env, name) {
   return entries
 }
 
+/** One segment of a DSH_EXTRA_PREFIXES entry: unreserved URL characters only. */
+const PREFIX_SEGMENT = /^[A-Za-z0-9._~-]+$/
+
+/**
+ * Read DSH_EXTRA_PREFIXES: route roots of dsh plugins the built-in list does
+ * not name, such as a plugin installed from outside this repository. Each one
+ * is gated like any other dsh path.
+ * @param {Record<string, string | undefined>} env - the environment.
+ * @returns {string[]} the prefixes, empty when the variable is unset.
+ * @throws {Error} when an entry is not a slash-led path of plain segments, lies at or under a path dsh already owns, or repeats or nests another entry.
+ */
+function readExtraPrefixes(env) {
+  const entries = envList(env, 'DSH_EXTRA_PREFIXES') ?? []
+  for (const entry of entries) {
+    const segments = entry.split('/')
+    if (segments[0] !== '' || segments.slice(1).some(segment => !PREFIX_SEGMENT.test(segment) || segment === '.' || segment === '..')) {
+      throw new Error(`proxy: DSH_EXTRA_PREFIXES entry ${JSON.stringify(entry)} must be a path such as /my-plugin, with no trailing slash`)
+    }
+    if (!isRemote(entry, [])) throw new Error(`proxy: DSH_EXTRA_PREFIXES entry ${JSON.stringify(entry)} is already a dsh path`)
+    if (entries.some(other => other !== entry && entry.startsWith(other + '/')) || entries.indexOf(entry) !== entries.lastIndexOf(entry)) {
+      throw new Error(`proxy: DSH_EXTRA_PREFIXES entry ${JSON.stringify(entry)} repeats or lies under another entry`)
+    }
+  }
+  return entries
+}
+
 /**
  * Parse an http or https origin: a scheme, a host, and an optional port, with
  * no userinfo, path, query, or fragment.
@@ -675,12 +704,17 @@ export function readSettings(env, readFile = readFileSync) {
   let remoteHost
   let remotePort
   let remoteOrigin
+  /** @type {string[]} */
+  let dshExtraPrefixes = []
   if (mode === 'proxy') {
     dshPort = envInteger(env, 'DSH_WEB_PORT', undefined, 1, 65_535)
     remoteHost = envText(env, 'REMOTE_HOST')
     if (remoteHost === undefined) throw new Error('proxy: REMOTE_HOST must name the remote application host')
     remotePort = envInteger(env, 'REMOTE_PORT', undefined, 1, 65_535)
     remoteOrigin = httpOrigin(`http://${authorityHost(remoteHost)}:${String(remotePort)}`, 'proxy: REMOTE_HOST must be a host name or an IP address, with an IPv6 address written without brackets')
+    dshExtraPrefixes = readExtraPrefixes(env)
+  } else if (envText(env, 'DSH_EXTRA_PREFIXES') !== undefined) {
+    throw new Error('proxy: DSH_EXTRA_PREFIXES applies only in PROXY_MODE=proxy; in verify mode the front proxy routes')
   }
 
   const originText = envText(env, 'AUTH_ORIGIN')
@@ -736,6 +770,7 @@ export function readSettings(env, readFile = readFileSync) {
     },
     assertion,
     launchTokenFile: mode === 'proxy' ? envText(env, 'DSH_LAUNCH_TOKEN_FILE') : undefined,
+    dshExtraPrefixes,
   }
 }
 
@@ -1324,7 +1359,7 @@ export function createProxyServer(settings, runtime) {
       if (!res.writableFinished && upstreamRes?.readableEnded !== true) abandon()
     })
     try {
-      const remote = isRemote(pathname)
+      const remote = isRemote(pathname, settings.dshExtraPrefixes)
       let assertion
       if (!remote) {
         const decision = await admitToDsh(settings, gate, runtime, req, pathname)
@@ -1445,7 +1480,7 @@ export function createProxyServer(settings, runtime) {
       return
     }
     try {
-      const remote = isRemote(pathname)
+      const remote = isRemote(pathname, settings.dshExtraPrefixes)
       let assertion
       if (!remote) {
         const decision = await admitToDsh(settings, gate, runtime, req, pathname)
