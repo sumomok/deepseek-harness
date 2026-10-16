@@ -68,7 +68,7 @@ Upstream `workspaceFiles/read`, `readBytes`, and `stat` read files outside the w
 
 `connection-member-peers` retires when upstream Connection offers an admission seam: `git grep -n "admitWith\|PeerAdmitter" <tag> -- packages/client/connection/src` returns hits upstream wrote. The socket events retire when upstream announces Remote socket presence.
 
-`remote-event-delivery-filter` retires when upstream lets a policy decide non-owner waterfalls: `git grep -n "answers: peer.principal.kind === 'owner'" <tag> -- packages/api/gateway/src` no longer finds the owner-only rule, or the remote-access README's limitation on non-owner waterfalls is gone.
+`remote-event-delivery-filter` retires when upstream lets a policy decide non-owner waterfalls: `git grep -n "only owner Peers answer forwarded Remote events" <tag> -- packages/api/gateway/src` no longer finds upstream's refusal of a non-owner `$events/result`, or the remote-access README's limitation on non-owner waterfalls is gone. The `answers: peer.principal.kind === 'owner'` line is no criterion: this patch keeps it.
 
 `connection-fetch-guard` retires when upstream routes declare their own non-owner rule: `git grep -n "kind !== 'owner') return Promise.resolve(new Response('forbidden'" <tag> -- packages/client/connection/src/rpc-host.ts` no longer finds the blanket refusal. Its `routes()` part retires when `git grep -n "routes(" <tag> -- packages/host/webserver/src` finds an upstream listing.
 

@@ -68,7 +68,7 @@ owner 的 `$events` 流照上游收到每个 waterfall。`interactions: 'answer'
 
 上游 Connection 提供准入接缝时，`connection-member-peers` 退役：`git grep -n "admitWith\|PeerAdmitter" <tag> -- packages/client/connection/src` 返回上游写的命中。上游通告 Remote socket 在线状态时，socket 事件退役。
 
-上游允许策略判定非 owner waterfall 时，`remote-event-delivery-filter` 退役：`git grep -n "answers: peer.principal.kind === 'owner'" <tag> -- packages/api/gateway/src` 不再找到仅限 owner 的规则，或 remote-access README 中关于非 owner waterfall 的限制已删除。
+上游允许策略判定非 owner waterfall 时，`remote-event-delivery-filter` 退役：`git grep -n "only owner Peers answer forwarded Remote events" <tag> -- packages/api/gateway/src` 不再找到上游对非 owner `$events/result` 的拒绝，或 remote-access README 中关于非 owner waterfall 的限制已删除。`answers: peer.principal.kind === 'owner'` 这一行不作判据：本补丁保留了它。
 
 上游路由声明自身的非 owner 规则时，`connection-fetch-guard` 退役：`git grep -n "kind !== 'owner') return Promise.resolve(new Response('forbidden'" <tag> -- packages/client/connection/src/rpc-host.ts` 不再找到一刀切的拒绝。其 `routes()` 部分在 `git grep -n "routes(" <tag> -- packages/host/webserver/src` 找到上游的列举时退役。
 
