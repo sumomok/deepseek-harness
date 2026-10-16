@@ -193,7 +193,7 @@ async function exportsAllowed(ctx: Context, request: Request, query: SessionLogE
 }
 
 function connectionOf(ctx: Context): SessionLogConnection {
-  return Reflect.get(ctx, 'connection') as SessionLogConnection
+  return Reflect.get(ctx, 'connection')
 }
 
 async function sessionLogExportResponse(
