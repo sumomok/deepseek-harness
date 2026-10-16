@@ -136,7 +136,8 @@ export type PeerAdmission =
  * with the principal the request speaks for, the owner principal included;
  * 401 or 403 to refuse; or `undefined` when the request names no Peer, which
  * Connection refuses with 401. Connection also refuses with 401 when the
- * admitter throws, and logs only the thrown error's class.
+ * admitter throws, and logs only the thrown Error's `name`, or the `typeof` of
+ * a thrown value that is not an Error.
  */
 export type PeerAdmitter = (request: ConnectionTrustRequest) => PeerScope | 401 | 403 | undefined
 

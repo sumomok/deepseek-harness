@@ -191,7 +191,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
     try {
       verdict = admitter(request)
     } catch (error) {
-      // A thrown message may quote request headers, so the log names only the error's class.
+      // A thrown message may quote request headers, so the log names only an Error's `name` or another value's `typeof`.
       const thrown = error instanceof Error ? error.name : typeof error
       this.owner.logger.error(`client-connection: the Peer admitter threw ${thrown}; refusing the request with 401`)
       return { rejection: 401 }
