@@ -23,8 +23,8 @@ function header(id: string): SessionHeader {
   return { version: SESSION_FORMAT_VERSION, id: sid(id), createdAt: 1, isSeeded: false, cwd: '/workspace', delegationDepth: 0 }
 }
 
-/** Subagent children per Session in the fixture corpus: s1 has the child s1a. */
-const CHILDREN: Readonly<Record<string, readonly string[]>> = { s1: ['s1a'] }
+/** Subagent children per Session in the fixture corpus. */
+const CHILDREN: Readonly<Record<string, readonly string[]>> = { s1: ['s1a'], s2: ['s2a'] }
 
 function lineage(id: string): { readonly session: { readonly header: SessionHeader }; readonly descendants: readonly unknown[] } {
   return { session: { header: header(id) }, descendants: (CHILDREN[id] ?? []).map(lineage) }
@@ -107,6 +107,23 @@ describe('Session-log export route for non-owner Peers', () => {
     expect(opened).toEqual([])
     expect(await exportAs(connection, member(connection, 's1', 's1a'), '?sessionId=s1&includeDescendants=true'))
       .toEqual({ status: 200, entries: [SESSION_LOG_FILENAME, `subagents/s1a/${SESSION_LOG_FILENAME}`] })
+  })
+
+  it.each([
+    '?sessionId=s1&sessionId=s2',
+    '?sessionId=s1&includeDescendants=false&includeDescendants=true',
+    '?sessionId=s1&includeDescendants=false&sessionId=s2&includeDescendants=true',
+  ])('refuses a member\'s export whose repeated query values name what it is not granted: %s', async (query) => {
+    const { connection, opened } = await mount()
+    expect(await exportAs(connection, member(connection, 's1'), query)).toEqual({ status: 403, entries: [] })
+    expect(opened).toEqual([])
+  })
+
+  it('exports for a member the Session and extent its repeated query values were decided on', async () => {
+    const { connection, opened } = await mount()
+    expect(await exportAs(connection, member(connection, 's1'), '?sessionId=s2&sessionId=s1&includeDescendants=true&includeDescendants=false'))
+      .toEqual({ status: 200, entries: [SESSION_LOG_FILENAME] })
+    expect(opened).toEqual(['s1'])
   })
 
   it('exports any Session with its descendants to the owner without asking remote access', async () => {
