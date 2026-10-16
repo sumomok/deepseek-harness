@@ -35,10 +35,15 @@ export const LOAD_FAILURE_MARKERS = ['skipping profile bundle', 'disabling profi
 
 /**
  * Packages the desktop payload leaves out although the server closure brings
- * them in. The two bundles of [[PLACEHOLDER_BUNDLES]] are runtime dependencies
- * of `@deepseek-ai/dsh` so that upstream's Plugins page can offer them, and the
+ * them in. The bundles of [[PLACEHOLDER_BUNDLES]] are runtime dependencies of
+ * `@deepseek-ai/dsh` so that upstream's Plugins page can offer them, and the
  * payload carries a placeholder in their place ([[placeholderManifest]]).
- * `@deepseek-ai/dsh-experimental-inspector` and
+ * The two dependencies of `@deepseek-ai/dsh-experimental-session-search`,
+ * `@deepseek-ai/dsh-session-query-sqlite` and
+ * `@deepseek-ai/dsh-tool-session-query`, are not withheld: dsh-base's
+ * `session-query-sqlite` row, which the desktop composition layer configures,
+ * mounts the first, and that layer's own `tool-session-query` row mounts the
+ * second. `@deepseek-ai/dsh-experimental-inspector` and
  * `@deepseek-ai/dsh-experimental-session-inspector` are the two plugins
  * `@deepseek-ai/dsh-experimental-inspector-profile` depends on, and nothing
  * else in the closure does; with that bundle withheld nothing can load them,

@@ -15,7 +15,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import {
-  initProfile, loadOverlayPatches, PROFILE_PATCH_FILENAME, PROFILE_TEMPLATES, resolveBundleDir,
+  initProfile, loadOverlayPatches, PROFILE_PATCH_FILENAME, PROFILE_TEMPLATES, type ProfileContext, resolveBundleDir,
 } from '@deepseek-ai/dsh-app-boot'
 import { writePluginEnabled } from '@deepseek-ai/dsh-plugin-manager/src/patch.ts'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -1756,6 +1756,26 @@ describe('seedBuiltinBundles retiring the auto-review guard row an earlier build
   /** The line a run logs for an auto-review row it leaves alone. */
   const keptLine = `${PROFILE_PATCH_FILENAME}: an auto-review row this shell did not write is there; left exactly as it is`
 
+  /**
+   * The profile `dsh --profile desktop-shell` hands the plugin manager, over
+   * this suite's staged installation, whose `@deepseek-ai/dsh-base` inserts a
+   * row for each of `ids`: the Plugins page switches rows a bundle layer
+   * inserted.
+   */
+  const pageProfile = (ids: readonly string[]): ProfileContext => {
+    shipPlugins(webTemplate)
+    writeFileSync(
+      join(serverModules, '@deepseek-ai/dsh-base', 'cordis.patch.yml'),
+      JSON.stringify([{ insert: ids.map(id => ({ id, name: `${id}-module` })) }]),
+    )
+    const installAnchor = join(root, 'server', 'package.json')
+    writeFileSync(installAnchor, JSON.stringify({ name: 'dsh' }))
+    return {
+      name: DESKTOP_PROFILE, dir: join(home, 'profiles', DESKTOP_PROFILE), patchPath: patchPath(), installAnchor,
+      cwd: root, home, startedBundles: bundlesNow() as string[], overlays: [], telemetryDisabledEnv: undefined,
+    }
+  }
+
   it('writes no auto-review row on a fresh home', () => {
     const report = seedBuiltinBundles({ home, serverModules })
     expect(readFileSync(patchPath(), 'utf8')).toBe(template())
@@ -1797,7 +1817,7 @@ describe('seedBuiltinBundles retiring the auto-review guard row an earlier build
     // file; the guard's comment block and lines come back as they were.
     desktopProfileFromAnEarlierBuild()
     writeFileSync(patchPath(), guardedTemplate())
-    expect(await writePluginEnabled(patchPath(), 'other', 'other-module', false)).toBe(true)
+    expect(await writePluginEnabled(pageProfile(['other']), 'other', 'other-module', false)).toBe(true)
     expect(readFileSync(patchPath(), 'utf8')).toContain(AUTO_REVIEW_GUARD_TEXT)
     seedBuiltinBundles({ home, serverModules })
     expect(readFileSync(patchPath(), 'utf8')).toBe(`${template().replace('[]\n', '')}- id: other\n  disabled: true\n`)
@@ -1808,7 +1828,7 @@ describe('seedBuiltinBundles retiring the auto-review guard row an earlier build
     desktopProfileFromAnEarlierBuild()
     const later = '\n# my row\n- id: bar\n  config:\n    x: 1\n'
     writeFileSync(patchPath(), `${template().replace('[]\n', '')}- id: foo\n  disabled: true\n\n${AUTO_REVIEW_GUARD_TEXT}${later}`)
-    expect(await writePluginEnabled(patchPath(), 'bar', 'bar-module', false)).toBe(true)
+    expect(await writePluginEnabled(pageProfile(['bar']), 'bar', 'bar-module', false)).toBe(true)
     seedBuiltinBundles({ home, serverModules })
     expect(readFileSync(patchPath(), 'utf8')).toBe(
       `${template().replace('[]\n', '')}- id: foo\n  disabled: true\n\n# my row\n- id: bar\n  config:\n    x: 1\n  disabled: true\n`,

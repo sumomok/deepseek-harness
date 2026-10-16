@@ -121,12 +121,16 @@ describe('findWithheldDirectories', () => {
     return root
   }
 
-  it('withholds upstream\'s auto-review and inspector bundles and the two plugins only the inspector bundle depends on', () => {
+  it('withholds upstream\'s auto-review, inspector, and session-search bundles and the two plugins only the inspector bundle depends on', () => {
     expect(WITHHELD_PACKAGES).toEqual([
       '@deepseek-ai/dsh-experimental-auto-review', '@deepseek-ai/dsh-experimental-inspector-profile',
+      '@deepseek-ai/dsh-experimental-session-search',
       '@deepseek-ai/dsh-experimental-inspector', '@deepseek-ai/dsh-experimental-session-inspector',
     ])
-    expect(PLACEHOLDER_BUNDLES).toEqual(['@deepseek-ai/dsh-experimental-auto-review', '@deepseek-ai/dsh-experimental-inspector-profile'])
+    expect(PLACEHOLDER_BUNDLES).toEqual([
+      '@deepseek-ai/dsh-experimental-auto-review', '@deepseek-ai/dsh-experimental-inspector-profile',
+      '@deepseek-ai/dsh-experimental-session-search',
+    ])
   })
 
   const PLACEHELD = 'node_modules/@deepseek-ai/dsh-experimental-auto-review'
@@ -142,6 +146,7 @@ describe('findWithheldDirectories', () => {
     await writePlaceholders(root, PLACEHOLDER_BUNDLES)
     expect(await findWithheldDirectories(root, WITHHELD_PACKAGES)).toEqual([
       PLACEHELD, 'node_modules/@deepseek-ai/dsh-experimental-inspector-profile',
+      'node_modules/@deepseek-ai/dsh-experimental-session-search',
     ])
   })
 

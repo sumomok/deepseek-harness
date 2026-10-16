@@ -242,16 +242,24 @@ export const WITHDRAWN_WEB_BUNDLES: readonly string[] = [
  * access mode, which reads the same knob pair as
  * `@haoran/dsh-llm-permission-gateway`, so a call under it would be reviewed
  * twice. `@deepseek-ai/dsh-experimental-inspector-profile` mounts the
- * developer inspectors. The Loader and the plugin manager resolve a bundle
- * name from the installation before the profile, so the placeholder is what
- * every lookup finds: the Plugins page lists neither name, enabling either one
- * by name is refused as not a bundle, and a copy installed into the profile is
- * never loaded. A run removes both names from `dsh.profile.bundles`, which is
- * where a selection made before the placeholder shipped would make the boot
- * print one `skipping profile bundle` line per launch.
+ * developer inspectors. `@deepseek-ai/dsh-experimental-session-search` inserts
+ * `optional-tool-session-query`, which mounts
+ * `@deepseek-ai/dsh-tool-session-query`, the package the desktop composition
+ * layer's own `tool-session-query` row already mounts; both register the same
+ * five tool names, so with the bundle switched on the row that mounts second
+ * fails with `tool "session_search" is already registered`.
+ *
+ * The Loader and the plugin manager resolve a bundle name from the
+ * installation before the profile, so the placeholder is what every lookup
+ * finds: the Plugins page lists none of these names, enabling one by name is
+ * refused as not a bundle, and a copy installed into the profile is never
+ * loaded. A run removes these names from `dsh.profile.bundles`, which is where
+ * a selection made before the placeholder shipped would make the boot print
+ * one `skipping profile bundle` line per launch.
  */
 export const PLACEHOLDER_BUNDLES: readonly string[] = [
   '@deepseek-ai/dsh-experimental-auto-review', '@deepseek-ai/dsh-experimental-inspector-profile',
+  '@deepseek-ai/dsh-experimental-session-search',
 ]
 
 /**
@@ -1923,7 +1931,7 @@ function guardOffset(text: string): number | undefined {
 
 /**
  * Take the {@link PLACEHOLDER_BUNDLES} names out of `dsh.profile.bundles`, on
- * every launch. A manifest that lists neither is not written.
+ * every launch. A manifest that lists none of them is not written.
  * @param profileDir - the desktop profile directory.
  * @param report - the run's report, extended with the names removed.
  */
