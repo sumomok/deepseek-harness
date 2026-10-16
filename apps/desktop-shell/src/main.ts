@@ -81,6 +81,7 @@ import {
 import { pinProfileStores } from './profile-store.ts'
 import { acknowledgeSettingsMigrationNotices, migrateLegacySettings, type SettingsMigrationReport } from './settings-migration.ts'
 import { migrateModelCatalog } from './model-catalog-migration.ts'
+import { migrateAccountCatalog } from './account-catalog-migration.ts'
 import { RENDER_LIMITS, startRenderService, type RenderServiceHandle } from './render-service.ts'
 import { renderInHiddenWindow } from './render-window.ts'
 import { clearLoginSession, openLoginWindow } from './login-window.ts'
@@ -1424,8 +1425,8 @@ if (!locked) {
       // the host is an earlier launch's, so none of them can be this one's.
       await clearStaleAuthCookies(session.defaultSession.cookies, sink)
       // Everything from the seeding to the server's URL line reads or writes the data location settled above, so for a move
-      // that switched to it, a rejection here is the new location failing. The seeding, the store pins, and the settings
-      // and model catalog migrations never reject: they log their own failures and go on.
+      // that switched to it, a rejection here is the new location failing. The seeding, the store pins, and the settings,
+      // model catalog, and account catalog migrations never reject: they log their own failures and go on.
       const startOnHome = async (): Promise<StartedOnHome> => {
         // Before the server reads the profile, not after: `initProfile` writes a
         // profile once and never revisits it, so a name added later would not
@@ -1447,10 +1448,12 @@ if (!locked) {
         const desktopProfileDir = profileDirectory(resolveHarnessHome(), DESKTOP_PROFILE)
         const settingsMigration = migrateLegacySettings(resolveHarnessHome(), desktopProfileDir)
         for (const line of settingsMigration.lines) sink(`[desktop] settings migration: ${line}\n`)
-        // After the settings migration, whose finished record is what lets this
-        // step clear settings.yaml, and before the server that imports it.
+        // After the settings migration, whose finished record is what lets these
+        // two steps clear settings.yaml, and before the server that imports it.
         const modelCatalog = migrateModelCatalog(resolveHarnessHome(), desktopProfileDir)
         for (const line of modelCatalog.lines) sink(`[desktop] model catalog migration: ${line}\n`)
+        const accountCatalog = migrateAccountCatalog(resolveHarnessHome(), desktopProfileDir)
+        for (const line of accountCatalog.lines) sink(`[desktop] account catalog migration: ${line}\n`)
         // Before the spawn, because the address and token reach the server as
         // environment variables of that child and of nothing else.
         const renderEnv = await startRenderServiceForServer(sink)
