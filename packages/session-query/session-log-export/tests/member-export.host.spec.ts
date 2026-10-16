@@ -40,7 +40,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(ctx => ctx.fiber.dispose()))
 })
 
-async function mount(): Promise<{
+async function mount(options: { readonly remoteAccess?: boolean; readonly sessionQuery?: boolean } = {}): Promise<{
   readonly ctx: Context
   readonly connection: HostConnectionService
   readonly opened: string[]
@@ -49,12 +49,14 @@ async function mount(): Promise<{
   roots.push(ctx)
   const opened: string[] = []
   ctx.provide('commands', { register: () => () => {} } as never)
-  ctx.provide('sessionQuery', {
-    traceSession: async (id: SessionId) => {
-      if (id === UNTRACEABLE) throw new Error('fixture lineage is unreadable')
-      return lineage(String(id))
-    },
-  } as never)
+  if (options.sessionQuery !== false) {
+    ctx.provide('sessionQuery', {
+      traceSession: async (id: SessionId) => {
+        if (id === UNTRACEABLE) throw new Error('fixture lineage is unreadable')
+        return lineage(String(id))
+      },
+    } as never)
+  }
   ctx.provide('sessionPersistence', {
     stat: async (id: SessionId) => ({ header: header(String(id)) }),
     open: async (id: SessionId) => {
@@ -63,13 +65,15 @@ async function mount(): Promise<{
     },
   } as never)
   ctx.provide('attachments', { readImage: async () => { throw new Error('fixture has no images') } } as never)
-  await ctx.plugin(RemoteAccessService)
-  ctx.remoteAccess.registerPolicy('export-test-member', {
-    bindings: (member: PrincipalMap['export-test-member']) => member.sessions.map(id => ({
-      role: { name: 'exporter', resource: 'session', actions: [SESSION_LOG_EXPORT_PATH] },
-      resource: { kind: 'session', id: sid(id) },
-    })),
-  })
+  if (options.remoteAccess !== false) {
+    await ctx.plugin(RemoteAccessService)
+    ctx.remoteAccess.registerPolicy('export-test-member', {
+      bindings: (member: PrincipalMap['export-test-member']) => member.sessions.map(id => ({
+        role: { name: 'exporter', resource: 'session', actions: [SESSION_LOG_EXPORT_PATH] },
+        resource: { kind: 'session', id: sid(id) },
+      })),
+    })
+  }
   const connection = new HostConnectionService(ctx, [], {} as BrowserAuth)
   await ctx.plugin({ inject: [...inject], apply })
   return { ctx, connection, opened }
@@ -135,13 +139,27 @@ describe('Session-log export route for non-owner Peers', () => {
     expect(opened).toEqual([])
   })
 
-  it.each([
-    '?sessionId=s1&sessionId=s2',
-    '?sessionId=s1&includeDescendants=false&includeDescendants=true',
-    '?sessionId=s1&includeDescendants=false&sessionId=s2&includeDescendants=true',
-  ])('refuses a member\'s export whose repeated query values name what it is not granted: %s', async (query) => {
+  it('refuses every member export on a Host without remote access before reading any log', async () => {
+    const { connection, opened } = await mount({ remoteAccess: false })
+    expect(await exportAs(connection, member(connection, 's1'), '?sessionId=s1')).toEqual({ status: 403, entries: [] })
+    expect(opened).toEqual([])
+  })
+
+  it('refuses a member\'s export with descendants on a Host without Session query before reading any log', async () => {
+    const { connection, opened } = await mount({ sessionQuery: false })
+    expect(await exportAs(connection, member(connection, 's1', 's1a'), '?sessionId=s1&includeDescendants=true'))
+      .toEqual({ status: 403, entries: [] })
+    expect(opened).toEqual([])
+  })
+
+  it.each<[string, readonly string[]]>([
+    ['?sessionId=s1&sessionId=s2', ['s1']],
+    ['?sessionId=s1&includeDescendants=false&includeDescendants=true', ['s1']],
+    ['?sessionId=s1&includeDescendants=false&sessionId=s2&includeDescendants=true', ['s1']],
+    ['?sessionId=s1&sessionId=s2&includeDescendants=true', ['s2', 's1a']],
+  ])('refuses a member\'s export whose repeated query values name what it is not granted: %s with %j granted', async (query, granted) => {
     const { connection, opened } = await mount()
-    expect(await exportAs(connection, member(connection, 's1'), query)).toEqual({ status: 403, entries: [] })
+    expect(await exportAs(connection, member(connection, ...granted), query)).toEqual({ status: 403, entries: [] })
     expect(opened).toEqual([])
   })
 
