@@ -129,6 +129,8 @@ export const RETIRED_GUARD_WARNING = `patch: entry "${AUTO_REVIEW_ID}" not found
 /** One `BundleInfo` of `pluginManager/listBundles`, as far as [[placeholderBundleProblems]] reads it. */
 interface ListedBundle {
   name?: unknown
+  error?: unknown
+  installTarget?: { spec?: unknown }
 }
 
 /** One `ChangeResult` of `pluginManager/setBundleEnabled`, as far as [[placeholderBundleProblems]] reads it. */
@@ -139,9 +141,10 @@ interface BundleChange {
 
 /**
  * Check what a booted staged server's plugin manager said about the withheld
- * bundles: `listBundles` lists bundles and none of [[WITHHELD_PACKAGES]], and
- * `setBundleEnabled(<name>, true)` for each placeholder bundle is refused as
- * `not-bundle` without changing a file.
+ * bundles: `listBundles` lists bundles, none of [[WITHHELD_PACKAGES]], and no
+ * bundle with an `error` (an official on-demand entry the payload cannot
+ * install carries one), and `setBundleEnabled(<name>, true)` for each
+ * placeholder bundle is refused as `not-bundle` without changing a file.
  * @param listed - the value `pluginManager/listBundles` returned.
  * @param enabled - each placeholder bundle's name and the value `pluginManager/setBundleEnabled` returned for it.
  * @returns one line per finding; empty when the manager treats every placeholder as no bundle.
@@ -154,6 +157,8 @@ export function placeholderBundleProblems(listed: unknown, enabled: readonly { n
     for (const row of listed) {
       const name = typeof row === 'object' && row !== null ? (row as ListedBundle).name : undefined
       if (typeof name === 'string' && WITHHELD_PACKAGES.includes(name)) problems.push(`listBundles lists the withheld ${name}`)
+      const error = typeof row === 'object' && row !== null ? (row as ListedBundle).error : undefined
+      if (error !== undefined) problems.push(`listBundles reports ${String(name)} with error ${JSON.stringify(error)}`)
     }
   }
   for (const { name, result } of enabled) {
@@ -163,6 +168,21 @@ export function placeholderBundleProblems(listed: unknown, enabled: readonly { n
     }
   }
   return problems
+}
+
+/**
+ * The install target of each bundle `listBundles` offers one for, the
+ * official on-demand entries among them.
+ * @param listed - the value `pluginManager/listBundles` returned.
+ * @returns `<name> -> <spec>` for each bundle with an install target, in list order.
+ */
+export function offeredInstallTargets(listed: unknown): string[] {
+  if (!Array.isArray(listed)) return []
+  return listed.flatMap((row) => {
+    const bundle = (typeof row === 'object' && row !== null ? row : {}) as ListedBundle
+    const spec = bundle.installTarget?.spec
+    return typeof bundle.name === 'string' && typeof spec === 'string' ? [`${bundle.name} -> ${spec}`] : []
+  })
 }
 
 /** The row the desktop composition layer opens full-text search on, and the value it sets. */

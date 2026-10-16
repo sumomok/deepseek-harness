@@ -30,7 +30,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { createWriteStream, existsSync } from 'node:fs'
+import { createWriteStream, existsSync, readFileSync } from 'node:fs'
 import { chmod, copyFile, cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve, sep } from 'node:path'
@@ -47,9 +47,11 @@ import { bundleClosure } from './bundle-closure.ts'
 import { packedTarball, type PackSource } from './npm-pack-cache.ts'
 import { assertDesktopClientTitle, DESKTOP_BUILD_STEPS, desktopRepositoryBuildEnvironment } from './client-build.ts'
 import { restoreHoistedDependencies, type RestoredHoist } from './legacy-hoists.ts'
+import { pinWorkspaceRanges, type PinnableManifest } from './pin-workspace-ranges.ts'
 import { pnpmLauncherProblems, stagePnpmLaunchers } from './pnpm-launcher-staging.ts'
 import {
-  findWithheldDirectories, INSTALLATION_PACKAGE, loadFailureLines, missingProductionDependencies, placeholderBundleProblems,
+  findWithheldDirectories, INSTALLATION_PACKAGE, loadFailureLines, missingProductionDependencies, offeredInstallTargets,
+  placeholderBundleProblems,
   placeholderProblems, RETIRED_GUARD_WARNING, SINGLE_COPY_PACKAGES, singleCopyProblems,
   stagedBootEnv, stagedServerEnv, verifyDesktopLayer, verifyHeldSocketBoot,
   WITHHELD_PACKAGES, withheldPackageCopies, writePlaceholders,
@@ -361,6 +363,26 @@ async function materializeStagedLinks(): Promise<void> {
     })
     remaining = await findSymlink(nodeModules)
   }
+}
+
+/**
+ * Rewrite the `workspace:` ranges of the staged installation manifest
+ * ([[INSTALLATION_PACKAGE]]) to the versions the staged tree carries
+ * ([[pinWorkspaceRanges]]), so the plugin manager reads the payload as an
+ * installed release and offers the official on-demand bundles from the
+ * registry. Runs before [[withholdPackages]], while every dependency still
+ * has its own manifest.
+ */
+async function pinInstallationManifest(): Promise<void> {
+  const nodeModules = join(SERVER_STAGING, 'node_modules')
+  const path = join(nodeModules, INSTALLATION_PACKAGE, 'package.json')
+  const staged = JSON.parse(await readFile(path, 'utf8')) as PinnableManifest
+  const { manifest, pinned } = pinWorkspaceRanges(staged, (name) => {
+    const dependency = join(nodeModules, name, 'package.json')
+    return existsSync(dependency) ? (JSON.parse(readFileSync(dependency, 'utf8')) as { version: string }).version : undefined
+  })
+  await writeFile(path, `${JSON.stringify(manifest, undefined, 2)}\n`)
+  console.log(`package: pinned ${pinned} workspace range(s) of the staged ${INSTALLATION_PACKAGE} manifest`)
 }
 
 /**
@@ -733,13 +755,13 @@ async function callPluginManager(base: string, cookie: string, method: string, a
 /**
  * Ask a booted staged server's plugin manager about the withheld bundles, the
  * way the Plugins page and its agent tool do: the bundle list must hold
- * bundles and none of [[WITHHELD_PACKAGES]], and enabling each of
+ * bundles, none of [[WITHHELD_PACKAGES]], and none with an error, and enabling each of
  * [[PLACEHOLDER_BUNDLES]] by name must be refused as `not-bundle` without
  * changing a profile file ([[placeholderBundleProblems]]). A refusal writes
  * nothing, so the `--dump-config` after the boot reads the profile as seeded.
  * @param base - the booted server's URL.
  * @param cookie - the browser-session cookie pair minted by the launch-token exchange.
- * @throws when the manager lists a withheld package or accepts or fails differently on enabling a placeholder.
+ * @throws when the manager lists a withheld package or a bundle with an error, or accepts or fails differently on enabling a placeholder.
  */
 async function verifyPlaceholderBundles(base: string, cookie: string): Promise<void> {
   const listed = await callPluginManager(base, cookie, 'listBundles', {})
@@ -749,9 +771,10 @@ async function verifyPlaceholderBundles(base: string, cookie: string): Promise<v
   }
   const problems = placeholderBundleProblems(listed, enabled)
   if (problems.length > 0) {
-    throw new Error(`package: the staged plugin manager does not treat the withheld bundles as absent:\n  ${problems.join('\n  ')}`)
+    throw new Error(`package: the staged plugin manager does not list the bundles the payload ships:\n  ${problems.join('\n  ')}`)
   }
   console.log(`package: staged plugin manager lists none of the withheld packages and refuses ${PLACEHOLDER_BUNDLES.join(', ')} as not-bundle`)
+  console.log(`package: staged plugin manager offers ${offeredInstallTargets(listed).join(', ') || 'no install target'}`)
 }
 
 /**
@@ -1118,6 +1141,7 @@ async function main(buildHome: string): Promise<void> {
       await run('restore development dependencies', 'pnpm', ['install', '--offline', '--frozen-lockfile', '--prod=false', '--ignore-scripts'])
     }
     await materializeStagedLinks()
+    await pinInstallationManifest()
     await prunePlatformBuilds()
     await stageWindowsVariants()
     await withholdPackages()

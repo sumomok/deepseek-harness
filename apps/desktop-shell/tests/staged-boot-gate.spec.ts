@@ -10,7 +10,8 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  findPackageCopies, findWithheldDirectories, loadFailureLines, missingProductionDependencies, placeholderBundleProblems,
+  findPackageCopies, findWithheldDirectories, loadFailureLines, missingProductionDependencies, offeredInstallTargets,
+  placeholderBundleProblems,
   placeholderManifest, placeholderProblems, RETIRED_GUARD_WARNING, SINGLE_COPY_PACKAGES, singleCopyProblems,
   stagedBootEnv, stagedServerEnv, verifyDesktopLayer, verifyHeldSocketBoot, WITHHELD_PACKAGES, withheldPackageCopies,
   writePlaceholders,
@@ -291,6 +292,16 @@ describe('placeholderProblems', () => {
   })
 })
 
+describe('offeredInstallTargets', () => {
+  it('lists the install target of each bundle the manager offers one for', () => {
+    expect(offeredInstallTargets([
+      { name: '@deepseek-ai/dsh-subagent-codex', installTarget: { spec: '@deepseek-ai/dsh-subagent-codex@0.2.1-alpha.4', version: '0.2.1-alpha.4' } },
+      { name: '@deepseek-ai/dsh-base' },
+    ])).toEqual(['@deepseek-ai/dsh-subagent-codex -> @deepseek-ai/dsh-subagent-codex@0.2.1-alpha.4'])
+    expect(offeredInstallTargets(undefined)).toEqual([])
+  })
+})
+
 describe('placeholderBundleProblems', () => {
   const refused = { stage: 'enable', target: 'x', enabled: true, changed: false, application: 'failed', error: { code: 'not-bundle' } }
   const enabled = PLACEHOLDER_BUNDLES.map(name => ({ name, result: { ...refused, target: name } }))
@@ -302,6 +313,12 @@ describe('placeholderBundleProblems', () => {
   it('names a listed withheld package', () => {
     expect(placeholderBundleProblems([{ name: '@deepseek-ai/dsh-base' }, { name: '@deepseek-ai/dsh-experimental-inspector-profile' }], enabled))
       .toEqual(['listBundles lists the withheld @deepseek-ai/dsh-experimental-inspector-profile'])
+  })
+
+  it('names a listed bundle that carries an error, as an uninstallable official entry does', () => {
+    const error = { code: 'operation-error', message: 'requires its complete workspace checkout' }
+    expect(placeholderBundleProblems([{ name: '@deepseek-ai/dsh-base' }, { name: '@deepseek-ai/dsh-subagent-codex', error }], enabled))
+      .toEqual([`listBundles reports @deepseek-ai/dsh-subagent-codex with error ${JSON.stringify(error)}`])
   })
 
   it('refuses an empty or malformed list, which would prove nothing', () => {
