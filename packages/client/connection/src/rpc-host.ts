@@ -187,7 +187,15 @@ export class HostConnectionService extends Service implements HostConnectionHand
   }
 
   private admitWithAdmitter(request: ConnectionTrustRequest, admitter: PeerAdmitter): PeerAdmission {
-    const verdict = admitter(request)
+    let verdict: ReturnType<PeerAdmitter>
+    try {
+      verdict = admitter(request)
+    } catch (error) {
+      // A thrown message may quote request headers, so the log names only the error's class.
+      const thrown = error instanceof Error ? error.name : typeof error
+      this.owner.logger.error(`client-connection: the Peer admitter threw ${thrown}; refusing the request with 401`)
+      return { rejection: 401 }
+    }
     if (verdict === 401 || verdict === 403) return { rejection: verdict }
     if (verdict !== undefined && !verdict.signal.aborted) return { peer: verdict }
     this.owner.logger.error(verdict === undefined

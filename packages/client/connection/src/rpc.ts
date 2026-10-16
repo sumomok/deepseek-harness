@@ -131,7 +131,8 @@ export type PeerAdmission =
  * @returns a live Peer, created through {@link HostConnectionHandle.createPeer}
  * with the principal the request speaks for, the owner principal included;
  * 401 or 403 to refuse; or `undefined` when the request names no Peer, which
- * Connection refuses with 401.
+ * Connection refuses with 401. Connection also refuses with 401 when the
+ * admitter throws, and logs only the thrown error's class.
  */
 export type PeerAdmitter = (request: ConnectionTrustRequest) => PeerScope | 401 | 403 | undefined
 

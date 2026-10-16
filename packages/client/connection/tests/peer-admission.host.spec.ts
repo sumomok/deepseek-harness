@@ -260,6 +260,30 @@ describe('Connection Peer admission', () => {
     expect(mounted.errors.join('\n')).not.toContain(mounted.cookie.split('=', 2)[1]!)
   })
 
+  it('refuses every authenticated path with 401 and logs without header values when the admitter throws', async () => {
+    const mounted = await mount()
+    const { connection } = mounted.ctx
+    // The thrown message quotes a request header, as a parse failure in an admitter can.
+    connection.peers.admitWith((request) => { throw new SyntaxError(`unreadable identity ${String(request.headers['cookie'])}`) })
+    const headers = { cookie: `${mounted.cookie}; other=${SECRET_COOKIE_VALUE}` }
+
+    expect(await probeAll(mounted, headers)).toEqual(ALL_UNAUTHORIZED)
+    expect(mounted.seen).toEqual([])
+    expect(mounted.errors).toHaveLength(4)
+    for (const error of mounted.errors) expect(error).toBe('client-connection: the Peer admitter threw SyntaxError; refusing the request with 401')
+  })
+
+  it('answers requestRejection 401 when the admitter throws', async () => {
+    const mounted = await mount()
+    const { connection } = mounted.ctx
+    connection.peers.admitWith(() => { throw new Error(`admitter failed on ${SECRET_COOKIE_VALUE}`) })
+
+    expect(connection.requestRejection(trustRequest(mounted))).toBe(401)
+    expect(connection.admitConnection(trustRequest(mounted))).toEqual({ rejection: 401 })
+    expect(mounted.errors.join('\n')).not.toContain(SECRET_COOKIE_VALUE)
+    expect(mounted.errors[0]).toBe('client-connection: the Peer admitter threw Error; refusing the request with 401')
+  })
+
   it('passes the admitter refusal status through', async () => {
     const mounted = await mount()
     const { connection } = mounted.ctx

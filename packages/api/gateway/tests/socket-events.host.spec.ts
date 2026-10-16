@@ -210,6 +210,15 @@ describe('Remote stream socket events', () => {
     expect(events).toEqual([])
   })
 
+  it('refuses the upgrade with 401 without announcing a socket when the admitter throws', async () => {
+    const { ctx, events, errors } = await mount()
+    const cookie = browserCookie(ctx)
+    ctx.connection.peers.admitWith(() => { throw new Error(`admitter failed on ${cookie}`) })
+    expect(await refusedUpgrade(ctx, cookie)).toBe(401)
+    expect(events).toEqual([])
+    expect(errors).toEqual(['client-connection: the Peer admitter threw Error; refusing the request with 401'])
+  })
+
   it('logs a throwing socket listener and keeps serving the socket', async () => {
     const { ctx, events, errors, eventCount } = await mount()
     ctx.on('remote-stream/socket-opened', () => { throw new Error('fixture opened listener') })
