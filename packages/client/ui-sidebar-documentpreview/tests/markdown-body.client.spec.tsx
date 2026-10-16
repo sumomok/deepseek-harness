@@ -47,6 +47,16 @@ describe('MarkdownBody', () => {
     expect(view.getByText('relative').tagName).toBe('SPAN')
   })
 
+  it('names no Session in image URLs of a document addressed by absolute path', () => {
+    vi.spyOn(document, 'baseURI', 'get').mockReturnValue('http://localhost/')
+    const text = '![absolute](/tmp/a.png)'
+    const base = props(content([text], true), undefined, '/home/me/notes.md')
+    const view = render(<MarkdownBody {...base} resourceAddress="dsh-resource://file/absolute/home/me/notes.md" />)
+    const src = new URL(view.getByAltText('absolute').getAttribute('src')!)
+    expect(src.searchParams.get('path')).toBe('/tmp/a.png')
+    expect(src.searchParams.has('sessionId')).toBe(false)
+  })
+
   it('resolves reference images at EOF and updates their directory when metadata changes', () => {
     const first = '![figure][image]'
     const second = '\n[image]: images/a.png'
