@@ -123,7 +123,9 @@ No direct effect; model requests remain owned by the Agent and LLM packages.
 
 - A single summary, the query provider's own enumeration, final sorting, and response serialization can exceed the list work-slice target; it is not a hard Host latency bound.
 - The image byte cap does not validate decoded dimensions or pixel count.
+- A non-owner `/api/file` read is confined to the Session's `cwd` as resolved, so the confinement is only as narrow as that `cwd`: a Session whose `cwd` is `/`, a home directory, or a symbolic link to either exposes every file below it. `session/create` accepts the caller's `cwd`, so a deployment that lets non-owners create Sessions restricts that field in its policy ([console obligations](../../../.agents/notes/implemented/architecture/2026-10-05-console-member-peers.md#console-obligations)).
 - A non-owner `/api/file` read checks workspace containment on resolved real paths and then opens that target; if an already resolved ancestor directory inside the workspace is replaced with a symbolic link between the check and the open, the read follows the new link. Exploiting this requires write access to the Session workspace and winning the race.
+- A hard link inside the workspace to a file outside it passes the containment check without any race, because its real path lies inside the workspace. Creating one requires write access to the Session workspace and to the directory that holds the link.
 - A failed follow resumption remains visible to the caller instead of retrying indefinitely.
 - The raw browser upload is one streaming HTTP request without resumable offsets; a retry sends the file again from byte zero.
 - File-reference completion uses the shared Agent lookup and can resume a cold Session; the `skills/list` catalog is the non-activating alternative for skill metadata.
