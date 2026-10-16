@@ -650,7 +650,8 @@ describe('the protected-directories section in composed sessions', () => {
   it.each(['preset-standard', 'preset-ptc', 'preset-cordis'])('ends the prompt of a %s session', async (presetId) => {
     const { root, agent } = await session(presetId)
     const text = await prompt(root, agent)
-    expect(text.endsWith(`Your working directory is /workspace.\n\n${LINE}`)).toBe(true)
+    expect(text.endsWith(`\n\n${LINE}`)).toBe(true)
+    expect(text).not.toContain('{{cwd}}')
   })
 
   it('ends the prompt of a child that session delegates to, under the child\'s own persona', async () => {

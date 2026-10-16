@@ -36,18 +36,18 @@
   name: '@deepseek-ai/dsh-system-prompt'
   config:
     personaPrefix: |
-      You are the desktop assistant powered by the {{model}} model. Your working directory is {{cwd}}.
+      You are the desktop assistant powered by the {{model}} model.
 
       Answer with what you did, briefly.
 
 # ── every tool family the base bundle offers is off ─────────────────────────
 #
 # This lane pins what the desktop patch adds to a model request, so an
-# upstream edit to the bash, filesystem, background-job, skill, goal, todo,
-# web, workflow, subagent, or plan descriptions must not churn its pin. The
-# base bundle mounts each family as its own row; disabling the row withdraws
-# the offer and leaves the services under it mounted. What the model is
-# offered here is exactly the five `session_*` tools.
+# upstream edit to the bash, filesystem, working-directory, background-job,
+# skill, goal, todo, web, workflow, subagent, or plan descriptions must not
+# churn its pin. The base bundle mounts each family as its own row; disabling
+# the row withdraws the offer and leaves the services under it mounted. What
+# the model is offered here is exactly the five `session_*` tools.
 
 - id: tool-bash
   name: '@deepseek-ai/dsh-tool-bash'
@@ -63,6 +63,10 @@
 
 - id: tool-fs-search
   name: '@deepseek-ai/dsh-tool-fs-search'
+  disabled: true
+
+- id: tool-working-directory
+  name: '@deepseek-ai/dsh-tool-working-directory'
   disabled: true
 
 - id: tool-jobs
@@ -87,10 +91,6 @@
 
 - id: tool-workflow
   name: '@deepseek-ai/dsh-tool-workflow'
-  disabled: true
-
-- id: tool-ralph
-  name: '@deepseek-ai/dsh-tool-ralph'
   disabled: true
 
 - id: tool-subagent

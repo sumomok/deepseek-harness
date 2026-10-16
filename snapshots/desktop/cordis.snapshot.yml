@@ -25,7 +25,7 @@
   name: '@deepseek-ai/dsh-system-prompt'
   config:
     personaPrefix: |
-      You are the desktop assistant powered by the {{model}} model. Your working directory is {{cwd}}.
+      You are the desktop assistant powered by the {{model}} model.
 
       Answer with what you did, briefly.
 
@@ -43,6 +43,10 @@
 
 - id: tool-fs-search
   name: '@deepseek-ai/dsh-tool-fs-search'
+  disabled: true
+
+- id: tool-working-directory
+  name: '@deepseek-ai/dsh-tool-working-directory'
   disabled: true
 
 - id: tool-jobs
@@ -67,10 +71,6 @@
 
 - id: tool-workflow
   name: '@deepseek-ai/dsh-tool-workflow'
-  disabled: true
-
-- id: tool-ralph
-  name: '@deepseek-ai/dsh-tool-ralph'
   disabled: true
 
 - id: tool-subagent
