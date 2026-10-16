@@ -15,6 +15,9 @@ import { composeEntries, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { parse, stringify } from 'yaml'
 import {
+  Config as AccountConfig, plainAccountOptions, resolveAccountOptions,
+} from '../../../packages/llm/llm-deepseek-account/src/config.ts'
+import {
   ACCOUNT_CATALOG_MIGRATION_MARKER, migrateAccountCatalog, readAccountCatalogMigrationMarker,
 } from '../src/account-catalog-migration.ts'
 import { MODEL_CATALOG_MIGRATION_MARKER, migrateModelCatalog } from '../src/model-catalog-migration.ts'
@@ -210,6 +213,7 @@ describe('a profile with nothing to remove', () => {
     ['no account row', `${PATCH_HEADER}${OTHER_ROWS}`],
     ['an account row without models', `${PATCH_HEADER}${ACCOUNT_ROW_HEAD}${ACCOUNT_OTHER_KEYS}`],
     ['the seeded empty layer', `${PATCH_HEADER}[]\n`],
+    ['a layer of comments alone', PATCH_HEADER],
     ['an insert list that names the account row', `${PATCH_HEADER}- insert:\n    - id: llm-deepseek-account\n      name: x\n      config:\n${RC38_MODELS_BLOCK.replaceAll(/^/gm, '    ')}`],
   ])('leaves %s unwritten and finishes', (_label, text) => {
     settingsMigration('done')
@@ -430,19 +434,17 @@ function shippedPatches(dir: string): ReturnType<typeof loadOverlayPatches> {
   return (typeof declared === 'string' ? [declared] : declared).flatMap(file => loadOverlayPatches('test', join(dir, file)))
 }
 
+/** One entry of a composed profile, as the Loader receives it. */
+type ComposedRow = ReturnType<typeof composeEntries>[number]
+
 /**
- * The refusal `resolveAccountOptions` makes from dsh-v0.2.1-alpha.4 on
- * (`packages/llm/llm-deepseek-account/src/config.ts`), whose `Config` passes
- * an unknown `models` key through to it unchanged.
- * TODO: call the plugin's own `resolveAccountOptions` once this tree carries dsh-v0.2.1-alpha.4.
- * @param options - the account row's composed `config`.
- * @throws the error that plugin load fails with when `models` is present.
+ * Resolve an account row's `config` the way the plugin's `apply` does at
+ * load: through its `Config` schema, then its own `resolveAccountOptions`.
+ * @param row - the composed `llm-deepseek-account` row.
+ * @throws the error that plugin load fails with, `models is no longer configurable` while the field is present.
  */
-function refuseRetiredModels(options: Record<string, unknown>): void {
-  if (Object.hasOwn(options, 'models')) {
-    throw new Error('llm-deepseek-account: models is no longer configurable; the account /models listing supplies the catalog. '
-      + 'Remove models from this entry and adjust single models with modelOverrides.<model id>')
-  }
+function loadAccountRow(row: ComposedRow): void {
+  resolveAccountOptions(plainAccountOptions(AccountConfig(row.config)))
 }
 
 describe('an rc.38 desktop profile', () => {
@@ -453,12 +455,11 @@ describe('an rc.38 desktop profile', () => {
     shippedPatches(join(repoRoot, 'apps', 'desktop-app')),
   ]
 
-  /** The account row's `config` the composed profile hands the plugin. */
-  function composedAccountConfig(): Record<string, unknown> {
-    const rows = composeEntries([...lowerLayers, loadOverlayPatches('dsh', patchPath())]) as { id?: string; config?: Record<string, unknown> }[]
-    const row = rows.find(candidate => candidate.id === 'llm-deepseek-account')
+  /** The account row the composed profile hands the Loader. */
+  function composedAccountRow(): ComposedRow {
+    const row = composeEntries([...lowerLayers, loadOverlayPatches('dsh', patchPath())]).find(candidate => candidate.id === 'llm-deepseek-account')
     if (row === undefined) throw new Error('composed no llm-deepseek-account row')
-    return row.config ?? {}
+    return row
   }
 
   it('composes an account row the upstream account plugin loads, after the launch-time migrations run in order', () => {
@@ -467,14 +468,14 @@ describe('an rc.38 desktop profile', () => {
     settingsMigration('done')
     writeFileSync(join(profileDir, MODEL_CATALOG_MIGRATION_MARKER), `${JSON.stringify({ state: 'done', removed: [], kept: [], skipped: [] })}\n`)
     writeFileSync(patchPath(), `${PATCH_HEADER}${OTHER_ROWS}${ACCOUNT_ROW_HEAD}${ACCOUNT_OTHER_KEYS}${RC38_MODELS_BLOCK}`)
-    expect(() => { refuseRetiredModels(composedAccountConfig()) }).toThrow(/models is no longer configurable/)
+    expect(() => { loadAccountRow(composedAccountRow()) }).toThrow(/models is no longer configurable/)
 
     migrateLegacySettings(home, profileDir)
     migrateModelCatalog(home, profileDir)
     expect(migrateAccountCatalog(home, profileDir).lines).toEqual([PROFILE_REMOVED])
 
-    const config = composedAccountConfig()
-    expect(() => { refuseRetiredModels(config) }).not.toThrow()
-    expect(config).toEqual({ reasoningEffort: 'max', maxTokens: 65_536 })
+    const row = composedAccountRow()
+    expect(() => { loadAccountRow(row) }).not.toThrow()
+    expect(row.config).toEqual({ reasoningEffort: 'max', maxTokens: 65_536 })
   })
 })
