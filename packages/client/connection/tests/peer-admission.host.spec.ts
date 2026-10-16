@@ -284,6 +284,21 @@ describe('Connection Peer admission', () => {
     expect(mounted.errors[0]).toBe('client-connection: the Peer admitter threw Error; refusing the request with 401')
   })
 
+  it('refuses every authenticated path with 401 and logs only the type of a thrown value that is not an Error', async () => {
+    const mounted = await mount()
+    const { connection } = mounted.ctx
+    const cookie = await apiCookie(mounted)
+    connection.peers.admitWith(() => { throw `unreadable identity in ${SECRET_COOKIE_VALUE}` })
+
+    expect(await probeAll(mounted, { cookie: mounted.cookie })).toEqual(ALL_UNAUTHORIZED)
+    expect(await probeAll(mounted, { cookie })).toEqual(ALL_UNAUTHORIZED)
+    expect(connection.requestRejection(trustRequest(mounted))).toBe(401)
+    expect(connection.admitConnection(trustRequest(mounted, cookie))).toEqual({ rejection: 401 })
+    expect(mounted.seen).toEqual([])
+    expect(mounted.errors).toHaveLength(10)
+    for (const error of mounted.errors) expect(error).toBe('client-connection: the Peer admitter threw string; refusing the request with 401')
+  })
+
   it('passes the admitter refusal status through', async () => {
     const mounted = await mount()
     const { connection } = mounted.ctx
@@ -423,6 +438,42 @@ describe('Connection Peer admission', () => {
     expect('peer' in claimed && claimed.peer).toBe(alice)
     await apiCookies(mounted, 4)
     expect(apiRecords(mounted)).toHaveLength(5)
+    expect(connection.admit(trustRequest(mounted, newest))).toEqual({ peer: alice })
+  })
+
+  it('keeps at most maxUnclaimedApiPeers API Cookies without a socket while an admitter decides and requireAdmitter is unset', async () => {
+    const mounted = await mount({ maxUnclaimedApiPeers: 3 })
+    const { connection } = mounted.ctx
+    const alice = member(mounted, 'alice')
+    connection.peers.admitWith(() => alice)
+    const cookies = await apiCookies(mounted, 5)
+
+    expect(apiRecords(mounted)).toHaveLength(3)
+    for (const cookie of cookies.slice(0, 2)) expect(connection.admit(trustRequest(mounted, cookie))).toEqual({ rejection: 401 })
+    for (const cookie of cookies.slice(2)) expect(connection.admit(trustRequest(mounted, cookie))).toEqual({ peer: alice })
+  })
+
+  it('logs a retired API credential whose Peer fails to dispose and keeps that credential refused', async () => {
+    const mounted = await mount({ requireAdmitter: true, maxUnclaimedApiPeers: 1 })
+    const { connection } = mounted.ctx
+    const oldest = await apiCookie(mounted)
+    const [record] = apiRecords(mounted)
+    if (record === undefined) throw new Error('the fixture exchanged one API Cookie')
+    const dispose = record.peer.dispose.bind(record.peer)
+    const failure = new Error('fixture API Peer disposal failure')
+    vi.spyOn(record.peer, 'dispose').mockImplementationOnce(async () => {
+      await dispose()
+      throw failure
+    })
+    const newest = await apiCookie(mounted)
+
+    await vi.waitFor(() => {
+      expect(mounted.errors).toEqual([`client-connection: disposing a retired API Peer failed ${String(failure)}`])
+    })
+    expect(apiRecords(mounted).map(entry => entry.peer)).not.toContain(record.peer)
+    const alice = member(mounted, 'alice')
+    connection.peers.admitWith(() => alice)
+    expect(connection.admit(trustRequest(mounted, oldest))).toEqual({ rejection: 401 })
     expect(connection.admit(trustRequest(mounted, newest))).toEqual({ peer: alice })
   })
 
