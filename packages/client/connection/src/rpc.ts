@@ -211,7 +211,11 @@ export interface ConnectionFetchRoute {
    * disposed Peer is answered 401 first. The rule decides before the route
    * reads, writes, or opens anything, normally through `remoteAccess.decide()`
    * with the route path as the action, answers 403 when it refuses, and serves
-   * the request itself when it allows.
+   * the request itself when it allows. Each `decide()` call lists at least one
+   * resource, because remote access allows a request that lists none. The
+   * values the rule decides on come from the same parse of the request that
+   * the route then serves, so a repeated query parameter cannot name one
+   * resource to the decision and another to the read or write.
    */
   readonly serveNonOwner?: (request: Request, peer: PeerScope) => Promise<Response>
 }
