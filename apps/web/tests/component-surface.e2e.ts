@@ -614,7 +614,8 @@ describe.skipIf(MODE === 'record')('web e2e: show_component in the content colum
   it('carries a press back to the agent and puts the answer in the transcript', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-component-surface-action'))
     // The budget entry is the one on display, and its bar carries the button.
-    const approve = seat(page).locator(`[data-component-action="${APPROVE_ID}"]`)
+    // The bar's buttons all perform `press`; each one's own key is its button id.
+    const approve = seat(page).locator(`[data-component-action="press"][data-component-key="${APPROVE_ID}"]`)
     await expect.poll(async () => await approve.textContent(), { timeout: 15_000 }).toBe(APPROVE_LABEL)
     // The barrier is armed before the press, not after: what the bar itself
     // draws is asserted in between, and the scripted turn can settle while

@@ -56,6 +56,7 @@ export const CONSOLE_ROWS = [
   ['@deepseek-ai/dsh-experimental-library-skills', join(REPO_ROOT, 'packages/experimental/library-skills')],
   ['@deepseek-ai/dsh-experimental-console-mcp', join(REPO_ROOT, 'packages/experimental/console-mcp')],
   ['@deepseek-ai/dsh-experimental-page-refresh', join(REPO_ROOT, 'packages/experimental/page-refresh')],
+  ['@deepseek-ai/dsh-experimental-content-point', join(REPO_ROOT, 'packages/experimental/content-point')],
   ['@haoran/dsh-auto-compact', join(CONSOLE_BUNDLE, 'node_modules/@haoran/dsh-auto-compact')],
 ] as const
 

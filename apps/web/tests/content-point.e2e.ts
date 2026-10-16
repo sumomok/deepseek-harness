@@ -50,10 +50,9 @@ const REPLAY = fileURLToPath(new URL('./snapshots/content-point/replay.override.
 /** Where the run's screenshots land. */
 const SHOTS = process.env['DSH_CONTENT_POINT_SHOTS'] ?? join(REPO_ROOT, '.artifacts', 'content-point')
 
-/** {@link CONSOLE_ROWS} plus the rows the deployment layer and the console bundle's `content-point` row need. */
+/** {@link CONSOLE_ROWS} plus the rows the deployment layer needs. */
 const ROWS = [
   ...CONSOLE_ROWS,
-  ['@deepseek-ai/dsh-experimental-content-point', join(REPO_ROOT, 'packages/experimental/content-point')],
   ['@deepseek-ai/dsh-experimental-vue2-echarts-poc', join(REPO_ROOT, 'packages/experimental/vue2-echarts-poc')],
   ['@deepseek-ai/dsh-experimental-component-kit', join(REPO_ROOT, 'packages/experimental/component-kit')],
   ['@deepseek-ai/dsh-experimental-component-surface', join(REPO_ROOT, 'packages/experimental/component-surface')],
