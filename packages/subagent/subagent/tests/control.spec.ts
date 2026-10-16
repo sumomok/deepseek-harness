@@ -223,7 +223,7 @@ describe('subagent prompt Remote', () => {
       { kind: 'user', rpcId: REQUEST_ID, principal: GUEST, references },
       { kind: 'user', rpcId: REQUEST_ID },
     ])
-    expect(Object.keys(delivery.mock.calls[0]![3]!)).toEqual(['kind', 'rpcId', 'principal', 'references'])
+    expect(Object.keys(delivery.mock.calls[0]![3])).toEqual(['kind', 'rpcId', 'principal', 'references'])
   })
 
   it('passes steer delivery through the same admission operation', async () => {
