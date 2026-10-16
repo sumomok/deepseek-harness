@@ -5,8 +5,6 @@ import { apply as applyConnection, inject as connectionInject } from '@deepseek-
 import type {
   PeerScope,
   PrincipalMap,
-  TypertContextMap,
-  TypertContextWire,
   TypertResource,
 } from '@deepseek-ai/dsh-typert-protocol'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
@@ -26,7 +24,6 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 }
 
 type Member = PrincipalMap['gateway-waterfall-member']
-type AgentWireId = TypertContextWire<TypertContextMap['agent']>
 
 const APPROVAL = 'approval/request'
 const QUESTION = 'user-questions/request'
@@ -138,7 +135,7 @@ function ask(mounted: Mounted, event: string, sessionId: string): Asked {
   mounted.push({
     event,
     request: { text: `${event} in ${sessionId}`, agent: subject },
-    context: { value: mounted.ctx.extend({}), subject, agentId: sessionId as AgentWireId },
+    context: { value: mounted.ctx.extend({}), subject, agentId: sessionId },
     resolve: settled,
     reject: rejected,
   })
