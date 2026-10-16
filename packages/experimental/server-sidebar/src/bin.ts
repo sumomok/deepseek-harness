@@ -23,14 +23,16 @@ import { changedAnything, convertSettingsFile } from './nav-snapshot-migration.t
 
 const USAGE = 'usage: convert-nav-snapshot <settings file> [--dry-run]'
 
-const argv = process.argv.slice(2)
-const dryRun = argv.includes('--dry-run')
-const [filename, ...rest] = argv.filter(argument => argument !== '--dry-run')
+async function main(): Promise<void> {
+  const argv = process.argv.slice(2)
+  const dryRun = argv.includes('--dry-run')
+  const [filename, ...rest] = argv.filter(argument => argument !== '--dry-run')
 
-if (filename === undefined || rest.length > 0) {
-  console.error(USAGE)
-  process.exitCode = 2
-} else {
+  if (filename === undefined || rest.length > 0) {
+    console.error(USAGE)
+    process.exitCode = 2
+    return
+  }
   const outcome = await convertSettingsFile(filename, { dryRun })
   if (!changedAnything(outcome)) {
     console.log(`${filename}: already in the current format`)
@@ -40,3 +42,8 @@ if (filename === undefined || rest.length > 0) {
     console.log(`${filename}: ${parts.join(', ')}${dryRun ? ' (--dry-run, nothing written)' : ''}`)
   }
 }
+
+main().catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : String(error))
+  process.exitCode = 1
+})
