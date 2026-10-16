@@ -756,7 +756,7 @@ describe('sendSession submission echo', () => {
     await b.runtime.dispose()
   })
 
-  it('sends a subagent continuation without registering an unobservable echo', async () => {
+  it('echoes a subagent continuation and sends it under the echo request id', async () => {
     const b = await bench()
     const session = b.runtime.sessions.binding('s1')!.session
     const snapshot = session.getSnapshot()
@@ -769,33 +769,47 @@ describe('sendSession submission echo', () => {
     })
     const prompt = vi.spyOn(session, 'prompt').mockResolvedValue({ ok: true, value: { accepted: true } })
     await expect(b.root.sendSession(session, '继续', [], 'queue')).resolves.toEqual({ kind: 'success' })
-    expect(beginSubmission).not.toHaveBeenCalled()
-    expect(prompt).toHaveBeenCalledWith([{ type: 'text', text: '继续' }], 'queue', undefined, undefined, [])
+    expect(beginSubmission).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ mode: 'queue', text: '继续' }))
+    const echo = beginSubmission.mock.results[0]
+    const requestId = echo?.type === 'return' ? echo.value.requestId : undefined
+    expect(requestId).toEqual(expect.any(String))
+    expect(prompt).toHaveBeenCalledWith([{ type: 'text', text: '继续' }], 'queue', undefined, requestId, [])
     await b.runtime.dispose()
   })
 
-  it('carries resolved references on a subagent continuation and releases them on acceptance only', async () => {
-    const b = await bench()
-    const session = b.runtime.sessions.binding('s1')!.session
-    const snapshot = session.getSnapshot()
-    vi.spyOn(session, 'getSnapshot').mockReturnValue({
-      ...snapshot,
-      subagent: {
-        address: { parentSessionId: 'parent', childSessionId: 'child', mode: 'continuable' } as never,
-      },
-    })
-    const prompt = vi.spyOn(session, 'prompt')
-      .mockResolvedValueOnce({ ok: false, error: new RemoteError('subagent/parent-unavailable', 'offline', { parentSessionId: 'parent' as never }) })
-      .mockResolvedValueOnce({ ok: true, value: { accepted: true } })
-    const draft = b.root.createReferenceDraft({ source: 'owner', label: '行 2', resolve: () => Promise.resolve({ row: 2 }) })
-    await expect(b.root.sendSession(session, '继续', [draft.id], 'queue')).resolves.toEqual({ kind: 'error' })
-    expect(b.root.resolveDraftAttachments([draft.id])).toEqual([draft])
-    await expect(b.root.sendSession(session, '继续', [draft.id], 'queue')).resolves.toEqual({ kind: 'success' })
-    expect(prompt).toHaveBeenLastCalledWith(
-      [{ type: 'text', text: '继续' }], 'queue', undefined, undefined,
-      [{ source: 'owner', label: '行 2', data: { row: 2 } }],
-    )
-    expect(b.root.resolveDraftAttachments([draft.id])).toEqual([])
+  it('keeps a subagent continuation reference after a failed echo and releases it on observation', async () => {
+    const b = await echoBench()
+    try {
+      const session = b.runtime.sessions.binding('s1')!.session
+      const snapshot = session.getSnapshot()
+      vi.spyOn(session, 'getSnapshot').mockReturnValue({
+        ...snapshot,
+        subagent: {
+          address: { parentSessionId: 'parent', childSessionId: 'child', mode: 'continuable' } as never,
+        },
+      })
+      const draft = b.root.createReferenceDraft({ source: 'owner', label: '行 2', resolve: () => Promise.resolve({ row: 2 }) })
+      const resolved = [{ source: 'owner', label: '行 2', data: { row: 2 } }]
+      const failed = b.root.sendSession(session, '继续', [draft.id], 'queue')
+      await vi.waitFor(() => { expect(b.prompt).toHaveBeenCalledOnce() })
+      expect(b.beginSubmission).toHaveBeenLastCalledWith(expect.objectContaining({
+        text: '继续', references: [{ source: 'owner', label: '行 2' }],
+      }))
+      expect(b.prompt).toHaveBeenLastCalledWith([{ type: 'text', text: '继续' }], 'queue', undefined, 'req-echo', resolved)
+      b.retire.onRetire?.({ reason: 'failed' })
+      await expect(failed).resolves.toEqual({ kind: 'error' })
+      expect(b.root.resolveDraftAttachments([draft.id])).toEqual([draft])
+
+      const sent = b.root.sendSession(session, '继续', [draft.id], 'queue')
+      await vi.waitFor(() => { expect(b.prompt).toHaveBeenCalledTimes(2) })
+      expect(b.prompt).toHaveBeenLastCalledWith([{ type: 'text', text: '继续' }], 'queue', undefined, 'req-echo', resolved)
+      expect(b.root.resolveDraftAttachments([draft.id])).toEqual([draft])
+      b.retire.onRetire?.({ reason: 'observed', attachments: [] })
+      await expect(sent).resolves.toEqual({ kind: 'success' })
+      expect(b.root.resolveDraftAttachments([draft.id])).toEqual([])
+    } finally {
+      b.restore()
+    }
     await b.runtime.dispose()
   })
 

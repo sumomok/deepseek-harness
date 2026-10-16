@@ -14,7 +14,7 @@ The only ways left were wrong in kind. A plugin could shadow the whole keyed `us
 
 `conversation.chat.user-actions` is a session-scoped list slot rendered inside the IconActions row of user and admitted-steering messages, beside copy and the clock. Entries render by ascending `order`, as on the assistant side.
 
-The chat view declares the seat, not the message renderers. A child slot key has exactly one declaring entry (`SlotCore.register` rejects a second declaration), while `user` and `steering` are two keyed entries sharing one component — so the declaration sits on the `conversation.view` chat entry, which hands every chat node a `renderUserActions` render share through `ChatNodeOwnerProps`. This is the same mechanism `conversation.message.images` already uses to reach several node kinds through `renderMessageImages`.
+The Chat flow declares the seat, not the message renderers. A child slot key has exactly one declaring entry (`SlotCore.register` rejects a second declaration), while `user` and `steering` are two keyed entries sharing one component — so the declaration sits on the `conversation.chat.flow` entry, which renders the node list and hands every row a `renderUserActions` render share through `ChatNodeOwnerProps`.
 
 `UserActionOwnerProps` is the addressed message's durable log position and its rendered text:
 

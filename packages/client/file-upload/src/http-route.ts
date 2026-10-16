@@ -19,7 +19,25 @@ type FileUploadHttpResult =
  * @param request - authenticated HTTP request from Connection.
  * @returns JSON result using HTTP status 200 after request validation.
  */
-export async function handleFileUploadHttp(service: FileUploads, request: Request): Promise<Response> {
+export function handleFileUploadHttp(service: FileUploads, request: Request): Promise<Response> {
+  return handleSessionFileUploadHttp(service, request, new URL(request.url).searchParams.get('sessionId'))
+}
+
+/**
+ * Handle one authenticated raw-byte upload into the Session its caller read
+ * from the request query, so an access rule stores into the Session it decided.
+ * Performs no access check: the caller is the owner, or has decided that the
+ * request's Peer may upload into `sessionId`.
+ * @param service - Host upload service receiving streamed bytes.
+ * @param request - authenticated HTTP request from Connection.
+ * @param sessionId - the request's first `sessionId` query value, or null when it has none.
+ * @returns JSON result using HTTP status 200 after request validation.
+ */
+export async function handleSessionFileUploadHttp(
+  service: FileUploads,
+  request: Request,
+  sessionId: string | null,
+): Promise<Response> {
   if (request.method !== 'POST') {
     return new Response(null, { status: 405, headers: { allow: 'POST' } })
   }
@@ -28,7 +46,6 @@ export async function handleFileUploadHttp(service: FileUploads, request: Reques
     return new Response('content type must be application/octet-stream', { status: 415 })
   }
   const url = new URL(request.url)
-  const sessionId = url.searchParams.get('sessionId')
   if (sessionId === null || sessionId === '') {
     return new Response('sessionId is required', { status: 400 })
   }

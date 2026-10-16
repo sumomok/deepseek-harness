@@ -4,9 +4,12 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { CommandDefinitionId } from '@deepseek-ai/dsh-commands/brand'
 import Schema from '@deepseek-ai/schemastery'
 import { brandString } from '@deepseek-ai/dsh-brand'
+import type {} from '@deepseek-ai/dsh-api-remote-access'
 import type {} from '@deepseek-ai/dsh-attachment'
+import type { PeerScope } from '@deepseek-ai/dsh-client-connection'
 import type { CommandResult } from '@deepseek-ai/dsh-commands'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { SessionLineageNode } from '@deepseek-ai/dsh-session-query'
 import {
   DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
   flushLiveSessionLog,
@@ -75,6 +78,7 @@ interface SessionLogConnection {
       readonly methods: readonly ('GET' | 'HEAD')[]
       readonly requestBody: 'buffered'
       readonly fetch: (request: Request) => Promise<Response>
+      readonly serveNonOwner: (request: Request, peer: PeerScope) => Promise<Response>
     }): () => Promise<void>
   }
 }
@@ -98,41 +102,110 @@ export function apply(ctx: Context, config: Config = {}): void {
       ? REQUESTED
       : { kind: 'error', text: 'The Web /export command does not accept a path.' }),
   }), 'session-log-download: command')
+  const respond = async (request: Request, query: SessionLogExportQuery | undefined): Promise<Response> => {
+    const response = await sessionLogExportResponse(
+      ctx,
+      request,
+      query,
+      config.compressionLevel ?? DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
+    )
+    if (request.method === 'GET') return response
+    await response.body?.cancel()
+    return new Response(null, { status: response.status, headers: response.headers })
+  }
   connectionOf(ctx).fetch.register({
     path: SESSION_LOG_EXPORT_PATH,
     methods: ['GET', 'HEAD'],
     requestBody: 'buffered',
-    fetch: async (request) => {
-      const response = await sessionLogExportResponse(
-        ctx,
-        request,
-        config.compressionLevel ?? DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
-      )
-      if (request.method === 'GET') return response
-      await response.body?.cancel()
-      return new Response(null, { status: response.status, headers: response.headers })
+    fetch: request => respond(request, sessionLogExportQuery(request)),
+    serveNonOwner: async (request, peer) => {
+      const query = sessionLogExportQuery(request)
+      return query !== undefined && await exportsAllowed(ctx, request, query, peer) ? respond(request, query) : forbidden()
     },
   })
 }
 
+function forbidden(): Response {
+  return new Response('forbidden', { status: 403 })
+}
+
+/** The Session and archive extent one export request names. */
+interface SessionLogExportQuery {
+  readonly sessionId: SessionId
+  readonly includeDescendants: boolean
+}
+
+/**
+ * Parse the export query once per request. The owner's export and a non-owner
+ * access rule both read this result, so the rule decides the Session and
+ * extent the archive then contains. A repeated parameter takes its last value.
+ * @returns undefined for a missing or empty `sessionId`, or an
+ * `includeDescendants` other than `true` or `false`.
+ */
+function sessionLogExportQuery(request: Request): SessionLogExportQuery | undefined {
+  const query = Object.fromEntries(new URL(request.url).searchParams)
+  const sessionIdValue = query['sessionId']
+  const descendantsValue = query['includeDescendants']
+  if (sessionIdValue === undefined || sessionIdValue.length === 0
+    || (descendantsValue !== undefined && descendantsValue !== 'true' && descendantsValue !== 'false')) {
+    return undefined
+  }
+  return { sessionId: brandString<SessionId>(sessionIdValue), includeDescendants: descendantsValue === 'true' }
+}
+
+/**
+ * Whether remote access allows a non-owner Peer to export what the parsed
+ * query names: the action `SESSION_LOG_EXPORT_PATH` on the requested Session
+ * and, with `includeDescendants`, on every subagent descendant the archive
+ * would include. The requested Session is decided before any lineage read.
+ * @returns false for a Host without remote access or Session query, an
+ * unreadable lineage, or any denial.
+ */
+async function exportsAllowed(ctx: Context, request: Request, query: SessionLogExportQuery, peer: PeerScope): Promise<boolean> {
+  const remoteAccess = ctx.get('remoteAccess')
+  if (remoteAccess === undefined) return false
+  const allowed = (ids: readonly SessionId[]): boolean => remoteAccess.decide({
+    principal: peer.principal,
+    action: SESSION_LOG_EXPORT_PATH,
+    resources: ids.map(id => ({ kind: 'session', id })),
+  }).kind === 'allow'
+  if (!allowed([query.sessionId])) return false
+  if (!query.includeDescendants) return true
+  const sessionQuery = ctx.get('sessionQuery')
+  if (sessionQuery === undefined) return false
+  let descendants: readonly SessionLineageNode[]
+  try {
+    descendants = (await sessionQuery.traceSession(query.sessionId, request.signal)).descendants
+  } catch {
+    // A lineage this route cannot read is not shown to be allowed; the owner's path reports such failures.
+    request.signal.throwIfAborted()
+    return false
+  }
+  const ids: SessionId[] = []
+  const collect = (nodes: readonly SessionLineageNode[]): void => {
+    for (const node of nodes) {
+      ids.push(node.session.header.id)
+      collect(node.descendants)
+    }
+  }
+  collect(descendants)
+  return ids.length === 0 || allowed(ids)
+}
+
 function connectionOf(ctx: Context): SessionLogConnection {
-  return Reflect.get(ctx, 'connection') as SessionLogConnection
+  return Reflect.get(ctx, 'connection')
 }
 
 async function sessionLogExportResponse(
   ctx: Context,
   request: Request,
+  query: SessionLogExportQuery | undefined,
   compressionLevel: SessionLogCompressionLevel,
 ): Promise<Response> {
-  const url = new URL(request.url)
-  const query = Object.fromEntries(url.searchParams)
-  const sessionIdValue = query['sessionId']
-  const descendantsValue = query['includeDescendants']
-  if (sessionIdValue === undefined || sessionIdValue.length === 0
-    || (descendantsValue !== undefined && descendantsValue !== 'true' && descendantsValue !== 'false')) {
+  if (query === undefined) {
     return new Response('missing or invalid sessionId query parameter', { status: 400 })
   }
-  const sessionId = brandString<SessionId>(sessionIdValue)
+  const { sessionId, includeDescendants } = query
   const deps = sessionLogExportDeps(ctx)
   if (deps.sessionQuery === undefined
     || deps.sessionPersistence === undefined
@@ -163,7 +236,6 @@ async function sessionLogExportResponse(
   if (rootContent === undefined) {
     return new Response('session not found', { status: 404 })
   }
-  const includeDescendants = descendantsValue === 'true'
   let extent: SessionLogExportExtent | undefined
   try {
     extent = await measureSessionLogZip(

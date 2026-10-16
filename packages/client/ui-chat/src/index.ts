@@ -5,7 +5,7 @@ import type {} from '@deepseek-ai/dsh-compaction'
 import type { ManualCompactionWhileBusy } from '@deepseek-ai/dsh-compaction/types'
 
 import type { Volatile, Context } from '@deepseek-ai/cordis'
-import type { ChatSettings, LinkOpening, PerformanceUsageMode } from './chat-settings.ts'
+import type { ChatSettings, CollapseTiming, LinkOpening, PerformanceUsageMode } from './chat-settings.ts'
 import z from '@deepseek-ai/schemastery'
 import { TRANSCRIPT_VIEW_FIELD } from './chat-settings.ts'
 
@@ -22,6 +22,8 @@ export {
 export interface Config {
   /** Completed turn transcript presentation. */
   transcriptView: Volatile<ChatSettings['transcriptView']>
+  /** When completed work details return to their historical presentation. */
+  collapseTiming: Volatile<CollapseTiming>
   /** Performance and usage detail level. */
   performanceUsage: Volatile<PerformanceUsageMode>
   /** Default destination for Chat HTTP(S) links. */
@@ -33,6 +35,7 @@ export interface Config {
 /** Live preferences projected to the browser. */
 export const Config = z.object({
   transcriptView: ChatSettingsFields[TRANSCRIPT_VIEW_FIELD].volatile(),
+  collapseTiming: ChatSettingsFields.collapseTiming.volatile(),
   performanceUsage: ChatSettingsFields['performanceUsage'].volatile(),
   linkOpening: ChatSettingsFields.linkOpening.volatile(),
   busyCompaction: ChatSettingsFields.busyCompaction.volatile(),

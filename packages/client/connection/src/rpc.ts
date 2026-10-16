@@ -1,7 +1,7 @@
 /** Generic unary RPC contracts shared by the Host and Client Connection halves. */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { PeerId, PeerScope } from '@deepseek-ai/dsh-typert-protocol'
+import type { PeerScope, Principal } from '@deepseek-ai/dsh-typert-protocol'
 
 /** Correlation id minted by a caller and echoed by the Connection response. */
 export type RpcId = Branded<'rpc-id'>
@@ -121,81 +121,64 @@ export type PeerAdmission =
   | { readonly rejection: 401 | 403 }
 
 /**
- * Deployment-supplied decision about which member Peer one request speaks
- * for. Connection calls it only for requests that already passed the
- * Host/Origin checks and browser authentication, so it can refuse a request
- * but never admit one those checks refused. It runs synchronously inside
- * {@link HostConnectionHandle.admit} and must answer the same for the same
- * headers, because route handlers may admit one request more than once.
+ * Decide which Peer one request speaks for. Connection calls it only for
+ * requests that already passed the Host/Origin checks and browser or API
+ * authentication, so it can refuse a request but never admit one those checks
+ * refused. It runs synchronously inside {@link HostConnectionHandle.admit} and
+ * must answer the same for the same headers, because route handlers may admit
+ * one request more than once. Connection cannot tell a header a login proxy
+ * set from one the client sent, so an admitter that recognizes the caller from
+ * a request header trusts only a header that a proxy in front of the Host
+ * removes from every client request before setting it, and the Host is
+ * reachable only through that proxy.
  * @param request - headers of the HTTP or upgrade request.
- * @returns a live Peer from {@link HostConnectionPeers.open}; 401 or 403 to
- * refuse; or `undefined` when the request names no member, which Connection
- * refuses with 401.
+ * @returns a live Peer, created through {@link HostConnectionHandle.createPeer}
+ * with the principal the request speaks for, the owner principal included;
+ * 401 or 403 to refuse; or `undefined` when the request names no Peer, which
+ * Connection refuses with 401. Connection also refuses with 401 when the
+ * admitter throws, and logs only the thrown Error's `name`, or the `typeof` of
+ * a thrown value that is not an Error.
  */
 export type PeerAdmitter = (request: ConnectionTrustRequest) => PeerScope | 401 | 403 | undefined
 
-/**
- * Member Peers on the Host. A member Peer carries no identity; the plugin that
- * installs the admitter keeps its own mapping from members to Peers.
- */
+/** The Peer admission seam on the Host. */
 export interface HostConnectionPeers {
   /**
    * The resolved `requireAdmitter` value of Connection's Config: whether this
-   * Connection refuses with 401 every request that passes its own checks while
-   * no admitter is installed. A plugin that installs the admitter for a
-   * deployment that depends on default deny reads it at load and refuses to
-   * start when it is false, because a later configuration layer replaces the
-   * whole Connection row and can drop the field.
+   * Connection refuses with 401 every authenticated request while no admitter
+   * is installed. A plugin that installs the admitter for a deployment that
+   * depends on default deny reads it at load and refuses to start when it is
+   * false, because a later configuration layer replaces the whole Connection
+   * row and can drop the field.
    */
   readonly requireAdmitter: boolean
 
   /**
-   * Whether member admission is on: `true` while an admitter is installed or
-   * {@link requireAdmitter} is true. Each read reports the current state, so
-   * installing or removing the admitter changes it at once, also on a `peers`
-   * object read before the change.
-   */
-  readonly memberAdmission: boolean
-
-  /**
-   * Install the sole Peer admitter. From then on every HTTP request and
-   * WebSocket upgrade speaks for the member Peer the admitter returns, or is
-   * refused; none is admitted as the operator. Removing the admitter restores
-   * operator admission, or refusal with 401 when {@link requireAdmitter} is
-   * true.
+   * Install the sole Peer admitter. From then on every authenticated HTTP
+   * request and WebSocket upgrade, whether it carries a browser Cookie or an
+   * API Cookie from `/connect`, speaks for the Peer the admitter returns or is
+   * refused; none is admitted as `browserPeer` or an API Peer. Removing the
+   * admitter restores upstream admission, or refusal with 401 when
+   * {@link requireAdmitter} is true.
    * @param admitter - synchronous decision applied after Connection's own checks.
    * @returns asynchronous disposer removing the admitter; it also leaves with the registering fiber.
    * @throws Error when another admitter is installed.
    */
   admitWith(admitter: PeerAdmitter): () => Promise<void>
-
-  /**
-   * Open one member Peer scope under Connection and emit
-   * `connection/peer-opened` before returning it. The first completed
-   * `dispose()` emits `connection/peer-closed`; unloading Connection disposes
-   * every member Peer still open.
-   * @returns the new Peer.
-   */
-  open(): PeerScope
-
-  /**
-   * Look up one live member Peer.
-   * @param id - identity of a Peer returned by {@link open}.
-   * @returns the Peer while it is open and `dispose()` has not been called, otherwise `undefined`.
-   */
-  get(id: PeerId): PeerScope | undefined
-
-  /**
-   * List the live member Peers.
-   * @returns Peers returned by {@link open} whose `dispose()` has not been called; never the operator.
-   */
-  list(): readonly PeerScope[]
 }
+
+/** Socket admission claims API ownership until its carrier calls release, including failed upgrades. */
+export type ConnectionAdmission =
+  | {
+    readonly peer: PeerScope
+    /** Remove and dispose an API Peer; browser releases leave the shared browser Peer intact. */
+    readonly release: () => Promise<void>
+  }
+  | { readonly rejection: 401 | 403 | 409 }
 
 /**
  * Handler invoked after Connection has decoded the transport envelope.
- * `peer` is the Peer the request was admitted as: the operator, or the member
- * Peer an installed admitter returned.
+ * `peer` is the Peer the carrier admitted or the in-process caller supplied.
  */
 export type ConnectionRpcHandler = (
   endpoint: string,
@@ -222,43 +205,24 @@ export interface ConnectionFetchRoute {
   /** Buffered requests obey the configured JSON cap; streaming requests arrive with backpressure and no aggregate cap. */
   readonly requestBody: ConnectionRequestBodyMode
   /**
-   * Handle one request after the physical carrier has applied its trust and
-   * authentication policy; `peer` is the Peer the request was admitted as.
+   * Handle one request from an owner Peer after the physical carrier has
+   * applied its trust and authentication policy.
    */
-  readonly fetch: (request: Request, peer: PeerScope) => Promise<Response>
-}
-
-/** One exact Fetch route in effect, as {@link HostConnectionFetch.list} reports it. */
-export interface ConnectionFetchRouteListing {
-  /** The route's absolute path below `/api`. */
-  readonly path: string
-  /** The methods the route owns, in registration order. */
-  readonly methods: readonly ConnectionFetchMethod[]
-}
-
-/**
- * One request that `connection/fetch` listeners see before it reaches an
- * exact Fetch route or a dedicated RPC channel.
- */
-export interface ConnectionFetchCall {
-  /** `exact-route` for a route from {@link HostConnectionFetch.register}; `channel` for a channel from {@link HostConnectionRpc.handle}. */
-  readonly kind: 'exact-route' | 'channel'
-  /** The registered path: the exact route's path, or the channel prefix. The endpoint below a channel is on `request.url`. */
-  readonly path: string
-  /** The request's HTTP method. */
-  readonly method: string
+  readonly fetch: (request: Request) => Promise<Response>
   /**
-   * The Fetch request the route or channel receives. A listener must not
-   * consume its body, which the route still reads; it reads `request.clone()`.
-   * A body a listener consumed can no longer be read: a route that reads it
-   * throws or answers its own error, and a channel answers 400 `body is not JSON`.
+   * This route's own access rule for non-owner Peers. Without it the shared
+   * handler answers 403 to every non-owner principal. With it, a request from
+   * a live non-owner Peer is handed here instead of to {@link fetch}; a
+   * disposed Peer is answered 401 first. The rule decides before the route
+   * reads, writes, or opens anything, normally through `remoteAccess.decide()`
+   * with the route path as the action, answers 403 when it refuses, and serves
+   * the request itself when it allows. Each `decide()` call lists at least one
+   * resource, because remote access allows a request that lists none. The
+   * values the rule decides on come from the same parse of the request that
+   * the route then serves, so a repeated query parameter cannot name one
+   * resource to the decision and another to the read or write.
    */
-  readonly request: Request
-  /**
-   * The Peer the request was admitted as; the operator when the carrier names none.
-   * Connection fixes it when it builds the call as a non-writable property, so every listener sees it.
-   */
-  readonly peer: PeerScope
+  readonly serveNonOwner?: (request: Request, peer: PeerScope) => Promise<Response>
 }
 
 /** Host registry for exact Fetch routes that cannot use JSON Remote invocation. */
@@ -269,12 +233,6 @@ export interface HostConnectionFetch {
    * @returns asynchronous disposer removing this exact contribution.
    */
   register(route: ConnectionFetchRoute): () => Promise<void>
-
-  /**
-   * List the exact routes in effect.
-   * @returns fresh entries for every registered route whose disposer has not run, sorted by path.
-   */
-  list(): readonly ConnectionFetchRouteListing[]
 }
 
 /** Host registry for logical RPC channels carried by the current transport. */
@@ -302,13 +260,6 @@ export interface HostConnectionRpc {
     matches: ConnectionRpcEndpointMatcher,
     handler: ConnectionRpcHandler,
   ): () => Promise<void>
-
-  /**
-   * List the dedicated channels in effect.
-   * @returns a fresh, sorted array of every channel registered with {@link handle} whose disposer has
-   * not run; the shared `/api` channel, which {@link intercept} serves, is never listed.
-   */
-  channels(): readonly string[]
 }
 
 /** Host `ctx.connection` members consumed by transport-independent adapters. */
@@ -317,14 +268,16 @@ export interface HostConnectionHandle {
   readonly rpc: HostConnectionRpc
   /** Exact Fetch routes for streaming or browser-native responses. */
   readonly fetch: HostConnectionFetch
-  /**
-   * The operator Peer, which every admitted request speaks for while no
-   * admitter is installed and `requireAdmitter` is false; its scope lives as
-   * long as Connection.
-   */
-  readonly operator: PeerScope
-  /** Member Peer admission and lifetime. */
+  /** The owner Peer every authenticated browser connection shares. */
+  readonly browserPeer: PeerScope
+  /** Peer admission seam; the admitter registration belongs to the Context reading it. */
   readonly peers: HostConnectionPeers
+
+  /**
+   * Whether this deployment accepts authorities beyond loopback: true only
+   * when a validated `trustedHosts` entry names a non-loopback hostname.
+   */
+  readonly allowsRemoteAuthorities: boolean
 
   /**
    * Compose exact Fetch routes and the shared-channel RPC interceptor.
@@ -334,31 +287,44 @@ export interface HostConnectionHandle {
   createSharedFetchHandler(channel: '/api'): ConnectionFetchHandler
 
   /**
-   * Apply {@link admit} to another Web route and keep only its verdict:
-   * Connection's Host/Origin checks, browser authentication, and the installed
-   * Peer admitter's refusal all reject.
+   * Apply Connection's Host/Origin checks and browser authentication to
+   * another Web route.
    * @param request - request headers from the HTTP or upgrade request.
-   * @returns rejection status, or undefined when the route may accept the request.
+   * @returns the rejection status of {@link admit}, 403 when it admits a
+   * non-owner Peer, or undefined when the route may accept the request.
    */
   requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection
 
   /**
-   * Admit one request. A failed Host/Origin check is refused with 403 and a
-   * missing browser session with 401, before any admitter runs. Without an
-   * admitter the request speaks for the operator, or is refused with 401
-   * when {@link HostConnectionPeers.requireAdmitter} is true. With one, it
-   * speaks for the live member Peer the admitter returns; 401 and 403 from
-   * the admitter refuse it, and `undefined` or a Peer that is released or was
-   * not opened by {@link HostConnectionPeers.open} refuses it with 401 and
-   * logs one error. Synchronous; repeated calls for the same headers agree
-   * while the admitter does.
+   * Admit an HTTP request against its signed browser or API credential and
+   * live Peer. With a Peer admitter installed, an authenticated request speaks
+   * for the Peer the admitter returns; without one and with `requireAdmitter`
+   * set, it is refused with 401.
    * @param request - request headers from the HTTP or upgrade request.
    * @returns the admitted Peer, or the rejection status.
    */
   admit(request: ConnectionTrustRequest): PeerAdmission
 
   /**
+   * Create an independent in-process Peer, disposed with the Context that read `ctx.connection`.
+   * @param options - fixed principal and optional interaction participation (default `answer`).
+   * @returns a new Peer distinct from every other Peer.
+   */
+  createPeer(options: { readonly principal: Principal; readonly interactions?: 'answer' | 'none' }): PeerScope
+
+  /**
+   * Claim a physical socket for an API Peer; browser sockets share their owner Peer.
+   * @param request - authenticated upgrade request headers.
+   * @returns the Peer and idempotent release, or 409 for duplicate API ownership.
+   * The carrier releases on socket termination or failed upgrade; release removes
+   * API admission synchronously without cancelling independent HTTP calls.
+   */
+  admitConnection(request: ConnectionTrustRequest): ConnectionAdmission
+
+  /**
    * Authenticate one frontend index request, owning a token redirect or 401.
+   * The cookie this mints is `Secure` when the mounted Web carrier serves TLS,
+   * which only that listener's protocol decides.
    * @param request - root or configured-index HTTP request.
    * @param response - response owned when the result is false.
    * @returns true only when the frontend may serve index.html.
@@ -385,10 +351,12 @@ export interface ConnectionFetchHandler {
   /**
    * Dispatch one already-authenticated request.
    * @param request - Fetch request below the shared channel.
-   * @param peer - Peer the request was admitted as; omitted, the request speaks for the operator.
-   * @returns the registered response or a 404 response.
+   * @param peer - Peer to dispatch as; required, never defaulted.
+   * @returns the registered response; for an exact route and a non-owner Peer, the route's own
+   * `serveNonOwner` response, 401 when that Peer is disposed, or 403 when the route declares none;
+   * or a 404 response.
    */
-  fetch(request: Request, peer?: PeerScope): Promise<Response>
+  fetch(request: Request, peer: PeerScope): Promise<Response>
 }
 
 /** Client caller for logical RPC channels carried by the current transport. */

@@ -14,7 +14,7 @@ Status: implemented
 
 `conversation.chat.user-actions` 是会话作用域的 list slot，渲染在 user 与已接纳 steering 消息的 IconActions 行内，紧邻复制与时钟。条目按 `order` 升序渲染，与 assistant 侧一致。
 
-声明该位的是 chat 视图，而不是消息 renderer。一个子 slot key 只能有一个声明条目（`SlotCore.register` 会拒绝第二次声明），而 `user` 与 `steering` 是共用同一组件的两个 keyed 条目——因此声明落在 `conversation.view` 的 chat 条目上，由它通过 `ChatNodeOwnerProps` 向每个 chat node 传下 `renderUserActions` 渲染份额。`conversation.message.images` 早已用同一机制经 `renderMessageImages` 抵达多种 node kind。
+声明该位的是 Chat flow，而不是消息 renderer。一个子 slot key 只能有一个声明条目（`SlotCore.register` 会拒绝第二次声明），而 `user` 与 `steering` 是共用同一组件的两个 keyed 条目——因此声明落在 `conversation.chat.flow` 条目上，由它渲染节点列表，并通过 `ChatNodeOwnerProps` 向每一行传下 `renderUserActions` 渲染份额。
 
 `UserActionOwnerProps` 是被指向消息的持久日志位置及其已渲染文本：
 

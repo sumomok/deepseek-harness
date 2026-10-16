@@ -156,7 +156,7 @@ interface SessionHeader {
   readonly id: SessionId
   /** Non-negative safe-integer Unix epoch milliseconds when the session was created. */
   readonly createdAt: number
-  /** Absolute working directory of the session: where it was created, or the target of its latest relocate (if any). */
+  /** Absolute directory of the session's original project: where it was created, or the target of its latest relocate (if any). */
   readonly cwd?: string
   /** The session this one was forked from (seed lineage), if any. */
   readonly parentSession?: SessionId
@@ -188,7 +188,7 @@ interface SessionHeader {
 
 ## Format refusal — logs a build cannot faithfully read
 
-A backend refuses a log it cannot faithfully interpret with `SessionFormatUnsupportedError`, distinct from `SessionPersistenceCorruptionError` because nothing is damaged. `stat` and `list` classify the highest canonical generation and translate a supported historical header without reading or mutating its body. Historical `open` calls share one per-session migration preparation before returning current logical values and leave every source path, byte, and inode unchanged. A JSONL `relocate` of a session whose highest generation is historical first publishes the current successor the same way, then renames the retained generations into the target directory with their bytes and inodes unchanged. The JSONL provider returns a read handle from that in-memory result without publishing; a write open holds its single-writer claim and file lease while it reuses the preparation, exclusively publishes the final current generation, and only then returns the writable handle. A future highest generation refuses even when an older readable generation remains. Current-format restoration retains installed extensions and unknown events carrying `ignorable: true`; historical v0/v1/v2 migration refuses an unknown type even when marked ignorable. The message appends the selected raw log path when the backend keeps one artifact per session. An out-of-tree backend must enforce equivalent current-only handle values and direction-aware refusals at its physical-format entry. The [released-format migration decision](../../.agents/notes/implemented/architecture/2026-08-31-released-session-format-migrations.md) owns the chain and immutable-publication rules.
+A backend refuses a log it cannot faithfully interpret with `SessionFormatUnsupportedError`, distinct from `SessionPersistenceCorruptionError` because nothing is damaged. `stat` and `list` classify the highest canonical generation and translate a supported historical header without reading or mutating its body. Historical `open` calls share one per-session migration preparation before returning current logical values and leave every source path, byte, and inode unchanged. A JSONL `relocate` refuses a session whose highest generation is historical before reading it; once a write open has published the current successor, a move renames the retained generations into the target directory with their bytes and inodes unchanged. The JSONL provider returns a read handle from that in-memory result without publishing; a write open holds its single-writer claim and file lease while it reuses the preparation, exclusively publishes the final current generation, and only then returns the writable handle. A future highest generation refuses even when an older readable generation remains. Current-format restoration retains installed extensions and unknown events carrying `ignorable: true`; historical v0/v1/v2 migration refuses an unknown type even when marked ignorable. The message appends the selected raw log path when the backend keeps one artifact per session. An out-of-tree backend must enforce equivalent current-only handle values and direction-aware refusals at its physical-format entry. The [released-format migration decision](../../.agents/notes/implemented/architecture/2026-08-31-released-session-format-migrations.md) owns the chain and immutable-publication rules.
 
 ## `CreateSessionOptions` — seeding and metadata
 
@@ -313,6 +313,8 @@ type SessionPersistenceRevision = Branded<'SessionPersistenceRevision'>
 interface SessionPersistenceSnapshot {
   /** Detached metadata for one stored session. */
   readonly header: SessionHeader
+  /** Header-only format classification; absent without versioned artifact metadata. */
+  readonly formatStatus?: 'current' | 'migration-required'
   /** Opaque change token; see {@link SessionPersistence.stat}. */
   readonly revision: SessionPersistenceRevision
   /** Logical event count, when the backend can provide it cheaply from metadata; otherwise absent. */
@@ -420,7 +422,10 @@ abstract list(options?: SessionPersistenceListOptions): Promise<readonly Session
  * events, and seqs stay unchanged; the returned snapshot carries a new
  * revision. When the stored cwd already equals `cwd` (exact string
  * comparison) nothing changes, no event fires, and the current snapshot
- * returns, so a caller that crashed may repeat the call. Pass exactly the
+ * returns, so a caller that crashed may repeat the call; a stored log in a
+ * historical format is refused before this comparison. A caller can first
+ * test `stat(id).formatStatus === 'migration-required'` to know whether the
+ * session must be migrated by an open before it can move. Pass exactly the
  * cwd later resumes will pass: resume compares cwd strings exactly.
  *
  * Optional: callers test `typeof ctx.sessionPersistence.relocate ===
@@ -456,7 +461,9 @@ abstract list(options?: SessionPersistenceListOptions): Promise<readonly Session
  *   move, or an unfinished earlier move of the same session is malformed or
  *   contradicts the storage; when a move stays unfinished, the message
  *   names the backend's record of it.
- * @throws {Error} when the source and target locations are on different
+ * @throws {Error} when the stored log is in a historical format, which
+ *   the session's first write open migrates (the message says when a move
+ *   can succeed), when the source and target locations are on different
  *   filesystems, when the target location is one the backend's discovery
  *   does not list (for the JSONL backend, a symbolic link), or when the
  *   verification of the rewritten log fails without judging it.

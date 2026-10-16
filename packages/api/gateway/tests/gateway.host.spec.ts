@@ -7,7 +7,6 @@ import { apply as applyConnection, inject as connectionInject } from '@deepseek-
 import type {
   ConnectionRpcHandler,
   HostConnectionHandle,
-  PeerId,
   PeerScope,
 } from '@deepseek-ai/dsh-client-connection'
 import type { WebServer, WebRoute } from '@deepseek-ai/dsh-host-webserver'
@@ -23,7 +22,9 @@ import {
 } from '@deepseek-ai/dsh-typert-protocol'
 import TypertRegistry, { type TypertContribution } from '@deepseek-ai/dsh-typert-registry'
 import TypertGatewayService, { TypertGatewayError } from '@deepseek-ai/dsh-api-gateway'
+import RemoteAccessService from '@deepseek-ai/dsh-api-remote-access'
 import { provideBrowserCredentials } from './browser-credentials.ts'
+import { ownerPeer } from './peer.ts'
 
 interface FixtureAgent {
   readonly id: string
@@ -116,14 +117,12 @@ class FakeConnectionService extends Service {
   channel: string | undefined
   matches: ((endpoint: string) => boolean) | undefined
   handler: FakeRpcHandler | undefined
-  /** The operator Peer every call this fake dispatches speaks for. */
-  readonly operator: PeerScope
-  /** Member admission stays off, so the Gateway runs Remote calls without a `remote/invoke` listener. */
-  readonly peers = { memberAdmission: false }
+  /** The browser Peer every call this fake dispatches speaks for. */
+  readonly browserPeer: PeerScope
 
   constructor(ctx: Context) {
     super(ctx, 'connection')
-    this.operator = { id: 'fake-operator' as PeerId, ctx, dispose: () => Promise.resolve() }
+    this.browserPeer = ownerPeer(ctx)
   }
 
   get rpc() {
@@ -137,7 +136,7 @@ class FakeConnectionService extends Service {
         owner.effect(() => {
           this.channel = channel
           this.matches = matches
-          this.handler = (endpoint, payload, signal) => handler(endpoint, payload, signal, this.operator)
+          this.handler = (endpoint, payload, signal) => handler(endpoint, payload, signal, this.browserPeer)
           return () => {
             this.channel = undefined
             this.matches = undefined
@@ -409,6 +408,7 @@ describe('TypertGatewayService', () => {
     const abort = new AbortController()
 
     await expect(caller.typertGateway.invoke({
+      peer: ownerPeer(caller),
       namespace: 'goals',
       method: 'create',
       args: { agentId: 'agent-1', request: { title: '  ship  ' } },
@@ -418,6 +418,7 @@ describe('TypertGatewayService', () => {
     expect(service.lastSignal).toBe(abort.signal)
 
     await expect(caller.typertGateway.invoke({
+      peer: ownerPeer(caller),
       namespace: 'goals',
       method: 'create',
       args: { agentId: 'agent-1', request: { title: 'again' } },
@@ -433,6 +434,7 @@ describe('TypertGatewayService', () => {
     registerStrict(ctx, [renameDescriptor()])
 
     await expect(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'rename',
       args: { agentId: 'agent-1', request: { title: 'land' } },
@@ -448,6 +450,7 @@ describe('TypertGatewayService', () => {
     const abort = new AbortController()
 
     await expect(caller.typertGateway.invoke({
+      peer: ownerPeer(caller),
       namespace: 'goals',
       method: 'create',
       args: { agentId: 'agent-1', request: { title: 'ship' } },
@@ -466,6 +469,7 @@ describe('TypertGatewayService', () => {
     registerAgentLookup(ctx, { id: 'agent-1' })
 
     await expect(ctx.extend({ fixtureScope: 'unbound' }).typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'create',
       args: { agentId: 'agent-1', request: { title: 'ship' } },
@@ -479,6 +483,7 @@ describe('TypertGatewayService', () => {
     await dispose()
 
     await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'create',
       args: { agentId: 'agent-1', request: { title: 'ship' } },
@@ -492,6 +497,7 @@ describe('TypertGatewayService', () => {
     ctx.typert.contexts.registerHost('gatewayFixture', contextProvider(scoped))
 
     await expect(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'rename',
       args: { agentId: 'agent-1', request: { title: 'land' } },
@@ -505,15 +511,19 @@ describe('TypertGatewayService', () => {
     await ctx.plugin(InheritedMethodService)
 
     await expect(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'exported', method: 'execute', args: { value: 'ship' },
     })).resolves.toBe('ship')
     await expect(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'empty', method: 'ping', args: {},
     })).resolves.toBe('pong')
     await expect(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'inherited', method: 'run', args: { value: 'land' },
     })).resolves.toBe('land')
     await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'other', method: 'absent', args: {},
     }), 'gateway/invocation-unavailable')
   })
@@ -523,6 +533,7 @@ describe('TypertGatewayService', () => {
     await colliding.plugin(CollidingWireService)
     registerAgentLookup(colliding, { id: 'agent-1' })
     await expectCode(colliding.typertGateway.invoke({
+      peer: ownerPeer(colliding),
       namespace: 'colliding-wire',
       method: 'run',
       args: { agentId: 'agent-1' },
@@ -530,6 +541,7 @@ describe('TypertGatewayService', () => {
 
     const missing = await setup()
     await expectCode(missing.ctx.typertGateway.invoke({
+      peer: ownerPeer(missing.ctx),
       namespace: 'goals',
       method: 'rename',
       args: { agentId: 'agent-1', request: { title: 'land' } },
@@ -539,6 +551,7 @@ describe('TypertGatewayService', () => {
     await contextCollision.plugin(ContextWireService)
     contextCollision.typert.contexts.registerHost('gatewayFixture', contextProvider(contextCollision.extend()))
     await expectCode(contextCollision.typertGateway.invoke({
+      peer: ownerPeer(contextCollision),
       namespace: 'context-wire',
       method: 'run',
       args: { agentId: 'agent-1' },
@@ -553,6 +566,7 @@ describe('TypertGatewayService', () => {
 
     await disposeLookup()
     await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'create',
       args: { agentId: 'agent-1', request: { title: 'ship' } },
@@ -561,6 +575,7 @@ describe('TypertGatewayService', () => {
     registerAgentLookup(ctx, agent)
     await serviceFiber.dispose()
     await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'create',
       args: { agentId: 'agent-1', request: { title: 'ship' } },
@@ -575,6 +590,7 @@ describe('TypertGatewayService', () => {
 
     await dispose()
     await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'rename',
       args: { agentId: 'agent-1', request: { title: 'land' } },
@@ -585,6 +601,7 @@ describe('TypertGatewayService', () => {
       resolve: () => { throw new Error('provider failed') },
     })
     const error = await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'rename',
       args: { agentId: 'agent-1', request: { title: 'land' } },
@@ -602,6 +619,7 @@ describe('TypertGatewayService', () => {
     registerStrict(ctx, [renameDescriptor()])
 
     await expect(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'rename',
       args: { agentId: 'agent-1', request: { title: 'land' } },
@@ -617,6 +635,7 @@ describe('TypertGatewayService', () => {
       wire: 'differentAgentId',
     })
     await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'rename',
       args: { agentId: 'agent-1', request: { title: 'land' } },
@@ -628,6 +647,7 @@ describe('TypertGatewayService', () => {
       resolve: () => undefined,
     })
     await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'rename',
       args: { agentId: 'agent-1', request: { title: 'land' } },
@@ -642,6 +662,7 @@ describe('TypertGatewayService', () => {
       resolve: async () => { throw new Error('lookup failed') },
     })
     const failure = await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'create',
       args: { agentId: 'agent-1', request: { title: 'ship' } },
@@ -654,6 +675,7 @@ describe('TypertGatewayService', () => {
       resolve: () => Promise.resolve(undefined),
     })
     await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'create',
       args: { agentId: 'agent-1', request: { title: 'ship' } },
@@ -665,6 +687,7 @@ describe('TypertGatewayService', () => {
       resolve: async id => ({ id }),
     })
     await expect(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'create',
       args: { agentId: 'agent-1', request: { title: 'ship' } },
@@ -677,6 +700,7 @@ describe('TypertGatewayService', () => {
     await dispose()
 
     await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'passthrough',
       args: { value: 'would pass through SRC' },
@@ -686,12 +710,14 @@ describe('TypertGatewayService', () => {
   it('seeds the no-downgrade guard from definitions present before Gateway startup', async () => {
     const ctx = new Context()
     await ctx.plugin(TypertRegistry)
+    await ctx.plugin(RemoteAccessService)
     const dispose = registerStrict(ctx, [passthroughDescriptor()])
     await ctx.plugin(TypertGatewayService)
     await ctx.plugin(GoalService)
     await dispose()
 
     await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'passthrough',
       args: { value: 'would pass through SRC' },
@@ -701,6 +727,7 @@ describe('TypertGatewayService', () => {
   it('retains the no-downgrade guard across Gateway Service reloads', async () => {
     const ctx = new Context()
     await ctx.plugin(TypertRegistry)
+    await ctx.plugin(RemoteAccessService)
     const gatewayFiber = ctx.plugin(TypertGatewayService)
     await gatewayFiber
     await ctx.plugin(GoalService)
@@ -711,6 +738,7 @@ describe('TypertGatewayService', () => {
     await ctx.plugin(TypertGatewayService)
 
     await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'passthrough',
       args: { value: 'would pass through SRC' },
@@ -723,6 +751,7 @@ describe('TypertGatewayService', () => {
     await ctx.plugin(SecondSharedService)
 
     const error = await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'shared',
       method: 'run',
       args: { value: 'ship' },
@@ -741,6 +770,7 @@ describe('TypertGatewayService', () => {
       const ctx = await setupGateway()
       await ctx.plugin(testCase.plugin)
       await expectCode(ctx.typertGateway.invoke({
+        peer: ownerPeer(ctx),
         namespace: testCase.namespace,
         method: 'run',
         args: testCase.args,
@@ -755,6 +785,7 @@ describe('TypertGatewayService', () => {
     ctx.typert.lookups.register('gatewayFixtureAlias', provider)
 
     await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'create',
       args: { agentId: 'agent-1', request: { title: 'ship' } },
@@ -766,16 +797,19 @@ describe('TypertGatewayService', () => {
     registerAgentLookup(ctx, { id: 'agent-1' })
 
     await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'create',
       args: { request: { title: 'ship' } },
     }), 'gateway/arguments-invalid')
     await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'create',
       args: { agentId: 'agent-1', request: { title: 'ship' }, optional: true },
     }), 'gateway/arguments-invalid')
     await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'create',
       args: [] as unknown as Record<string, unknown>,
@@ -788,6 +822,7 @@ describe('TypertGatewayService', () => {
     registerStrict(ctx, [strictOnlyDescriptor()])
 
     await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'strictOnly',
       args: { request: { title: 1 } },
@@ -795,6 +830,7 @@ describe('TypertGatewayService', () => {
 
     service.nextResult = { title: 1 }
     await expect(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'strictOnly',
       args: { request: { title: 'ship' } },
@@ -807,6 +843,7 @@ describe('TypertGatewayService', () => {
     service.nextResult = 1n
 
     await expect(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'strictOnly',
       args: { request: { title: 'ship' } },
@@ -826,6 +863,7 @@ describe('TypertGatewayService', () => {
   ])('rejects non-JSON SRC input %#', async (value) => {
     const { ctx } = await setup()
     await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'passthrough',
       args: { value },
@@ -838,6 +876,7 @@ describe('TypertGatewayService', () => {
     // cannot see which are optional, so an absent field is admitted; the case
     // above keeps an explicitly undefined field rejected.
     await expect(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'passthrough',
       args: {},
@@ -850,6 +889,7 @@ describe('TypertGatewayService', () => {
     const cyclic: { self?: unknown } = {}
     cyclic.self = cyclic
     await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'passthrough',
       args: { value: cyclic },
@@ -858,6 +898,7 @@ describe('TypertGatewayService', () => {
     const result = new Date(0)
     service.nextResult = result
     await expect(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'passthrough',
       args: { value: null },
@@ -867,6 +908,7 @@ describe('TypertGatewayService', () => {
   it('accepts dense JSON and rejects decorated arrays and object properties', async () => {
     const { ctx } = await setup()
     await expect(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'passthrough',
       args: { value: [1, { nested: true }] },
@@ -884,6 +926,7 @@ describe('TypertGatewayService', () => {
     Object.defineProperty(accessor, 'value', { get: () => true, enumerable: true })
     for (const value of [sparseWithExtra, symbolArray, symbolObject, hidden, accessor]) {
       await expectCode(ctx.typertGateway.invoke({
+        peer: ownerPeer(ctx),
         namespace: 'goals', method: 'passthrough', args: { value },
       }), 'gateway/input-invalid')
     }
@@ -898,6 +941,7 @@ describe('TypertGatewayService', () => {
     registerStrict(ctx, [createDescriptor()])
 
     await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'create',
       args: { agentId: 'agent-1', request: { title: 'ship' } },
@@ -908,6 +952,7 @@ describe('TypertGatewayService', () => {
     const ctx = await setupGateway()
     await ctx.plugin(WrongBindingService)
     await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'wrong-binding',
       method: 'run',
       args: { value: 'ship' },
@@ -916,6 +961,7 @@ describe('TypertGatewayService', () => {
     await ctx.plugin(GoalService)
     registerStrict(ctx, [{ ...passthroughDescriptor(), method: 'missing' }])
     await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'missing',
       args: { value: 'ship' },
@@ -933,6 +979,7 @@ describe('TypertGatewayService', () => {
       method: 'run',
     }])
     await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'no-binding', method: 'run', args: { value: 'ship' },
     }), 'gateway/binding-invalid')
 
@@ -956,6 +1003,7 @@ describe('TypertGatewayService', () => {
       }],
     })
     await expect(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'plain', method: 'run', args: { value: 'land' },
     })).resolves.toBe('land')
   })
@@ -970,6 +1018,7 @@ describe('TypertGatewayService', () => {
     })
     try {
       await expectCode(ctx.typertGateway.invoke({
+        peer: ownerPeer(ctx),
         namespace: 'missing-method', method: 'run', args: { value: 'ship' },
       }), 'gateway/method-unavailable')
     } finally {
@@ -983,6 +1032,7 @@ describe('TypertGatewayService', () => {
     service.businessError = failure
 
     await expect(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'fail',
       args: { request: { reason: 'fixture' } },
@@ -992,6 +1042,7 @@ describe('TypertGatewayService', () => {
   it('reports an absent endpoint without retaining receiver state', async () => {
     const { ctx } = await setup()
     await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'absent',
       args: {},
@@ -1001,6 +1052,7 @@ describe('TypertGatewayService', () => {
   it('mounts a shared /api interceptor through an optional Connection and returns existing RPC results', async () => {
     const ctx = new Context().extend({ fixtureScope: 'rpc-caller' })
     await ctx.plugin(TypertRegistry)
+    await ctx.plugin(RemoteAccessService)
     await ctx.plugin(FakeConnectionService)
     const gatewayFiber = ctx.plugin(TypertGatewayService)
     await gatewayFiber
@@ -1033,11 +1085,12 @@ describe('TypertGatewayService', () => {
     abort.abort(new Error('client disconnected'))
     expect(service.lastSignal?.aborted).toBe(true)
     await expect(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx),
       namespace: 'goals',
       method: 'create',
       args: { agentId: 'agent-1', request: { title: 'direct' } },
     })).resolves.toMatchObject({ title: 'direct' })
-    expect(service.lastPeer).toBe(connection.operator)
+    expect(service.lastPeer).toBe(connection.browserPeer)
     const invalid = await handler('goals/create', { invalid: true }, signal)
     expect(invalid).toMatchObject({
       ok: false,
@@ -1209,6 +1262,7 @@ describe('TypertGatewayService', () => {
   it('claims and validates in-process Remote event results for the active Client generation', async () => {
     const ctx = new Context()
     await ctx.plugin(TypertRegistry)
+    await ctx.plugin(RemoteAccessService)
     await ctx.plugin(FakeConnectionService)
     await ctx.plugin(TypertGatewayService)
     const connection = rawConnection(ctx)
@@ -1231,7 +1285,9 @@ describe('TypertGatewayService', () => {
       })
     })(), { home: '/home/fixture' })
     const carrier = new AbortController()
-    const events = rawGatewayEventHarness(ctx).openRemoteEvents({ args: {} }, carrier.signal)
+    const events = (await ctx.typertGateway.wireStream.open(
+      '$events', { args: {} }, (async function* () {})(), connection.browserPeer, carrier.signal,
+    ))[Symbol.asyncIterator]()
     const opening = await events.next()
     expect(opening).toMatchObject({
       done: false,
@@ -1254,7 +1310,7 @@ describe('TypertGatewayService', () => {
       value: undefined,
     })
 
-    await events.return(undefined)
+    await events.return?.(undefined)
     await unregister()
     await ctx.fiber.dispose()
   })
@@ -1262,6 +1318,7 @@ describe('TypertGatewayService', () => {
   it('preserves a lookup policy rejection through the Connection RPC result', async () => {
     const ctx = new Context()
     await ctx.plugin(TypertRegistry)
+    await ctx.plugin(RemoteAccessService)
     await ctx.plugin(FakeConnectionService)
     await ctx.plugin(TypertGatewayService)
     await ctx.plugin(GoalService)
@@ -1286,6 +1343,7 @@ describe('TypertGatewayService', () => {
   it('caches SRC ownership until the Cordis Service set changes', async () => {
     const ctx = new Context()
     await ctx.plugin(TypertRegistry)
+    await ctx.plugin(RemoteAccessService)
     await ctx.plugin(FakeConnectionService)
     await ctx.plugin(TypertGatewayService)
     const observedFiber = ctx.plugin(ObservedClaimService)
@@ -1321,6 +1379,7 @@ describe('TypertGatewayService', () => {
     const connectionFiber = ctx.plugin({ inject: [...connectionInject], apply: applyConnection })
     await connectionFiber
     await ctx.plugin(TypertRegistry)
+    await ctx.plugin(RemoteAccessService)
     const gatewayFiber = ctx.plugin(TypertGatewayService)
     await gatewayFiber
     const goalFiber = ctx.plugin(GoalService)
@@ -1328,8 +1387,9 @@ describe('TypertGatewayService', () => {
     const removeLookup = registerAgentLookup(ctx, { id: 'agent-1' })
     const removeStrict = registerStrict(ctx, [createDescriptor()])
     let strictActive = true
-    expect(routes).toHaveLength(1)
-    const server = await serveRoute(routes[0]!)
+    const apiRoute = routes.find(route => route.path === '/api')
+    if (apiRoute === undefined) throw new Error('fixture API route was not installed')
+    const server = await serveRoute(apiRoute)
     const cookie = browserCookie(ctx.connection, server.origin)
 
     try {
@@ -1430,6 +1490,7 @@ async function setup(): Promise<{
 async function setupGateway(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(TypertRegistry)
+  await ctx.plugin(RemoteAccessService)
   await ctx.plugin(TypertGatewayService)
   return ctx
 }
@@ -1442,17 +1503,6 @@ function rawGoalService(ctx: Context): GoalService {
 function rawConnection(ctx: Context): FakeConnectionService {
   const receiver = ctx.get('connection') as unknown as FakeConnectionService & {
     [symbols.original]?: FakeConnectionService
-  }
-  return receiver[symbols.original] ?? receiver
-}
-
-interface GatewayEventHarness {
-  openRemoteEvents(payload: unknown, signal: AbortSignal): AsyncGenerator
-}
-
-function rawGatewayEventHarness(ctx: Context): GatewayEventHarness {
-  const receiver = ctx.get('typertGateway') as unknown as GatewayEventHarness & {
-    [symbols.original]?: GatewayEventHarness
   }
   return receiver[symbols.original] ?? receiver
 }
