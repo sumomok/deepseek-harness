@@ -98,10 +98,10 @@ describe('Session-log export route for non-owner Peers', () => {
     expect(await exportAs(connection, member(connection, 's1'), '?sessionId=s1')).toEqual({ status: 200, entries: [SESSION_LOG_FILENAME] })
   })
 
-  it('refuses a member\'s export of another member\'s Session, or without a Session, before reading any log', async () => {
+  it('refuses a member\'s export of another member\'s Session, or without a valid query, before reading any log', async () => {
     const { connection, opened } = await mount()
     const alice = member(connection, 's1')
-    for (const query of ['?sessionId=s2', '?sessionId=s2&includeDescendants=true', '', '?sessionId=']) {
+    for (const query of ['?sessionId=s2', '?sessionId=s2&includeDescendants=true', '', '?sessionId=', '?sessionId=s1&includeDescendants=yes']) {
       expect(await exportAs(connection, alice, query)).toEqual({ status: 403, entries: [] })
     }
     expect(await exportAs(connection, alice, '?sessionId=s2', 'HEAD')).toEqual({ status: 403, entries: [] })
