@@ -213,6 +213,18 @@ describe('default product isolation', () => {
     expect(failures).toContain('@fixture/innocent')
   })
 
+  it.each(['apps/desktop-app', 'apps/desktop-server', 'apps/desktop-shell', 'apps/pwa'])(
+    'does not root the default product at the private product app %s, and roots the same manifest elsewhere', (dir) => {
+      const root = fixture()
+      const fields = { name: '@fixture/private-product', private: true, dependencies: { [experimental]: '*' } }
+      write(root, `${dir}/package.json`, fields)
+      expect(verifyDefaultProductIsolation(root).failures).toEqual([])
+      rmSync(join(root, dir), { recursive: true })
+      write(root, 'apps/other-app/package.json', fields)
+      expect(verifyDefaultProductIsolation(root).failures.join('\n')).toContain(experimental)
+    },
+  )
+
   it('follows private application intermediaries and terminates cycles', () => {
     const root = fixture()
     write(root, 'apps/desktop/package.json', { name: '@fixture/desktop', private: true,

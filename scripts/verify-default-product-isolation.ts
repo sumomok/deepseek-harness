@@ -21,6 +21,7 @@ import {
 } from './verify-client-packages.ts'
 
 import { isExperimentalPackageName } from './experimental-package-policy.ts'
+import { PRIVATE_PRODUCT_APP_DIRECTORIES } from './private-product-apps.ts'
 // The independently published entry package owns platform-engine dependencies.
 const EXTERNAL_KIT_PACKAGES = new Set(['@deepseek-ai/libreoffice-kit'])
 const PROFILE_SOURCE = 'packages/boot/app-boot/src/profile.ts'
@@ -238,7 +239,8 @@ export function verifyDefaultProductIsolation(root: string): ProductIsolationRes
 
   for (const pkg of packages.values()) {
     const path = display(pkg.directory)
-    if (path.startsWith('apps/') || path === 'python/sdk-runtime') add(pkg, path)
+    // The private product applications are this line's own releases, not default installations of `dsh`.
+    if ((path.startsWith('apps/') && !PRIVATE_PRODUCT_APP_DIRECTORIES.has(path)) || path === 'python/sdk-runtime') add(pkg, path)
   }
   if (selection !== undefined) {
     for (const name of selection.packages) {

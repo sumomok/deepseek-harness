@@ -20,6 +20,7 @@ import {
 import { hasTypertRemoteNavigation, isForbiddenPublicationFile } from './publication-payload.ts'
 import type { DshBundleManifest } from '../packages/util/package-manifest/src/types.ts'
 import { OPTIONAL_BUNDLES, bundlePatchFiles } from '../packages/boot/app-boot/src/profile.ts'
+import { PRIVATE_PRODUCT_APP_DIRECTORIES } from './private-product-apps.ts'
 import { collectProjectReferenceFaceViolations } from './project-reference-faces.ts'
 
 const root = resolve(import.meta.dirname, '..')
@@ -60,23 +61,12 @@ const experimentalPackageDirectory = /^packages\/experimental\/[^/]+$/
 /** Private reference tool run from the repository; it publishes no files. */
 const pluginMarketGeneratorDirectory = 'apps/plugin-market-generator'
 /**
- * Private product applications that the desktop and PWA releases assemble. Each carries its own product version and
- * publishes nothing to npm, so none is a release member, has a publication files policy, or carries the workspace
- * version.
- */
-const privateProductAppDirectories: ReadonlySet<string> = new Set([
-  'apps/desktop-app',
-  'apps/desktop-server',
-  'apps/desktop-shell',
-  'apps/pwa',
-])
-/**
  * Ordinary directories whose packages this repository publishes: one release member each. The reference plugin
  * market generator is a private repository tool, not a published application, and the private product applications
  * are not published either.
  */
 const standardReleaseMemberDirectory = new RegExp(
-  `^(?:packages/(?!experimental/)[^/]+/[^/]+|apps/(?!desktop(?:-host)?$|${pluginMarketGeneratorDirectory.slice('apps/'.length)}$|${[...privateProductAppDirectories].map(dir => `${dir.slice('apps/'.length)}$`).join('|')})[^/]+|vendor/[^/]+)$`,
+  `^(?:packages/(?!experimental/)[^/]+/[^/]+|apps/(?!desktop(?:-host)?$|${pluginMarketGeneratorDirectory.slice('apps/'.length)}$|${[...PRIVATE_PRODUCT_APP_DIRECTORIES].map(dir => `${dir.slice('apps/'.length)}$`).join('|')})[^/]+|vendor/[^/]+)$`,
   'u',
 )
 /** Installable application assembled by electron-builder rather than published to npm. */
@@ -447,7 +437,7 @@ export function checkDshFamilyVersion(manifest: PackageManifest, expected: strin
 export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): string[] {
   const errors = checkExperimentalManifest({ dir, manifest })
   const label = manifest.name ?? dir
-  const familyVersionError = privateProductAppDirectories.has(dir) ? undefined : checkDshFamilyVersion(manifest, repositoryVersion)
+  const familyVersionError = PRIVATE_PRODUCT_APP_DIRECTORIES.has(dir) ? undefined : checkDshFamilyVersion(manifest, repositoryVersion)
   if (familyVersionError !== undefined) errors.push(familyVersionError)
   const isNativePackageDir = dir.startsWith('native/system/packages/')
   const isPublicNativePackage = isNativePackageDir
@@ -505,7 +495,7 @@ export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): st
     }
   }
 
-  if (dir.startsWith('apps/') && dir !== desktopApplicationDirectory && dir !== pluginMarketGeneratorDirectory && !privateProductAppDirectories.has(dir) && manifest.name?.startsWith('@deepseek-ai/')) {
+  if (dir.startsWith('apps/') && dir !== desktopApplicationDirectory && dir !== pluginMarketGeneratorDirectory && !PRIVATE_PRODUCT_APP_DIRECTORIES.has(dir) && manifest.name?.startsWith('@deepseek-ai/')) {
     const expectedFiles = appPackageFiles[manifest.name]
     if (expectedFiles === undefined) {
       errors.push(`${label}: app package has no publication files policy`)
