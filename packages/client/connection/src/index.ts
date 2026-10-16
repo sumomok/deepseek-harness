@@ -11,7 +11,7 @@ import { CONNECT_PATH } from './connect-protocol.ts'
 import { bridge, DEFAULT_MAX_REQUEST_BODY_BYTES } from './http-bridge.ts'
 import { assertTrustedAuthority } from './api-request-trust.ts'
 import { BrowserAuth } from './browser-auth.ts'
-import { HostConnectionService } from './rpc-host.ts'
+import { DEFAULT_MAX_UNCLAIMED_API_PEERS, HostConnectionService } from './rpc-host.ts'
 import { ConnectionRecoveryConfigSchema, resolveConnectionConfig, type ConnectionRecoveryConfig } from './recovery-config.ts'
 
 export type {
@@ -118,6 +118,15 @@ export interface ConnectionConfig {
    * is refused. Index authorization and `/connect` are unaffected. Default: false.
    */
   requireAdmitter?: boolean
+  /**
+   * While a Peer admitter is installed or `requireAdmitter` is set, the most
+   * API credentials `/connect` keeps that no WebSocket has claimed. Exchanging
+   * one more retires the oldest such credential, whose API Cookie is then
+   * refused with 401. Without an admitter and with `requireAdmitter` unset,
+   * every credential stays until its socket closes or the Host stops.
+   * Default: 64.
+   */
+  maxUnclaimedApiPeers?: number
 }
 
 export const Config: z<ConnectionConfig> = z.object({
@@ -126,6 +135,7 @@ export const Config: z<ConnectionConfig> = z.object({
   cookieMaxAgeDays: z.natural().min(1).default(30),
   maxRequestBodyBytes: z.natural().min(1).default(DEFAULT_MAX_REQUEST_BODY_BYTES),
   requireAdmitter: z.boolean().default(false),
+  maxUnclaimedApiPeers: z.natural().min(1).default(DEFAULT_MAX_UNCLAIMED_API_PEERS),
 })
 
 /**
@@ -142,6 +152,7 @@ export async function apply(ctx: Context, config?: ConnectionConfig): Promise<vo
   const cookieMaxAgeDays = config?.cookieMaxAgeDays ?? 30
   const maxRequestBodyBytes = config?.maxRequestBodyBytes ?? DEFAULT_MAX_REQUEST_BODY_BYTES
   const requireAdmitter = config?.requireAdmitter ?? false
+  const maxUnclaimedApiPeers = config?.maxUnclaimedApiPeers ?? DEFAULT_MAX_UNCLAIMED_API_PEERS
   // Config boundary: a malformed entry fails the load loudly here rather than
   // silently authorizing its hostname prefix at request time.
   for (const entry of trustedHosts) assertTrustedAuthority(entry)
@@ -151,6 +162,7 @@ export async function apply(ctx: Context, config?: ConnectionConfig): Promise<vo
     trustedHosts,
     await BrowserAuth.create(ctx.root, ctx.credentials, cookieMaxAgeDays),
     requireAdmitter,
+    maxUnclaimedApiPeers,
   )
   ctx.inject(['webServer'], (webCtx) => {
     assertImageBodyCapacity(webCtx, maxRequestBodyBytes)

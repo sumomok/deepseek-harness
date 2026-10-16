@@ -35,6 +35,9 @@ import type {
   PeerAdmitter,
 } from './rpc.ts'
 
+/** Default for Connection's `maxUnclaimedApiPeers` Config field. */
+export const DEFAULT_MAX_UNCLAIMED_API_PEERS = 64
+
 const INVALID_REQUEST_RPC_ID = RpcId('invalid-request')
 const CHANNEL_PATTERN = /^\/[A-Za-z0-9._~-]+$/
 const ENDPOINT_SEGMENT_PATTERN = /^[A-Za-z0-9_$.-]+$/
@@ -43,6 +46,11 @@ interface PeerRecord {
   readonly peer: Peer
   ownsSocket: boolean
 }
+
+/** One admission together with the API credential record that authenticated it, if any. */
+type CredentialAdmission =
+  | { readonly peer: PeerScope; readonly record: PeerRecord | undefined }
+  | { readonly rejection: 401 | 403 }
 
 interface ConnectionRpcInterceptor {
   readonly matches: ConnectionRpcEndpointMatcher
@@ -89,12 +97,15 @@ export class HostConnectionService extends Service implements HostConnectionHand
    * @param browserAuth - process token and persistent browser-session owner.
    * @param requireAdmitter - while no Peer admitter is installed, refuse with 401 every request that passes
    * the Host/Origin checks and browser or API authentication.
+   * @param maxUnclaimedApiPeers - while an admitter is installed or `requireAdmitter` is set, the most API
+   * credentials `/connect` keeps that no socket has claimed.
    */
   constructor(
     ctx: Context,
     private readonly trustedHosts: readonly string[],
     private readonly browserAuth: BrowserAuth,
     private readonly requireAdmitter = false,
+    private readonly maxUnclaimedApiPeers = DEFAULT_MAX_UNCLAIMED_API_PEERS,
   ) {
     super(ctx, 'connection')
     this.owner = ctx
@@ -149,21 +160,30 @@ export class HostConnectionService extends Service implements HostConnectionHand
    * An installed admitter decides every authenticated request instead.
    */
   admit(request: ConnectionTrustRequest): PeerAdmission {
+    const admission = this.admitCredential(request)
+    return 'rejection' in admission ? admission : { peer: admission.peer }
+  }
+
+  /** Admit one request and keep the API credential record its Cookie authenticated, whichever Peer it speaks for. */
+  private admitCredential(request: ConnectionTrustRequest): CredentialAdmission {
     if (!this.isTrusted(request)) return { rejection: 403 }
     if (this.disposed) return { rejection: 401 }
     const secure = this.owner.get('webServer')?.protocol === 'https:'
-    const authenticated = this.browserAuth.isAuthenticated(request, secure)
-      ? this.browserPeer
-      : this.apiPeerOf(request, secure)
-    if (authenticated === undefined) return { rejection: 401 }
+    const browser = this.browserAuth.isAuthenticated(request, secure)
+    const record = browser ? undefined : this.apiRecordOf(request, secure)
+    if (!browser && record === undefined) return { rejection: 401 }
     const admitter = this.admitter
-    if (admitter !== undefined) return this.admitWithAdmitter(request, admitter)
-    return this.requireAdmitter ? { rejection: 401 } : { peer: authenticated }
+    if (admitter !== undefined) {
+      const admission = this.admitWithAdmitter(request, admitter)
+      return 'rejection' in admission ? admission : { peer: admission.peer, record }
+    }
+    if (this.requireAdmitter) return { rejection: 401 }
+    return { peer: record?.peer ?? this.browserPeer, record }
   }
 
-  private apiPeerOf(request: ConnectionTrustRequest, secure: boolean): PeerScope | undefined {
+  private apiRecordOf(request: ConnectionTrustRequest, secure: boolean): PeerRecord | undefined {
     const id = this.browserAuth.authenticateApi(request, secure)
-    return id === undefined ? undefined : this.apiPeers.get(id)?.peer
+    return id === undefined ? undefined : this.apiPeers.get(id)
   }
 
   private admitWithAdmitter(request: ConnectionTrustRequest, admitter: PeerAdmitter): PeerAdmission {
@@ -193,17 +213,20 @@ export class HostConnectionService extends Service implements HostConnectionHand
     return new Peer(this.ctx, options)
   }
 
-  /** Claim API socket ownership synchronously; callers release on termination or failed upgrade. */
+  /**
+   * Claim API socket ownership synchronously; callers release on termination or failed upgrade. The claimed
+   * credential is the request's API Cookie, also when an admitter decides which Peer the socket speaks for.
+   */
   admitConnection(request: ConnectionTrustRequest): ConnectionAdmission {
-    const admission = this.admit(request)
+    const admission = this.admitCredential(request)
     if ('rejection' in admission) return admission
-    const record = this.apiPeers.get(admission.peer.id)
-    if (record === undefined) return { ...admission, release: () => Promise.resolve() }
+    const { peer, record } = admission
+    if (record === undefined) return { peer, release: () => Promise.resolve() }
     if (record.ownsSocket) return { rejection: 409 }
     record.ownsSocket = true
     let released: Promise<void> | undefined
     return {
-      peer: record.peer,
+      peer,
       release: () => {
         if (released !== undefined) return released
         this.apiPeers.delete(record.peer.id)
@@ -221,7 +244,23 @@ export class HostConnectionService extends Service implements HostConnectionHand
   private publishPeer(interactions: ConnectionInteractions): PeerId {
     const peer = new Peer(this.owner, { principal: { kind: 'owner' }, interactions })
     this.apiPeers.set(peer.id, { peer, ownsSocket: false })
+    if (this.admitter !== undefined || this.requireAdmitter) this.retireUnclaimedApiPeers()
     return peer.id
+  }
+
+  /**
+   * Retire the oldest API credentials that no socket has claimed beyond `maxUnclaimedApiPeers`. A deployment
+   * with an admitter hands the launch token to every member, so each `/connect` would otherwise keep one owner
+   * API Peer for the Host's lifetime.
+   */
+  private retireUnclaimedApiPeers(): void {
+    const unclaimed = [...this.apiPeers.values()].filter(record => !record.ownsSocket)
+    for (const record of unclaimed.slice(0, Math.max(0, unclaimed.length - this.maxUnclaimedApiPeers))) {
+      this.apiPeers.delete(record.peer.id)
+      void record.peer.dispose().catch((error: unknown) => {
+        this.owner.logger.error('client-connection: disposing a retired API Peer failed', error)
+      })
+    }
   }
 
   /**

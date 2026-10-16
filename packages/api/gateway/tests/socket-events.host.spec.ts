@@ -258,6 +258,35 @@ describe('Peer admission through the assembled Host', () => {
     client.close()
   })
 
+  it('ends the API Cookie a member socket presents when that socket closes or its member Peer is disposed', async () => {
+    const { ctx, eventCount } = await mount({ requireAdmitter: true })
+    let current = member(ctx, 'alice')
+    ctx.connection.peers.admitWith(() => current)
+
+    const closedByClient = await apiCookie(ctx)
+    const first = connect(ctx, closedByClient)
+    await once(first, 'open')
+    await eventCount(1)
+    expect(await refusedUpgrade(ctx, closedByClient)).toBe(409)
+    expect(await whoami(ctx, closedByClient)).toEqual({ status: 200, kind: 'gateway-socket-member' })
+    first.close()
+    await eventCount(2)
+    await expect.poll(async () => (await whoami(ctx, closedByClient)).status).toBe(401)
+
+    const closedByDisposal = await apiCookie(ctx)
+    const second = connect(ctx, closedByDisposal)
+    await once(second, 'open')
+    await eventCount(3)
+    const alice = current
+    current = member(ctx, 'bob')
+    const closed = once(second, 'close')
+    await alice.dispose()
+    expect((await closed)[0]).toBe(1001)
+    await eventCount(4)
+    // bob would answer for any credential Connection still held.
+    await expect.poll(async () => (await whoami(ctx, closedByDisposal)).status).toBe(401)
+  })
+
   it('refuses every authenticated call and upgrade while requireAdmitter is set and no admitter is installed', async () => {
     const { ctx, events, eventCount } = await mount({ requireAdmitter: true })
     const cookie = await apiCookie(ctx)
