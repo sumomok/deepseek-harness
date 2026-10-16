@@ -159,6 +159,18 @@ describe('/api/file for non-owner Peers', () => {
       .toEqual({ status: 200, bytes: BYTES })
   })
 
+  it('reads for a member the path value it decided containment on', async () => {
+    const { connection } = await mount()
+    const alice = member(connection, 's1')
+    const outside = join(base, 'outside', 'other.bin')
+    await writeFile(outside, Uint8Array.of(9, 9, 9))
+    const paths = (...values: string[]): URLSearchParams =>
+      new URLSearchParams([...values.map(path => ['path', path]), ['sessionId', 's1']])
+    expect(await fileQueryAs(connection, alice, paths(join(base, 'alice', 'image.png'), outside)))
+      .toEqual({ status: 200, bytes: BYTES })
+    expect((await fileQueryAs(connection, alice, paths(outside, join(base, 'alice', 'image.png')))).status).toBe(403)
+  })
+
   it('follows symbolic links to their real path before deciding containment', async () => {
     const { connection } = await mount()
     const alice = member(connection, 's1')
