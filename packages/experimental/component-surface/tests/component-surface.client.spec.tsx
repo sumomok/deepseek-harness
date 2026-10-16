@@ -16,6 +16,7 @@
  * stand-in renderers that publish on a click and show what they were handed.
  */
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { en as kitEn } from '@deepseek-ai/dsh-experimental-component-kit/src/client/locales.ts'
@@ -58,7 +59,7 @@ function componentEntry(
   nodes: readonly Record<string, unknown>[],
   { entryId = 'budget', seq = 4, title = 'Budget approval' } = {},
 ): ComponentSurfaceProps['entry'] {
-  return { kind: 'component', entryId, seq, title, payload: { spec: { nodes } } }
+  return { kind: 'component', entryId, seq, title, payload: { spec: { nodes: [...nodes] } } as ContentSurfaceEntry['payload'] }
 }
 
 /** The gestures each session's log records, as one render's worth of feed. */

@@ -11,6 +11,7 @@
  * what its renderer was handed rather than about anything visible in the spec.
  */
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { installElementUI } from '@deepseek-ai/dsh-experimental-component-kit/src/client/element-ui.ts'
@@ -81,7 +82,7 @@ async function mount(nodes: readonly unknown[]): Promise<Mounted> {
   const element = (drawn: readonly unknown[], seq: number) => {
     const props: ComponentSurfaceProps = {
       sessionId: 'a',
-      entry: { kind: 'component', entryId: 'sites', seq, title: 'Sites', payload: { spec: { nodes: drawn, layout: SIDE_BY_SIDE } } },
+      entry: { kind: 'component', entryId: 'sites', seq, title: 'Sites', payload: { spec: { nodes: [...drawn], layout: SIDE_BY_SIDE } } as ContentSurfaceEntry['payload'] },
       useSessions,
       onAction,
       pending: new Map(),
