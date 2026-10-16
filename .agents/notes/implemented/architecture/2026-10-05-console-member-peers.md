@@ -60,9 +60,11 @@ A subagent's approval or question is a waterfall of the child Session, whose fra
 
 The admitter recognizes a member from a request header that the console's login proxy sets after removing any copy the client sent, and the Host is reachable only through that proxy; Connection cannot tell a proxy-set header from a forged one.
 
-`/api/file` confines a member to the Session's `cwd` resolved to its real path, so the confinement holds only while that `cwd` comes from the console. Upstream `session/create` accepts the caller's `cwd`, so the console's policy refuses a member's `session/create` that names a `cwd`, leaving only console-managed `workspaceId`s, or its condition decides the `cwd` on its resolved real path; a literal prefix check is passed by a symbolic link that points outside.
+The login proxy forwards `/connect` only for identities that use an API Cookie, such as SDK callers, and limits its rate per member, because every exchange counts toward the one `maxUnclaimedApiPeers` bound that all callers share.
 
-Upstream `workspaceFiles/read`, `readBytes`, and `stat` read files outside the workspace as well; only `list` is confined to it. Granting them to a member opens another path to every file the Host can read, so the console's policy withholds them from members or grants them only under a condition that decides the requested path on its resolved real path. The document preview reads through `workspaceFiles/read`, so withholding it also withholds the preview.
+`/api/file` confines a member to the Session's `cwd` resolved to its real path, so the confinement holds only while that `cwd` comes from the console. Upstream `session/create` accepts the caller's `cwd`, and a request that names neither a `cwd` nor a `workspaceId` receives the Host process's `process.cwd()`. The console's policy therefore requires a member's `session/create` to name a console-managed `workspaceId`, or its condition decides the resulting `cwd` on its resolved real path; a literal prefix check is passed by a symbolic link that points outside.
+
+Upstream `workspaceFiles/read`, `readBytes`, `stat`, and `changes` on a file reach files outside the workspace as well; only `list` and `changes` on a directory are confined to it. Granting them to a member opens another path to every file the Host can read, and `changes` reports such a file's `absolutePath` and `version`, so the console's policy withholds all four from members or grants them only under a condition that decides the requested path on its resolved real path. The document preview reads through `read`, `readBytes`, and `stat`, so withholding them also withholds the preview.
 
 ### Retirement
 
@@ -84,7 +86,7 @@ Upstream `workspaceFiles/read`, `readBytes`, and `stat` read files outside the w
 
 **Letting the `/connect` API Cookie bypass the admitter.** The console's login proxy hands the launch token to every member past its login gate, so that path would mint an owner Peer for any member.
 
-**Bounding unclaimed `/connect` credentials by age instead of count.** A time limit bounds their number only through the exchange rate, and expires a credential an HTTP-only caller still uses; a count bound holds regardless of rate and retires only the oldest.
+**Bounding unclaimed `/connect` credentials by age instead of count.** A time limit would not let one caller's exchanges retire another caller's credential, but it bounds their number only through the exchange rate, and expires a credential an HTTP-only caller still uses. A count bound holds regardless of rate and retires only the oldest, at the cost that any holder of the launch token can retire the unclaimed credentials of other callers; the console's login proxy limits who can exchange and how often. Counting per admitted Peer would require the admitter to decide `/connect` as well, which widens the core patch.
 
 **Lifting the waterfall block for every non-owner.** A member would receive and answer the approvals of every other member's Sessions; the policy decides per Session instead.
 
@@ -104,6 +106,7 @@ Upstream `workspaceFiles/read`, `readBytes`, and `stat` read files outside the w
 - **`requireAdmitter: true` without an admitter refuses every authenticated request** until one is installed.
 - **Member Peers are not reclaimed by Connection**: the admitter's plugin owns idle closing.
 - **Under an admitter, one API Cookie serves one socket**: a second socket on it receives 409, and an HTTP-only caller's credential is retired once `maxUnclaimedApiPeers` newer unclaimed credentials exist.
+- **Any holder of the launch token can retire another caller's unclaimed API credential**: the bound counts the unclaimed credentials of all callers together and retires the oldest in publication order. It affects only API Cookie callers, both HTTP-only callers and any caller between `/connect` and its upgrade; a credential a socket has claimed and the browser Cookie are not affected.
 - **A member's file read has two residuals**: replacing an already resolved directory inside the workspace with a symbolic link between the containment check and the open makes the read follow the link, and a hard link inside the workspace to a file outside it passes the check with no race. Both require write access to the workspace.
 - **An image URL built without a Session is refused for a member** and shows its alt text.
 - **A member's approval waits while that member is offline**, as an owner's does upstream, until its Agent Context or signal ends it.

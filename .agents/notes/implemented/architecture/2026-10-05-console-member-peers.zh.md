@@ -60,9 +60,11 @@ owner 的 `$events` 流照上游收到每个 waterfall。`interactions: 'answer'
 
 准入器凭控制台登录代理设置的请求头识别成员，代理先删掉客户端发来的同名头再设置；Host 只能经该代理访问。Connection 分不清代理设置的头与伪造的头。
 
-`/api/file` 把成员限定在会话 `cwd` 解析出的真实路径之内，所以只有 `cwd` 来自控制台时这一限定才成立。上游 `session/create` 接受调用方传入的 `cwd`，所以控制台的 policy 拒绝成员带 `cwd` 的 `session/create`，只留下控制台管理的 `workspaceId`，或者其 condition 在解析出真实路径之后判定 `cwd`；字面前缀判定会被指向外部的符号链接绕过。
+登录代理只为确实使用 API Cookie 的身份（如 SDK 调用方）转发 `/connect`，并按成员限速，因为每次兑换都计入所有调用方共用的同一个 `maxUnclaimedApiPeers` 上限。
 
-上游 `workspaceFiles/read`、`readBytes` 与 `stat` 也能读工作区之外的文件，只有 `list` 限定在工作区内。授给成员就多出一条读取宿主任意可读文件的路径，所以控制台的 policy 不把它们授给成员，或者只在一个按解析后真实路径判定所请求路径的 condition 下授予。文档预览经 `workspaceFiles/read` 读取，所以不授予它也就不提供预览。
+`/api/file` 把成员限定在会话 `cwd` 解析出的真实路径之内，所以只有 `cwd` 来自控制台时这一限定才成立。上游 `session/create` 接受调用方传入的 `cwd`，既不带 `cwd` 也不带 `workspaceId` 的请求得到 Host 进程的 `process.cwd()`。所以控制台的 policy 要求成员的 `session/create` 带控制台管理的 `workspaceId`，或者其 condition 在解析出真实路径之后判定最终的 `cwd`；字面前缀判定会被指向外部的符号链接绕过。
+
+上游 `workspaceFiles/read`、`readBytes`、`stat` 以及作用在文件上的 `changes` 也能越出工作区，只有 `list` 和作用在目录上的 `changes` 限定在工作区内。授给成员就多出一条读取宿主任意可读文件的路径，`changes` 还会报告这类文件的 `absolutePath` 与 `version`，所以控制台的 policy 不把这四个授给成员，或者只在一个按解析后真实路径判定所请求路径的 condition 下授予。文档预览经 `read`、`readBytes` 与 `stat` 读取，所以不授予它们也就不提供预览。
 
 ### 退役
 
@@ -84,7 +86,7 @@ owner 的 `$events` 流照上游收到每个 waterfall。`interactions: 'answer'
 
 **让 `/connect` 的 API Cookie 绕过准入器。** 控制台登录代理把启动令牌交给每个通过登录门的成员，这条路径会为任何成员造出 owner Peer。
 
-**按存活时间而不是数量限制未认领的 `/connect` 凭据。** 时间上限只能通过兑换速率间接限制凭据数量，还会让仅用 HTTP 的调用方仍在用的凭据过期；数量上限与速率无关，只让最早的凭据退役。
+**按存活时间而不是数量限制未认领的 `/connect` 凭据。** 时间上限不会让一个调用方的兑换使别的调用方的凭据退役，但它只能通过兑换速率间接限制凭据数量，还会让仅用 HTTP 的调用方仍在用的凭据过期。数量上限与速率无关，只让最早的凭据退役，代价是任何持有启动令牌的一方都能让别的调用方尚未认领的凭据退役；控制台的登录代理限定谁能兑换以及兑换的频率。按准入后的 Peer 分别计数需要准入器也判定 `/connect`，会扩大核心补丁。
 
 **对所有非 owner 解除 waterfall 禁令。** 成员会收到并应答其他每位成员会话的审批；改由策略按会话判定。
 
@@ -104,6 +106,7 @@ owner 的 `$events` 流照上游收到每个 waterfall。`interactions: 'answer'
 - **`requireAdmitter: true` 而没有准入器时，拒绝每个已认证请求**，直到装上准入器。
 - **Connection 不回收成员 Peer**：空闲关闭由准入器插件负责。
 - **装着准入器时，一个 API Cookie 只服务一条 socket**：其上的第二条 socket 得到 409；仅用 HTTP 的调用方的凭据在出现 `maxUnclaimedApiPeers` 个更新的未认领凭据后退役。
+- **任何持有启动令牌的一方都能让别的调用方尚未认领的 API 凭据退役**：该上限把所有调用方的未认领凭据一起计数，按发布顺序让最早的退役。受影响的只有 API Cookie 调用方，即仅用 HTTP 的调用方，以及处在 `/connect` 与升级之间的任何调用方；已被 socket 认领的凭据和浏览器 Cookie 不受影响。
 - **成员读文件有两项残余**：在包含判定与打开之间把工作区内一个已解析的目录换成符号链接，读取会跟随该链接；工作区内一个指向工作区外文件的硬链接不需要竞态就能通过判定。两者都需要对工作区有写权限。
 - **未带会话构造的图片 URL 对成员被拒**，显示其 alt 文本。
 - **成员离线时其审批等待**，与上游 owner 的情形相同，直到其 Agent Context 或 signal 结束它。
