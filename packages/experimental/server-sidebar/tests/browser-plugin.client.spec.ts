@@ -7,7 +7,7 @@
  * absent — decision ①), the `conversation.session.header.actions`
  * registration for the "存为工作流" action and the untitled-conversation
  * title beside it with the workbench id it reads, the withheld Settings
- * entries, the replaced compaction rows and workspace notice, the withheld
+ * entries, the replaced compaction rows and workspace notices, the withheld
  * expand button in the conversation header's corner, the
  * workbench/workflow/page business logic each injected callback wires, the footer's identity source
  * and its sign-out action, removal on fiber teardown (HMR safety), and the
@@ -27,7 +27,7 @@ import { ServerSidebarRoot } from '../src/client/ServerSidebarRoot.tsx'
 import { SaveWorkflowAction, type SaveWorkflowInjected } from '../src/client/SaveWorkflowAction.tsx'
 import { WithheldSettingsEntry } from '../src/client/settings-entries.ts'
 import { CompactedRow, CompactionFailedRow } from '../src/client/CompactionRows.tsx'
-import { WorkspaceNotice } from '../src/client/WorkspaceNotice.tsx'
+import { WithheldNotice, WorkspaceNotice } from '../src/client/WorkspaceNotice.tsx'
 import { StopAndRemoveDialog } from '../src/client/StopAndRemoveDialog.tsx'
 import { WithheldRenameDialog } from '../src/client/withheld-rename.ts'
 import { UntitledTitle } from '../src/client/UntitledTitle.tsx'
@@ -448,10 +448,9 @@ describe('server-sidebar browser half: sidebar registration', () => {
     for (const dispose of [...disposeOwners, ...disposeKept]) dispose()
   })
 
-  it('replaces ui-workspace\'s notice, stop-and-archive confirmation, and rename dialog by their `shell.overlay` ids at priority -1', async () => {
+  it('replaces ui-workspace\'s stop-and-archive confirmation and rename dialog by their `shell.overlay` ids at priority -1', async () => {
     const { ctx } = await bench()
     const replaced = [
-      { id: 'workspace.row-toast', component: WorkspaceNotice, locale: 'serverSidebar' },
       { id: 'workspace.session-archive', component: StopAndRemoveDialog, locale: 'serverSidebar' },
       // Draws nothing, so it reads no dictionary.
       { id: 'workspace.session-rename', component: WithheldRenameDialog, locale: undefined },
@@ -459,11 +458,30 @@ describe('server-sidebar browser half: sidebar registration', () => {
     expect(ctx.slots.entries('shell.overlay').map(entry => ({ id: entry.options.id, component: entry.component, locale: entry.locale })))
       .toEqual(replaced)
     for (const entry of ctx.slots.entries('shell.overlay')) expect(entry.options.priority).toBe(-1)
-    // ui-workspace registers all three at the default priority 0; each cell's
+    // ui-workspace registers both at the default priority 0; each cell's
     // winner stays this package's entry.
     const disposeOwners = replaced.map(({ id }) => ctx.slots.register({ name: 'shell.overlay', id }, () => null))
     expect(ctx.slots.entriesOfSlot('shell.overlay').map(entry => entry.component)).toEqual(replaced.map(({ component }) => component))
     for (const dispose of disposeOwners) dispose()
+  })
+
+  it('replaces ui-workspace\'s notices by kind at priority -1 once ui-workspace\'s notice entry declares `workspace.toast`', async () => {
+    const { ctx } = await bench()
+    ctx.slots.register({
+      name: 'shell.overlay', id: 'workspace.row-toast', children: { 'workspace.toast': { kind: 'keyed', scope: 'root' } },
+    } as never, () => null)
+    // The ledger reports the declaration on a microtask.
+    await new Promise((resolve) => { setTimeout(resolve, 0) })
+    expect(ctx.slots.entries('workspace.toast').map(entry => ({
+      key: entry.options.key, priority: entry.options.priority, component: entry.component, locale: entry.locale,
+    }))).toEqual([
+      { key: 'defaultWorkspaceFailed', priority: -1, component: WorkspaceNotice, locale: 'serverSidebar' },
+      { key: 'createFailed', priority: -1, component: WorkspaceNotice, locale: 'serverSidebar' },
+      { key: 'archived', priority: -1, component: WorkspaceNotice, locale: 'serverSidebar' },
+      { key: 'stoppedAndArchived', priority: -1, component: WorkspaceNotice, locale: 'serverSidebar' },
+      // Draws nothing, so it reads no dictionary.
+      { key: 'shortcutForkFailed', priority: -1, component: WithheldNotice, locale: undefined },
+    ])
   })
 
   it('replaces ui-chat\'s landed and failed compaction rows by node key at priority -1, in this package\'s locale', async () => {

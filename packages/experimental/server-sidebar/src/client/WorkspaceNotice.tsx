@@ -1,249 +1,152 @@
 /**
- * The console's notice in place of `dsh-client-ui-workspace`'s.
+ * The console's notices in place of `dsh-client-ui-workspace`'s.
  *
- * `ui-workspace` raises its notices through one `shell.overlay` entry,
- * `workspace.row-toast`, and words the four the console can raise in the
- * vocabulary it keeps off the screen. A page that could not prepare a place to
- * hold conversations shows 无法创建默认工作区，请通过“选择工作区”选择文件夹,
- * which names the workspace and a picker the console hides. A new conversation
- * the Host refused shows 新建会话失败： with the Host's own reason. The
- * `session.archive` keyboard shortcut archives the conversation on screen, and
- * its two outcomes, archived and stopped-and-archived, show 会话已归档 or
- * 已停止并归档 with an undo and a filter for archived rows this shell does not
- * have. {@link replaceWorkspaceNotice} registers {@link WorkspaceNotice} under
- * that id below `ui-workspace`'s priority (`shadowed-overlay.ts`), so
- * `ui-workspace`'s own toast never mounts. The two archive notices keep their
- * undo, which un-archives through `ui-workspace`, on the same 6 s hold
- * `ui-workspace` gives them. The console withholds the `session.archive` key
- * (`console-shortcuts.ts`), so the two archive notices are raised only where
- * that command still runs: a Desktop shell's native accelerator.
+ * `ui-workspace` raises its notices through its `shell.overlay` entry
+ * `workspace.row-toast`, which hands the notice on display to the keyed slot
+ * `workspace.toast` under the notice's kind. The entry under that kind says
+ * what the notice shows, and `ui-workspace`'s Toast Factory
+ * `workspace.toast.content` draws it. Only a key's lowest-priority entry
+ * renders (`SlotCore.register`'s shadowing rule), and `ui-workspace` registers
+ * every kind at the default priority 0, so {@link replaceWorkspaceNotice}
+ * registers the console's entries at {@link REPLACING_PRIORITY} under the
+ * kinds the console words itself, and `ui-workspace`'s entries under those
+ * kinds never mount.
  *
- * Which notice is up is still `ui-workspace`'s to say: the shadowed entry's
- * inject face carries it (`hooks.toast`, `dismissToast`, `undoArchive`), and
- * nothing else does. {@link shadowedNoticeSource} reads that face off the slot
- * ledger through `shadowed-overlay.ts`. The kind names and the archive
- * notices' `sessionId` field are checked against `ui-workspace`'s exported
- * `RowToast` type at compile time ({@link NOTICE_COPY}, {@link SESSION_FIELD}).
- * The entry id, the face's member names, and the notice's `seq` field are
- * literal copies: `ui-workspace`'s `/client` entry exports no constant for the
- * id, and neither the face's type nor the published notice's
- * (`RowToastInjected`, `RowToastState`). `tests/workspace-notice.client.spec.tsx`
- * checks each copy against `ui-workspace`'s source. A renamed entry id
- * un-shadows `ui-workspace`'s toast; a face this module no longer recognises
- * shows no notice at all.
+ * A page that could not prepare a place to hold conversations
+ * (`defaultWorkspaceFailed`) shows 无法创建默认工作区，请通过“选择工作区”选择文件夹
+ * from `ui-workspace`, which names the workspace and a picker the console
+ * hides; a new conversation the Host refused (`createFailed`) shows 新建会话失败：
+ * with the Host's reason. The console shows its own copy for both, without
+ * the Host's reason. The `session.archive` keyboard shortcut archives the
+ * conversation on screen, and its two outcomes (`archived`,
+ * `stoppedAndArchived`) show 会话已归档 or 已停止并归档 from `ui-workspace`, with
+ * an undo and a filter for archived rows this shell does not have. The
+ * console shows its own copy with the undo alone, held for the same 6 s; the
+ * undo takes the notice down and un-archives through `ctx.uiWorkspace`, and a
+ * refused un-archive is reported to the browser console. The `session.fork`
+ * shortcut's failure (`shortcutForkFailed`) shows 当前会话没有已结束的轮次 or
+ * 无法分叉会话，请重试 from `ui-workspace`; the console shows nothing for it
+ * ({@link WithheldNotice}), since a fork that succeeds shows nothing on the
+ * console either: the new conversation is listed nowhere, and the page stays
+ * on the conversation it was on. The console withholds both shortcuts' keys
+ * (`console-shortcuts.ts`), so these three notices are raised only where those
+ * commands still run: a Desktop shell's native accelerator.
  *
- * The other kinds `ui-workspace` raises belong to its `sidebar.workspaces`
- * browser's row actions (pin, unpin, opening an archived row); this shell does
- * not declare that slot, so they never fire here, and this entry draws nothing
- * for them.
+ * The other kinds keep `ui-workspace`'s entries because nothing raises them
+ * here: `sessionIdCopied`, `sessionIdCopyFailed`, `pinFailed`, and
+ * `unpinFailed` come from the row actions of `ui-workspace`'s
+ * `sidebar.workspaces` browser, which this shell does not declare;
+ * `forkRequiresOpen` comes only from that browser's fork row action; and
+ * `archivedNotOpenable` comes from that browser and from `forkRequiresOpen`'s
+ * own action.
+ *
+ * The kind names, the archive notices' `sessionId` field, and the Factory's
+ * display fields are typed through `ui-workspace`'s declarations of
+ * `workspace.toast` and `workspace.toast.content`, so a renamed kind or field
+ * fails this package's typecheck. `ui-workspace` registering any kind below
+ * the default priority would rank its own entry first;
+ * `tests/workspace-notice.client.spec.tsx` pins the shadow against
+ * `ui-workspace`'s own registrations.
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client/WorkspaceNotice
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import { IconWarningOutlineRegular, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { RowToast } from '@deepseek-ai/dsh-client-ui-workspace/client'
+import type {
+  FactoryComponentPropsOf, InjectFace, PropsLocale, PropsRenderFactories, PropsRuntime,
+} from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only: pulls the SlotRegistry service merge (ctx.slots).
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-// Type-only: pulls ui-layout's declaration of `shell.overlay`.
-import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { ServerSidebarKey } from './locales.ts'
-import {
-  followShadowed, hookOf, isAction, isSessionAction, type OverlayLedger, REPLACING_PRIORITY, shadowedFace,
-} from './shadowed-overlay.ts'
-
-/**
- * The id of `ui-workspace`'s notice entry in `shell.overlay`, which this
- * entry shadows. {@link replaceWorkspaceNotice} writes it out literally as
- * well, so the client slot catalog names the cell.
- */
-const NOTICE_ENTRY_ID = 'workspace.row-toast'
+// Type-only: pulls ui-workspace's declarations of `workspace.toast` and
+// `workspace.toast.content`, and its ctx.uiWorkspace Context merge.
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
+import { REPLACING_PRIORITY } from './shadowed-overlay.ts'
 
 /** Hold of the two archive notices, which carry an action to react to; `ui-workspace` holds its own for the same 6 s. */
 const ARCHIVE_NOTICE_HOLD_MS = 6000
 
-/** Dictionary namespace the notice reads. */
+/** Dictionary namespace the notices read. */
 const NS = 'serverSidebar'
 
-/**
- * The console's copy for each `ui-workspace` notice kind it draws. Every key
- * must be one of `RowToast`'s kinds, so a kind `ui-workspace` renames fails
- * this package's typecheck.
- */
-const NOTICE_COPY = {
-  defaultWorkspaceFailed: 'notice.startFailed',
-  createFailed: 'notice.newFailed',
-  archived: 'notice.removed',
-  stoppedAndArchived: 'notice.stoppedAndRemoved',
-} as const satisfies Partial<Record<RowToast['kind'], ServerSidebarKey>>
+/** What one notice shows: the Toast Factory's props without the occurrence's own number and dismissal. */
+export type NoticeDisplay = Pick<FactoryComponentPropsOf<'workspace.toast.content'>, 'text' | 'tone' | 'holdMs' | 'actions'>
 
-/** The notice kinds that report an archive and offer its undo. */
-type ArchiveKind = Extract<keyof typeof NOTICE_COPY, 'archived' | 'stoppedAndArchived'>
+/** Runtime props of the notice dispatched under one or more kinds. */
+type NoticeOf<K extends PropsRuntime<'workspace.toast'>['kind']> = PropsRuntime<'workspace.toast', K>
 
-/**
- * The field an archive notice names its conversation in. It must be one of
- * the archive kinds' `RowToast` fields, so a field `ui-workspace` renames
- * fails this package's typecheck.
- */
-const SESSION_FIELD = 'sessionId' satisfies keyof Extract<RowToast, { kind: ArchiveKind }>
-
-/**
- * One notice this shell draws, as `ui-workspace` publishes it: what happened,
- * the archived conversation for the two archive notices, and a number that
- * restarts a repeated notice's hold.
- */
-export type WorkspaceNoticeState =
-  | {
-    /** `ui-workspace`'s notice kind. */
-    kind: Exclude<keyof typeof NOTICE_COPY, ArchiveKind>
-    /** Increments with every notice raised. */
-    seq: number
-  }
-  | {
-    /** `ui-workspace`'s notice kind. */
-    kind: ArchiveKind
-    /** The conversation the shortcut archived. */
-    sessionId: SessionId
-    /** Increments with every notice raised. */
-    seq: number
-  }
-
-/** `ui-workspace`'s notice, as {@link shadowedNoticeSource} hands it on. */
-export interface ShadowedNotice {
-  /** The notice up now, or none. */
-  notice: HostObservable<WorkspaceNoticeState | null>
-  /** Take the notice down. */
-  dismiss: () => void
+/** Business face of one console notice entry. */
+export interface WorkspaceNoticeInjected<P> {
   /**
-   * Un-archive a conversation through `ui-workspace`.
-   * @param sessionId - the conversation an archive notice names.
+   * What the notice shows.
+   * @param notice - the notice on display, as `ui-workspace` dispatches it.
+   * @param t - this package's lookup.
+   * @param dismiss - takes the notice down.
+   * @returns the text, tone, hold, and actions the Toast Factory draws.
    */
-  undoArchive: (sessionId: SessionId) => void
+  display: (notice: P, t: PropsLocale<'serverSidebar'>['t'], dismiss: () => void) => NoticeDisplay
 }
 
-/** The members of the shadowed entry's face this module reads. */
-interface ShadowedFace {
-  toast: HostObservable<unknown>
-  dismissToast: () => unknown
-  undoArchive: (sessionId: SessionId) => unknown
-}
-
-/** Business face of the console's entry. */
-export interface WorkspaceNoticeInjected {
-  hooks: {
-    /** The notice up now, or none. */
-    notice: HostObservable<WorkspaceNoticeState | null>
-  }
-  /** Take the notice down. */
-  dismissNotice: () => void
-  /**
-   * Un-archive the conversation an archive notice names.
-   * @param sessionId - that conversation.
-   */
-  undoArchive: (sessionId: SessionId) => void
-}
-
-/** Props of the console's notice entry. */
-export type WorkspaceNoticeProps =
-  PropsRuntime<'shell.overlay'>
-  & PropsLocale<'serverSidebar'>
-  & InjectFace<WorkspaceNoticeInjected>
+/** Props of one console notice entry: the dispatched notice, this package's `t`, the Factory renderer, and the entry's face. */
+export type WorkspaceNoticeProps<P extends PropsRuntime<'workspace.toast'>> =
+  P & PropsLocale<'serverSidebar'> & PropsRenderFactories & InjectFace<WorkspaceNoticeInjected<P>>
 
 /**
- * The members this module reads from the shadowed entry's face.
- * @param face - what the entry's inject factory returned.
- * @returns the toast source, its dismissal, and the archive undo, or undefined when the face lacks any of them.
+ * Draw the notice on display through `ui-workspace`'s Toast Factory.
+ * @param props - see {@link WorkspaceNoticeProps}.
+ * @returns the Toast; its `seq` restarts the hold for a repeated notice, and it calls `dismissToast` once it has faded.
  */
-function shadowedFaceOf(face: Record<string, unknown>): ShadowedFace | undefined {
-  const toast = hookOf(face, 'toast')
-  const { dismissToast, undoArchive } = face
-  if (toast === undefined || !isAction(dismissToast) || !isSessionAction(undoArchive)) return undefined
-  return { toast, dismissToast, undoArchive }
+export function WorkspaceNotice<P extends PropsRuntime<'workspace.toast'>>(props: WorkspaceNoticeProps<P>) {
+  const { dismissToast, display, t, renderFactorySlot, seq } = props
+  return renderFactorySlot('workspace.toast.content', { ...display(props, t, dismissToast), seq, onDone: dismissToast })
 }
 
 /**
- * One published notice, read field by field.
- * @param value - the shadowed toast source's snapshot.
- * @returns the notice, or null when the snapshot carries none this shell draws.
+ * The entry of a notice the console does not show.
+ * @returns nothing.
  */
-function noticeOf(value: unknown): WorkspaceNoticeState | null {
-  if (typeof value !== 'object' || value === null || !('kind' in value) || !('seq' in value)) return null
-  const { kind, seq } = value
-  if (typeof seq !== 'number') return null
-  switch (kind) {
-    case 'defaultWorkspaceFailed':
-    case 'createFailed':
-      return { kind, seq }
-    case 'archived':
-    case 'stoppedAndArchived': {
-      const sessionId = SESSION_FIELD in value ? value[SESSION_FIELD] : undefined
-      return typeof sessionId === 'string' ? { kind, sessionId: sessionId as SessionId, seq } : null
-    }
-    // `RowToast` is `ui-workspace`'s to extend; the other kinds come from row
-    // actions this shell does not offer (see the module doc).
-    default:
-      return null
-  }
+export function WithheldNotice() {
+  return null
 }
 
 /**
- * `ui-workspace`'s notice stream, read through the entry this module shadows.
- * @param ledger - the slot ledger the two entries are registered on.
- * @returns the notice source, its dismissal, and the archive undo; all three
- * are inert while no `ui-workspace` entry is registered.
- */
-export function shadowedNoticeSource(ledger: OverlayLedger): ShadowedNotice {
-  const face = shadowedFace(ledger, NOTICE_ENTRY_ID, WorkspaceNotice, shadowedFaceOf)
-  return {
-    notice: followShadowed(ledger, face, current => current.toast, noticeOf),
-    dismiss: () => { face()?.dismissToast() },
-    undoArchive: (sessionId) => { face()?.undoArchive(sessionId) },
-  }
-}
-
-/**
- * Render the notice up now.
- * @param props - see {@link WorkspaceNoticeProps}; only `useNotice`, `dismissNotice`, `undoArchive`, and `t` are read.
- * @returns the notice, or null.
- */
-export function WorkspaceNotice({ useNotice, dismissNotice, undoArchive, t }: Pick<WorkspaceNoticeProps, 'useNotice' | 'dismissNotice' | 'undoArchive' | 't'>) {
-  const notice = useNotice(current => current)
-  if (notice === null) return null
-  const text = t(NOTICE_COPY[notice.kind])
-  if (notice.kind === 'archived' || notice.kind === 'stoppedAndArchived') {
-    const { sessionId } = notice
-    return (
-      <Toast
-        key={`notice-${String(notice.seq)}`}
-        text={text}
-        tone="success"
-        holdMs={ARCHIVE_NOTICE_HOLD_MS}
-        actions={[{ label: t('notice.undo'), onClick: () => { dismissNotice(); undoArchive(sessionId) } }]}
-        onDone={dismissNotice}
-      />
-    )
-  }
-  return (
-    <Toast
-      key={`notice-${String(notice.seq)}`}
-      text={text}
-      icon={<IconWarningOutlineRegular />}
-      onDone={dismissNotice}
-    />
-  )
-}
-
-/**
- * Shadow `ui-workspace`'s notice entry, once the shell declares `shell.overlay`.
- * @param ctx - client root context; its unload removes the entry.
+ * Register the console's notices over `ui-workspace`'s, once `ui-workspace`
+ * declares `workspace.toast`.
+ * @param ctx - client root context with `uiWorkspace` injected; its unload removes the entries.
  */
 export function replaceWorkspaceNotice(ctx: ClientContext): void {
-  const { notice, dismiss, undoArchive } = shadowedNoticeSource(ctx.slots)
-  ctx.effect(() => ctx.slots.inject('shell.overlay', () => ctx.slots.register({
-    name: 'shell.overlay',
-    id: 'workspace.row-toast',
-    priority: REPLACING_PRIORITY,
-    locale: NS,
-    inject: (): WorkspaceNoticeInjected => ({ hooks: { notice }, dismissNotice: dismiss, undoArchive }),
-  }, WorkspaceNotice)), 'server-sidebar: the console\'s workspace notice')
+  const undo = (sessionId: SessionId): void => {
+    ctx.uiWorkspace.unarchiveSession(sessionId).catch((reason: unknown) => {
+      console.warn('server-sidebar: un-archive rejected:', reason)
+    })
+  }
+  const archive = (key: 'notice.removed' | 'notice.stoppedAndRemoved'): WorkspaceNoticeInjected<NoticeOf<'archived' | 'stoppedAndArchived'>> => ({
+    display: (notice, t, dismiss) => ({
+      text: t(key), tone: 'success', holdMs: ARCHIVE_NOTICE_HOLD_MS,
+      actions: [{ label: t('notice.undo'), onClick: () => { dismiss(); undo(notice.sessionId) } }],
+    }),
+  })
+  ctx.effect(() => ctx.slots.inject('workspace.toast', function* () {
+    yield ctx.slots.register({
+      name: 'workspace.toast', key: 'defaultWorkspaceFailed', priority: REPLACING_PRIORITY, locale: NS,
+      inject: (): WorkspaceNoticeInjected<NoticeOf<'defaultWorkspaceFailed'>> => ({
+        display: (_notice, t) => ({ text: t('notice.startFailed'), tone: 'warning' }),
+      }),
+    }, WorkspaceNotice<NoticeOf<'defaultWorkspaceFailed'>>)
+    yield ctx.slots.register({
+      name: 'workspace.toast', key: 'createFailed', priority: REPLACING_PRIORITY, locale: NS,
+      inject: (): WorkspaceNoticeInjected<NoticeOf<'createFailed'>> => ({
+        display: (_notice, t) => ({ text: t('notice.newFailed'), tone: 'warning' }),
+      }),
+    }, WorkspaceNotice<NoticeOf<'createFailed'>>)
+    yield ctx.slots.register({
+      name: 'workspace.toast', key: 'archived', priority: REPLACING_PRIORITY, locale: NS,
+      inject: () => archive('notice.removed'),
+    }, WorkspaceNotice<NoticeOf<'archived'>>)
+    yield ctx.slots.register({
+      name: 'workspace.toast', key: 'stoppedAndArchived', priority: REPLACING_PRIORITY, locale: NS,
+      inject: () => archive('notice.stoppedAndRemoved'),
+    }, WorkspaceNotice<NoticeOf<'stoppedAndArchived'>>)
+    yield ctx.slots.register({
+      name: 'workspace.toast', key: 'shortcutForkFailed', priority: REPLACING_PRIORITY,
+    }, WithheldNotice)
+  }), 'server-sidebar: the console\'s workspace notices')
 }

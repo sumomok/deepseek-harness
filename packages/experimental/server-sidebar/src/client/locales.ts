@@ -4,7 +4,7 @@
  * entries this package registers alongside them (the "存为工作流" action, and
  * the title of an untitled conversation, which reads `workbench.label` or
  * `temporary.untitled` in `UntitledTitle.tsx`), the conversation's rows for a
- * compaction that landed or failed (`CompactionRows.tsx`), and the notice and
+ * compaction that landed or failed (`CompactionRows.tsx`), and the notices and
  * the stop-and-remove confirmation in place of `dsh-client-ui-workspace`'s
  * (`WorkspaceNotice.tsx`, `StopAndRemoveDialog.tsx`), the identity row's
  * menu entry, and the organization notice card (`OrgNotice.tsx`), whose

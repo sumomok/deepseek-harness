@@ -52,10 +52,11 @@
  * and the current version, and the Settings header's configuration-file
  * action, by shadowing their list ids (`settings-entries.ts`),
  * a sixth replaces the conversation's rows for a compaction that landed or
- * failed by shadowing their node keys (`CompactionRows.tsx`), and a seventh
- * and an eighth replace `dsh-client-ui-workspace`'s notice and its
- * stop-and-archive confirmation by shadowing their `shell.overlay` ids
- * (`WorkspaceNotice.tsx`, `StopAndRemoveDialog.tsx`). A ninth withholds the
+ * failed by shadowing their node keys (`CompactionRows.tsx`), a seventh set
+ * replaces `dsh-client-ui-workspace`'s notices by shadowing their
+ * `workspace.toast` keys (`WorkspaceNotice.tsx`), and an eighth replaces its
+ * stop-and-archive confirmation by shadowing its `shell.overlay` id
+ * (`StopAndRemoveDialog.tsx`). A ninth withholds the
  * keyboard shortcuts the console has no place for, their keys and their rows
  * in the shortcut reference (`console-shortcuts.ts`), and a tenth shadows
  * `ui-workspace`'s rename dialog with nothing (`withheld-rename.ts`). An
@@ -206,7 +207,7 @@ async function landOnWorkbench(
  * Client plugin body: dictionaries, the terminology guard, the hero
  * brand-mark takeover, the withheld expand button in the conversation
  * header's corner, the withheld Settings entries, the compaction rows, the
- * workspace notice, the stop-and-remove confirmation, the withheld keyboard
+ * workspace notices, the stop-and-remove confirmation, the withheld keyboard
  * shortcuts, and the withheld rename dialog, then the
  * read-before-register fetches (this package's own
  * settings-read pattern, matching `dsh-experimental-content-frame`'s), then the
