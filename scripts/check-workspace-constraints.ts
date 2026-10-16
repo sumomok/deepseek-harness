@@ -423,7 +423,8 @@ function isReleaseMemberDirectory(dir: string): boolean {
  * private dsh package on one shared version, written by `release:dsh` and
  * shared with the workspace root. This name test is that boundary: it covers
  * the family wherever the manifest lives, so apps/ members cannot drift with
- * only the release lane noticing.
+ * only the release lane noticing. `checkWorkspaceManifest` does not call it for
+ * the private product applications, which carry their own product version.
  * @param manifest - the workspace package manifest.
  * @param expected - the version every dsh-family manifest must carry (the root's).
  * @returns one violation naming the manifest and the expected version, or

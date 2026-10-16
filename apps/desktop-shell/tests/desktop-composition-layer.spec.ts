@@ -234,7 +234,7 @@ describe('the composed tool-session-query row', () => {
   // The deploy installs no peers, so a required peer reaches the payload only
   // when the deploy root lists it.
   it('has every required peer listed by the deploy root', () => {
-    const own = JSON.parse(readFileSync(join(repoRoot, 'packages', 'session-query', 'tool-session-query', 'package.json'), 'utf8')) as {
+    const own = JSON.parse(readFileSync(join(repoRoot, 'packages', 'experimental', 'tool-session-query', 'package.json'), 'utf8')) as {
       name: string
       peerDependencies?: Record<string, string>
     }
