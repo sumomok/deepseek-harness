@@ -119,4 +119,11 @@ describe('raw upload route for non-owner Peers', () => {
     expect(stored).toHaveBeenCalledOnce()
     expect(decide).not.toHaveBeenCalled()
   })
+
+  it('stores the owner\'s upload into the first of its repeated sessionId values', async () => {
+    const { ctx, stored } = await mount()
+    expect((await upload(ctx, ctx.connection.browserPeer, '?sessionId=s1&sessionId=s2')).status).toBe(200)
+    expect(stored).toHaveBeenCalledOnce()
+    expect(stored.mock.calls[0]![0]).toMatchObject({ sessionId: 's1' })
+  })
 })
