@@ -96,6 +96,16 @@ describe('raw upload route for non-owner Peers', () => {
     expect(stored).not.toHaveBeenCalled()
   })
 
+  it('stores a member\'s upload into the Session its repeated sessionId values were decided on', async () => {
+    const { ctx, stored } = await mount()
+    const alice = member(ctx, 's1')
+    expect(await upload(ctx, alice, '?sessionId=s2&sessionId=s1')).toEqual({ status: 403, body: 'forbidden' })
+    expect(stored).not.toHaveBeenCalled()
+    expect((await upload(ctx, alice, '?sessionId=s1&sessionId=s2')).status).toBe(200)
+    expect(stored).toHaveBeenCalledOnce()
+    expect(stored.mock.calls[0]![0]).toMatchObject({ sessionId: 's1' })
+  })
+
   it('refuses every member upload on a Host without remote access', async () => {
     const { ctx, stored } = await mount({ remoteAccess: false })
     expect(await upload(ctx, member(ctx, 's1'), '?sessionId=s1')).toEqual({ status: 403, body: 'forbidden' })

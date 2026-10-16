@@ -10,7 +10,7 @@ import type {} from '@deepseek-ai/dsh-client-connection'
 import type { CommandFileReceiptResolver } from '@deepseek-ai/dsh-commands'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { Remote, RemoteError, TypertRemoteService, type PeerScope } from '@deepseek-ai/dsh-typert-protocol'
-import { handleFileUploadHttp } from './http-route.ts'
+import { handleFileUploadHttp, handleSessionFileUploadHttp } from './http-route.ts'
 import { FILE_UPLOAD_PATH } from './protocol.ts'
 import type { EncodedFileUploadRequest, FileUploadReceiptId, FileUploadValue } from './types.ts'
 
@@ -87,7 +87,9 @@ export class FileUploads extends TypertRemoteService {
   /**
    * Accept a non-owner Peer's raw upload only into a Session on which remote
    * access allows the route path; refuse with 403, before reading the body,
-   * a missing `sessionId`, a Host without remote access, or a denial.
+   * a missing `sessionId`, a Host without remote access, or a denial. The
+   * upload goes to the `sessionId` value this rule decided, never to a second
+   * reading of the query.
    */
   private serveNonOwner(request: Request, peer: PeerScope): Promise<Response> {
     const sessionId = new URL(request.url).searchParams.get('sessionId')
@@ -97,7 +99,7 @@ export class FileUploads extends TypertRemoteService {
       resources: [{ kind: 'session', id: brandString<SessionId>(sessionId) }],
     })
     if (decision?.kind !== 'allow') return Promise.resolve(new Response('forbidden', { status: 403 }))
-    return handleFileUploadHttp(this, request)
+    return handleSessionFileUploadHttp(this, request, sessionId)
   }
 
   /**

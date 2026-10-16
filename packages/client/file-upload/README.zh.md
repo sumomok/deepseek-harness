@@ -46,7 +46,7 @@ Client 插件提供 `ctx.fileUpload`。其 `upload()` 方法接收所属 Session
 
 Host 插件提供 `ctx.fileUploads`。它拥有经过认证的流式路由、编码 Remote 兜底、命令凭证解析器与暂存凭证生命周期；编码准入、附件错误识别与字节存储仍由 `ctx.attachments` 提供。Host 调用方传入具有运行时所属上下文的 Agent；凭证表以该 Agent 的准确 Session 对象为键。Session Controller 注册可恢复休眠普通 Agent 的解析器，并在 prompt 准入时消费凭证。Prompt 投递通过可释放事务持有每个凭证绑定。成功投递提交事务前，释放会恢复原绑定；提交后，队列或历史观察会退休该凭证。
 
-流式路由 `/api/session/uploadFileBinary` 通过它自己的 [Connection](../connection/README.zh.md) 访问规则服务非 owner Peer（例如控制台成员）：请求必须点名一个 `sessionId`，且 [remote access](../../api/remote-access/README.zh.md) 在该会话上放行 action `/api/session/uploadFileBinary`。缺 `sessionId`、Host 没有 remote access 或被拒时，在读取请求体、解析该会话的 Agent 之前返回 403。owner 的上传不变。
+流式路由 `/api/session/uploadFileBinary` 通过它自己的 [Connection](../connection/README.zh.md) 访问规则服务非 owner Peer（例如控制台成员）：请求必须点名一个 `sessionId`，且 [remote access](../../api/remote-access/README.zh.md) 在该会话上放行 action `/api/session/uploadFileBinary`。缺 `sessionId`、Host 没有 remote access 或被拒时，在读取请求体、解析该会话的 Agent 之前返回 403。上传写入规则判定的那个 `sessionId` 值；参数重复时与 owner 一样取第一个。owner 的上传不变。
 
 | 文件 | 职责 |
 |---|---|
