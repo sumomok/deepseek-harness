@@ -234,7 +234,7 @@ describe('the per-slot report budget', () => {
     expect(oversizedSlotReports(entries)).toEqual([])
   })
 
-  it('holds `tool.call.toolview` to its own budget of 121 lines and every other slot to 120', () => {
+  it('holds `tool.call.toolview` to its own budget of 124 lines and every other slot to 122', () => {
     const [base] = resolveSlotEntries([declaration()], [], OWNER_TYPES, new Map())
     if (base === undefined) throw new Error('resolveSlotEntries returned no entry')
     // Only `doc` carries lines: an empty example counts one, every list is empty.
@@ -242,11 +242,11 @@ describe('the per-slot report budget', () => {
       ...base, key, example: '', ownerProps: [], registerOptions: [], standardProps: [],
       ownerPropsReferences: [], occupants: [], doc: Array.from({ length: lines - 1 }, () => 'line').join('\n'),
     })
-    expect(oversizedSlotReports([sized('tool.call.toolview', 121)])).toEqual([])
-    expect(oversizedSlotReports([sized('tool.call.toolview', 122)])).toHaveLength(1)
-    expect(oversizedSlotReports([sized('demo.seat', 120)])).toEqual([])
-    const [problem] = oversizedSlotReports([sized('demo.seat', 121)])
-    expect(problem).toContain('reports 121 lines, over its budget of 120')
+    expect(oversizedSlotReports([sized('tool.call.toolview', 124)])).toEqual([])
+    expect(oversizedSlotReports([sized('tool.call.toolview', 125)])).toHaveLength(1)
+    expect(oversizedSlotReports([sized('demo.seat', 122)])).toEqual([])
+    const [problem] = oversizedSlotReports([sized('demo.seat', 123)])
+    expect(problem).toContain('reports 123 lines, over its budget of 122')
   })
 })
 

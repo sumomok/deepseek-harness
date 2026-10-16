@@ -980,15 +980,16 @@
 - **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.1-alpha.1` 的 `GENERIC_SKIPS` 仍无该文件；取回 `dsh-v0.2.1-alpha.1` 版 `rescope-vendor.ts` 后 `rescope-vendor:check` 报 17 处 residue，其中有 `apps/web/tests/server-sidebar.e2e.ts`，本线版本报的是另外 16 处上游带来的 residue。
 - **路径**：`scripts/rescope-vendor.ts`
 
-## client-catalog-toolview-budget — `tool.call.toolview` 的单槽报告预算放宽到 121 行（本线专属）
+## client-catalog-toolview-budget — `tool.call.toolview` 的单槽报告预算放宽到 124 行（本线专属）
 
-- **改了什么**：`scripts/gen-client-catalog.ts` 新增 `SLOT_LINE_BUDGETS`（只有一项：`tool.call.toolview` → 121）与 `slotLineBudget(key)`；`oversizedSlotReports` 按每个槽自己的预算判超限，报错文字写出该槽的预算；`collectSlotEntries` 的汇总报错不再写死 120。`scripts/gen-client-catalog.spec.ts` 加一例：`tool.call.toolview` 121 行通过、122 行被拒，其他槽 120 行通过、121 行被拒。
-- **为什么**：`dsh-v0.1.7-rc.2` 的单槽报告预算是写死的 120 行，没有逐槽放宽机制。上游自己在 `tool.call.toolview` 上报 119 行；本线加了两个占位 `content_read`（content-frame 的 `ContentReadRow`）与 `show_chart`（vue2-echarts-tool-poc 的 `ShowChartRow`），各算一行、没有任何说明文字，两者都在用，合计 121 行，`gen-client-catalog --check` 因此退出 1。
-- **要达到的效果**：放宽只作用于这一个槽、只放宽到容下本线两行所需的最小值；其他槽仍按 120 行判，新写的长文档照样被拒。生成物 `slot-catalog.ts` 重新生成，`--check` 退出 0。
-- **退役条件**：上游自己在 `tool.call.toolview` 上的计数降到 118 行及以下，或上游把预算提高到 121 行及以上，或上游提供逐槽预算机制（届时改用上游机制）；任一成立即删掉 `SLOT_LINE_BUDGETS` 并还原两文件。这是本线有意保留的专属补丁，不进 `core-patches`。
-- **状态**：在役（`product/server-console`）。核实依据：取回 `dsh-v0.2.0-rc.2` 版 `gen-client-catalog.{ts,spec.ts}` 后 `gen-client-catalog --check` 报 `tool.call.toolview` 121 行超出写死的 120 行，扣掉本线两行后上游自身仍是 119 行。
+- **改了什么**：`scripts/gen-client-catalog.ts` 新增 `SLOT_LINE_BUDGETS`（只有一项：`tool.call.toolview` → 124）与 `slotLineBudget(key)`；`oversizedSlotReports` 按每个槽自己的预算判超限，报错文字写出该槽的预算；`collectSlotEntries` 的汇总报错不再写死上游的 `MAX_ENTRY_LINES`。`scripts/gen-client-catalog.spec.ts` 加一例：`tool.call.toolview` 124 行通过、125 行被拒，其他槽 122 行通过、123 行被拒。
+- **为什么**：上游的单槽报告预算是写死的 `MAX_ENTRY_LINES`（`dsh-v0.2.1-alpha.4` 为 122 行），没有逐槽放宽机制。上游自己在 `tool.call.toolview` 上报 122 行；本线加了两个占位 `content_read`（content-frame 的 `ContentReadRow`）与 `show_chart`（vue2-echarts-tool-poc 的 `ShowChartRow`），各算一行、没有任何说明文字，两者都在用，合计 124 行，不放宽则 `gen-client-catalog --check` 退出 1。
+- **要达到的效果**：放宽只作用于这一个槽、只放宽到容下本线两行所需的最小值；其他槽仍按上游预算判，新写的长文档照样被拒。生成物 `slot-catalog.ts` 重新生成，`--check` 退出 0。
+- **退役条件**：上游自己在 `tool.call.toolview` 上的计数比上游预算少两行及以上（按 `dsh-v0.2.1-alpha.4` 的 122 行预算即 120 行及以下），或上游把预算提高到 124 行及以上，或上游提供逐槽预算机制（届时改用上游机制）；任一成立即删掉 `SLOT_LINE_BUDGETS` 并还原两文件。这是本线有意保留的专属补丁，不进 `core-patches`。
+- **状态**：在役（`product/server-console`）。核实依据：在并入 `dsh-v0.2.1-alpha.4` 的树上用 `collectSlotEntries` 取出 `tool.call.toolview`，按 122 行预算判：带本线两个占位时报 124 行，去掉这两个占位后不超限（122 行）。
 - **本轮核对（并入 `feat/skill-pack-v0`）**：system-map 的三个工具不注册 toolview，`gen-client-catalog --check` 在 121 行预算下退出 0，预算与退役条件不变。
 - **本轮核对（`dsh-v0.2.1-alpha.1`）**：取回 `dsh-v0.2.1-alpha.1` 版 `gen-client-catalog.{ts,spec.ts}` 后 `verify-client-catalog` 仍报 `tool.call.toolview` 121 行超出写死的 120 行；本线版本退出 0。
+- **本轮适配（`dsh-v0.2.1-alpha.4`）**：上游把 `MAX_ENTRY_LINES` 从 120 提到 122，自己在该槽的计数从 119 行涨到 122 行；本线预算随之从 121 改为 124，spec 一例的四个边界改为 124／125 与 122／123（合并后的 spec 仍按 121／120 的边界断言，该例失败；门禁批次不跑根 `scripts/` 的 spec，单跑 `vitest run scripts/gen-client-catalog.spec.ts` 才暴露）。
 - **路径**：`scripts/gen-client-catalog.spec.ts` `scripts/gen-client-catalog.ts`
 
 ## console-vendored-plugin-notice — 第三方声明指向本线包提交的仓外插件归档
