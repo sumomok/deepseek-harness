@@ -277,6 +277,19 @@ auto-compact:
 `
 
 describe('settings.yaml', () => {
+  it.each([
+    ['an empty file', ''],
+    ['a file of comments alone', '# settings written by an earlier client\n'],
+  ])('leaves %s unwritten and finishes', (_label, text) => {
+    settingsMigration('done')
+    writeFileSync(settingsPath(), text)
+    const before = statSync(settingsPath()).mtimeMs
+    expect(migrateAccountCatalog(home, profileDir).lines).toEqual([])
+    expect(readFileSync(settingsPath(), 'utf8')).toBe(text)
+    expect(statSync(settingsPath()).mtimeMs).toBe(before)
+    expect(readAccountCatalogMigrationMarker(markerPath())).toEqual({ state: 'done', removed: [], skipped: [] })
+  })
+
   it('loses models from the account section before the server imports it, once the settings migration has finished', () => {
     settingsMigration('done')
     writeFileSync(settingsPath(), SETTINGS_WITH_ACCOUNT)

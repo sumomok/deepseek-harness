@@ -26,8 +26,9 @@
  * for the reason and with the profile cleared again on each waiting launch, as
  * `model-catalog-migration.ts` states. A file that does not parse as the YAML
  * this edits is left as it is and named once in the log; the run then stays
- * `pending`, so the first launch that parses it clears it. A profile layer of
- * comments alone holds no row and does not keep the run `pending`.
+ * `pending`, so the first launch that parses it clears it. A profile layer or
+ * a `settings.yaml` of comments alone holds nothing to clear and does not keep
+ * the run `pending`.
  *
  * {@link ACCOUNT_CATALOG_MIGRATION_MARKER} records every removal and every
  * file skipped, separately from `model-catalog-migration.json`, which machines
@@ -239,6 +240,8 @@ function clearProfileRows(patchPath: string, run: Run): void {
 function clearSettingsSection(settingsPath: string, run: Run): void {
   if (!existsSync(settingsPath)) return
   const document = parseDocument(readFileSync(settingsPath, 'utf8'))
+  // A file of comments alone parses to no node, so it holds no section to clear.
+  if (document.errors[0] === undefined && document.contents === null) return
   if (document.errors[0] !== undefined || !isMap(document.contents)) {
     skipUnparsed(`${SETTINGS_FILENAME}: not a YAML mapping of sections`, run)
     return
