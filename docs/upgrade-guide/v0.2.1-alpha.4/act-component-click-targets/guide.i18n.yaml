@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.4/act-component-click-targets/guide.md
 /:
-  en: ca8137fa8af53a59
-  zh: e22d7fe2511b10d1
+  en: 28897346a3ab83b2
+  zh: f7607688c9185948
 /act-component-extra-step-fields-and-shared-keys-are-refused:
   en: 5282f798c9451a85
   zh: 5c85039efc382739
 /act-component-extra-step-fields-and-shared-keys-are-refused/change:
-  en: e0739f3688ec0a42
-  zh: 74cb30d8c0b529f1
+  en: 7fabb2150e09fe70
+  zh: 46c55cc59155fc3d
 /act-component-extra-step-fields-and-shared-keys-are-refused/migration:
-  en: 180b6a2736de8192
-  zh: ca12e78bf8c01bdb
+  en: 69dbc2a886f4efdd
+  zh: c4e8e5d2fa7c334e
