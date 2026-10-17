@@ -57,6 +57,8 @@ describe('reading one step', () => {
       .toEqual({ action: 'click', key: 'add' })
     expect(readActComponentStep({ action: 'click', node: 'toolbar', key: 'add' }))
       .toEqual({ action: 'click', node: 'toolbar', key: 'add' })
+    expect(readActComponentStep({ action: 'click', node: 'page', key: 'modify', row: '1134933624650219531' }))
+      .toEqual({ action: 'click', node: 'page', key: 'modify', row: '1134933624650219531' })
     expect(readActComponentStep({ action: 'set', name: 'title', value: '' }))
       .toEqual({ action: 'set', name: 'title', value: '' })
     expect(readActComponentStep({ action: 'set', node: 'grid', name: 'title', value: 'X' }))
@@ -80,6 +82,11 @@ describe('reading one step', () => {
     expect(readActComponentStep({ action: 'click', key: 'add', node: 'a b' })).toBeUndefined()
     expect(readActComponentStep({ action: 'click', key: TOO_LONG_TARGET })).toBeUndefined()
     expect(readActComponentStep({ action: 'click' })).toBeUndefined()
+    // A row is named in the same alphabet and to the same length as a key.
+    expect(readActComponentStep({ action: 'click', key: 'modify', row: LONG_TARGET })).toEqual({ action: 'click', key: 'modify', row: LONG_TARGET })
+    for (const row of [TOO_LONG_TARGET, '', 'a b', 7, null]) {
+      expect({ row, read: readActComponentStep({ action: 'click', key: 'modify', row }) }).toEqual({ row, read: undefined })
+    }
     expect(readActComponentStep({ action: 'press', key: 'add' })).toBeUndefined()
     expect(readActComponentStep({})).toBeUndefined()
   })
@@ -108,6 +115,11 @@ describe('reading one step', () => {
       [{ action: 'set', key: 'save', name: 'title', value: 'X' }, { action: 'set', field: 'key' }],
       [{ action: 'wait', key: 'add', name: 'title' }, { action: 'wait', field: 'name' }],
       [{ action: 'wait', node: 'grid', value: 'X' }, { action: 'wait', field: 'value' }],
+      // Only a click is pressed in a row: a write or a wait naming one meant a
+      // control or a field no step of that action is kept to.
+      [{ action: 'set', name: 'title', value: 'X', row: '2' }, { action: 'set', field: 'row' }],
+      [{ action: 'wait', key: 'modify', row: '2' }, { action: 'wait', field: 'row' }],
+      [{ action: 'set', key: 'save', name: 'title', value: 'X', row: '2' }, { action: 'set', field: 'key' }],
     ]
     for (const [step, field] of refused) {
       expect({ step, field: ignoredStepField(step) }).toEqual({ step, field })

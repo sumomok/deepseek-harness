@@ -215,8 +215,68 @@ describe('the rows a scope draws, folded', () => {
       '      Named rows:',
       '        - "one"',
       '        - "three"',
+      '        (These rows carry no row key, so no click names one by its row.)',
       'No dialog is open.',
     ].join('\n'))
+  })
+
+  it('prints each row\'s key beside its name, and folds rows that differ only by their keys', () => {
+    // The key is marked on the row, as a table keys its records; every control
+    // the row draws is read in it, so the key printed is the one a press names.
+    const drawn = drawEntry(`
+      <div data-component-node="grid"><table><tbody>
+        <tr data-component-row="1044">
+          <td data-component-action="cell-click">北京市测试站</td>
+          <td><a data-component-action="operation" data-component-key="modify">修改</a></td>
+        </tr>
+        <tr data-component-row="1045">
+          <td data-component-action="cell-click">天津市测试站</td>
+          <td><a data-component-action="operation" data-component-key="modify">修改</a></td>
+        </tr>
+      </tbody></table></div>
+    `)
+    expect(read(drawn)).toBe([
+      'Read the component entry "Demo" (demo).',
+      'Blocks: grid.',
+      '  - "grid"',
+      '    Controls: none.',
+      '    Fields: none.',
+      '    Rows: 2 drawn.',
+      '      Each row draws:',
+      '        - "cell-click" ×1: td',
+      '        - "operation" ×1: link, own key "modify"',
+      '      Named rows (`row` key: name):',
+      '        - 1044: "北京市测试站"',
+      '        - 1045: "天津市测试站"',
+      'No dialog is open.',
+    ].join('\n'))
+    expect(reading(drawn).blocks[0]?.rows?.named.map(row => row.key)).toEqual(['1044', '1045'])
+  })
+
+  it('reads the key off every copy a fixed layer draws, and says which rows carry none a click could name', () => {
+    const drawn = drawEntry(`
+      <div data-component-node="grid">
+        <div class="fixed"><table><tbody>
+          <tr data-component-row="7"><td data-component-action="cell-click">甲</td></tr>
+          <tr data-component-row="a b"><td data-component-action="cell-click">乙</td></tr>
+          <tr><td data-component-action="cell-click">丙</td></tr>
+        </tbody></table></div>
+        <div class="body"><table><tbody>
+          <tr data-component-row="7"><td data-component-action="select"></td></tr>
+          <tr data-component-row="a b"><td data-component-action="select"></td></tr>
+          <tr data-component-row="9"><td data-component-action="select"></td></tr>
+        </tbody></table></div>
+      </div>
+    `)
+    // A key no step can carry, and a row whose copies disagree, name no row:
+    // printing either would print a key no press reaches.
+    expect(reading(drawn).blocks[0]?.rows?.named.map(row => row.key)).toEqual(['7', undefined, undefined])
+    const text = read(drawn)
+    expect(text).toContain('      Named rows (`row` key: name):')
+    expect(text).toContain('        - 7: "甲"')
+    expect(text).toContain('        - "乙" (no row key, so no click names this row)')
+    expect(text).toContain('        - "丙" (no row key, so no click names this row)')
+    expect(text).not.toContain('These rows carry no row key')
   })
 
   it('merges the copies of one row a fixed layer draws, counting the record once', () => {
@@ -297,6 +357,7 @@ describe('the rows a scope draws, folded', () => {
       '    Named rows:',
       '      - "甲"',
       '      - "乙"',
+      '      (These rows carry no row key, so no click names one by its row.)',
     ].join('\n'))
   })
 

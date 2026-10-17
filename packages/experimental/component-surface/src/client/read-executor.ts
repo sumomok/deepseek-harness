@@ -18,9 +18,11 @@ import type {
 } from '../read-component-call.ts'
 import { MAX_ROW_NAMES } from '../read-component-call.ts'
 import type { DrawnEntry } from './entry-container.ts'
+import { isTarget } from '../act-component-call.ts'
 import {
   ACTION_KEY, FIELD_KEY, NODE_KEY, OVERLAY, OWN_KEY, WRITABLE,
-  isCovered, isDisabled, isDrawn, openDialog, optionLabel, ownName, pagerTotal, rowCopies, rowOf, scopeOf, withAttribute,
+  isCovered, isDisabled, isDrawn, openDialog, optionLabel, ownName, pagerTotal, rowCopies, rowKeyOf, rowOf, scopeOf,
+  withAttribute,
 } from './targets.ts'
 
 /** The kind each element is reported as, where the platform has no role to ask for one. */
@@ -321,12 +323,29 @@ function rowName(copies: readonly Element[], within: Element): string {
 }
 
 /**
+ * The key a `click` step names one drawn row by: the one row key its drawn
+ * controls are marked with, read the way a step's own row is read, so the key
+ * a reading prints is the key a step naming it reaches.
+ * @param copies - the row's drawn copies, first drawn first.
+ * @param within - the entry's own container.
+ * @returns the key, or undefined where the row's controls carry none, more
+ *   than one, or one a step could not carry.
+ */
+function rowKey(copies: readonly Element[], within: Element): string | undefined {
+  const keys = new Set(copies.flatMap(copy => controlsOf(copy, within).map(({ el }) => rowKeyOf(el, within))))
+  const [only] = keys
+  return keys.size === 1 && isTarget(only) ? only : undefined
+}
+
+/**
  * The kinds of target one drawn row holds, counted by key rather than listed by cell.
  *
  * Two controls of a row are one kind when a step naming either would address
- * the same key of the same kind — a table's cell-click column is one such kind
+ * the same key of the same kind — a table's selection box is one such kind
  * drawn once per record — and what differs between them is the data they draw,
- * which is what the row's own name stands for.
+ * which is what the row's own name stands for. The row key is not part of the
+ * kind: it differs from row to row and is printed with the row's name, so
+ * rows drawing the same kinds still fold into one.
  * @param copies - the row's drawn copies, first drawn first.
  * @param within - the entry's own container.
  * @returns the kinds, in the order the row draws them.
@@ -363,10 +382,10 @@ function rowsOf(scope: Element, targets: readonly Element[], within: Element): C
   const total = pagerTotal(scope)
   return {
     drawn: merged.length,
-    named: merged.slice(0, MAX_ROW_NAMES).map(copies => ({
-      name: rowName(copies, within),
-      draws: rowDraws(copies, within),
-    })),
+    named: merged.slice(0, MAX_ROW_NAMES).map((copies) => {
+      const key = rowKey(copies, within)
+      return { name: rowName(copies, within), ...key === undefined ? {} : { key }, draws: rowDraws(copies, within) }
+    }),
     ...total === undefined ? {} : { total },
   }
 }

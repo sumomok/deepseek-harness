@@ -93,11 +93,11 @@
   en: b55abcee43d4c8db
   zh: a49b348cf60bc0b2
 /deepseek-ai-dsh-experimental-component-surface/acting-inside-the-entry-on-display:
-  en: e76460787493b5da
-  zh: 9f24d1d3b1766960
+  en: 6b46996315a7daf1
+  zh: c8fcf917b13d8904
 /deepseek-ai-dsh-experimental-component-surface/reading-the-entry-on-display:
-  en: c51aee5d13de7949
-  zh: c8958903b9fcd1c6
+  en: 72a426b1460cebe5
+  zh: 69eda3c1b0beb034
 /deepseek-ai-dsh-experimental-component-surface/trust:
   en: 81525fd2c63d1031
   zh: c02f2d7c1b05037d
@@ -138,8 +138,8 @@
   en: 8ce232c62d8d3c64
   zh: 7c442fc241604886
 /deepseek-ai-dsh-experimental-component-surface/model-experience/the-act-component-offer/what-the-model-sees:
-  en: 460ebf620ec33320
-  zh: 28f54b3d317a30f5
+  en: 2abe4e92d6b0338c
+  zh: 4663d5864d5dd950
 /deepseek-ai-dsh-experimental-component-surface/model-experience/the-act-component-offer/token-effect:
   en: e8898820bc8d16ee
   zh: ba05c4680d02c5bb
@@ -150,8 +150,8 @@
   en: 11442102ce038249
   zh: ba33249e7c6d2fbd
 /deepseek-ai-dsh-experimental-component-surface/model-experience/the-result-of-a-set-of-steps-on-an-entry/what-the-model-sees:
-  en: 3dc429c35274a1f0
-  zh: 3943f6fa4434c8a6
+  en: 20e2d8b3f16e345f
+  zh: 5ce421db344fddee
 /deepseek-ai-dsh-experimental-component-surface/model-experience/the-result-of-a-set-of-steps-on-an-entry/token-effect:
   en: 3789f8ab5075fa5c
   zh: d3b8dd514ef1f91c
@@ -162,8 +162,8 @@
   en: 83f29ee841d320ca
   zh: 86849219f4cd5e2f
 /deepseek-ai-dsh-experimental-component-surface/model-experience/the-read-component-offer/what-the-model-sees:
-  en: 11a6ab7904ba7a24
-  zh: ee30ab934a16dbcc
+  en: 06315255f81599b3
+  zh: 40342a1386f8e413
 /deepseek-ai-dsh-experimental-component-surface/model-experience/the-read-component-offer/token-effect:
   en: 4806b7fffa611585
   zh: c4ed557b443e3ed2
@@ -174,8 +174,8 @@
   en: 8bde02195e67c9b2
   zh: c80ccdb8f56c1686
 /deepseek-ai-dsh-experimental-component-surface/model-experience/the-result-of-a-reading/what-the-model-sees:
-  en: 98b37eb1cb36a8ed
-  zh: d70bb36c26e9a58c
+  en: c14d0ae5cd26adce
+  zh: 943c88d1165ec2f9
 /deepseek-ai-dsh-experimental-component-surface/model-experience/the-result-of-a-reading/token-effect:
   en: 7905f7c33f3d7832
   zh: af80324ed1fa7c62
@@ -183,8 +183,8 @@
   en: e4850a739d8599af
   zh: 22a192c03b6f7b7b
 /deepseek-ai-dsh-experimental-component-surface/known-limitations-and-deferred-work:
-  en: 99fb9ace52e8b5df
-  zh: f14de7e0eacd4187
+  en: 42198890ab0b5c2b
+  zh: 2de6369d4f5ebc86
 /deepseek-ai-dsh-experimental-component-surface/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 3bb0c20c93f16f98

@@ -5,14 +5,15 @@
  *
  * Every search is bounded by a subtree of the entry's own container, and every
  * key or name is the block's own declaration (`data-component-action`,
- * `data-component-key`, `data-component-field`, `data-component-node`), so a
- * control the entry does not declare names nothing. The step executor and the
- * reader both resolve through this module, so a control a reading describes is
- * the element a step naming it reaches.
+ * `data-component-key`, `data-component-field`, `data-component-node`,
+ * `data-component-row`), so a control the entry does not declare names
+ * nothing. The step executor and the reader both resolve through this module,
+ * so a control a reading describes is the element a step naming it reaches.
  * @module @deepseek-ai/dsh-experimental-component-surface/client/targets
  */
 
-import { isTarget } from '../act-component-call.ts'
+import { isTarget, type ActComponentClick } from '../act-component-call.ts'
+import type { ControlRows, ControlSpread } from '../act-component-text.ts'
 import type { DrawnEntry } from './entry-container.ts'
 
 /** The controls a `set` step may write into. */
@@ -34,6 +35,14 @@ export const OWN_KEY = 'data-component-key'
 
 /** The attribute naming the block an element is drawn by. */
 export const NODE_KEY = 'data-component-node'
+
+/**
+ * The attribute naming the row one control is drawn in, by the key the
+ * component gives that row: written on the control or on an ancestor inside
+ * the entry, and read off the nearest one. Which value a row carries is the
+ * component's own choice; this module only compares it.
+ */
+export const ROW_KEY = 'data-component-row'
 
 /**
  * The attribute naming the column or property a `set` step may write; the
@@ -110,10 +119,10 @@ export function scopeOf(entry: DrawnEntry, node: string | undefined): Element | 
   return withAttribute(entry.container, NODE_KEY).find(el => marked(el, NODE_KEY, node))
 }
 
-/** What one `click` step's key resolves to inside the subtree it is confined to. */
+/** What one `click` step's key and row resolve to inside the subtree it is confined to. */
 export type ClickTarget =
   | {
-    /** Exactly one drawn control carries the key. */
+    /** Exactly one drawn control carries the key in the row the step named, if it named one. */
     readonly kind: 'one'
     /** That control. */
     readonly target: Element
@@ -123,26 +132,37 @@ export type ClickTarget =
     readonly kind: 'none'
   }
   | {
-    /** Several drawn controls declare the key as their action. */
-    readonly kind: 'shared-action'
-    /** How many. */
-    readonly count: number
-    /**
-     * Each one's own key, in document order, where every one of them carries
-     * one a step can name and no two carry the same; absent otherwise, since
-     * then no own key tells them apart.
-     */
-    readonly ownKeys: readonly string[] | undefined
-    /** The blocks they are drawn in, as {@link blocksOf} reads them. */
-    readonly blocks: readonly string[]
+    /** Drawn controls carry the key, and nothing drawn in the scope carries the row the step named. */
+    readonly kind: 'row-not-drawn'
+    /** The row the step named. */
+    readonly row: string
   }
   | {
-    /** Several drawn controls carry the key as their own key. */
-    readonly kind: 'shared-own-key'
+    /** The row the step named is drawn, and none of the controls carrying the key is drawn in it. */
+    readonly kind: 'not-in-row'
+    /** The row the step named. */
+    readonly row: string
+  }
+  | {
+    /** Several drawn controls carry the key where the step looked. */
+    readonly kind: 'several'
+    /** Whether they declare it as their action or carry it as their own key. */
+    readonly by: 'action' | 'own-key'
     /** How many. */
     readonly count: number
-    /** The blocks they are drawn in, as {@link blocksOf} reads them. */
-    readonly blocks: readonly string[]
+    /** The blocks they are drawn in; absent where no `node` would look at fewer of them. */
+    readonly spread: ControlSpread | undefined
+    /**
+     * The rows they are drawn in; absent where the step named a row, or where
+     * no `row` would look at fewer of them.
+     */
+    readonly rows: ControlRows | undefined
+    /**
+     * Each one's own key, in document order, for controls declaring the key as
+     * their action where every one carries an own key a step can name and no
+     * two carry the same; absent otherwise.
+     */
+    readonly ownKeys: readonly string[] | undefined
   }
 
 /**
@@ -170,6 +190,22 @@ function distinctOwnKeys(controls: readonly Element[]): string[] | undefined {
 }
 
 /**
+ * The value one element's nearest carrier of an attribute holds, itself
+ * included, walking up to the entry's own container.
+ * @param el - the element.
+ * @param within - the entry's own container, past which nothing is asked.
+ * @param attribute - the attribute to look for.
+ * @returns the value, or undefined where nothing inside the entry carries it.
+ */
+function nearest(el: Element, within: Element, attribute: string): string | undefined {
+  for (let node: Element | null = el; node !== null && node !== within; node = node.parentElement) {
+    const value = node.getAttribute(attribute)
+    if (value !== null) return value
+  }
+  return undefined
+}
+
+/**
  * The block one element is drawn in: the id its nearest {@link NODE_KEY}
  * element inside the entry carries.
  * @param el - the element.
@@ -177,59 +213,147 @@ function distinctOwnKeys(controls: readonly Element[]): string[] | undefined {
  * @returns the block id, or undefined where no block inside the entry holds it.
  */
 function blockOf(el: Element, within: Element): string | undefined {
-  for (let node: Element | null = el; node !== null && node !== within; node = node.parentElement) {
-    const id = node.getAttribute(NODE_KEY)
-    if (id !== null) return id
+  return nearest(el, within, NODE_KEY)
+}
+
+/**
+ * The row one element is drawn in: the key its nearest {@link ROW_KEY}
+ * element inside the entry carries.
+ * @param el - the element.
+ * @param within - the entry's own container, past which nothing is asked.
+ * @returns the row key, or undefined where no row inside the entry holds it.
+ */
+export function rowKeyOf(el: Element, within: Element): string | undefined {
+  return nearest(el, within, ROW_KEY)
+}
+
+/**
+ * Group several controls by one reading of where each stands, in document order.
+ * @param controls - the controls.
+ * @param groupOf - where one control stands; undefined for the group of controls that stand nowhere.
+ * @returns the controls by group, first seen first.
+ */
+function groupBy(controls: readonly Element[], groupOf: (el: Element) => string | undefined): Map<string | undefined, Element[]> {
+  const groups = new Map<string | undefined, Element[]>()
+  for (const el of controls) {
+    const group = groupOf(el)
+    const held = groups.get(group)
+    if (held === undefined) groups.set(group, [el])
+    else held.push(el)
   }
-  return undefined
+  return groups
 }
 
 /**
  * The blocks several controls are drawn in, each control's {@link blockOf},
- * which tells whether a step naming a block would look at fewer of them.
- * @param controls - the controls one key names.
+ * where a step naming one of them would look at fewer.
+ * @param controls - the controls one key names where the step looked.
  * @param within - the entry's own container, past which nothing is asked.
- * @returns the block ids in document order, each once; a control drawn in no
- *   block adds none; none at all where any id is one a step could not name,
- *   since no `node` could name that block either.
+ * @returns the spread, or undefined where the controls stand in one group —
+ *   one block, or outside every block — or where no group is a block a step
+ *   could name.
  */
-function blocksOf(controls: readonly Element[], within: Element): string[] {
-  const ids = controls.map(el => blockOf(el, within)).filter((id): id is string => id !== undefined)
-  if (!ids.every(isTarget)) return []
-  return [...new Set(ids)]
+function spreadOf(controls: readonly Element[], within: Element): ControlSpread | undefined {
+  const groups = groupBy(controls, el => blockOf(el, within))
+  const blocks = [...groups.keys()].filter(isTarget)
+  if (groups.size < 2 || blocks.length === 0) return undefined
+  const unnamed = [...groups].filter(([id]) => id !== undefined && !isTarget(id))
+  return {
+    blocks,
+    outside: groups.get(undefined)?.length ?? 0,
+    unnamed: unnamed.reduce((sum, [, held]) => sum + held.length, 0),
+    unnamedBlocks: unnamed.length,
+  }
+}
+
+/**
+ * The rows several controls are drawn in, each control's {@link rowKeyOf},
+ * where a step naming one of them would look at fewer.
+ * @param controls - the controls one key names where the step looked.
+ * @param within - the entry's own container, past which nothing is asked.
+ * @returns the rows, or undefined where the controls stand in one group — one
+ *   row, or no row a step could name — or where no row is one a step could name.
+ */
+function rowsOf(controls: readonly Element[], within: Element): ControlRows | undefined {
+  const groups = groupBy(controls, (el) => {
+    const key = rowKeyOf(el, within)
+    return isTarget(key) ? key : undefined
+  })
+  const keys = [...groups.keys()].filter(isTarget)
+  if (groups.size < 2 || keys.length === 0) return undefined
+  const crowdedRows = keys.map(key => groups.get(key) as Element[]).filter(held => held.length > 1)
+  const crowded = crowdedRows.length === 0
+    ? 'none'
+    : crowdedRows.every(held => distinctOwnKeys(held) !== undefined) ? 'told-apart' : 'not-told-apart'
+  return { keys, crowded, rowless: groups.get(undefined)?.length ?? 0 }
+}
+
+/**
+ * The controls a step naming one block means among several it reaches: those
+ * the block draws itself win over those of a block drawn inside it, which a
+ * step names by that block's own id.
+ * @param controls - the drawn controls carrying the key inside the scope.
+ * @param node - the block the step named, absent for the whole entry.
+ * @param within - the entry's own container, past which nothing is asked.
+ * @returns the block's own controls where it draws any and also holds others, the controls otherwise.
+ */
+function ownControls(controls: readonly Element[], node: string | undefined, within: Element): readonly Element[] {
+  if (node === undefined || controls.length < 2) return controls
+  const own = controls.filter(el => blockOf(el, within) === node)
+  return own.length === 0 ? controls : own
+}
+
+/**
+ * Whether one row is drawn in a subtree: an element carrying its key there
+ * that a person could see.
+ * @param scope - the subtree the step is confined to.
+ * @param row - the row key the step named.
+ * @param within - the entry's own container, past which nothing is asked.
+ * @returns whether it is drawn.
+ */
+function rowDrawn(scope: Element, row: string, within: Element): boolean {
+  return withAttribute(scope, ROW_KEY).some(el => marked(el, ROW_KEY, row) && isDrawn(el, within))
 }
 
 /**
  * The control one `click` step presses: the one drawn ({@link isDrawn})
  * control carrying the key as its declared action ({@link ACTION_KEY}), else
- * the one carrying it as its own key ({@link OWN_KEY}). A block keeps closed
+ * the one carrying it as its own key ({@link OWN_KEY}), kept to the row the
+ * step names ({@link ROW_KEY}) where it names one. A block keeps closed
  * controls — a row's confirmation bubble, a closed dialog — in the document,
  * and a press must land where a person's could, so undrawn candidates are
- * passed over. Where several drawn controls carry the key, the step does not
- * say which one it means and nothing is pressed; the answer says how many there
- * are, the blocks they are drawn in, and, for an action key, which own keys
- * would name each one.
+ * passed over. A step naming a block means the controls that block draws
+ * itself before those of a block drawn inside it. Where several drawn controls
+ * remain, the step does not say which one it means and nothing is pressed; the
+ * answer says how many there are and which blocks, rows or own keys would name
+ * each one.
  * @param scope - the subtree the step is confined to.
- * @param key - the action key, or the control's own key, the step names.
+ * @param step - the click step: its key, and the block and row it names.
  * @param within - the entry's own container, past which nothing is asked.
  * @returns what the key names among the drawn controls.
  */
-export function clickTarget(scope: Element, key: string, within: Element): ClickTarget {
-  const byAction = drawnCarrying(scope, ACTION_KEY, key, within)
-  if (byAction.length > 1) {
-    return {
-      kind: 'shared-action',
-      count: byAction.length,
-      ownKeys: distinctOwnKeys(byAction),
-      blocks: blocksOf(byAction, within),
-    }
+export function clickTarget(scope: Element, step: ActComponentClick, within: Element): ClickTarget {
+  const byAction = drawnCarrying(scope, ACTION_KEY, step.key, within)
+  const by = byAction.length > 0 ? 'action' : 'own-key'
+  const carrying = byAction.length > 0 ? byAction : drawnCarrying(scope, OWN_KEY, step.key, within)
+  if (carrying.length === 0) return { kind: 'none' }
+  const { row } = step
+  let inRow: readonly Element[] = carrying
+  if (row !== undefined) {
+    inRow = carrying.filter(el => rowKeyOf(el, within) === row)
+    if (inRow.length === 0) return { kind: rowDrawn(scope, row, within) ? 'not-in-row' : 'row-not-drawn', row }
   }
-  const [action] = byAction
-  if (action !== undefined) return { kind: 'one', target: action }
-  const byOwnKey = drawnCarrying(scope, OWN_KEY, key, within)
-  if (byOwnKey.length > 1) return { kind: 'shared-own-key', count: byOwnKey.length, blocks: blocksOf(byOwnKey, within) }
-  const [own] = byOwnKey
-  return own === undefined ? { kind: 'none' } : { kind: 'one', target: own }
+  const candidates = ownControls(inRow, step.node, within)
+  const [only] = candidates
+  if (candidates.length === 1 && only !== undefined) return { kind: 'one', target: only }
+  return {
+    kind: 'several',
+    by,
+    count: candidates.length,
+    spread: spreadOf(candidates, within),
+    rows: row === undefined ? rowsOf(candidates, within) : undefined,
+    ownKeys: by === 'action' ? distinctOwnKeys(candidates) : undefined,
+  }
 }
 
 /**

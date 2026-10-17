@@ -61,6 +61,7 @@ import { ComponentRendererRegistry } from './registry.ts'
 import { ViewCommandRow } from './ViewCommandRow.tsx'
 
 export { COMPONENT_KIT_ENTRIES, MAX_RECORD_ID_LENGTH } from '../component-call.ts'
+export { isTarget } from '../act-component-call.ts'
 export { NS } from './locales.ts'
 export { ComponentRendererRegistry } from './registry.ts'
 export type { ContentComponentKey } from './locales.ts'

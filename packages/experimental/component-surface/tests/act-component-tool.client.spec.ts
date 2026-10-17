@@ -135,6 +135,7 @@ describe('the act_component offer', () => {
               action: { type: 'string', enum: ['click', 'set', 'wait'] },
               node: { type: 'string' },
               key: { type: 'string' },
+              row: { type: 'string' },
               name: { type: 'string' },
               value: { type: 'string' },
               timeoutMs: { type: 'integer' },
@@ -233,7 +234,7 @@ describe('a call the tool refuses before any console is asked', () => {
     const { run } = await bench({ kind: 'unclaimed' })
     const result = await run({ entry: ENTRY, steps: [{ action: 'click', key: 'add' }, { action: 'wait' }] })
     expect(result.isError).toBe(true)
-    if (result.isError) expect(result.error.message).toBe('step 2: a step must name `click`, `set`, or `wait`, with the block, key, name, or value that action takes, in the components\' own alphabet of letters, digits, underscores and hyphens.')
+    if (result.isError) expect(result.error.message).toBe('step 2: a step must name `click`, `set`, or `wait`, with the block, key, row, name, or value that action takes, in the components\' own alphabet of letters, digits, underscores and hyphens.')
   })
 
   it('refuses the whole call for a step carrying a target its action does not take, naming the field', async () => {
@@ -250,6 +251,14 @@ describe('a call the tool refuses before any console is asked', () => {
       [
         [{ action: 'wait', node: 'grid', value: 'X' }],
         'step 1: a wait waits for a block or a control, so it takes no "value".',
+      ],
+      [
+        [{ action: 'click', key: 'modify', row: '2' }, { action: 'set', name: 'title', value: 'X', row: '2' }],
+        'step 2: a set writes the one field its name addresses, so it takes no "row".',
+      ],
+      [
+        [{ action: 'wait', key: 'modify', row: '2' }],
+        'step 1: a wait waits for a block or a control, so it takes no "row".',
       ],
     ]
     for (const [steps, message] of cases) {

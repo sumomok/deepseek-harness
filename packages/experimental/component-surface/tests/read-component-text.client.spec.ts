@@ -261,8 +261,52 @@ describe('the rows a reading folds', () => {
       '      Named rows:',
       '        - "一"',
       '        - "二"',
+      '        (These rows carry no row key, so no click names one by its row.)',
       'No dialog is open.',
     ].join('\n'))
+  })
+
+  it('prints each row\'s key before its name, and marks a row that carries none where the others do', () => {
+    const draws = [{ action: 'cell-click', kind: 'td', count: 1 }]
+    const named = [{ ...row('北京市测试站', draws), key: '1044' }, row('天津市测试站', draws), { ...row('', draws), key: '1046' }]
+    const text = readComponentReportText({ ...EMPTY, blockIds: ['grid'], blocks: [block('grid', { rows: { drawn: 3, named } })] })
+    expect(text).toContain([
+      '      Named rows (`row` key: name):',
+      '        - 1044: "北京市测试站"',
+      '        - "天津市测试站" (no row key, so no click names this row)',
+      '        - 1046: (no words drawn)',
+    ].join('\n'))
+    expect(text).not.toContain('These rows carry no row key')
+  })
+
+  it('carries a data page\'s twenty row keys whole, without giving up any row detail', () => {
+    // The page a model reads to choose a row: its toolbar, its query fields,
+    // twenty named rows of fifty, each keyed by a nineteen-digit record id and
+    // drawing a tick box, the cell that opens it, its name link and two
+    // operations.
+    const draws: ComponentReadRow['draws'] = [
+      { action: 'select', kind: 'checkbox', count: 1 },
+      { action: 'cell-click', kind: 'td', count: 1 },
+      { action: 'card-open', ownKey: 'zh_label', kind: 'link', count: 1 },
+      { action: 'operation', ownKey: 'modify', kind: 'i', count: 1 },
+      { ownKey: 'delete', kind: 'i', count: 1 },
+    ]
+    const keys = Array.from({ length: MAX_ROW_NAMES }, (_unused, at) => `11349336246502195${String(at).padStart(2, '0')}`)
+    const named = keys.map((key, at) => ({ ...row(`燃气管线-${'测'.repeat(16)}-${String(at)}`, draws), key }))
+    const toolbar = Array.from({ length: 12 }, (_unused, at) => ({ ...control(at), words: '表格导出按钮' }))
+    const fields = Array.from({ length: 8 }, (_unused, at) => ({ name: `attr_${String(at)}`, kind: 'textbox', value: '一'.repeat(20), state: 'reachable' as const }))
+    const text = readComponentReportText({
+      ...EMPTY,
+      blockIds: ['page'],
+      blocks: [block('page', { controls: toolbar, fields, rows: { drawn: 50, total: '共 1048 条', named } })],
+    })
+    expect(text).toContain('      Named rows (`row` key: name):')
+    for (const key of keys) expect(text).toContain(`        - ${key}: "燃气管线-`)
+    expect(text).toContain('        - "card-open" ×1: link, own key "zh_label"')
+    expect(text).not.toContain('was cut to fit one answer')
+    expect(text).not.toContain('Truncated')
+    expect(text.length).toBeLessThanOrEqual(MAX_READING_CHARS)
+    expect(text.split('\n').length).toBeLessThanOrEqual(MAX_READING_LINES)
   })
 
   it('reads the page\'s own words for the records its query matched, where it draws them', () => {

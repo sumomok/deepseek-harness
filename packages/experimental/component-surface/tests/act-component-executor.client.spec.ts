@@ -1931,19 +1931,27 @@ describe('the key one control declares for itself', () => {
     expect(pressed).toEqual(['bar2/approve'])
   })
 
-  it('lists no blocks where one of them has an id no step can name', async () => {
+  it('lists the blocks a step can name where others carry ids no step can, and counts those', async () => {
     // "bar 2" carries a space, which no target name admits, so a `node` could
-    // never name that block: the sentence stays the unlisted one.
+    // never name that block; "bar1" still can, and naming it looks at fewer.
     const drawn = drawEntry(['bar1', 'bar 2'].map(bar => `
       <div data-component-node="${bar}">
         <button data-component-action="press" data-component-key="approve">Approve</button>
       </div>
     `).join(''))
+    const pressed: string[] = []
+    for (const button of document.querySelectorAll('button')) {
+      const named = String(button.parentElement?.getAttribute('data-component-node'))
+      button.addEventListener('click', () => { pressed.push(named) })
+    }
     expect((await run(args([{ action: 'click', key: 'approve' }]), drawn)).steps).toEqual([{
       index: 1,
       status: 'failed',
-      message: 'own key "approve" is carried by 2 drawn controls in the entry, so no step can tell them apart.',
+      message: 'own key "approve" is carried by 2 drawn controls in the entry, 1 of them in a block whose id no step can name; '
+        + 'the rest are in block bar1; name it as `node` to look in that block alone.',
     }])
+    expect((await run(args([{ action: 'click', node: 'bar1', key: 'approve' }]), drawn)).status).toBe('done')
+    expect(pressed).toEqual(['bar1'])
 
     // An id past the length a step's name may reach is no more nameable, and
     // listing it would carry the sentence past what a host reads.
@@ -1957,9 +1965,93 @@ describe('the key one control declares for itself', () => {
     `)
     const [result] = (await run(args([{ action: 'click', key: 'approve' }]), long)).steps
     const message = result?.status === 'failed' ? result.message : ''
-    expect(message).toBe('own key "approve" is carried by 2 drawn controls in the entry, so no step can tell them apart.')
-    expect(message).not.toContain('blocks of the entry')
+    expect(message).not.toContain('x'.repeat(65))
+    expect(message).toContain('the rest are in block bar1')
     expect(message.length).toBeLessThanOrEqual(MAX_MESSAGE_CHARS)
+
+    // Where no block of them is one a step can name, no `node` helps, and the
+    // sentence says no step tells them apart.
+    const unnamed = drawEntry(`
+      <div data-component-node="bar 1"><button data-component-action="press" data-component-key="approve">A</button></div>
+      <button data-component-action="press" data-component-key="approve">B</button>
+    `)
+    expect((await run(args([{ action: 'click', key: 'approve' }]), unnamed)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'own key "approve" is carried by 2 drawn controls in the entry, so no step can tell them apart.',
+    }])
+  })
+
+  it('counts the controls outside every block beside the blocks a `node` names', async () => {
+    // Two bars and one loose button carry the same own key: naming a bar looks
+    // at that bar's button alone, and the count says one more stands outside.
+    const drawn = drawEntry(`
+      ${['bar1', 'bar2'].map(bar => `<div data-component-node="${bar}"><button data-component-key="approve">A</button></div>`).join('')}
+      <button data-component-key="approve">Loose</button>
+    `)
+    const pressed: string[] = []
+    for (const button of document.querySelectorAll('[data-component-surface] button')) {
+      const named = button.parentElement?.getAttribute('data-component-node') ?? 'loose'
+      button.addEventListener('click', () => { pressed.push(named) })
+    }
+    expect((await run(args([{ action: 'click', key: 'approve' }]), drawn)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'own key "approve" is carried by 3 drawn controls in the entry, 1 of them outside every block; '
+        + 'the rest are in 2 blocks: bar1, bar2; name one of them as `node` to look in that block alone.',
+    }])
+    expect((await run(args([{ action: 'click', node: 'bar2', key: 'approve' }]), drawn)).status).toBe('done')
+    // One block and one loose control: naming the block still looks at fewer.
+    const one = drawEntry(`
+      <div data-component-node="bar1"><button data-component-key="approve">A</button></div>
+      <button data-component-key="approve">Loose</button>
+    `)
+    expect((await run(args([{ action: 'click', key: 'approve' }]), one)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'own key "approve" is carried by 2 drawn controls in the entry, 1 of them outside every block; '
+        + 'the rest are in block bar1; name it as `node` to look in that block alone.',
+    }])
+    expect(pressed).toEqual(['bar2'])
+  })
+
+  it('means the controls a named block draws itself before those of a block drawn inside it', async () => {
+    // A bar with a nested bar: the outer bar's own button and the inner bar's
+    // carry one own key. Naming either block is what tells them apart.
+    const drawn = drawEntry(`
+      <div data-component-node="outer">
+        <button data-component-action="press" data-component-key="approve">Outer</button>
+        <div data-component-node="inner">
+          <button data-component-action="press" data-component-key="approve">Inner</button>
+        </div>
+      </div>
+    `)
+    const pressed: string[] = []
+    for (const button of document.querySelectorAll('[data-component-surface] button')) {
+      const words = button.textContent
+      button.addEventListener('click', () => { pressed.push(words) })
+    }
+    expect((await run(args([{ action: 'click', key: 'approve' }]), drawn)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'own key "approve" is carried by 2 drawn controls in 2 blocks of the entry: outer, inner; '
+        + 'name one of them as `node` to look in that block alone.',
+    }])
+    expect((await run(args([{ action: 'click', node: 'outer', key: 'approve' }]), drawn)).status).toBe('done')
+    expect((await run(args([{ action: 'click', node: 'inner', key: 'approve' }]), drawn)).status).toBe('done')
+    expect(pressed).toEqual(['Outer', 'Inner'])
+    // A block that draws none of them itself names the blocks inside it, as inside it.
+    const holding = drawEntry(`
+      <div data-component-node="outer">
+        ${['bar1', 'bar2'].map(bar => `<div data-component-node="${bar}"><button data-component-action="press" data-component-key="approve">A</button><button data-component-action="press" data-component-key="reject">R</button></div>`).join('')}
+      </div>
+    `)
+    expect((await run(args([{ action: 'click', node: 'outer', key: 'press' }]), holding)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'action "press" names 4 drawn controls in 2 blocks inside block "outer": bar1, bar2; '
+        + 'name one of them as `node` to look in that block alone.',
+    }])
   })
 
   it('lists at most ten own keys, and fewer where the sentence would pass the report bound', async () => {
@@ -1990,6 +2082,189 @@ describe('the key one control declares for itself', () => {
       <button data-component-action="press" data-component-key="ok">OK</button>
     `)
     expect((await run(args([{ action: 'wait', key: 'press' }, { action: 'wait', key: 'ok' }]), drawn)).status).toBe('done')
+  })
+})
+
+/**
+ * One table of records keyed by row, as a component marks one: each row
+ * carries its key, a cell that opens it, and the row's own modify link.
+ * @param keys - the row keys, in the order drawn.
+ * @returns the markup.
+ */
+function keyedRows(keys: readonly string[]): string {
+  return keys.map(key => `
+    <tr data-component-row="${key}">
+      <td data-component-action="cell-click">${key}-name</td>
+      <td><a data-component-action="operation" data-component-key="modify">修改</a></td>
+    </tr>
+  `).join('')
+}
+
+/**
+ * Record which row each pressed control of the entry stood in.
+ * @returns the rows pressed, in order.
+ */
+function pressedRows(): string[] {
+  const pressed: string[] = []
+  for (const control of document.querySelectorAll('[data-component-surface] [data-component-action]')) {
+    const row = control.closest('[data-component-row]')?.getAttribute('data-component-row') ?? 'none'
+    const node = control.closest('[data-component-node]')?.getAttribute('data-component-node') ?? 'entry'
+    control.addEventListener('click', (event) => {
+      // Only the control the press was aimed at: a click bubbles through the row's own cell.
+      if (event.currentTarget === event.target) pressed.push(`${node}/${row}/${String(control.getAttribute('data-component-key') ?? control.getAttribute('data-component-action'))}`)
+    })
+  }
+  return pressed
+}
+
+/** The step's refusal sentence, or the empty string where it ran. */
+async function refusal(call: ActComponentArgs, entry: DrawnEntry): Promise<string> {
+  const [step] = (await run(call, entry)).steps
+  return step?.status === 'failed' ? step.message : ''
+}
+
+describe('a control a table draws once per row', () => {
+  const KEYS = ['1134933624650219530', '1134933624650219531', '1134933624650219532']
+
+  it('presses the control of the row the step names, neither the first nor the last', async () => {
+    const drawn = drawEntry(`<div data-component-node="grid"><table><tbody>${keyedRows(KEYS)}</tbody></table></div>`)
+    const pressed = pressedRows()
+    expect((await run(args([{ action: 'click', key: 'modify', row: KEYS[1] as string }]), drawn)).status).toBe('done')
+    expect((await run(args([{ action: 'click', node: 'grid', key: 'cell-click', row: KEYS[1] as string }]), drawn)).status).toBe('done')
+    expect(pressed).toEqual([`grid/${String(KEYS[1])}/modify`, `grid/${String(KEYS[1])}/cell-click`])
+  })
+
+  it('lists the row keys where a step names a control every row draws and no row', async () => {
+    const drawn = drawEntry(`<div data-component-node="grid"><table><tbody>${keyedRows(KEYS)}</tbody></table></div>`)
+    const pressed = pressedRows()
+    expect(await refusal(args([{ action: 'click', key: 'modify' }]), drawn)).toBe(
+      'own key "modify" is carried by 3 drawn controls in the entry, one per row; name the row with `row`: '
+      + `${KEYS.join(', ')}.`,
+    )
+    expect(await refusal(args([{ action: 'click', node: 'grid', key: 'cell-click' }]), drawn)).toBe(
+      'action "cell-click" names 3 drawn controls in block "grid", one per row; name the row with `row`: '
+      + `${KEYS.join(', ')}.`,
+    )
+    expect(pressed).toEqual([])
+  })
+
+  it('says a row is not drawn, and that a drawn row draws no such control, pressing nothing', async () => {
+    const drawn = drawEntry(`
+      <div data-component-node="grid"><table><tbody>
+        ${keyedRows(['1044', '1045'])}
+        <tr data-component-row="1046"><td data-component-action="cell-click">1046-name</td></tr>
+      </tbody></table></div>
+    `)
+    const pressed = pressedRows()
+    expect(await refusal(args([{ action: 'click', key: 'modify', row: '9999' }]), drawn)).toBe('row "9999" is not drawn in the entry.')
+    expect(await refusal(args([{ action: 'click', node: 'grid', key: 'modify', row: '9999' }]), drawn))
+      .toBe('row "9999" is not drawn in block "grid".')
+    expect(await refusal(args([{ action: 'click', node: 'grid', key: 'modify', row: '1046' }]), drawn))
+      .toBe('row "1046" draws no control "modify" in block "grid".')
+    // A key nothing draws is refused for the key, whichever row the step names.
+    expect(await refusal(args([{ action: 'click', key: 'ghost', row: '1044' }]), drawn)).toBe('control "ghost" is not part of the entry on display.')
+    // A row is drawn only where a person could see it.
+    document.querySelector('[data-component-row="1045"]')?.setAttribute('hidden', '')
+    expect(await refusal(args([{ action: 'click', key: 'modify', row: '1045' }]), drawn)).toBe('row "1045" is not drawn in the entry.')
+    expect(pressed).toEqual([])
+  })
+
+  it('reads the row off every copy a fixed layer draws, pressing the drawn copy of that row', async () => {
+    const drawn = drawEntry(`
+      <div data-component-node="grid">
+        <div class="body"><table><tbody>
+          <tr data-component-row="1"><td>甲</td></tr>
+          <tr data-component-row="2"><td>乙</td></tr>
+        </tbody></table></div>
+        <div class="fixed"><table><tbody>
+          <tr data-component-row="1"><td><span><a data-component-action="card-open" data-component-key="zh_label">甲</a></span></td></tr>
+          <tr data-component-row="2"><td><span><a data-component-action="card-open" data-component-key="zh_label">乙</a></span></td></tr>
+        </tbody></table></div>
+      </div>
+    `)
+    const pressed = pressedRows()
+    expect((await run(args([{ action: 'click', key: 'card-open', row: '2' }]), drawn)).status).toBe('done')
+    expect(pressed).toEqual(['grid/2/zh_label'])
+  })
+
+  it('names the rows before the own keys, and says what a row drawing several still needs', async () => {
+    // Each row draws its name link and a relation link: one action, an own key
+    // per column. The row narrows first, and the own key then names the link.
+    const drawn = drawEntry(`
+      <div data-component-node="page"><table><tbody>
+        ${['1044', '1045'].map(key => `<tr data-component-row="${key}">
+          <td><a data-component-action="card-open" data-component-key="zh_label">${key}</a></td>
+          <td><a data-component-action="card-open" data-component-key="region">华北</a></td>
+        </tr>`).join('')}
+      </tbody></table></div>
+    `)
+    const pressed = pressedRows()
+    expect(await refusal(args([{ action: 'click', key: 'card-open' }]), drawn)).toBe(
+      'action "card-open" names 4 drawn controls in the entry across 2 rows; name the row with `row`: 1044, 1045; '
+      + 'a row draws more than one of them, so name the one to press by its own key with `row`.',
+    )
+    expect(await refusal(args([{ action: 'click', key: 'card-open', row: '1045' }]), drawn)).toBe(
+      'action "card-open" names 2 drawn controls of row "1045" in the entry; name the one to press by its own key: zh_label, region.',
+    )
+    expect(await refusal(args([{ action: 'click', key: 'region' }]), drawn)).toBe(
+      'own key "region" is carried by 2 drawn controls in the entry, one per row; name the row with `row`: 1044, 1045.',
+    )
+    expect((await run(args([{ action: 'click', key: 'region', row: '1045' }]), drawn)).status).toBe('done')
+    expect(pressed).toEqual(['page/1045/region'])
+  })
+
+  it('names the rows where own keys would also tell the controls apart, since a row is what a reading lists', async () => {
+    const drawn = drawEntry(`<table><tbody>
+      <tr data-component-row="1"><td><a data-component-action="locate" data-component-key="k1">x</a></td></tr>
+      <tr data-component-row="2"><td><a data-component-action="locate" data-component-key="k2">x</a></td></tr>
+    </tbody></table>`)
+    expect(await refusal(args([{ action: 'click', key: 'locate' }]), drawn)).toBe(
+      'action "locate" names 2 drawn controls in the entry, one per row; name the row with `row`: 1, 2.',
+    )
+  })
+
+  it('says no step tells apart two controls one row draws alike, and counts the ones in no row', async () => {
+    const drawn = drawEntry(`
+      <button data-component-action="cell-click">toolbar</button>
+      <table><tbody>
+        <tr data-component-row="1"><td data-component-action="cell-click">a</td><td data-component-action="cell-click">b</td></tr>
+        <tr data-component-row="2"><td data-component-action="cell-click">c</td><td data-component-action="cell-click">d</td></tr>
+        <tr data-component-row="a b"><td data-component-action="cell-click">e</td></tr>
+      </tbody></table>
+    `)
+    expect(await refusal(args([{ action: 'click', key: 'cell-click' }]), drawn)).toBe(
+      'action "cell-click" names 6 drawn controls in the entry across 2 rows; name the row with `row`: 1, 2; '
+      + 'a row draws more than one of them, and no step can tell those apart; 2 of them are drawn in no row a step can name.',
+    )
+    expect(await refusal(args([{ action: 'click', key: 'cell-click', row: '1' }]), drawn)).toBe(
+      'action "cell-click" names 2 drawn controls of row "1" in the entry, and no step can name each of them by an own key.',
+    )
+    // Every control in one row: naming the row looks at no fewer, so the row is not offered.
+    const single = drawEntry(`<table><tbody>
+      <tr data-component-row="1"><td data-component-action="cell-click">a</td><td data-component-action="cell-click">b</td></tr>
+    </tbody></table>`)
+    expect(await refusal(args([{ action: 'click', key: 'cell-click' }]), single)).toBe(
+      'action "cell-click" names 2 drawn controls in the entry, and no step can name each of them by an own key.',
+    )
+  })
+
+  it('names the blocks before the rows where two tables key their rows alike', async () => {
+    // Two tables keyed by position: row "2" is drawn in both.
+    const drawn = drawEntry(['t1', 't2'].map(table => `
+      <div data-component-node="${table}"><table><tbody>
+        <tr data-component-row="1"><td data-component-action="row-click">${table}-1</td></tr>
+        <tr data-component-row="2"><td data-component-action="row-click">${table}-2</td></tr>
+      </tbody></table></div>
+    `).join(''))
+    const pressed = pressedRows()
+    expect(await refusal(args([{ action: 'click', key: 'row-click' }]), drawn)).toBe(
+      'action "row-click" names 4 drawn controls in 2 blocks of the entry: t1, t2; name one of them as `node` to look in that block alone.',
+    )
+    expect(await refusal(args([{ action: 'click', key: 'row-click', row: '2' }]), drawn)).toBe(
+      'action "row-click" names 2 drawn controls of row "2" in 2 blocks of the entry: t1, t2; name one of them as `node` to look in that block alone.',
+    )
+    expect((await run(args([{ action: 'click', node: 't2', key: 'row-click', row: '2' }]), drawn)).status).toBe('done')
+    expect(pressed).toEqual(['t2/2/row-click'])
   })
 })
 

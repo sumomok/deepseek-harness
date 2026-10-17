@@ -30,7 +30,8 @@ export const READ_COMPONENT_DESCRIPTION = [
   'The answer is a tree: the entry, then each block it draws with the controls it draws (the key each one answers to —',
   'an action key, and the control\'s own key where it has one — what each is, and whether it is disabled or covered),',
   'the fields it names with the values they presently hold, and its rows folded — how many are drawn, what one row draws',
-  'counted by key, and the first rows named. Each open write dialog is a node of its own, listed in full: its name,',
+  'counted by key, and the first rows named, each with the row key a click names that row by where the row carries one.',
+  'Each open write dialog is a node of its own, listed in full: its name,',
   'the block it stands in, its controls and its fields with their values.',
   'A reading larger than one answer may carry gives up row detail before anything else and says what it gave up.',
 ].join('\n')
@@ -271,13 +272,21 @@ function rowLines(rows: ComponentReadRows, depth: number, detail: RowDetail): st
     lines.push(`${inner}${droppedNames(rows.drawn)}`)
     return lines
   }
-  lines.push(`${inner}Named rows:`)
-  lines.push(...rows.named.map(row => `${deeper}- ${rowNameLine(row)}`))
+  const keyed = rows.named.some(row => row.key !== undefined)
+  lines.push(keyed ? `${inner}Named rows (\`row\` key: name):` : `${inner}Named rows:`)
+  lines.push(...rows.named.map(row => `${deeper}- ${rowNameLine(row)}${keyed && row.key === undefined ? UNKEYED_ROW : ''}`))
   if (rows.drawn > rows.named.length) {
     lines.push(`${deeper}(${String(rows.drawn - rows.named.length)} more drawn rows are not named.)`)
   }
+  if (!keyed) lines.push(`${deeper}${NO_ROW_KEYS}`)
   return lines
 }
+
+/** What a named row lacking a row key adds to its line, where the other rows carry one. */
+const UNKEYED_ROW = ' (no row key, so no click names this row)'
+
+/** The line a reading ends its named rows with where none of them carries a row key. */
+const NO_ROW_KEYS = '(These rows carry no row key, so no click names one by its row.)'
 
 /**
  * Whether two rows draw the same kinds of target, which is what lets one
@@ -296,12 +305,14 @@ function sameDraws(row: ComponentReadRow, against: ComponentReadRow): boolean {
 }
 
 /**
- * What one drawn row is called on its own line.
+ * What one drawn row is called on its own line: the key a `click` step's
+ * `row` names it by, where it carries one, then its name.
  * @param row - the row.
- * @returns the name, quoted, or the word for a row that draws none.
+ * @returns the key and the name, quoted, or the word for a row that draws none.
  */
 function rowNameLine(row: ComponentReadRow): string {
-  return row.name === '' ? '(no words drawn)' : `"${clip(row.name)}"`
+  const name = row.name === '' ? '(no words drawn)' : `"${clip(row.name)}"`
+  return row.key === undefined ? name : `${row.key}: ${name}`
 }
 
 /**
