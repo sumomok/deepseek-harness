@@ -137,8 +137,8 @@ export function ConfirmBar({ nodeId, props, onAction, state, t }: ComponentRende
             type="button"
             className={TONE_CLASS[button.tone]}
             // The action is the bar's own single one, and the button's id is
-            // the key that picks this button: a step naming `press` presses
-            // the bar's first button, and one naming the id presses this one.
+            // the key that picks this button: a step naming the id presses
+            // this one, and a step naming `press` names every button drawn.
             data-component-action={PRESS_ACTION_ID}
             data-component-key={button.id}
             data-component-tone={button.tone}

@@ -15,8 +15,9 @@ import { describe, expect, it } from 'vitest'
 import type { ActComponentStep } from '../src/act-component-call.ts'
 import {
   ACT_COMPONENT_DESCRIPTION, NO_ENTRY_IN_FRONT, NO_STEPS_REFUSAL, STEP_REFUSAL_TEXT,
-  actComponentReportText, anotherEntryInFront, failureRefusal, missingTargetReason, notWritableReason,
-  stepRefusal, tooManyStepsRefusal, unclaimedRefusal, unverifiedRefusal, waitTimeoutReason,
+  actComponentReportText, anotherEntryInFront, failureRefusal, ignoredFieldReason, missingTargetReason, notWritableReason,
+  sharedActionReason, sharedOwnKeyReason, stepRefusal, tooManyStepsRefusal, unclaimedRefusal, unkeyedActionReason,
+  unverifiedRefusal, waitTimeoutReason,
 } from '../src/act-component-text.ts'
 
 /** The entry id every report here names. */
@@ -45,6 +46,24 @@ describe('the offer and its refusals', () => {
     expect(failureRefusal('no entry')).toBe('act_component did not run: no entry')
     expect(anotherEntryInFront('other')).toBe('The entry in front is "other", not the one this call named.')
     expect(NO_ENTRY_IN_FRONT).toBe('No component entry is in front, so there is nothing to act on.')
+  })
+
+  it('names the field a step carries that its action does not take', () => {
+    expect(stepRefusal(2, ignoredFieldReason({ action: 'click', field: 'name' })))
+      .toBe('step 2: a click presses one control named by its key, so it takes no "name".')
+    expect(ignoredFieldReason({ action: 'set', field: 'key' }))
+      .toBe('a set writes the one field its name addresses, so it takes no "key".')
+    expect(ignoredFieldReason({ action: 'wait', field: 'value' }))
+      .toBe('a wait waits for a block or a control, so it takes no "value".')
+  })
+
+  it('says how many drawn controls a key names, and which own keys tell them apart', () => {
+    expect(sharedActionReason('locate', 2, 'map', ['beijing', 'tianjin']))
+      .toBe('action "locate" names 2 drawn controls in block "map"; name the one to press by its own key: beijing, tianjin.')
+    expect(unkeyedActionReason('cell-click', 12, undefined))
+      .toBe('action "cell-click" names 12 drawn controls in the entry, and they carry no own key to tell them apart.')
+    expect(sharedOwnKeyReason('modify', 5, undefined))
+      .toBe('own key "modify" is carried by 5 drawn controls in the entry, so no step can tell them apart.')
   })
 
   it('says only that a target is not part of the entry, whichever side of the confine it is on', () => {

@@ -11,9 +11,10 @@
  * step makes is a real DOM event either way.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { parseActComponentArgs, type ActComponentArgs } from '../src/act-component-call.ts'
+import { MAX_MESSAGE_CHARS, parseActComponentArgs, type ActComponentArgs } from '../src/act-component-call.ts'
 import { drawnEntry, type DrawnEntry } from '../src/client/entry-container.ts'
 import { runActComponent, type ActComponentRun } from '../src/client/act-executor.ts'
+import { isCovered } from '../src/client/targets.ts'
 
 /** The entry id every case here acts on. */
 const ENTRY = 'demo'
@@ -1463,13 +1464,16 @@ describe('a press the control itself refuses', () => {
     expect(pressed).toHaveBeenCalledTimes(2)
   })
 
-  it('reaches a table control through the copy the fixed-column layer draws of it', async () => {
+  it('reaches a table control through the copy the fixed-column layer draws of it', () => {
     // One drawn column, drawn the way element-ui draws a fixed one: a body
     // wrapper a person scrolls, and a fixed layer standing over it as a second
     // copy of the same cell and the same heading. The copy is what the point
-    // over the control's centre hits, and it is the same control reached twice
-    // — pressing the one the block declared runs what a click there runs.
-    const drawn = drawEntry(`
+    // over the control's centre hits, and it is the same control reached twice.
+    // The hit test is asked directly: with both drawings marked, a step naming
+    // the action names two drawn controls and is refused before any point is
+    // tested, which is why component-kit marks only the drawing el-table does
+    // not hide.
+    drawEntry(`
       <div data-component-node="grid" class="el-table">
         <div class="el-table__header-wrapper"><table class="el-table__header"><thead><tr>
           <th data-component-action="sort"><i class="sort-caret"></i></th>
@@ -1491,10 +1495,6 @@ describe('a press the control itself refuses', () => {
     const heading = document.querySelector('.el-table__header-wrapper th') as HTMLElement
     const copyOfCell = document.querySelector('#copy-cell') as HTMLElement
     const copyOfCaret = document.querySelector('.el-table__fixed-header-wrapper .sort-caret') as HTMLElement
-    const pressed = vi.fn()
-    const sorted = vi.fn()
-    cell.addEventListener('click', pressed)
-    heading.addEventListener('click', sorted)
     for (const el of [cell, heading]) {
       el.getBoundingClientRect = () => ({
         left: 10, top: 20, width: 40, height: 10, right: 50, bottom: 30, x: 10, y: 20, toJSON: () => ({}),
@@ -1503,19 +1503,19 @@ describe('a press the control itself refuses', () => {
     // The point over the cell's centre is held by the copy, and the point
     // over the heading's by the caret the fixed header draws.
     hit = () => copyOfCell
-    expect((await run(args([{ action: 'click', key: 'cell-click' }]), drawn)).status).toBe('done')
-    expect(pressed).toHaveBeenCalledTimes(1)
+    expect(isCovered(cell)).toBe(false)
     hit = () => copyOfCaret
-    expect((await run(args([{ action: 'click', key: 'sort' }]), drawn)).status).toBe('done')
-    expect(sorted).toHaveBeenCalledTimes(1)
+    expect(isCovered(heading)).toBe(false)
   })
 
-  it('refuses a point held by another control of the same action, which is no copy of this one', async () => {
+  it('refuses a point held by another control of the same action, which is no copy of this one', () => {
     // Copying is what a block does to ONE control: the row's operation links
     // all declare the same action and each carries its own key, so a link
     // holding the point over another link is a different operation rather
-    // than the same one reached twice.
-    const drawn = drawEntry(`
+    // than the same one reached twice. The hit test is asked directly, because
+    // a step naming `keep` in this block names two drawn controls and is
+    // refused before any point is tested.
+    drawEntry(`
       <div data-component-node="grid">
         <a id="keep" data-component-action="operation" data-component-key="keep" href="#">Keep</a>
         <a id="drop" data-component-action="operation" data-component-key="drop" href="#">Drop</a>
@@ -1523,8 +1523,6 @@ describe('a press the control itself refuses', () => {
       </div>
     `)
     const keep = document.querySelector('#keep') as HTMLElement
-    const dropped = vi.fn()
-    keep.addEventListener('click', dropped)
     keep.getBoundingClientRect = () => ({
       left: 10, top: 20, width: 40, height: 10, right: 50, bottom: 30, x: 10, y: 20, toJSON: () => ({}),
     })
@@ -1532,18 +1530,9 @@ describe('a press the control itself refuses', () => {
     // declaring this key on another kind of element: neither is a second
     // drawing of this control.
     hit = () => document.querySelector('#drop')
-    expect((await run(args([{ action: 'click', key: 'keep' }]), drawn)).steps).toEqual([{
-      index: 1,
-      status: 'failed',
-      message: 'control "keep" is covered where it is drawn.',
-    }])
+    expect(isCovered(keep)).toBe(true)
     hit = () => document.querySelector('#row-cell')
-    expect((await run(args([{ action: 'click', key: 'keep' }]), drawn)).steps).toEqual([{
-      index: 1,
-      status: 'failed',
-      message: 'control "keep" is covered where it is drawn.',
-    }])
-    expect(dropped).not.toHaveBeenCalled()
+    expect(isCovered(keep)).toBe(true)
   })
 
   it('refuses a copy drawn by another block, which is no drawing of this control', async () => {
@@ -1562,7 +1551,7 @@ describe('a press the control itself refuses', () => {
       left: 10, top: 20, width: 40, height: 10, right: 50, bottom: 30, x: 10, y: 20, toJSON: () => ({}),
     })
     hit = () => document.querySelector('#copy-b')
-    expect((await run(args([{ action: 'click', key: 'cell-click' }]), drawn)).steps).toEqual([{
+    expect((await run(args([{ action: 'click', node: 'grid-a', key: 'cell-click' }]), drawn)).steps).toEqual([{
       index: 1,
       status: 'failed',
       message: 'control "cell-click" is covered where it is drawn.',
@@ -1577,7 +1566,7 @@ describe('a press the control itself refuses', () => {
           <td data-component-action="cell-click"><div class="cell">row</div></td>
         </tr></tbody></table></div>
         <div class="el-table__fixed"><div class="el-table__fixed-body-wrapper"><table class="el-table__body"><tbody><tr>
-          <td data-component-action="cell-click"><div class="cell">row</div></td>
+          <td class="is-hidden"><div class="cell">row</div></td>
         </tr></tbody></table></div></div>
         <button data-component-key="only">Only a key</button>
         <div id="mask">cover</div>
@@ -1773,19 +1762,140 @@ describe('the key one control declares for itself', () => {
     expect(pressedKey).not.toHaveBeenCalled()
   })
 
-  it('presses the control a step names by that key, and the action key\'s first control otherwise', async () => {
+  it('presses the control a step names by its own key, and refuses the action several drawn controls share', async () => {
     const drawn = drawEntry(`
-      <button data-component-action="press" data-component-key="ok">OK</button>
-      <button data-component-action="press" data-component-key="no">No</button>
+      <div data-component-node="bar">
+        <button data-component-action="press" data-component-key="ok">OK</button>
+        <button data-component-action="press" data-component-key="no">No</button>
+      </div>
     `)
     const buttons = [...document.querySelectorAll('button[data-component-action]')]
     const pressed = buttons.map(() => vi.fn())
     buttons.forEach((button, at) => { button.addEventListener('click', pressed[at] as () => void) })
-    expect((await run(args([{ action: 'click', key: 'press' }]), drawn)).status).toBe('done')
-    expect(pressed[0]).toHaveBeenCalledTimes(1)
+    // The action alone does not say which button the step means, so none is
+    // pressed and the sentence lists the keys that would.
+    expect(await run(args([{ action: 'click', key: 'press' }]), drawn)).toEqual({
+      status: 'failed',
+      steps: [{
+        index: 1,
+        status: 'failed',
+        message: 'action "press" names 2 drawn controls in the entry; name the one to press by its own key: ok, no.',
+      }],
+      text: 'Acted on the component entry "Demo" (demo).\n- click on "press": '
+        + 'action "press" names 2 drawn controls in the entry; name the one to press by its own key: ok, no.',
+    })
+    expect((await run(args([{ action: 'click', node: 'bar', key: 'press' }]), drawn)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'action "press" names 2 drawn controls in block "bar"; name the one to press by its own key: ok, no.',
+    }])
+    expect(pressed[0]).not.toHaveBeenCalled()
     expect(pressed[1]).not.toHaveBeenCalled()
     expect((await run(args([{ action: 'click', key: 'no' }]), drawn)).status).toBe('done')
     expect(pressed[1]).toHaveBeenCalledTimes(1)
+    expect(pressed[0]).not.toHaveBeenCalled()
+  })
+
+  it('presses the one drawn control an action key names where its sharers are undrawn', async () => {
+    const drawn = drawEntry(`
+      <button data-component-action="press" data-component-key="ok" hidden>OK</button>
+      <button data-component-action="press" data-component-key="no">No</button>
+    `)
+    const shown = document.querySelector('[data-component-key="no"]') as HTMLElement
+    const pressed = vi.fn()
+    shown.addEventListener('click', pressed)
+    expect((await run(args([{ action: 'click', key: 'press' }]), drawn)).status).toBe('done')
+    expect(pressed).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses an action several drawn controls share where their own keys do not tell them apart', async () => {
+    // One cell per row, every one declaring the same action: no key names a
+    // row, so the step is refused rather than pressing the first row.
+    const unkeyed = drawEntry(`
+      <table><tbody>
+        <tr><td data-component-action="cell-click">a</td></tr>
+        <tr><td data-component-action="cell-click">b</td></tr>
+        <tr><td data-component-action="cell-click">c</td></tr>
+      </tbody></table>
+    `)
+    const clicked = vi.fn()
+    for (const cell of document.querySelectorAll('td')) cell.addEventListener('click', clicked)
+    expect((await run(args([{ action: 'click', key: 'cell-click' }]), unkeyed)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'action "cell-click" names 3 drawn controls in the entry, and they carry no own key to tell them apart.',
+    }])
+    expect(clicked).not.toHaveBeenCalled()
+    // Own keys that repeat, and one a step could not name, tell them apart no
+    // better than none.
+    for (const keys of [['modify', 'modify'], ['keep', 'a b']]) {
+      const drawn = drawEntry(keys.map(key => `<a data-component-action="operation" data-component-key="${key}">x</a>`).join(''))
+      expect((await run(args([{ action: 'click', key: 'operation' }]), drawn)).steps).toEqual([{
+        index: 1,
+        status: 'failed',
+        message: 'action "operation" names 2 drawn controls in the entry, and they carry no own key to tell them apart.',
+      }])
+    }
+  })
+
+  it('refuses an own key several drawn controls carry, which no step can tell apart', async () => {
+    // Every row's modify link carries the same own key, which is the block's
+    // markup rather than anything the step could have written differently.
+    const drawn = drawEntry(`
+      <div data-component-node="grid">
+        <a data-component-action="operation" data-component-key="modify">Modify</a>
+        <a data-component-action="operation" data-component-key="modify">Modify</a>
+        <a data-component-action="operation" data-component-key="modify">Modify</a>
+      </div>
+    `)
+    const pressed = vi.fn()
+    for (const link of document.querySelectorAll('a')) link.addEventListener('click', pressed)
+    expect(await run(args([{ action: 'click', key: 'modify' }]), drawn)).toEqual({
+      status: 'failed',
+      steps: [{
+        index: 1,
+        status: 'failed',
+        message: 'own key "modify" is carried by 3 drawn controls in the entry, so no step can tell them apart.',
+      }],
+      text: 'Acted on the component entry "Demo" (demo).\n- click on "modify": '
+        + 'own key "modify" is carried by 3 drawn controls in the entry, so no step can tell them apart.',
+    })
+    expect((await run(args([{ action: 'click', node: 'grid', key: 'modify' }]), drawn)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'own key "modify" is carried by 3 drawn controls in block "grid", so no step can tell them apart.',
+    }])
+    expect(pressed).not.toHaveBeenCalled()
+  })
+
+  it('lists at most ten own keys, and fewer where the sentence would pass the report bound', async () => {
+    const twelve = Array.from({ length: 12 }, (_, at) => `k${String(at + 1)}`)
+    const many = drawEntry(twelve.map(key => `<button data-component-action="locate" data-component-key="${key}">x</button>`).join(''))
+    expect((await run(args([{ action: 'click', key: 'locate' }]), many)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'action "locate" names 12 drawn controls in the entry; name the one to press by its own key: '
+        + 'k1, k2, k3, k4, k5, k6, k7, k8, k9, k10 and 2 more.',
+    }])
+    // Own keys as long as a step's key may be: ten of them would carry the
+    // sentence past what a host reads one step's sentence as.
+    const long = Array.from({ length: 10 }, (_, at) => `${String(at)}${'k'.repeat(63)}`)
+    const wide = drawEntry(long.map(key => `<button data-component-action="locate" data-component-key="${key}">x</button>`).join(''))
+    const [result] = (await run(args([{ action: 'click', key: 'locate' }]), wide)).steps
+    const message = result?.status === 'failed' ? result.message : ''
+    expect(message.length).toBeLessThanOrEqual(MAX_MESSAGE_CHARS)
+    expect(message.startsWith('action "locate" names 10 drawn controls in the entry; name the one to press by its own key: 0k')).toBe(true)
+    expect(message).toMatch(/ and \d+ more\.$/)
+    expect(message).toContain(long[0])
+    expect(message).not.toContain(long[9])
+  })
+
+  it('waits for a key several drawn controls carry, which any one of them satisfies', async () => {
+    const drawn = drawEntry(`
+      <button data-component-action="press" data-component-key="ok">OK</button>
+      <button data-component-action="press" data-component-key="ok">OK</button>
+    `)
+    expect((await run(args([{ action: 'wait', key: 'press' }, { action: 'wait', key: 'ok' }]), drawn)).status).toBe('done')
   })
 })
 

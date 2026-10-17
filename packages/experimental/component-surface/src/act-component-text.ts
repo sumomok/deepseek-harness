@@ -8,7 +8,7 @@
  */
 
 import type { ActComponentStep, ActComponentStepResult, IgnoredStepField } from './act-component-call.ts'
-import { MAX_ACT_COMPONENT_STEPS } from './act-component-call.ts'
+import { MAX_ACT_COMPONENT_STEPS, MAX_MESSAGE_CHARS } from './act-component-call.ts'
 
 /** The tool's description: what it acts on, how a call addresses it, and what comes back. */
 export const ACT_COMPONENT_DESCRIPTION = [
@@ -180,6 +180,66 @@ export function disabledReason(key: string): string {
  */
 export function coveredReason(key: string): string {
   return `control "${key}" is covered where it is drawn.`
+}
+
+/** Most own keys {@link sharedActionReason} lists; the rest are counted. */
+export const MAX_LISTED_OWN_KEYS = 10
+
+/**
+ * Where a step looked, in the wording the shared-key sentences use.
+ * @param node - the block the step named, absent for the whole entry.
+ * @returns the phrase.
+ */
+function lookedIn(node: string | undefined): string {
+  return node === undefined ? 'in the entry' : `in block "${node}"`
+}
+
+/**
+ * The sentence a console posts for an action key several drawn controls
+ * declare, each with an own key that names it. The list stops at
+ * {@link MAX_LISTED_OWN_KEYS}, and earlier where the sentence would pass
+ * {@link MAX_MESSAGE_CHARS}, the bound a host reads one step's sentence
+ * against; the keys left out are counted.
+ * @param key - the action key the step named.
+ * @param count - how many drawn controls declare it.
+ * @param node - the block the step named, absent for the whole entry.
+ * @param ownKeys - each control's own key, in document order.
+ * @returns the model-facing sentence.
+ */
+export function sharedActionReason(key: string, count: number, node: string | undefined, ownKeys: readonly string[]): string {
+  const opening = `action "${key}" names ${String(count)} drawn controls ${lookedIn(node)}; name the one to press by its own key: `
+  const listing = (shown: number): string => {
+    const hidden = ownKeys.length - shown
+    return `${opening}${ownKeys.slice(0, shown).join(', ')}${hidden === 0 ? '' : ` and ${String(hidden)} more`}.`
+  }
+  let shown = Math.min(ownKeys.length, MAX_LISTED_OWN_KEYS)
+  while (shown > 1 && listing(shown).length > MAX_MESSAGE_CHARS) shown -= 1
+  return listing(shown)
+}
+
+/**
+ * The sentence a console posts for an action key several drawn controls
+ * declare where their own keys do not tell them apart: one of them carries
+ * none a step can name, or two carry the same.
+ * @param key - the action key the step named.
+ * @param count - how many drawn controls declare it.
+ * @param node - the block the step named, absent for the whole entry.
+ * @returns the model-facing sentence.
+ */
+export function unkeyedActionReason(key: string, count: number, node: string | undefined): string {
+  return `action "${key}" names ${String(count)} drawn controls ${lookedIn(node)}, and they carry no own key to tell them apart.`
+}
+
+/**
+ * The sentence a console posts for an own key several drawn controls carry.
+ * The component drew the duplicate, so no wording of the step separates them.
+ * @param key - the own key the step named.
+ * @param count - how many drawn controls carry it.
+ * @param node - the block the step named, absent for the whole entry.
+ * @returns the model-facing sentence.
+ */
+export function sharedOwnKeyReason(key: string, count: number, node: string | undefined): string {
+  return `own key "${key}" is carried by ${String(count)} drawn controls ${lookedIn(node)}, so no step can tell them apart.`
 }
 
 /**

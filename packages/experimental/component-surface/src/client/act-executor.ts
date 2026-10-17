@@ -6,7 +6,8 @@
  * [the shared resolution](./targets.ts), bounded by the block the step names or
  * by the whole entry. Actions go through the block's own handlers: a press is
  * the element's `click()`, refused for a control that is disabled, covered, or
- * not drawn; a write goes through the prototype's value setter and dispatches
+ * not drawn, and for a key several drawn controls carry; a write goes through
+ * the prototype's value setter and dispatches
  * `input` and `change`; a select or a suggestion field is filled by choosing
  * the option whose label is the value and waiting for the component to take it.
  *
@@ -21,6 +22,7 @@
 import {
   DEFAULT_WAIT_MS,
   type ActComponentArgs,
+  type ActComponentClick,
   type ActComponentStep,
   type ActComponentStepResult,
   type ActComponentWait,
@@ -29,13 +31,13 @@ import {
   actComponentReportText, ambiguousFieldReason, ambiguousOptionReason, anotherEntryInFront, coveredReason,
   disabledFieldReason, disabledOptionReason, disabledReason, ENTRY_REDRAWN_REASON, missingTargetReason,
   noOptionReason, NO_ENTRY_IN_FRONT, notWritableReason, notDrawnReason, optionNotTakenReason, OUT_OF_TIME_REASON,
-  readOnlyFieldReason, waitTimeoutReason,
+  readOnlyFieldReason, sharedActionReason, sharedOwnKeyReason, unkeyedActionReason, waitTimeoutReason,
 } from '../act-component-text.ts'
 import type { DrawnEntry } from './entry-container.ts'
 import {
-  addedAskingRow, askingRowPresent, autocompleteOf, autocompleteOptions, clickTarget, FIELD_KEY, isCovered, isDisabled,
-  isDrawn, marked, namedControls, openDialog, optionLabel, scopeOf, selectOf, selectOptions, selectShows, undrawnTarget,
-  withAttribute,
+  addedAskingRow, askingRowPresent, autocompleteOf, autocompleteOptions, clickTarget, drawsKey, FIELD_KEY, isCovered,
+  isDisabled, isDrawn, marked, namedControls, openDialog, optionLabel, scopeOf, selectOf, selectOptions, selectShows,
+  undrawnTarget, withAttribute,
 } from './targets.ts'
 
 /** How often a wait looks again. */
@@ -419,8 +421,42 @@ function delay(ms: number): Promise<void> {
 async function waitFor(run: StepRun, step: ActComponentWait, timeoutMs: number): Promise<boolean> {
   return await settles(run, () => {
     const scope = scopeOf(run.entry, step.node)
-    return scope !== undefined && (step.key === undefined || clickTarget(scope, step.key, run.entry.container) !== undefined)
+    return scope !== undefined && (step.key === undefined || drawsKey(scope, step.key, run.entry.container))
   }, timeoutMs)
+}
+
+/**
+ * Press the one control one `click` step names.
+ * @param scope - the subtree the step is confined to.
+ * @param step - the click step.
+ * @param within - the entry's own container.
+ * @throws {Error} with the model-facing reason when the key names no drawn
+ * control, names several, or names one a person could not press.
+ */
+function pressNamed(scope: Element, step: ActComponentClick, within: Element): void {
+  const named = clickTarget(scope, step.key, within)
+  switch (named.kind) {
+    case 'one':
+      press(named.target, step.key)
+      return
+    case 'none':
+      throw new Error(undrawnTarget(scope, step.key, within)
+        ? notDrawnReason(step.key)
+        : missingTargetReason(`control "${step.key}"`))
+    case 'shared-action':
+      throw new Error(named.ownKeys === undefined
+        ? unkeyedActionReason(step.key, named.count, step.node)
+        : sharedActionReason(step.key, named.count, step.node, named.ownKeys))
+    case 'shared-own-key': throw new Error(sharedOwnKeyReason(step.key, named.count, step.node))
+    /* v8 ignore start -- ClickTarget is closed and every variant returns or throws above. */
+    default: {
+      // Not `assertNever` from dsh-llm, for the reason validate.ts states at its
+      // own exhaustiveness check: this module is loaded by the browser seat.
+      const unhandled: never = named
+      throw new Error(`component-surface: unhandled click target ${JSON.stringify(unhandled)}`)
+    }
+    /* v8 ignore stop */
+  }
 }
 
 /**
@@ -449,13 +485,7 @@ async function runStep(run: StepRun, step: ActComponentStep): Promise<void> {
   const scope = scopeOf(entry, step.node)
   if (scope === undefined) throw new Error(missingTargetReason(`block "${String(step.node)}"`))
   if (step.action === 'click') {
-    const target = clickTarget(scope, step.key, entry.container)
-    if (target === undefined) {
-      throw new Error(undrawnTarget(scope, step.key, entry.container)
-        ? notDrawnReason(step.key)
-        : missingTargetReason(`control "${step.key}"`))
-    }
-    press(target, step.key)
+    pressNamed(scope, step, entry.container)
     return
   }
   const target = setTarget(scope, step.name, entry.container)

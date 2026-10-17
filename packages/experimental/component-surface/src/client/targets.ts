@@ -12,6 +12,7 @@
  * @module @deepseek-ai/dsh-experimental-component-surface/client/targets
  */
 
+import { isTarget } from '../act-component-call.ts'
 import type { DrawnEntry } from './entry-container.ts'
 
 /** The controls a `set` step may write into. */
@@ -26,7 +27,8 @@ export const ACTION_KEY = 'data-component-action'
 /**
  * The attribute a control's own key is marked with where several controls
  * perform one declared action, as a confirmation bar's buttons do: a step naming
- * the key presses that control, one naming the action presses the first.
+ * the own key presses that control, and a step naming the shared action is
+ * refused while more than one of those controls is drawn.
  */
 export const OWN_KEY = 'data-component-key'
 
@@ -108,23 +110,97 @@ export function scopeOf(entry: DrawnEntry, node: string | undefined): Element | 
   return withAttribute(entry.container, NODE_KEY).find(el => marked(el, NODE_KEY, node))
 }
 
+/** What one `click` step's key resolves to inside the subtree it is confined to. */
+export type ClickTarget =
+  | {
+    /** Exactly one drawn control carries the key. */
+    readonly kind: 'one'
+    /** That control. */
+    readonly target: Element
+  }
+  | {
+    /** No drawn control carries the key. */
+    readonly kind: 'none'
+  }
+  | {
+    /** Several drawn controls declare the key as their action. */
+    readonly kind: 'shared-action'
+    /** How many. */
+    readonly count: number
+    /**
+     * Each one's own key, in document order, where every one of them carries
+     * one a step can name and no two carry the same; absent otherwise, since
+     * then no step tells them apart.
+     */
+    readonly ownKeys: readonly string[] | undefined
+  }
+  | {
+    /** Several drawn controls carry the key as their own key. */
+    readonly kind: 'shared-own-key'
+    /** How many. */
+    readonly count: number
+  }
+
 /**
- * The control one `click` step presses: the first drawn ({@link isDrawn})
- * control carrying the key as its declared action ({@link ACTION_KEY}), else as
- * its own key ({@link OWN_KEY}). A block keeps closed controls — a row's
- * confirmation bubble, a closed dialog — in the document, and a press must land
- * where a person's could, so undrawn candidates are passed over.
+ * Every drawn ({@link isDrawn}) control of one subtree carrying one value under one attribute.
+ * @param scope - the subtree to search.
+ * @param attribute - {@link ACTION_KEY} or {@link OWN_KEY}.
+ * @param key - the value the control carries there.
+ * @param within - the entry's own container, past which nothing is asked.
+ * @returns the controls, in document order.
+ */
+function drawnCarrying(scope: Element, attribute: string, key: string, within: Element): Element[] {
+  return withAttribute(scope, attribute).filter(el => marked(el, attribute, key) && isDrawn(el, within))
+}
+
+/**
+ * The own keys that tell several controls apart.
+ * @param controls - the controls one action key names.
+ * @returns each one's own key in document order, or undefined when one of them
+ *   carries none a step can name or two carry the same.
+ */
+function distinctOwnKeys(controls: readonly Element[]): string[] | undefined {
+  const keys = controls.map(el => el.getAttribute(OWN_KEY))
+  if (!keys.every(isTarget)) return undefined
+  return new Set(keys).size === keys.length ? keys : undefined
+}
+
+/**
+ * The control one `click` step presses: the one drawn ({@link isDrawn})
+ * control carrying the key as its declared action ({@link ACTION_KEY}), else
+ * the one carrying it as its own key ({@link OWN_KEY}). A block keeps closed
+ * controls — a row's confirmation bubble, a closed dialog — in the document,
+ * and a press must land where a person's could, so undrawn candidates are
+ * passed over. Where several drawn controls carry the key, the step does not
+ * say which one it means and nothing is pressed; the answer says how many there
+ * are and, for an action key, which own keys would name each one.
  * @param scope - the subtree the step is confined to.
  * @param key - the action key, or the control's own key, the step names.
  * @param within - the entry's own container, past which nothing is asked.
- * @returns the drawn element, or undefined when the subtree draws none for the key.
+ * @returns what the key names among the drawn controls.
  */
-export function clickTarget(scope: Element, key: string, within: Element): Element | undefined {
-  for (const attribute of [ACTION_KEY, OWN_KEY]) {
-    const found = withAttribute(scope, attribute).find(el => marked(el, attribute, key) && isDrawn(el, within))
-    if (found !== undefined) return found
-  }
-  return undefined
+export function clickTarget(scope: Element, key: string, within: Element): ClickTarget {
+  const byAction = drawnCarrying(scope, ACTION_KEY, key, within)
+  if (byAction.length > 1) return { kind: 'shared-action', count: byAction.length, ownKeys: distinctOwnKeys(byAction) }
+  const [action] = byAction
+  if (action !== undefined) return { kind: 'one', target: action }
+  const byOwnKey = drawnCarrying(scope, OWN_KEY, key, within)
+  if (byOwnKey.length > 1) return { kind: 'shared-own-key', count: byOwnKey.length }
+  const [own] = byOwnKey
+  return own === undefined ? { kind: 'none' } : { kind: 'one', target: own }
+}
+
+/**
+ * Whether one subtree draws any control carrying the key, as its declared
+ * action or as its own key: what a `wait` step waits for, which any one drawn
+ * control satisfies.
+ * @param scope - the subtree the step is confined to.
+ * @param key - the action key, or the control's own key, the step names.
+ * @param within - the entry's own container, past which nothing is asked.
+ * @returns whether a drawn control carries it.
+ */
+export function drawsKey(scope: Element, key: string, within: Element): boolean {
+  return [ACTION_KEY, OWN_KEY].some(attribute => drawnCarrying(scope, attribute, key, within).length > 0)
 }
 
 /**
