@@ -230,7 +230,7 @@ export function sharedActionReason(key: string, count: number, node: string | un
  * @returns the model-facing sentence.
  */
 export function unkeyedActionReason(key: string, count: number, node: string | undefined): string {
-  return `action "${key}" names ${String(count)} drawn controls ${lookedIn(node)}, and they carry no own key to tell them apart.`
+  return `action "${key}" names ${String(count)} drawn controls ${lookedIn(node)}, and no step can name each of them by an own key.`
 }
 
 /**

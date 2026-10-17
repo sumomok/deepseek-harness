@@ -67,7 +67,7 @@ describe('the offer and its refusals', () => {
     expect(sharedActionReason('locate', 2, 'map', ['beijing', 'tianjin']))
       .toBe('action "locate" names 2 drawn controls in block "map"; name the one to press by its own key: beijing, tianjin.')
     expect(unkeyedActionReason('cell-click', 12, undefined))
-      .toBe('action "cell-click" names 12 drawn controls in the entry, and they carry no own key to tell them apart.')
+      .toBe('action "cell-click" names 12 drawn controls in the entry, and no step can name each of them by an own key.')
     expect(sharedOwnKeyReason('modify', 5, undefined))
       .toBe('own key "modify" is carried by 5 drawn controls in the entry, so no step can tell them apart.')
   })

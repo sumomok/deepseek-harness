@@ -1831,7 +1831,7 @@ describe('the key one control declares for itself', () => {
     expect((await run(args([{ action: 'click', key: 'cell-click' }]), unkeyed)).steps).toEqual([{
       index: 1,
       status: 'failed',
-      message: 'action "cell-click" names 3 drawn controls in the entry, and they carry no own key to tell them apart.',
+      message: 'action "cell-click" names 3 drawn controls in the entry, and no step can name each of them by an own key.',
     }])
     expect(clicked).not.toHaveBeenCalled()
     // Own keys that repeat, and one a step could not name, tell them apart no
@@ -1841,7 +1841,7 @@ describe('the key one control declares for itself', () => {
       expect((await run(args([{ action: 'click', key: 'operation' }]), drawn)).steps).toEqual([{
         index: 1,
         status: 'failed',
-        message: 'action "operation" names 2 drawn controls in the entry, and they carry no own key to tell them apart.',
+        message: 'action "operation" names 2 drawn controls in the entry, and no step can name each of them by an own key.',
       }])
     }
   })
