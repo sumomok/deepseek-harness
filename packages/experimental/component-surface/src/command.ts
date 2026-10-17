@@ -148,7 +148,9 @@ export interface ResolvedAction {
    * catalog declares. Two occurrences of one gesture on one block share it,
    * which is what lets the later one replace the earlier one's unclaimed
    * notice instead of queueing beside it. A report the agent's own step caused
-   * ({@link ResolvedAction.step}) takes no part in that replacement.
+   * ({@link ResolvedAction.step}) replaces no notice and is replaced by none;
+   * it clears the key's unclaimed notice instead, as
+   * {@link ActionMemory.pendingContext} states.
    */
   readonly key: string
   /**
@@ -355,8 +357,8 @@ function deliverContext(agent: Agent, pending: Map<string, MessageId>, key: stri
  * part in, so it never takes the place of a notice the user's gesture left
  * unclaimed, and no later gesture takes its place. A gesture the user later
  * makes on the same block and action appends after it rather than taking the
- * place of the user's earlier notice, so the inbox keeps the order in which the
- * gestures happened.
+ * place of the user's earlier notice, so on that block and action the user's
+ * later gesture comes after the agent's report.
  * @param agent - the agent whose seat reported the action.
  * @param memory - the tables this installation's presses share.
  * @param resolved - the accounts to deliver, the grade to deliver them at, and which gesture they are.

@@ -9,15 +9,16 @@
  * holds because the host runs one `act_component` call at a time and only the
  * tab that claimed a call runs its steps.
  *
- * Only a `click` or a `set` is held, and only what is reported while it runs is
- * marked: what the press or the write reports synchronously, and whatever is
- * reported before the step's own promise settles, such as while a `set` waits
- * for a select to take its option. A report a block sends only once the step's
- * own promise has settled — a promise callback a few microtasks later, a timer,
- * or a later task, an answer from a backend the press asked — and every
- * report sent while a `wait` step runs are reported as the user's; a gesture
- * the user makes inside a held step's window is reported as the step's. The
- * README records both as limitations.
+ * Only a `click` or a `set` is held, from the moment it starts until the
+ * executor resumes after the step's own promise settles. What is marked is
+ * what a block reports in that time: what the press or the write reports
+ * synchronously, what is reported while a `set` waits for a select to take
+ * its option, and possibly a promise callback the press or the write queued
+ * directly, since how many microtask hops fall inside depends on the step. A
+ * report a block sends from a timer or a later task — an answer from a
+ * backend the press asked — and every report sent while a `wait` step runs
+ * are reported as the user's; a gesture the user makes inside a held step's
+ * window is reported as the step's. The README records both as limitations.
  * @module @deepseek-ai/dsh-experimental-component-surface/client/act-step
  */
 import type { ComponentAction } from '../component-call.ts'
