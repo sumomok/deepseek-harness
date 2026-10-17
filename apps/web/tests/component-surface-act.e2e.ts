@@ -258,10 +258,26 @@ describe.skipIf(MODE === 'record')('web e2e: act_component presses one button of
     await expect.poll(async () => (await seat(page).boundingBox())?.width ?? 0, { timeout: 15_000 })
       .toBeGreaterThan(200)
 
-    const settled = scaffold.whenTurnSettled(90_000)
+    let turnOver = false
+    const settled = scaffold.whenTurnSettled(90_000).then(
+      (id) => { turnOver = true; return id },
+      (error: unknown) => { turnOver = true; throw error },
+    )
     await writeComposerDraft(page, composerInput(page), PROMPT)
     await page.keyboard.press('Enter')
-    await settled
+    // Neither tool asks for approval of its own; a panel the composition's
+    // approval policy raises anyway is answered, because what this scenario
+    // pins is what the steps did, not the policy.
+    const answerApprovals = async (): Promise<void> => {
+      while (!turnOver) {
+        const panel = page.locator('[data-approval-key]').first()
+        const shown = await panel.waitFor({ state: 'visible', timeout: 3_000 }).then(() => true, () => false)
+        if (!shown) continue
+        await panel.getByRole('button', { name: 'Allow once' }).click()
+        await panel.waitFor({ state: 'detached', timeout: 30_000 }).then(() => undefined, () => undefined)
+      }
+    }
+    await Promise.all([answerApprovals(), settled])
 
     const events = liveEvents(scaffold)
     const answers = toolResults(events, 'act_component')
