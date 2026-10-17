@@ -155,6 +155,9 @@ const REFERENCE_PREFIXES = [
   // — loads the module at run time without the bundler ever seeing it, and
   // the directory has to be there just as for a resolution call.
   String.raw`createRequire\s*\([^()]*\)\s*\(\s*`,
+  // `createLazyRequire('x', import.meta.url)` from `@deepseek-ai/dsh-lazy-require`
+  // builds that same require on first use, so the bundler never sees `x` either.
+  String.raw`createLazyRequire[\w$]*\s*\(\s*`,
 ]
 
 /**
@@ -170,7 +173,8 @@ const REFERENCE_PREFIXES = [
  *   directory has to be there at run time.
  *
  * The third form is a require built and invoked in one expression,
- * `createRequire(import.meta.url)('name')`: the bundler cannot inline what
+ * `createRequire(import.meta.url)('name')`, and its deferred spelling
+ * `createLazyRequire('name', import.meta.url)`: the bundler cannot inline what
  * only a run-time call names, so the directory must survive the walk.
  *
  * What none of the forms reaches is a name that does not appear as a literal: a

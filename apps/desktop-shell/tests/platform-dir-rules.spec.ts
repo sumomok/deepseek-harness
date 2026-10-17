@@ -239,3 +239,33 @@ describe('the payload gate on sherpa-onnx members', () => {
     await expect(gate('darwin', keepsSherpa)).rejects.toThrow(/sherpa-onnx-win-x64 names win32-x64 and rode into the darwin payload/)
   })
 })
+
+describe('the payload gate on deferred requires', () => {
+  /**
+   * Run the gate on a darwin payload whose terminal package loads
+   * `@xterm/headless` through `createLazyRequire`, optionally deleting that
+   * package after the copy the way the closure walk would.
+   * @param prune - whether the payload loses `@xterm/headless` after the copy.
+   * @returns the gate's settled promise.
+   */
+  async function gate(prune: boolean): Promise<void> {
+    const root = staged([...MAC_HOST_STAGED, '@xterm/headless', '@deepseek-ai/dsh-terminal-bash/lib'])
+    writeFileSync(join(root, 'node_modules', '@deepseek-ai', 'dsh-terminal-bash', 'lib', 'index.js'),
+      'const requireHeadless = createLazyRequire("@xterm/headless", import.meta.url);\n')
+    const { payload, dropped } = derive(root, platformDirRules('arm64').darwin)
+    const afterPlatformPrune = await snapshotPayload(payload)
+    if (prune) rmSync(join(payload, 'node_modules', '@xterm', 'headless'), { recursive: true, force: true })
+    await verifyPrunedPayload({
+      target: 'darwin', runsOn: runsOn('darwin', 'arm64'), staged: await snapshotPayload(root),
+      afterPlatformPrune, payload, droppedByRules: dropped,
+    })
+  }
+
+  it('accepts the payload that keeps the package', async () => {
+    await expect(gate(false)).resolves.toBeUndefined()
+  })
+
+  it('refuses the payload that lost the package a deferred require names', async () => {
+    await expect(gate(true)).rejects.toThrow(/\[runtime-resolved\] @xterm\/headless was pruned/)
+  })
+})

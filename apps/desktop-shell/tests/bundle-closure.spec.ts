@@ -40,6 +40,13 @@ describe('specifierFor', () => {
     ]) expect(specifierFor('@xterm/headless').test(text)).toBe(true)
   })
 
+  it('matches the name a deferred require is built for', () => {
+    for (const text of [
+      'const requireHeadless = createLazyRequire("@xterm/headless", import.meta.url);',
+      'createLazyRequire$1(\'@xterm/headless\', import.meta.url)',
+    ]) expect(specifierFor('@xterm/headless').test(text)).toBe(true)
+  })
+
   it('matches a resolution call that reaches into a subpath of the package', () => {
     expect(specifierFor('@img/sharp-libvips-darwin-arm64').test('require.resolve(\'@img/sharp-libvips-darwin-arm64/binary\')')).toBe(true)
     expect(specifierFor('@vscode/ripgrep').test('nodeRequire.resolve(\'@vscode/ripgrep/bin/rg\')')).toBe(true)
@@ -101,6 +108,7 @@ describe('referencedNames', () => {
       'import.meta.resolve(\'@img/sharp-libvips-darwin-arm64/binary\')',
       'createRequire(import.meta.url).resolve("@vscode/ripgrep/bin/rg")',
       'const { Terminal } = createRequire(import.meta.url)(\'@xterm/headless\')',
+      'const requireSerialize = createLazyRequire("@xterm/headless/addon", import.meta.url)',
       'nodeRequire.resolve(`open`)',
       '__webpack_require__.resolve(\'q.r\')',
       'requireFoo$.resolve("x$y")',
@@ -125,7 +133,7 @@ describe('referencedNames', () => {
 
   it('answers like specifierFor for every name on generated texts', () => {
     const tokens = [
-      'from', 'require', 'import', 'import.meta', '.resolve', 'createRequire(import.meta.url)', 'nodeRequire',
+      'from', 'require', 'import', 'import.meta', '.resolve', 'createRequire(import.meta.url)', 'createLazyRequire', 'nodeRequire',
       '(', ')', ' ', '\n', '.', ';', '/', '\'', '"', '`', '$', '_', 'x', 'q.r', ...NAMES,
     ]
     const next = seeded(20261004)
@@ -144,7 +152,7 @@ describe('referencedNames', () => {
     const pieces = specifierFor('probe').source.split(literal)
     expect(pieces.at(-1)).toBe('')
     const prefixes = pieces.slice(0, -1).map((piece, index) => index === 0 ? piece : piece.replace(/^\|/, ''))
-    expect(prefixes).toHaveLength(3)
+    expect(prefixes).toHaveLength(4)
     const scan = new RegExp(REFERENCE_SCAN_SOURCE).source
     expect(scan.startsWith(String.raw`['"\`](?<=(?:` + prefixes.join('|') + String.raw`)['"\`])`)).toBe(true)
   })
@@ -194,6 +202,29 @@ describe('bundleClosure', () => {
       `module.exports = require('../sherpa-onnx-darwin-${process.arch}/sherpa-onnx.node')`)
     const result = await bundleClosure(payload)
     for (const name of ['sherpa-onnx-node', ...members]) expect(existsSync(join(payload, 'node_modules', name))).toBe(true)
+    expect(existsSync(join(payload, 'node_modules', 'unreferenced'))).toBe(false)
+    expect(result.removed).toBe(1)
+  })
+
+  it('keeps a third-party package one of ours loads through createLazyRequire', async () => {
+    const payload = mkdtempSync(join(tmpdir(), 'bundle-closure-'))
+    roots.push(payload)
+    const files: Record<string, string> = {
+      '@deepseek-ai/dsh-lazy-require': 'import { createRequire } from \'node:module\'\n'
+        + 'export function createLazyRequire(name, url) { return () => createRequire(url)(name) }\n',
+      '@deepseek-ai/dsh-terminal-bash': 'import { createLazyRequire } from \'@deepseek-ai/dsh-lazy-require\'\n'
+        + 'export const requireHeadless = createLazyRequire("@xterm/headless", import.meta.url)\n',
+      '@xterm/headless': 'module.exports = { Terminal: class {} }\n',
+      'unreferenced': 'module.exports = 1\n',
+    }
+    for (const [name, text] of Object.entries(files)) {
+      const dir = join(payload, 'node_modules', name)
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, main: 'index.js' }))
+      writeFileSync(join(dir, 'index.js'), text)
+    }
+    const result = await bundleClosure(payload)
+    expect(existsSync(join(payload, 'node_modules', '@xterm', 'headless', 'index.js'))).toBe(true)
     expect(existsSync(join(payload, 'node_modules', 'unreferenced'))).toBe(false)
     expect(result.removed).toBe(1)
   })
