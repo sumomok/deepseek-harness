@@ -296,12 +296,15 @@ function columnOf(table: DrawnTable, cell: Element): string | undefined {
  * @param action - the action a record link reports.
  */
 function markLinks(table: Element, action: string): void {
-  for (const link of table.querySelectorAll(`tbody ${OPENABLE_CELL} ${RECORD_LINK}`)) {
-    link.setAttribute(ACTION_MARK, action)
-    const cell = link.closest('td')
-    const property = cell === null ? undefined : columnOf(table, cell)
-    if (property === undefined) link.removeAttribute(KEY_MARK)
-    else link.setAttribute(KEY_MARK, property)
+  for (const cell of table.querySelectorAll(`tbody ${OPENABLE_CELL}`)) {
+    const links = cell.querySelectorAll(RECORD_LINK)
+    if (links.length === 0) continue
+    const property = columnOf(table, cell)
+    for (const link of links) {
+      link.setAttribute(ACTION_MARK, action)
+      if (property === undefined) link.removeAttribute(KEY_MARK)
+      else link.setAttribute(KEY_MARK, property)
+    }
   }
 }
 
@@ -491,8 +494,8 @@ const DATA_PAGE_TABLE = '.crud-table .el-table'
 export interface DataPageMarks {
   /** The keys of the declared custom operations, in the order a row draws them. */
   readonly custom: readonly string[]
-  /** How the page's rows are keyed on this pass; absent where the page's records cannot be read. */
-  readonly rowKeys?: RowKeys
+  /** How the page's rows are keyed on this pass; it keys none where the page's records cannot be read. */
+  readonly rowKeys: RowKeys
 }
 
 /**
@@ -520,6 +523,6 @@ export function markDataPage(root: Element, marks: DataPageMarks): void {
     row: 'cell-click',
     link: 'card-open',
     operations: { builtin: 'modify', custom: marks.custom },
-    ...marks.rowKeys === undefined ? {} : { rowKeys: marks.rowKeys },
+    rowKeys: marks.rowKeys,
   })
 }
