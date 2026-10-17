@@ -80,7 +80,7 @@
           "type": "tool-call",
           "id": "call_00_act000000000000000000000003",
           "name": "act_component",
-          "arguments": "{\"entry\": \"budget\", \"steps\": [{\"action\": \"click\", \"key\": \"approve\"}]}"
+          "arguments": "{\"entry\": \"budget\", \"steps\": [{\"action\": \"click\", \"key\": \"later\"}]}"
         }
       },
       {
@@ -142,14 +142,14 @@
       {
         "type": "text-delta",
         "index": 0,
-        "text": "Step {{fromRequest:This report comes from step ([0-9]+) of your own call}} of my own call pressed Approve; the revised budget is approved."
+        "text": "Step {{fromRequest:This report comes from step ([0-9]+) of your own call}} of my own call pressed {{fromRequest:of your own call acting on this entry, not from the user: You pressed \"([^\"]+)\"}}; the budget stays undecided for now."
       },
       {
         "type": "block-end",
         "index": 0,
         "block": {
           "type": "text",
-          "text": "Step {{fromRequest:This report comes from step ([0-9]+) of your own call}} of my own call pressed Approve; the revised budget is approved."
+          "text": "Step {{fromRequest:This report comes from step ([0-9]+) of your own call}} of my own call pressed {{fromRequest:of your own call acting on this entry, not from the user: You pressed \"([^\"]+)\"}}; the budget stays undecided for now."
         }
       },
       {

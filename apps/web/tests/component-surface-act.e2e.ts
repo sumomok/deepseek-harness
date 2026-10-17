@@ -6,15 +6,18 @@
  * `content-frame`, whose shared content channel is what carries an
  * `act_component` call to the tab showing the session. The seed places one
  * `el.confirm-bar` with three buttons; every button performs the bar's single
- * `press` action and carries its button id as its own key.
+ * `press` action and carries its button id as its own key. The call that
+ * presses names the middle button, so neither the first nor the last button
+ * drawn stands in for the one named.
  *
  * The model is a committed script, so the calls are fixed and the outcomes are
  * the real ones: the host's argument check, the browser's step executor against
  * the drawn bar, the `/component-action` command the press reports through, and
  * the notice the command hands the running turn. The script's last reply opens
  * with a `{{fromRequest:}}` pattern on the sentence a report caused by the
- * agent's own step opens with, so that reply exists only if the notice built
- * from the press carried it into the model's request.
+ * agent's own step opens with, and a second one on the label the notice says
+ * was pressed, so that reply exists only if the notice built from the press
+ * carried both into the model's request.
  *
  * An experimental package cannot be a dependency of `apps/web`, so the profile
  * links the loader resolves the rows through are created here rather than by
@@ -70,6 +73,9 @@ const BUDGET_TITLE = 'Budget approval'
 const BUDGET_PROMPT = 'Approve the revised budget?'
 const APPROVE_ID = 'approve'
 const APPROVE_LABEL = 'Approve'
+/** The button the pressing call names: the middle one of the three. */
+const LATER_ID = 'later'
+const LATER_LABEL = 'Decide later'
 
 /** The bar the seed places: three buttons sharing the bar's one `press` action. */
 const BUDGET_SPEC = {
@@ -80,7 +86,7 @@ const BUDGET_SPEC = {
       title: BUDGET_PROMPT,
       buttons: [
         { id: APPROVE_ID, label: APPROVE_LABEL, tone: 'primary' },
-        { id: 'later', label: 'Decide later' },
+        { id: LATER_ID, label: LATER_LABEL },
         { id: 'reject', label: 'Reject', tone: 'danger' },
       ],
     },
@@ -88,7 +94,7 @@ const BUDGET_SPEC = {
 }
 
 /** What the user asks. */
-const PROMPT = 'Approve the budget for me.'
+const PROMPT = 'Put the budget decision off for me.'
 
 /** The `act_component` call that pressed the bar, whose id the press's report names. */
 const PRESSING_CALL = 'call_00_act000000000000000000000003'
@@ -99,20 +105,20 @@ const NAME_REFUSAL = 'step 1: a click presses one control named by its key, so i
 const SHARED_FAILURE = '- click on "press": action "press" names 3 drawn controls in the entry; '
   + 'name the one to press by its own key: approve, later, reject.'
 /** The third call's step line. */
-const PRESSED_LINE = `- click on "${APPROVE_ID}": done`
+const PRESSED_LINE = `- click on "${LATER_ID}": done`
 
 /** The sentence a report the agent's own step caused opens with. */
 const OWN_STEP_OPENING = 'This report comes from step 1 of your own call acting on this entry, not from the user: '
 /** What the agent is told about the press, marked as its own. */
-const PRESS_TEXT = `${OWN_STEP_OPENING}You pressed "${APPROVE_LABEL}" in content panel entry "${BUDGET_ID}" `
+const PRESS_TEXT = `${OWN_STEP_OPENING}You pressed "${LATER_LABEL}" in content panel entry "${BUDGET_ID}" `
   + `("${BUDGET_TITLE}"), on the 确认条 block "ask".`
 /** The summary the notice declares, naming the assistant as who pressed. */
-const PRESS_SUMMARY = `助手在「${BUDGET_TITLE}」里点了「${APPROVE_LABEL}」`
+const PRESS_SUMMARY = `助手在「${BUDGET_TITLE}」里点了「${LATER_LABEL}」`
 /** The plugin kind the command posts its notice under. */
 const NOTICE_PLUGIN: string = 'content-component'
 
-/** The closing reply, whose step number llm-replay read out of the request the notice was in. */
-const MODEL_REPLY = 'Step 1 of my own call pressed Approve; the revised budget is approved.'
+/** The closing reply, whose step number and pressed label llm-replay read out of the request the notice was in. */
+const MODEL_REPLY = `Step 1 of my own call pressed ${LATER_LABEL}; the budget stays undecided for now.`
 
 /** The line the bar draws once its press was recorded, in this lane's English. */
 const SENT_LINE = 'Sent to the conversation'
@@ -288,10 +294,11 @@ describe.skipIf(MODE === 'record')('web e2e: act_component presses one button of
     // The second reached the bar and pressed nothing: `press` is every button's
     // action, so the step fails and lists the keys that tell them apart.
     expect(answers[1]).toContain(SHARED_FAILURE)
-    // The third names one button by its own key.
+    // The third names the middle button by its own key.
     expect(answers[2]).toContain(PRESSED_LINE)
 
-    // One press reached the host, and it is the approve button's.
+    // One press reached the host, and it is the named button's rather than the
+    // first or the last one drawn.
     const runs = events.filter(event => event.type === 'command/run' && event.data.name === 'component-action')
     expect(runs.length).toBe(1)
     const run = runs[0]
@@ -301,10 +308,13 @@ describe.skipIf(MODE === 'record')('web e2e: act_component presses one button of
       componentId: 'el.confirm-bar',
       actionId: 'press',
       nodeId: 'ask',
-      payload: { buttonId: APPROVE_ID },
+      payload: { buttonId: LATER_ID },
       step: { call: PRESSING_CALL, index: 1 },
     })
-    expect(await approve.getAttribute('disabled')).not.toBeNull()
+    // The bar takes no second press once one is recorded, which disables every
+    // button; the payload above is what says which one was pressed.
+    const later = seat(page).locator(`[data-component-action="press"][data-component-key="${LATER_ID}"]`)
+    expect(await later.getAttribute('disabled')).not.toBeNull()
   }, 180_000)
 
   it('tells the agent the press was its own step\'s, in the turn it ran in, and leaves the user no queued line', async () => {
@@ -330,7 +340,8 @@ describe.skipIf(MODE === 'record')('web e2e: act_component presses one button of
     expect(notice?.seq ?? 0).toBeGreaterThan(opened[1]?.seq ?? Infinity)
     expect(notice?.seq ?? Infinity).toBeLessThan(ended[1]?.seq ?? 0)
 
-    // The closing reply's step number was read out of the request the notice was in.
+    // The closing reply's step number and pressed label were read out of the
+    // request the notice was in.
     await expect.poll(async () => await page.getByText(MODEL_REPLY, { exact: false }).count(), { timeout: 30_000 })
       .toBe(1)
 
