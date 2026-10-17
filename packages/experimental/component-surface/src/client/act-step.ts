@@ -1,7 +1,7 @@
 /**
  * The `act_component` step this page is running, held where the step executor
  * and the seat both see it, so a gesture a block reports while the agent's own
- * step runs is reported as that step's.
+ * `click` or `set` step runs is reported as that step's.
  *
  * One holder per plugin instance, created by `client/index.ts` and handed to the
  * channel seat that runs steps and to the seats that report gestures; this
@@ -9,10 +9,14 @@
  * holds because the host runs one `act_component` call at a time and only the
  * tab that claimed a call runs its steps.
  *
- * Only what is reported while the step runs is marked: the synchronous handler
- * a press runs, and whatever the step itself waits on. A report a block sends
- * after the step returned — an answer from a backend the press asked — is
- * reported as the user's, which the README records as a limitation.
+ * Only a `click` or a `set` is held, and only what is reported while it runs is
+ * marked: what the press or the write reports synchronously, and whatever is
+ * reported before the step's own promise settles, such as while a `set` waits
+ * for a select to take its option. A report a block sends after that — from a
+ * timer or a later task, an answer from a backend the press asked — and every
+ * report sent while a `wait` step runs are reported as the user's; a gesture
+ * the user makes inside a held step's window is reported as the step's. The
+ * README records both as limitations.
  * @module @deepseek-ai/dsh-experimental-component-surface/client/act-step
  */
 import type { ComponentAction } from '../component-call.ts'
@@ -27,9 +31,9 @@ export interface RunningActStep {
   readonly step: number
 }
 
-/** Where the running step is held; `current` is empty between steps. */
+/** Where the running step is held; `current` is empty between steps and while a `wait` step runs. */
 export interface ActStepHolder {
-  /** The step running now, or `undefined` while none is. */
+  /** The `click` or `set` step running now, or `undefined` while none is. */
   current: RunningActStep | undefined
 }
 

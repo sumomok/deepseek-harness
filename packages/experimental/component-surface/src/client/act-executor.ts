@@ -559,7 +559,8 @@ function displacedReason(run: StepRun): string | undefined {
  * @param callId - the call the steps belong to, which a gesture reported while
  * one of them runs is marked with.
  * @param holder - where the step running now is held for the seats: written
- * as each step starts and emptied as it ends, however it ends.
+ * as each `click` or `set` step starts and emptied as it ends, however it
+ * ends; a `wait` step leaves it empty.
  * @returns what the call ended as.
  */
 export async function runActComponent(
@@ -585,10 +586,10 @@ export async function runActComponent(
       if (Date.now() >= deadline) throw new Error(OUT_OF_TIME_REASON)
       const displaced = displacedReason(run)
       if (displaced !== undefined) throw new Error(displaced)
-      // Held from here, after the turn the previous step's press drew in: a
-      // gesture a block reports during that turn is the previous step's
-      // aftermath, not this step's.
-      holder.current = { entryId: entry.entryId, callId, step: at + 1 }
+      // Held by a click or a set alone, and from here, after the task the
+      // previous step's press drew in: a gesture a block reports during that
+      // task, or while a wait runs, is reported as the user's.
+      if (step.action !== 'wait') holder.current = { entryId: entry.entryId, callId, step: at + 1 }
       try {
         await runStep(run, step)
       } finally {

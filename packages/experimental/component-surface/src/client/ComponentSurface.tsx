@@ -12,7 +12,8 @@
  * A gesture inside a block does come back: the seat binds which block spoke and
  * hands the report to `action.ts`, which puts it in the session log as one
  * `/component-action` line — marked as the agent's own step where an
- * `act_component` step acting in the same entry is running (`act-step.ts`).
+ * `act_component` `click` or `set` step acting in the same entry is running
+ * (`act-step.ts`).
  * Deciding what the agent does with it is the node half's, not this seat's.
  *
  * A block also publishes its own current reading of itself — the rows a table
@@ -124,8 +125,8 @@ export interface ComponentSurfaceInjected {
   pending: PendingPresses
   /**
    * The `act_component` step this page is running, if any: a gesture reported
-   * while a step of a call acting in the same entry runs is marked as that
-   * step's before it is reported.
+   * while a `click` or `set` step of a call acting in the same entry runs is
+   * marked as that step's before it is reported.
    */
   actStep: ActStepHolder
   /**

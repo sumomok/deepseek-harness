@@ -1931,6 +1931,43 @@ describe('the step a gesture is reported during', () => {
     expect(holder.current).toBeUndefined()
   })
 
+  it('holds a set while it writes, so what the write reports is the step\'s', async () => {
+    const drawn = drawEntry('<input aria-label="title">')
+    const seen: unknown[] = []
+    document.querySelector('input')?.addEventListener('change', () => { seen.push(holder.current) })
+    expect((await run(args([{ action: 'set', name: 'title', value: 'Q3' }]), drawn)).status).toBe('done')
+    expect(seen).toEqual([{ entryId: ENTRY, callId: CALL, step: 1 }])
+    expect(holder.current).toBeUndefined()
+  })
+
+  it('holds nothing while a wait runs, neither the press before it reports later nor what the user does', async () => {
+    const drawn = drawEntry(`
+      <button data-component-action="add">Add</button>
+      <button data-component-action="reject">Reject</button>
+    `)
+    const surface = document.querySelector('[data-component-surface]') as HTMLElement
+    const seen: Record<string, unknown> = {}
+    document.querySelector('[data-component-action="add"]')?.addEventListener('click', () => {
+      seen['press'] = holder.current
+      // The press's own block answers once a timer fires, which is after the
+      // click step returned and while the wait after it runs.
+      setTimeout(() => { seen['answer'] = holder.current }, 50)
+      // The user presses another control of the entry while the wait runs.
+      setTimeout(() => { (document.querySelector('[data-component-action="reject"]') as HTMLElement).click() }, 100)
+      // What the wait waits for is drawn after both.
+      setTimeout(() => {
+        const done = document.createElement('button')
+        done.setAttribute('data-component-action', 'done')
+        surface.append(done)
+      }, 150)
+    })
+    document.querySelector('[data-component-action="reject"]')?.addEventListener('click', () => { seen['user'] = holder.current })
+    const report = await run(args([{ action: 'click', key: 'add' }, { action: 'wait', key: 'done', timeoutMs: 2_000 }]), drawn)
+    expect(report.status).toBe('done')
+    expect(seen).toEqual({ press: { entryId: ENTRY, callId: CALL, step: 1 }, answer: undefined, user: undefined })
+    expect(holder.current).toBeUndefined()
+  })
+
   it('empties the holder when a step fails, and holds nothing for the steps it skips', async () => {
     const drawn = drawEntry('<button data-component-action="add">Add</button>')
     const seen: unknown[] = []

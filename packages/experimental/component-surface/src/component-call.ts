@@ -3586,10 +3586,10 @@ export interface ComponentAction {
   readonly payload: Readonly<Record<string, unknown>>
   /**
    * The agent's own step this gesture happened during: present where the seat
-   * reported it while an `act_component` step was running in the same entry,
-   * absent for a gesture the user made. It is the seat's own statement, held
-   * to the same trust as the rest of the document; the host does not check it
-   * against the calls it has open.
+   * reported it while an `act_component` `click` or `set` step was running in
+   * the same entry, and absent otherwise, which reads as a gesture the user
+   * made. It is the seat's own statement, held to the same trust as the rest
+   * of the document; the host does not check it against the calls it has open.
    */
   readonly step?: ComponentActionStep
 }
