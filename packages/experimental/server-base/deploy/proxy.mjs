@@ -1123,28 +1123,58 @@ const OGC_READ_REQUESTS = new Map([
 ])
 /** The image formats a GetMap may ask for. */
 const OGC_MAP_FORMATS = new Set(['image/png', 'image/jpeg'])
+/** Parameters every read request may carry. */
+const OGC_COMMON_PARAMS = ['service', 'request', 'version', 'exceptions']
+/** Parameters a WMS GetMap may carry, and so a GetFeatureInfo, which repeats them. */
+const OGC_MAP_PARAMS = [
+  'layers', 'styles', 'crs', 'srs', 'bbox', 'width', 'height', 'format', 'transparent', 'bgcolor', 'time', 'elevation',
+  'tiled', 'tilesorigin', 'buffer', 'format_options', 'cql_filter', 'featureid',
+]
 /**
- * Parameters that make the server fetch or apply caller-supplied styling or
- * services: GeoServer's `sld` and `style_url` fetch a style, `sld_body` and
- * `style_body` carry one, and `remote_ows_url` and `remote_ows_type` name a
- * service to fetch layers from.
+ * The parameter names each read request may carry, lowercased: ones that
+ * request defines in WMS 1.1.1 and 1.3.0 or WFS 1.0 to 2.0, and GeoServer's
+ * rendering and filtering options `tiled`, `tilesorigin`, `buffer`,
+ * `format_options`, `cql_filter`, `featureid`, and, on GetFeatureInfo,
+ * `propertyname`. Left out are the parameters that make the server fetch or
+ * apply a caller's style or service (`sld`, `sld_body`, `style_url`,
+ * `style_body`, `remote_ows_url`, `remote_ows_type`), parse a caller's XML
+ * (`filter`), resolve remote references (`resolve`), or substitute caller
+ * values into a query or style (`viewparams`, `env`).
  */
-const OGC_REFUSED_PARAMS = ['sld', 'sld_body', 'style_url', 'style_body', 'remote_ows_url', 'remote_ows_type']
+const OGC_READ_PARAMS = new Map([
+  ['getcapabilities', new Set([...OGC_COMMON_PARAMS, 'format', 'updatesequence'])],
+  ['getmap', new Set([...OGC_COMMON_PARAMS, ...OGC_MAP_PARAMS])],
+  ['getfeatureinfo', new Set([...OGC_COMMON_PARAMS, ...OGC_MAP_PARAMS, 'query_layers', 'info_format', 'feature_count', 'i', 'j', 'x', 'y', 'propertyname'])],
+  ['getfeature', new Set([
+    ...OGC_COMMON_PARAMS, 'typename', 'typenames', 'outputformat', 'srsname', 'bbox', 'maxfeatures', 'count', 'startindex',
+    'propertyname', 'sortby', 'featureid', 'resourceid', 'resulttype', 'cql_filter',
+  ])],
+  ['describefeaturetype', new Set([...OGC_COMMON_PARAMS, 'typename', 'typenames', 'outputformat'])],
+])
 /**
  * The parameter names a read may use. A server that compares names
  * case-insensitively by upper-casing them reads some non-ASCII names as ASCII
  * ones — `ſld` as `SLD` — which this check, lower-casing, would not.
  */
 const OGC_PARAM_NAME = /^[A-Za-z0-9_.-]+$/
-/** Inbound headers an OGC read never forwards: the one it sends is the mirror cookie's token. */
-const OGC_DROPPED_REQUEST_HEADERS = new Set(['authorization', 'certificationtoken', 'cookie'])
-/** Upstream headers an OGC read never relays: a session cookie for this origin, or a browser login prompt. */
-const OGC_DROPPED_RESPONSE_HEADERS = new Set(['set-cookie', 'www-authenticate'])
+/**
+ * The inbound headers an OGC read forwards. Every other one stays here: the
+ * client's own credentials and cookies, and any header a server would trust
+ * for its address or a user's identity, such as `x-forwarded-host`.
+ */
+const OGC_FORWARDED_REQUEST_HEADERS = ['accept', 'accept-encoding', 'accept-language', 'user-agent']
+/**
+ * Upstream headers an OGC read never relays: a session cookie for this origin,
+ * a browser login prompt, and the upstream's caching, which the answer
+ * replaces.
+ */
+const OGC_DROPPED_RESPONSE_HEADERS = new Set(['set-cookie', 'www-authenticate', 'cache-control', 'expires'])
 
 /**
  * @typedef {object} OgcRefusal
  * @property {400 | 403 | 405} status - the status the client is answered with.
  * @property {'method' | 'fetch-site' | 'path' | 'body' | 'duplicate' | 'service' | 'request' | 'param' | 'format'} reason - the category logged and answered; never the offending value.
+ * @property {string} [param] - for `param`, the lowercased name the request may not carry, when it is plain ASCII; answered, never logged.
  */
 
 /**
@@ -1163,8 +1193,8 @@ function ogcPrefixOf(settings, pathname) {
  * (`sec-fetch-site: same-origin`) with no body, to a service root or one
  * layer's (`ows`, `wms`, `wfs`), naming one `service` and one `request` that
  * endpoint serves — WMS GetMap, GetCapabilities, GetFeatureInfo; WFS
- * GetFeature, DescribeFeatureType — with no SLD, style, or remote-service
- * parameter. A GetMap names `image/png` or `image/jpeg`, and a GetFeatureInfo
+ * GetFeature, DescribeFeatureType — carrying only the parameters that request
+ * is listed with. A GetMap names `image/png` or `image/jpeg`, and a GetFeatureInfo
  * `info_format=application/json`, so the server never picks either format
  * itself; an `info_format` or `outputformat`, wherever present, is
  * `application/json`. Parameter names are ASCII letters, digits, `_`, `.`,
@@ -1201,7 +1231,9 @@ export function ogcReadRefusal(method, headers, url, prefix) {
   if (requests === undefined || (endpoint !== 'ows' && endpoint !== serviceName)) return { status: 403, reason: 'service' }
   const requestName = request[0]?.toLowerCase()
   if (requestName === undefined || !requests.has(requestName)) return { status: 403, reason: 'request' }
-  if (OGC_REFUSED_PARAMS.some(name => params.has(name))) return { status: 403, reason: 'param' }
+  const allowed = OGC_READ_PARAMS.get(requestName)
+  const unlisted = [...params.keys()].find(name => allowed?.has(name) !== true)
+  if (unlisted !== undefined) return { status: 403, reason: 'param', param: unlisted }
   const formats = (params.get('format') ?? []).map(value => value.toLowerCase())
   if (requestName === 'getmap' && (formats.length === 0 || !formats.every(format => OGC_MAP_FORMATS.has(format)))) {
     return { status: 403, reason: 'format' }
@@ -1232,28 +1264,32 @@ function ogcCredential(settings, runtime, cookieHeader) {
 }
 
 /**
- * The headers an OGC read carries upstream: the client's, framed for a request
- * with no body, less its own `authorization`, `certificationtoken`, and every
- * cookie, with `authorization` set to the mirror cookie's credential.
+ * The headers an OGC read carries upstream: `host`, `authorization` set to the
+ * mirror cookie's credential, and the client's `accept`, `accept-encoding`,
+ * `accept-language`, and `user-agent`, nothing else; the request has no body.
  * @param {import('node:http').IncomingHttpHeaders} headers - inbound request headers.
  * @param {string} host - the upstream Host header.
  * @param {string} credential - the credential, `Bearer <token>`.
- * @returns {Record<string, string | string[]>} headers for the upstream request.
+ * @returns {Record<string, string>} headers for the upstream request.
  */
 export function ogcRequestHeaders(headers, host, credential) {
-  const out = upstreamRequestHeaders(headers, host, undefined, { body: 'none' })
-  for (const name of Object.keys(out)) {
-    if (OGC_DROPPED_REQUEST_HEADERS.has(name.toLowerCase())) delete out[name]
+  /** @type {Record<string, string>} */
+  const out = { host, authorization: credential }
+  for (const name of OGC_FORWARDED_REQUEST_HEADERS) {
+    const value = headers[name]
+    if (typeof value === 'string') out[name] = value
   }
-  out.authorization = credential
   return out
 }
 
 /**
  * The headers an OGC read's answer reaches the client with: the remote
- * application's treatment, less `set-cookie` and `www-authenticate`, with
+ * application's treatment, less `set-cookie`, `www-authenticate`, and the
+ * upstream's `cache-control` and `expires`, with
  * `x-content-type-options: nosniff` and `content-security-policy: sandbox`, so
- * no document the server generates runs as this origin.
+ * no document the server generates runs as this origin, and
+ * `cache-control: private, no-store`, since the answer is the visitor's own:
+ * it was fetched with their token, under a URL every visitor shares.
  * @param {import('node:http').IncomingHttpHeaders} headers - upstream response headers.
  * @returns {Record<string, string | string[]>} headers for the client.
  */
@@ -1264,12 +1300,13 @@ export function ogcResponseHeaders(headers) {
   }
   out['x-content-type-options'] = 'nosniff'
   out['content-security-policy'] = 'sandbox'
+  out['cache-control'] = 'private, no-store'
   return out
 }
 
 /**
- * Answer an OGC read refused for its form, naming the reason category.
- * Nothing was sent upstream. A body the request carries was framed by
+ * Answer an OGC read refused for its form, naming the reason category and, for
+ * a parameter, the parameter. Nothing was sent upstream. A body the request carries was framed by
  * `requestFraming` before this check, so Node discards it and the connection
  * stays usable.
  * @param {import('node:http').ServerResponse} res - the client response.
@@ -1282,7 +1319,8 @@ function refuseOgcRead(res, refusal) {
     'cache-control': 'no-store',
     ...(refusal.status === 405 ? { allow: 'GET' } : {}),
   })
-  res.end(`{"error":"ogc read refused: ${refusal.reason}"}`)
+  const param = refusal.param === undefined ? {} : { param: refusal.param }
+  res.end(JSON.stringify({ error: `ogc read refused: ${refusal.reason}`, ...param }))
 }
 
 /**

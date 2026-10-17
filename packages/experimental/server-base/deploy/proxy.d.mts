@@ -115,6 +115,8 @@ export interface OgcRefusal {
   status: 400 | 403 | 405
   /** The category logged and answered; never the offending value. */
   reason: 'method' | 'fetch-site' | 'path' | 'body' | 'duplicate' | 'service' | 'request' | 'param' | 'format'
+  /** For `param`, the lowercased name the request may not carry, when it is plain ASCII; answered, never logged. */
+  param?: string
 }
 
 /**
@@ -177,13 +179,13 @@ export function remoteResponseHeaders(headers: IncomingHttpHeaders): Record<stri
  */
 export function ogcReadRefusal(method: string | undefined, headers: IncomingHttpHeaders, url: string | undefined, prefix: string): OgcRefusal | undefined
 /**
- * The headers an OGC read carries upstream, with `authorization` set to the mirror cookie's credential.
+ * The headers an OGC read carries upstream: `host`, `authorization` set to the mirror cookie's credential, and four listed client headers.
  * @param headers - inbound request headers.
  * @param host - the upstream Host header.
  * @param credential - the credential, `Bearer <token>`.
  * @returns headers for the upstream request.
  */
-export function ogcRequestHeaders(headers: IncomingHttpHeaders, host: string, credential: string): Record<string, string | string[]>
+export function ogcRequestHeaders(headers: IncomingHttpHeaders, host: string, credential: string): Record<string, string>
 /**
  * The headers an OGC read's answer reaches the client with.
  * @param headers - upstream response headers.

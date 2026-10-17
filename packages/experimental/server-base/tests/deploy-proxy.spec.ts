@@ -1818,6 +1818,12 @@ describe('OGC reads', () => {
     `${OGC}/ows?service=WMS&request=GetMap&format=IMAGE/PNG`,
     `${OGC}/ows?service=WFS&request=GetFeature&outputFormat=application/json&typeNames=dshsim:roads`,
     `${OGC}/wfs?service=WFS&request=DescribeFeatureType`,
+    `${OGC}/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=dshsim:roads&STYLES=&CRS=EPSG:3857&BBOX=0,0,1,1&WIDTH=256&HEIGHT=256`
+      + '&FORMAT=image/png&TRANSPARENT=true&TILED=true&FORMAT_OPTIONS=dpi:180&cql_filter=kind%3D%27main%27',
+    `${OGC}/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetFeatureInfo&LAYERS=dshsim:roads&QUERY_LAYERS=dshsim:roads&SRS=EPSG:4326`
+      + '&BBOX=0,0,1,1&WIDTH=256&HEIGHT=256&X=10&Y=20&INFO_FORMAT=application/json&FEATURE_COUNT=5',
+    `${OGC}/wfs?service=WFS&version=2.0.0&request=GetFeature&typeNames=dshsim:roads&count=50&startIndex=0&srsName=EPSG:4326`
+      + '&outputFormat=application/json&propertyName=name&sortBy=name&cql_filter=kind%3D%27main%27',
   ])('passes the read %s', (path) => {
     expect(ogcReadRefusal('GET', SAME_ORIGIN, path, OGC)).toBeUndefined()
   })
@@ -1854,15 +1860,22 @@ describe('OGC reads', () => {
     ['a WFS GetFeatureWithLock', 'GET', SAME_ORIGIN, `${OGC}/ows?service=WFS&request=GetFeatureWithLock`, { status: 403, reason: 'request' }],
     ['a legend', 'GET', SAME_ORIGIN, `${OGC}/wms?service=WMS&request=GetLegendGraphic&format=image/png`, { status: 403, reason: 'request' }],
     ['no request', 'GET', SAME_ORIGIN, `${OGC}/wms?service=WMS`, { status: 403, reason: 'request' }],
-    ['an SLD address', 'GET', SAME_ORIGIN, `${GET_MAP}&SLD=http://attacker.example/style.sld`, { status: 403, reason: 'param' }],
-    ['an inline SLD', 'GET', SAME_ORIGIN, `${GET_MAP}&sld_body=%3CStyledLayerDescriptor%2F%3E`, { status: 403, reason: 'param' }],
-    ['a remote service address', 'GET', SAME_ORIGIN, `${GET_MAP}&REMOTE_OWS_URL=http://attacker.example/ows`, { status: 403, reason: 'param' }],
-    ['a remote service type', 'GET', SAME_ORIGIN, `${GET_MAP}&remote_ows_type=WFS`, { status: 403, reason: 'param' }],
-    ['a style address', 'GET', SAME_ORIGIN, `${GET_MAP}&STYLE_URL=http://attacker.example/style.sld`, { status: 403, reason: 'param' }],
-    ['an inline style', 'GET', SAME_ORIGIN, `${GET_MAP}&style_body=%3CStyledLayerDescriptor%2F%3E`, { status: 403, reason: 'param' }],
+    ['an SLD address', 'GET', SAME_ORIGIN, `${GET_MAP}&SLD=http://attacker.example/style.sld`, { status: 403, reason: 'param', param: 'sld' }],
+    ['an inline SLD', 'GET', SAME_ORIGIN, `${GET_MAP}&sld_body=%3CStyledLayerDescriptor%2F%3E`, { status: 403, reason: 'param', param: 'sld_body' }],
+    ['a remote service address', 'GET', SAME_ORIGIN, `${GET_MAP}&REMOTE_OWS_URL=http://attacker.example/ows`, { status: 403, reason: 'param', param: 'remote_ows_url' }],
+    ['a remote service type', 'GET', SAME_ORIGIN, `${GET_MAP}&remote_ows_type=WFS`, { status: 403, reason: 'param', param: 'remote_ows_type' }],
+    ['a style address', 'GET', SAME_ORIGIN, `${GET_MAP}&STYLE_URL=http://attacker.example/style.sld`, { status: 403, reason: 'param', param: 'style_url' }],
+    ['an inline style', 'GET', SAME_ORIGIN, `${GET_MAP}&style_body=%3CStyledLayerDescriptor%2F%3E`, { status: 403, reason: 'param', param: 'style_body' }],
     ['a name a server upper-cases to SLD', 'GET', SAME_ORIGIN, `${GET_MAP}&%C5%BFld=http://attacker.example/style.sld`, { status: 403, reason: 'param' }],
     ['a name a server upper-cases to REQUEST', 'GET', SAME_ORIGIN, `${GET_MAP}&reque%C5%BFt=Transaction`, { status: 403, reason: 'param' }],
     ['a name with a space', 'GET', SAME_ORIGIN, `${GET_MAP}&cql+filter=x`, { status: 403, reason: 'param' }],
+    ['an XML filter', 'GET', SAME_ORIGIN, `${OGC}/wfs?service=WFS&request=GetFeature&FILTER=%3CFilter%2F%3E`, { status: 403, reason: 'param', param: 'filter' }],
+    ['SQL view parameters', 'GET', SAME_ORIGIN, `${GET_MAP}&viewparams=low:0`, { status: 403, reason: 'param', param: 'viewparams' }],
+    ['style substitutions', 'GET', SAME_ORIGIN, `${GET_MAP}&env=color:ff0000`, { status: 403, reason: 'param', param: 'env' }],
+    ['remote reference resolution', 'GET', SAME_ORIGIN, `${OGC}/wfs?service=WFS&request=GetFeature&resolve=remote`, { status: 403, reason: 'param', param: 'resolve' }],
+    ['a cache-busting parameter', 'GET', SAME_ORIGIN, `${GET_MAP}&_=1700000000`, { status: 403, reason: 'param', param: '_' }],
+    ['a map parameter on GetCapabilities', 'GET', SAME_ORIGIN, `${OGC}/wms?service=WMS&request=GetCapabilities&layers=a`, { status: 403, reason: 'param', param: 'layers' }],
+    ['a GetFeatureInfo parameter on GetMap', 'GET', SAME_ORIGIN, `${GET_MAP}&query_layers=a`, { status: 403, reason: 'param', param: 'query_layers' }],
     ['a GetMap with no format', 'GET', SAME_ORIGIN, `${OGC}/wms?service=WMS&request=GetMap`, { status: 403, reason: 'format' }],
     ['a GetMap as an HTML page', 'GET', SAME_ORIGIN, `${OGC}/wms?service=WMS&request=GetMap&format=application/openlayers`, { status: 403, reason: 'format' }],
     ['a GetMap with a second format', 'GET', SAME_ORIGIN, `${GET_MAP}&format=application/openlayers`, { status: 403, reason: 'format' }],
@@ -1873,27 +1886,48 @@ describe('OGC reads', () => {
     expect(ogcReadRefusal(method, headers, path, OGC)).toEqual(refusal)
   })
 
-  it('sends upstream only the mirror cookie\'s credential: no cookie, no client Authorization or CertificationToken, no member header', () => {
+  it('sends upstream only the mirror cookie\'s credential and the four listed client headers', () => {
     expect(ogcRequestHeaders({
       'cookie': `accessToken=${TOKEN}; dsh-auth-0a1b=signed`,
       'authorization': 'Basic Zm9yZ2Vk',
       'certificationtoken': 'forged',
       'x-dsh-member': 'forged-by-the-client',
+      'x-forwarded-host': 'attacker.example',
+      'forwarded': 'host=attacker.example',
+      'sec-username': 'admin',
+      'referer': 'http://127.0.0.1:8082/conversation/1',
       'content-length': '0',
       'connection': 'keep-alive',
       'host': '127.0.0.1:8082',
       'accept': 'image/png',
-    }, '127.0.0.1:9701', `Bearer ${TOKEN}`)).toEqual({ accept: 'image/png', host: '127.0.0.1:9701', authorization: `Bearer ${TOKEN}` })
+      'accept-encoding': 'gzip',
+      'accept-language': 'zh-CN',
+      'user-agent': 'test',
+    }, '127.0.0.1:9701', `Bearer ${TOKEN}`)).toEqual({
+      'host': '127.0.0.1:9701',
+      'authorization': `Bearer ${TOKEN}`,
+      'accept': 'image/png',
+      'accept-encoding': 'gzip',
+      'accept-language': 'zh-CN',
+      'user-agent': 'test',
+    })
   })
 
-  it('relays the answer with no cookie or login challenge, sandboxed so no page the server generates runs as this origin', () => {
+  it('relays the answer with no cookie or login challenge, sandboxed, and kept out of every cache, since another visitor shares its URL', () => {
     expect(ogcResponseHeaders({
       'content-type': 'image/png',
       'set-cookie': ['JSESSIONID=1; Path=/geoserver'],
       'www-authenticate': 'Basic realm="GeoServer"',
       'content-security-policy': "default-src 'self'; frame-ancestors 'none'",
       'x-frame-options': 'DENY',
-    })).toEqual({ 'content-type': 'image/png', 'x-content-type-options': 'nosniff', 'content-security-policy': 'sandbox' })
+      'cache-control': 'public, max-age=3600',
+      'expires': 'Thu, 01 Jan 2099 00:00:00 GMT',
+    })).toEqual({
+      'content-type': 'image/png',
+      'x-content-type-options': 'nosniff',
+      'content-security-policy': 'sandbox',
+      'cache-control': 'private, no-store',
+    })
   })
 
   it('sends a checked read to its prefix\'s origin with the mirror cookie\'s token as its only credential', async () => {
@@ -1903,8 +1937,10 @@ describe('OGC reads', () => {
       'cookie': `accessToken=${TOKEN}; dsh-auth-0a1b=signed; JSESSIONID=old`,
       'authorization': 'Basic Zm9yZ2Vk',
       'certificationtoken': 'forged',
+      'x-forwarded-host': 'attacker.example',
     })
     expect(answer.status).toBe(200)
+    expect(answer.headers['cache-control']).toBe('private, no-store')
     expect(answer.headers).not.toHaveProperty('set-cookie')
     expect(answer.headers).not.toHaveProperty('www-authenticate')
     expect(answer.headers['x-content-type-options']).toBe('nosniff')
@@ -1917,6 +1953,7 @@ describe('OGC reads', () => {
     expect(headers.host).toBe(`127.0.0.1:${String(w.gateway.port)}`)
     expect(headers).not.toHaveProperty('cookie')
     expect(headers).not.toHaveProperty('certificationtoken')
+    expect(headers).not.toHaveProperty('x-forwarded-host')
     expect(memberHeaderNames(headers)).toEqual([])
     expect(w.customer.requests).toEqual([])
     expect(w.dsh.requests).toEqual([])
@@ -1960,6 +1997,9 @@ describe('OGC reads', () => {
     expect(posted.split('\r\n')[0]).toBe('HTTP/1.1 405 Method Not Allowed')
     expect(posted).toMatch(/\r\nallow: GET\r\n/i)
     expect(posted).toContain('{"error":"ogc read refused: method"}')
+    const unlisted = await exchange(w.port, `GET ${GET_MAP}&viewparams=x HTTP/1.1\r\nHost: 127.0.0.1\r\nSec-Fetch-Site: same-origin\r\nConnection: close\r\n\r\n`)
+    expect(unlisted.split('\r\n')[0]).toBe('HTTP/1.1 403 Forbidden')
+    expect(unlisted).toContain('{"error":"ogc read refused: param","param":"viewparams"}')
     const bodied = await exchange(w.port, `GET ${GET_MAP} HTTP/1.1\r\nHost: 127.0.0.1\r\nSec-Fetch-Site: same-origin\r\nCookie: accessToken=${TOKEN}\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello`)
     expect(bodied.split('\r\n')[0]).toBe('HTTP/1.1 400 Bad Request')
     expect((await send(w.port, GET_MAP, LOGGED_IN)).status).toBe(403)
@@ -2013,7 +2053,8 @@ describe('OGC reads', () => {
     const expired = expiringToken('1700000000')
     const w = await ogcWorld({}, ECHO_RENEWAL, 500)
     await send(w.port, GET_MAP, LOGGED_IN)
-    await send(w.port, `${OGC}/wms?service=WMS&request=GetMap&format=application/openlayers&marker=query-value`, READ)
+    await send(w.port, `${OGC}/wms?service=WMS&request=GetMap&format=application/openlayers&cql_filter=query-value`, READ)
+    await send(w.port, `${GET_MAP}&viewparams=query-value`, READ)
     await send(w.port, GET_MAP, { ...SAME_ORIGIN, cookie: `accessToken=${expired}` })
     expect((await send(w.port, GET_MAP, READ)).status).toBe(500)
     const unreachable = await world({ OGC_READ_PREFIXES: OGC, REMOTE_PREFIX_ORIGINS: `${OGC}=http://127.0.0.1:${String(await closedPort())}` })
@@ -2021,12 +2062,13 @@ describe('OGC reads', () => {
     expect(w.logs).toEqual([
       `proxy: ogc refused GET ${OGC}/wms: fetch-site`,
       `proxy: ogc refused GET ${OGC}/wms: format`,
+      `proxy: ogc refused GET ${OGC}/wms: param`,
       `proxy: ogc refused GET ${OGC}/wms: expired`,
       `proxy: ogc GET ${OGC}/wms -> 500`,
     ])
     expect(unreachable.logs).toEqual([expect.stringMatching(new RegExp(`^proxy: ogc request GET ${OGC}/wms failed: `))])
     const logs = [...w.logs, ...unreachable.logs].join('\n')
-    for (const secret of [TOKEN, expired, 'Bearer ', '?', 'query-value', 'openlayers']) expect(logs).not.toContain(secret)
+    for (const secret of [TOKEN, expired, 'Bearer ', '?', 'query-value', 'openlayers', 'viewparams']) expect(logs).not.toContain(secret)
   })
 })
 
