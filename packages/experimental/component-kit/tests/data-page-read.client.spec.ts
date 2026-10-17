@@ -38,6 +38,7 @@ import {
   readFormPage,
   readFormSaved,
   readGrantedRights,
+  readRowKeys,
   readInfoCard,
   readLoadedColumns,
   readOpened,
@@ -613,6 +614,42 @@ describe('what the add and modify buttons opened', () => {
     ['no payload at all', undefined],
   ])('is not one the output may carry for %s', (_case, payload) => {
     expect(readEditing(payload)).toBeUndefined()
+  })
+})
+
+describe('the keys a page\'s drawn rows carry', () => {
+  /**
+   * Rows as el-table draws them, each holding the record it was drawn for.
+   * @param records - the record each row holds, `undefined` for a row with no component on it.
+   * @returns the rows.
+   */
+  function drawnRows(records: readonly unknown[]): Element[] {
+    return records.map((record) => {
+      const row = document.createElement('tr')
+      if (record !== undefined) Object.assign(row, { __vue__: { row: record } })
+      return row
+    })
+  }
+
+  it('keys each row by the id of the record at its position, spelled as an output spells one', () => {
+    const records = [{ int_id: '1134933624650219530' }, { int_id: 41 }, { zh_label: '无编号' }, 'not a record']
+    expect(readRowKeys({ resultData: { displayValue: records } }, drawnRows(records)))
+      .toEqual(['1134933624650219530', '41', undefined, undefined])
+    // A row el-table draws without a component of its own is taken by position.
+    expect(readRowKeys({ resultData: { displayValue: records } }, drawnRows([undefined, undefined, undefined, undefined])))
+      .toEqual(['1134933624650219530', '41', undefined, undefined])
+  })
+
+  it('keys nothing where the rows drawn are not the records displayed', () => {
+    const records = [{ int_id: '1' }, { int_id: '2' }]
+    // Fewer or more rows than records: an answer landed and the table has not been redrawn.
+    expect(readRowKeys({ resultData: { displayValue: records } }, drawnRows([records[0]]))).toBeUndefined()
+    // As many rows, one still holding the record it was drawn for before the answer.
+    expect(readRowKeys({ resultData: { displayValue: records } }, drawnRows([records[0], { int_id: '9' }]))).toBeUndefined()
+    // A cleared page displays nothing, and no page at all is nothing to read.
+    expect(readRowKeys({ resultData: {} }, drawnRows([records[0]]))).toBeUndefined()
+    expect(readRowKeys({}, [])).toEqual([])
+    expect(readRowKeys(null, drawnRows([records[0]]))).toBeUndefined()
   })
 })
 

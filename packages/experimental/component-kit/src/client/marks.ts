@@ -7,8 +7,9 @@
  * from carries the attribute that says what it is: `data-component-action` for
  * the action a control performs, `data-component-key` for the control's own key
  * where one action is performed by several controls (a confirmation bar's
- * buttons, a table row's operation links), and `data-component-field` for a
- * field, named as the column or property it is. The renderers write these
+ * buttons, a table row's operation links), `data-component-field` for a
+ * field, named as the column or property it is, and `data-component-row` for
+ * the record a table row draws, keyed the way its block keys its rows. The renderers write these
  * attributes onto the markup they draw themselves; the controls inside a
  * vendored Vue component are drawn after the React commit and again whenever
  * that component renders on its own state, so this module marks them from the
@@ -23,6 +24,7 @@
  * @module @deepseek-ai/dsh-experimental-component-kit/client/marks
  */
 import { useEffect, useRef, type RefObject } from 'react'
+import { isTarget } from '@deepseek-ai/dsh-experimental-component-surface/client'
 
 /** The attribute naming the action a control performs. */
 const ACTION_MARK = 'data-component-action'
@@ -32,6 +34,9 @@ const KEY_MARK = 'data-component-key'
 
 /** The attribute naming the column or property a field writes. */
 export const FIELD_MARK = 'data-component-field'
+
+/** The attribute naming the row a control is drawn in, by the key the block gives that row. */
+export const ROW_MARK = 'data-component-row'
 
 /** The one action a table's selection controls report. */
 const SELECT_ACTION = 'select'
@@ -71,11 +76,23 @@ const SELECT_CONTROLS = [
   under(BODY_WRAPPERS, 'tbody td:not(.is-hidden) .el-radio__original'),
 ].join(', ')
 
-/**
- * A row's own cells, minus the selection column's: the cell a click opens the
- * row from.
- */
-const ROW_CELLS = under(BODY_WRAPPERS, 'tbody td:not(.el-table-column--selection):not(.is-hidden)')
+/** One table's scrolling body, where every column of a row is drawn. */
+const MAIN_BODY = ':scope > .el-table__body-wrapper tbody'
+
+/** The body of one table's left fixed layer, where a fixed name column is drawn. */
+const LEFT_BODY = ':scope > .el-table__fixed .el-table__fixed-body-wrapper tbody'
+
+/** The body of one table's right fixed layer, where a fixed operation column is drawn. */
+const RIGHT_BODY = ':scope > .el-table__fixed-right .el-table__fixed-body-wrapper tbody'
+
+/** One record's row in a table body, without the rows el-table draws for anything else. */
+const RECORD_ROW = 'tr.el-table__row'
+
+/** A drawn cell a click may open its row from: not a placeholder, and not the selection column's. */
+const OPENABLE_CELL = 'td:not(.is-hidden):not(.el-table-column--selection)'
+
+/** The link a name or a relation column draws, which opens the record it names. */
+const RECORD_LINK = 'a.trans'
 
 /** The heading of every column the user may sort, in whichever wrapper draws it. */
 const SORT_HEADINGS = under(HEADER_WRAPPERS, 'th.is-sortable:not(.is-hidden)')
@@ -107,8 +124,23 @@ const CUSTOM_OPERATION = '.operation-custom a'
  * from one that reports a row.
  */
 export interface TableMarks {
-  /** The action a click on a row's cell reports; absent for a table whose rows do not open. */
+  /**
+   * The table the row marks are written in, as a selector under the block's
+   * subtree; the first table drawn there when absent.
+   */
+  readonly table?: string
+  /** The action a click on a row's opening cell reports; absent for a table whose rows do not open. */
   readonly row?: string
+  /**
+   * The action a record link in a row reports; absent for a table whose links
+   * report nothing. Each link carries its column's property as its own key.
+   */
+  readonly link?: string
+  /**
+   * How each drawn row is keyed, read at every pass; absent for a table whose
+   * rows carry no key.
+   */
+  readonly rowKeys?: RowKeys
   /** The action a sortable heading reports; absent for a table that reports no sort. */
   readonly sort?: string
   /** The per-row operation controls, where the block draws any. */
@@ -119,6 +151,15 @@ export interface TableMarks {
     readonly custom: readonly string[]
   }
 }
+
+/**
+ * How one table's drawn rows are keyed.
+ * @param rows - the scrolling body's record rows, in the order drawn.
+ * @returns one key per row, `undefined` for a row that carries none, or
+ *   `undefined` altogether where the rows cannot be keyed on this pass, which
+ *   leaves every key already written as it is.
+ */
+export type RowKeys = (rows: readonly Element[]) => readonly (string | undefined)[] | undefined
 
 /**
  * Keep a block's controls marked for as long as it is mounted.
@@ -171,15 +212,150 @@ function markAll(root: Element, selector: string, attribute: string, value: stri
 }
 
 /**
+ * The record rows one table body draws, in the order the table draws its records.
+ * @param body - the body, or `null` where the table draws none of that kind.
+ * @returns the rows.
+ */
+function recordRows(body: Element | null): Element[] {
+  return body === null ? [] : [...body.children].filter(row => row.matches(RECORD_ROW))
+}
+
+/**
+ * The cells of one drawn row a click could open the row from, in the order
+ * drawn: neither a placeholder nor the selection column's, and not the cell
+ * holding the row's operations.
+ * @param row - the row, or `undefined` where the body draws none at that position.
+ * @returns the cells.
+ */
+function openableCells(row: Element | undefined): Element[] {
+  if (row === undefined) return []
+  return [...row.children].filter(cell => cell.matches(OPENABLE_CELL) && cell.querySelector('.column-operation') === null)
+}
+
+/**
+ * The one cell each record is opened from: its name cell, which is the one
+ * cell besides the selection column's that the left fixed layer draws for it,
+ * and where no fixed layer draws a name column, the first openable cell the
+ * scrolling body draws.
+ * @param main - the scrolling body's record rows.
+ * @param left - the left fixed layer's record rows, empty where the table draws none.
+ * @returns the cells, one per record at most.
+ */
+function openingCells(main: readonly Element[], left: readonly Element[]): Set<Element> {
+  const opening = new Set<Element>()
+  for (const [at, row] of main.entries()) {
+    const named = openableCells(left[at])
+    const cell = named.length === 1 ? named[0] : openableCells(row)[0]
+    if (cell !== undefined) opening.add(cell)
+  }
+  return opening
+}
+
+/**
+ * Mark the one cell each record is opened from with the table's row action,
+ * and take the action off every other cell of the table: a pass made before
+ * the fixed layer was drawn marked a cell the name cell has since replaced.
+ * @param table - the table.
+ * @param action - the action a click on a row's opening cell reports.
+ * @param opening - the cells to mark.
+ */
+function markOpening(table: Element, action: string, opening: ReadonlySet<Element>): void {
+  for (const cell of table.querySelectorAll('tbody td')) {
+    if (opening.has(cell)) cell.setAttribute(ACTION_MARK, action)
+    else if (cell.getAttribute(ACTION_MARK) === action) cell.removeAttribute(ACTION_MARK)
+  }
+}
+
+/** The element-ui table component on its own root, which holds the columns it draws. */
+type DrawnTable = Element & {
+  /** The component instance Vue writes on its root element. */
+  readonly __vue__?: {
+    /** The columns, as el-table holds them: each with the id its cells carry as a class. */
+    readonly columns?: readonly { readonly id?: unknown; readonly property?: unknown }[]
+  }
+}
+
+/**
+ * The property of the column one drawn cell belongs to, read from the table's
+ * own column list by the column id the cell carries as a class.
+ * @param table - the table.
+ * @param cell - the cell.
+ * @returns the property, or `undefined` where the table names none a step could carry.
+ */
+function columnOf(table: DrawnTable, cell: Element): string | undefined {
+  const column = table.__vue__?.columns?.find(one => typeof one.id === 'string' && cell.classList.contains(one.id))
+  const property = column?.property
+  return isTarget(property) ? property : undefined
+}
+
+/**
+ * Mark every drawn record link of a table's rows with the action it reports
+ * and its column's property as its own key, which tells a row's name link
+ * from its relation links.
+ * @param table - the table.
+ * @param action - the action a record link reports.
+ */
+function markLinks(table: Element, action: string): void {
+  for (const link of table.querySelectorAll(`tbody ${OPENABLE_CELL} ${RECORD_LINK}`)) {
+    link.setAttribute(ACTION_MARK, action)
+    const cell = link.closest('td')
+    const property = cell === null ? undefined : columnOf(table, cell)
+    if (property === undefined) link.removeAttribute(KEY_MARK)
+    else link.setAttribute(KEY_MARK, property)
+  }
+}
+
+/**
+ * Write each record's row key on every row that draws it — the scrolling
+ * body's and each fixed layer's — or leave every key as it stands.
+ *
+ * A pass whose keys do not line up with the drawn rows writes nothing: a row
+ * el-table has not redrawn yet still shows the record it was keyed for, and a
+ * pass that took the key off would leave it unkeyed until the next change
+ * below the block. Where they line up, a key a step could not carry is taken
+ * off the row rather than written.
+ * @param bodies - the record rows of every body the table draws, the scrolling one first.
+ * @param keys - one key per record, or `undefined` where this pass cannot key the rows.
+ */
+function markRowKeys(bodies: readonly (readonly Element[])[], keys: readonly (string | undefined)[] | undefined): void {
+  if (keys === undefined || bodies.some(rows => rows.length !== keys.length)) return
+  for (const rows of bodies) {
+    for (const [at, row] of rows.entries()) {
+      const key = keys[at]
+      if (isTarget(key)) row.setAttribute(ROW_MARK, key)
+      else row.removeAttribute(ROW_MARK)
+    }
+  }
+}
+
+/**
+ * Mark one table's rows: the cell each record is opened from, its record
+ * links, and the key every row of it carries.
+ * @param table - the table.
+ * @param marks - what this table reports.
+ */
+function markRows(table: Element, marks: TableMarks): void {
+  const main = recordRows(table.querySelector(MAIN_BODY))
+  const fixed = [table.querySelector(LEFT_BODY), table.querySelector(RIGHT_BODY)]
+  if (marks.row !== undefined) markOpening(table, marks.row, openingCells(main, recordRows(fixed[0] ?? null)))
+  if (marks.link !== undefined) markLinks(table, marks.link)
+  if (marks.rowKeys === undefined) return
+  const drawn = fixed.filter((body): body is Element => body !== null).map(recordRows)
+  markRowKeys([main, ...drawn], marks.rowKeys(main))
+}
+
+/**
  * Mark one drawn table's controls: in both of the wrappers el-table draws a
  * table in, and never on its `is-hidden` placeholder copy, as the selectors
- * above are written.
+ * above are written; and one table's rows, as {@link TableMarks} names it —
+ * one opening cell per record, its record links, and its row keys.
  * @param root - the block's subtree.
  * @param marks - what this table reports.
  */
 export function markTable(root: Element, marks: TableMarks): void {
   markAll(root, SELECT_CONTROLS, ACTION_MARK, SELECT_ACTION)
-  if (marks.row !== undefined) markAll(root, ROW_CELLS, ACTION_MARK, marks.row)
+  const table = root.querySelector(marks.table ?? '.el-table')
+  if (table !== null) markRows(table, marks)
   if (marks.sort !== undefined) markAll(root, SORT_HEADINGS, ACTION_MARK, marks.sort)
   const operations = marks.operations
   if (operations === undefined) return
@@ -305,18 +481,27 @@ const BATCH_MENU_KEYS: readonly { readonly icon: string; readonly key: string }[
 /** One item of the toolbar dropdown a data page's batch button opens. */
 const BATCH_MENU_ITEM = '.crud-action .el-dropdown-menu__item'
 
-/** What one data page block reports beyond its fixed controls: the custom operations a row draws. */
+/** The table a data page draws its query's records in, as against the tables its dialogs and card draw. */
+const DATA_PAGE_TABLE = '.crud-table .el-table'
+
+/**
+ * What one data page block reports beyond its fixed controls: the custom
+ * operations a row draws, and how its rows are keyed.
+ */
 export interface DataPageMarks {
   /** The keys of the declared custom operations, in the order a row draws them. */
   readonly custom: readonly string[]
+  /** How the page's rows are keyed on this pass; absent where the page's records cannot be read. */
+  readonly rowKeys?: RowKeys
 }
 
 /**
  * Mark one drawn data page's controls: its toolbar and dialogs, the batch
- * menu's items by key, its fields by column, and its table with the one row
- * action the page reports and its operation keys.
+ * menu's items by key, its fields by column, and its table with the one cell
+ * each record opens from, its record links, its operation keys and its row
+ * keys.
  * @param root - the block's subtree.
- * @param marks - the custom operations the block declared.
+ * @param marks - the custom operations the block declared, and how its rows are keyed.
  */
 export function markDataPage(root: Element, marks: DataPageMarks): void {
   for (const control of DATA_PAGE_CONTROLS) {
@@ -331,7 +516,10 @@ export function markDataPage(root: Element, marks: DataPageMarks): void {
   }
   markFields(root, DATA_PAGE_FIELD_INPUTS)
   markTable(root, {
+    table: DATA_PAGE_TABLE,
     row: 'cell-click',
+    link: 'card-open',
     operations: { builtin: 'modify', custom: marks.custom },
+    ...marks.rowKeys === undefined ? {} : { rowKeys: marks.rowKeys },
   })
 }

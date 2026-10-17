@@ -137,6 +137,32 @@ defineTable(MASKED_WRITE_META, {
   modifiableColumns: ['city'],
 })
 
+/**
+ * A table whose rows draw their names as the links that open each record's
+ * card, keyed by nineteen-digit record ids, one of which no step could carry.
+ */
+const LINKED_META = 'probe_linked'
+
+/** The rows of {@link LINKED_META}, in the order the page draws them. */
+const LINKED_ROWS = [
+  { int_id: '1134933624650219530', zh_label: '配送车-离线', city: '北京' },
+  { int_id: '1134933624650219531', zh_label: '燃气管线', city: '济南' },
+  { int_id: '1134933624650219532', zh_label: '调压站', city: '上海' },
+  { int_id: 'no id', zh_label: '无编号', city: '天津' },
+]
+
+defineTable(LINKED_META, {
+  gridItems: [
+    { relatedMetaAttr: 'zh_label', alias: '名称', isShow: '1', relatedComponent: 'display_default' },
+    { relatedMetaAttr: 'city', alias: '城市', isShow: '1' },
+  ],
+  formItems: [
+    { relatedMetaAttr: 'zh_label', alias: '名称', isShow: 1, isEditable: 1, isRequired: 0, relatedComponent: 'edit_input', op: 'LIKE' },
+    { relatedMetaAttr: 'city', alias: '城市', isShow: 1, isEditable: 1, isRequired: 0, relatedComponent: 'edit_input', op: 'EQ' },
+  ],
+  rows: LINKED_ROWS,
+})
+
 /** Every node appended straight under the document body, by id, while a case ran. */
 const escaped: string[] = []
 
@@ -1253,6 +1279,62 @@ describe('the controls one data page marks for the act tool', () => {
     // is taken there is no card and no closer to mark.
     pageOf(view.container).handleTableTransCellClick({ dataBase: { id: '1', name: '北京-核心-01', type: META } })
     await vi.waitFor(() => { expect(marksOn(closer())).toEqual({ action: 'card-close', key: null }) }, { timeout: 5000, interval: 20 })
+  }, 20_000)
+
+  it('keys every copy of each row by its record\'s id, and marks one opening cell and the name link per record', async () => {
+    const { view, onAction } = draw(Object.freeze({
+      relatedMeta: LINKED_META,
+      metaLabel: '链接',
+      readOnly: false,
+      rowOperations: ['modify', 'delete'],
+      selectMode: 'checkbox',
+    }))
+    await loaded(onAction)
+    const ids = LINKED_ROWS.map(row => row.int_id)
+    // The scrolling body and both fixed layers draw every record; each copy
+    // carries the id, and the record whose id no step could carry carries none.
+    await vi.waitFor(() => {
+      expect([...view.container.querySelectorAll('.crud-table tbody')]
+        .map(body => [...body.querySelectorAll('tr.el-table__row')].map(row => row.getAttribute('data-component-row'))))
+        .toEqual([0, 1, 2].map(() => [...ids.slice(0, 3), null]))
+    }, { timeout: 3000, interval: 20 })
+    // One cell per record opens it: the name cell the left fixed layer draws.
+    const opening = [...view.container.querySelectorAll('[data-component-action="cell-click"]')]
+    expect(opening.map(cell => cell.textContent?.trim())).toEqual(LINKED_ROWS.map(row => row.zh_label))
+    expect(opening.every(cell => cell.closest('.el-table__fixed') !== null)).toBe(true)
+    // The name link inside that cell opens the record's card, named by its column.
+    const links = [...view.container.querySelectorAll('[data-component-action="card-open"]')]
+    expect(links.map(link => [link.textContent?.trim(), link.getAttribute('data-component-key')]))
+      .toEqual(LINKED_ROWS.map(row => [row.zh_label, 'zh_label']))
+    expect(links.every(link => link.closest('.el-table__fixed') !== null)).toBe(true)
+    // Each row's own controls stand inside the row its key is written on.
+    const modify = [...view.container.querySelectorAll('[data-component-key="modify"]')]
+    expect(modify.map(control => control.closest('[data-component-row]')?.getAttribute('data-component-row') ?? null))
+      .toEqual([...ids.slice(0, 3), null])
+    const ticks = [...view.container.querySelectorAll('[data-component-action="select"]')]
+    expect(ticks.map(tick => tick.closest('[data-component-row]')?.getAttribute('data-component-row') ?? null))
+      .toEqual([...ids.slice(0, 3), null])
+  }, 20_000)
+
+  it('reports a cell the user clicks whichever cell it is, and both reports for the name link', async () => {
+    const { view, onAction, onOutput } = draw(Object.freeze({ relatedMeta: LINKED_META, metaLabel: '链接', selectMode: 'checkbox' }))
+    await loaded(onAction)
+    await vi.waitFor(() => { expect(view.container.querySelector('[data-component-action="card-open"]')).not.toBeNull() })
+    // The city cell opens nothing the act tool presses, and a person clicking
+    // it is still reported: the report is the page's own event for the click.
+    const city = [...view.container.querySelectorAll('.el-table__body-wrapper tbody td:not(.is-hidden)')]
+      .find(cell => cell.textContent?.trim() === '济南') as HTMLElement
+    expect(city.getAttribute('data-component-action')).toBeNull()
+    fireEvent.click(city)
+    expect(onAction).toHaveBeenLastCalledWith('cell-click', { attr: 'city', label: '城市', row: { zh_label: '燃气管线', city: '济南' } })
+    // The name link opens the card, and its click reaches the row's own cell
+    // click on the way up, so the page reports both, card first.
+    onAction.mockClear()
+    const link = inRow(view.container, '燃气管线', '[data-component-action="card-open"]') as HTMLElement
+    fireEvent.click(link)
+    expect(onAction.mock.calls.map(call => call[0])).toEqual(['card-open', 'cell-click'])
+    expect(onAction).toHaveBeenCalledWith('card-open', { name: '燃气管线', type: LINKED_META })
+    expect(onOutput).toHaveBeenLastCalledWith('opened', { id: '1134933624650219531', name: '燃气管线', type: LINKED_META })
   }, 20_000)
 
   it('marks a control a redraw adds by the key the call now declares', async () => {

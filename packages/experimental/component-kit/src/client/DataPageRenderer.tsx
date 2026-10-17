@@ -143,10 +143,12 @@ import {
   readOpened,
   readOperation,
   readQuery,
+  readRowKeys,
   readSaved,
   readSelection,
   readValueColumns,
   type DataPageVueProps,
+  type DisplayedRecords,
   type EditingRecord,
   type OpenedRecord,
   type ReportedColumn,
@@ -156,6 +158,7 @@ import { useAbilities } from './use-abilities.ts'
 import { markDataPage, useKeptMarks } from './marks.ts'
 import type { DataPageAbilityTable } from '../route.ts'
 import type { VueEventHandlers } from './vue2-bridge.tsx'
+import type { VueInstance } from './vue-shim.ts'
 import css from './DataPageRenderer.module.css'
 import type { ComponentKitKey } from './locales.ts'
 import type { ComponentActionHandler, ComponentOutputHandler, ComponentRendererProps } from './renderer.ts'
@@ -314,13 +317,29 @@ interface DataPageProps extends Pick<ComponentRendererProps, 'props' | 'onAction
   readonly vueProps: DataPageMountProps
 }
 
+/** The mounted page as its rows are keyed off it: the records its last query displays. */
+type DrawnPage = VueInstance & DisplayedRecords
+
+/** What one mark pass over a drawn page reads. */
+interface PageMarking {
+  /** The page's properties, as the block is drawing it. */
+  readonly vueProps: DataPageMountProps
+  /** Where the bridge publishes the mounted page. */
+  readonly page: { readonly current: VueInstance | null }
+}
+
 /**
- * Mark one drawn page's controls, with the custom operations the block declares.
+ * Mark one drawn page's controls, with the custom operations the block
+ * declares and the rows keyed by the records the page displays.
  * @param root - the block's subtree.
- * @param vueProps - the page's properties, as the block is drawing it.
+ * @param marking - the page's properties and the mounted page.
  */
-function markPage(root: Element, vueProps: DataPageMountProps): void {
-  markDataPage(root, { custom: (vueProps.customOperations ?? []).map(operation => operation.name) })
+function markPage(root: Element, marking: PageMarking): void {
+  markDataPage(root, {
+    custom: (marking.vueProps.customOperations ?? []).map(operation => operation.name),
+    // Read at the pass, never when an answer lands: `readRowKeys` says why.
+    rowKeys: rows => readRowKeys(marking.page.current as DrawnPage | null, rows),
+  })
 }
 
 /** The page itself, drawn once the base path its requests go under is in force. */
@@ -417,8 +436,9 @@ function DataPageBlock({ props, vueProps, onAction, onOutput }: DataPageProps) {
       if (report !== undefined) current.onAction(EXPORTED_ACTION_ID, report)
     },
   }), [])
-  const { box, host } = useContainedComponent({ component: DataPage, props: vueProps, on })
-  useKeptMarks(box, vueProps, markPage)
+  const page = useRef<VueInstance | null>(null)
+  const { box, host } = useContainedComponent({ component: DataPage, props: vueProps, on, instanceRef: page })
+  useKeptMarks(box, { vueProps, page }, markPage)
   return (
     <div ref={box} className={css.box}>
       <div ref={host} className={css.host} />
