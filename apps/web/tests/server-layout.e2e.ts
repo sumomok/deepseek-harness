@@ -6,7 +6,8 @@
  * row never reaches the browser boot manifest, the browser fetches this shell's
  * bundle instead, and every shipped registrant lands in it unchanged. The
  * assertions cover what only a real engine can answer: the ratio a real layout
- * pass produces, which column each shipped surface ended up in, and that
+ * pass produces, which column each shipped surface ended up in, that revealing
+ * an element inside the frame never scrolls the frame sideways, and that
  * replacing the shell left no console damage behind.
  *
  * Two describe blocks, two compositions: the first composes server-layout
@@ -291,6 +292,26 @@ describe.skipIf(MODE === 'record')('web e2e: service-line shell with a populated
 
     // Evidence for the composition, not a failure artifact.
     await page.screenshot({ path: join(REPO_ROOT, '.artifacts', 'web-e2e-server-layout.png') })
+  }, 90_000)
+
+  it('keeps the frame from scrolling sideways when an element inside it is revealed, so the session column stays at the left edge', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-layout-reveal'))
+    // The details column's hidden right-column host hangs past the frame's
+    // right edge, so a frame that is a scroll container has room to scroll.
+    const shift = await column(page, 'session').locator('..').evaluate((frame, composer) => {
+      const target = frame.querySelector(composer)
+      const session = frame.querySelector('[data-shell-column="session"]')
+      if (target === null || session === null) throw new Error('the frame holds no composer or session column')
+      frame.scrollLeft = 1_000
+      const forced = frame.scrollLeft
+      frame.scrollLeft = 0
+      target.scrollIntoView({ block: 'nearest', inline: 'center' })
+      const revealed = frame.scrollLeft
+      const sessionLeft = session.getBoundingClientRect().left
+      frame.scrollLeft = 0
+      return { forced, revealed, sessionLeft }
+    }, COMPOSER)
+    expect(shift).toEqual({ forced: 0, revealed: 0, sessionLeft: 0 })
   }, 90_000)
 
   it('leaves the console clean', () => {
