@@ -22,6 +22,8 @@ import {
   catalogAction,
   catalogEntry,
   COMPONENT_ACTION_COMMAND,
+  CONFIRM_BAR_ID,
+  CONFIRM_BAR_PRESS_ID,
   DATA_PAGE_ADDED_ID,
   DATA_PAGE_AUTH_FAILED_ID,
   DATA_PAGE_BATCH_MODIFIED_ID,
@@ -66,6 +68,7 @@ import {
   TABLE_ROW_CLICK_ID,
   TABLE_SELECT_ID,
   TABLE_SORT_ID,
+  type ComponentActionActor,
   type ComponentActionNotice,
   type PropsFieldSchema,
 } from '../src/component-call.ts'
@@ -79,6 +82,7 @@ import { KIT_CATALOG } from './kit-catalog.client.ts'
  * @param actionId - the action the block reports.
  * @param payload - the payload the seat reported, however malformed.
  * @param entryTitle - the title the placing call wrote; the ordinary one unless a case is about the title itself.
+ * @param actor - who caused the gesture, as the command handler states it; left out as a context built elsewhere does.
  * @returns the two accounts, or `undefined` where the gesture names nothing on display.
  */
 function notice(
@@ -87,6 +91,7 @@ function notice(
   actionId: string,
   payload: Record<string, unknown>,
   entryTitle = '设备列表',
+  actor?: ComponentActionActor,
 ): ComponentActionNotice | undefined {
   const result = validateComponentSpec(KIT_CATALOG, { nodes: [{ id: 'block', component: componentId, props }] })
   if (!result.ok) throw new Error(result.failure.text)
@@ -95,7 +100,7 @@ function notice(
   if (node === undefined || component === undefined) throw new Error(`no ${componentId} block was built`)
   const action = catalogAction(component, actionId)
   if (action === undefined) throw new Error(`${componentId} declares no ${actionId}`)
-  return action.describe({ entryId: 'devices', entryTitle, node, component, payload })
+  return action.describe({ entryId: 'devices', entryTitle, node, component, payload, ...actor === undefined ? {} : { actor } })
 }
 
 /** The payload schema of one catalog action. */
@@ -1168,5 +1173,79 @@ describe('the declarations the drawing row holds itself to', () => {
       .toEqual([DATA_PAGE_REPORT_LIMITS.attributeLength, DATA_PAGE_REPORT_LIMITS.attributeCharset])
     expect([MAX_DATA_PAGE_AUTH_STATUS, MAX_DATA_PAGE_AUTH_CODE_LENGTH])
       .toEqual([DATA_PAGE_REPORT_LIMITS.authStatus, DATA_PAGE_REPORT_LIMITS.authCodeLength])
+  })
+})
+
+describe('a gesture the agent\'s own step caused', () => {
+  /** A bar with one button, as a call places it. */
+  const BAR = { title: '确认', buttons: [{ id: 'ok', label: '同意' }] }
+
+  /** The data page every page case here reports from, with one row operation the call added. */
+  const PAGE_PROPS = { relatedMeta: 'device', metaLabel: '设备台账', customOperations: [{ name: 'ping', label: '测试连通' }] }
+
+  /** Where every page notice says the gesture happened. */
+  const PAGE_PLACE = 'content panel entry "devices" ("设备列表"), on the 完整数据页 block "block"'
+
+  /**
+   * Both readings of one gesture: as the user's and as the agent's own step's.
+   * @param componentId - the catalog id of the block.
+   * @param props - the block's properties.
+   * @param actionId - the action the block reports.
+   * @param payload - the payload the seat reported.
+   * @returns the user's account and the agent's.
+   */
+  function both(
+    componentId: string,
+    props: Record<string, unknown>,
+    actionId: string,
+    payload: Record<string, unknown>,
+  ): { user: ComponentActionNotice | undefined; agent: ComponentActionNotice | undefined } {
+    return {
+      user: notice(componentId, props, actionId, payload, '设备列表', 'user'),
+      agent: notice(componentId, props, actionId, payload, '设备列表', 'agent'),
+    }
+  }
+
+  it('addresses the agent and names the assistant for a pressed confirmation', () => {
+    const place = 'content panel entry "devices" ("设备列表"), on the 确认条 block "block"'
+    expect(both(CONFIRM_BAR_ID, BAR, CONFIRM_BAR_PRESS_ID, { buttonId: 'ok' })).toEqual({
+      user: { text: `The user pressed "同意" in ${place}.`, summary: '用户在「设备列表」里点了「同意」' },
+      agent: { text: `You pressed "同意" in ${place}.`, summary: '助手在「设备列表」里点了「同意」' },
+    })
+    // A context that leaves the actor out reads as the user's.
+    expect(notice(CONFIRM_BAR_ID, BAR, CONFIRM_BAR_PRESS_ID, { buttonId: 'ok' })?.text).toBe(`The user pressed "同意" in ${place}.`)
+  })
+
+  it('does the same for a clicked table row and a pressed table operation', () => {
+    expect(both(TABLE_ID, TABLE, TABLE_ROW_CLICK_ID, { rowIndex: 2 })).toEqual({
+      user: { text: `The user clicked row "A-3" in ${TABLE_PLACE}.`, summary: '用户在「设备列表」里点了「A-3」' },
+      agent: { text: `You clicked row "A-3" in ${TABLE_PLACE}.`, summary: '助手在「设备列表」里点了「A-3」' },
+    })
+    expect(both(TABLE_ID, TABLE, TABLE_OPERATION_ID, { opId: 'export', rowIndex: 0 })).toEqual({
+      user: { text: `The user pressed "导出" on row "A-1" in ${TABLE_PLACE}.`, summary: '用户在「设备列表」里对「A-1」点了「导出」' },
+      agent: { text: `You pressed "导出" on row "A-1" in ${TABLE_PLACE}.`, summary: '助手在「设备列表」里对「A-1」点了「导出」' },
+    })
+  })
+
+  it('does the same for a data page\'s clicked cell, ticked rows and pressed row operation', () => {
+    const row = { zh_label: '北京-核心-01' }
+    expect(both(DATA_PAGE_ID, PAGE_PROPS, DATA_PAGE_CELL_CLICK_ID, { attr: 'zh_label', label: '名称', row }).agent).toEqual({
+      text: `You clicked "名称" (zh_label) on row "北京-核心-01" in ${PAGE_PLACE}; the row shows zh_label: "北京-核心-01".`,
+      summary: '助手在「设备列表」里点了「北京-核心-01」的「名称」',
+    })
+    expect(both(DATA_PAGE_ID, PAGE_PROPS, DATA_PAGE_SELECT_ID, { count: 1, names: ['北京-核心-01'] }).agent).toEqual({
+      text: `You ticked 1 row in ${PAGE_PLACE}: "北京-核心-01".`,
+      summary: '助手在「设备列表」里选中了 1 行：北京-核心-01',
+    })
+    expect(both(DATA_PAGE_ID, PAGE_PROPS, DATA_PAGE_SELECT_ID, { count: 0, names: [] }).agent).toEqual({
+      text: `You cleared the selection in ${PAGE_PLACE}.`,
+      summary: '助手在「设备列表」里取消了选择',
+    })
+    expect(both(DATA_PAGE_ID, PAGE_PROPS, DATA_PAGE_OPERATION_ID, { opId: 'ping', row }).agent).toEqual({
+      text: `You pressed "测试连通" (ping) on row "北京-核心-01" in ${PAGE_PLACE}.`,
+      summary: '助手在「设备列表」里对「北京-核心-01」按了「测试连通」',
+    })
+    expect(both(DATA_PAGE_ID, PAGE_PROPS, DATA_PAGE_OPERATION_ID, { opId: 'ping', row }).user?.text)
+      .toBe(`The user pressed "测试连通" (ping) on row "北京-核心-01" in ${PAGE_PLACE}.`)
   })
 })

@@ -21,6 +21,7 @@ import { cleanup, render } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { setBizBasePath } from '@sumomok/toy-crud-kit'
 import { runActComponent, type ActComponentRun } from '@deepseek-ai/dsh-experimental-component-surface/src/client/act-executor.ts'
+import { actStepHolder } from '@deepseek-ai/dsh-experimental-component-surface/src/client/act-step.ts'
 import { drawnEntry } from '@deepseek-ai/dsh-experimental-component-surface/src/client/entry-container.ts'
 import { DataPageRenderer } from '../src/client/DataPageRenderer.tsx'
 import { installElementUI } from '../src/client/element-ui.ts'
@@ -138,7 +139,7 @@ async function openAddDialog(drawn: Drawn): Promise<void> {
 function run(steps: { readonly action: 'set'; readonly node?: string; readonly name: string; readonly value: string }[]): Promise<ActComponentRun> {
   const drawn = drawnEntry(document)
   if (drawn === undefined) throw new Error('the case drew no entry')
-  return runActComponent({ entry: 'demo', steps }, drawn, () => drawnEntry(document), Date.now() + 10_000)
+  return runActComponent({ entry: 'demo', steps }, drawn, () => drawnEntry(document), Date.now() + 10_000, 'call_1', actStepHolder())
 }
 
 /** The select the add dialog draws for one column, by the field it carries. */

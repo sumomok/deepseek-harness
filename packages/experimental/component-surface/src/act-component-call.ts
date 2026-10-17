@@ -18,7 +18,11 @@ import type {
 } from '@deepseek-ai/dsh-experimental-content-frame/src/access/wire.ts'
 // Type-only: that module imports this one's readers as values.
 import type { ReadComponentCall } from './read-component-call.ts'
-import { MAX_ENTRY_ID_LENGTH, TOKEN_CHARSET } from './component-call.ts'
+import { MAX_ACT_COMPONENT_STEPS, MAX_CHANNEL_ID_CHARS, MAX_ENTRY_ID_LENGTH, TOKEN_CHARSET } from './component-call.ts'
+
+// Owned by component-call.ts, whose action document's step mark is bounded by
+// them, and named here as well because they are this tool's own ceilings.
+export { MAX_ACT_COMPONENT_STEPS, MAX_CHANNEL_ID_CHARS } from './component-call.ts'
 
 /** Longest a report's own message or one step's sentence may be. */
 export const MAX_MESSAGE_CHARS = 512
@@ -29,20 +33,8 @@ export const MAX_REPORT_TEXT_CHARS = 20_000
 /** Longest an entry title a report names may be. */
 export const MAX_TITLE_CHARS = 200
 
-/**
- * Longest call or tab id a posted report may name, in characters: equal to
- * `MAX_NAME_CHARS` in content-frame's `access/wire.ts`, since one channel carries
- * both domains' reports. Written here because the browser bundle carries no
- * other plugin's values
- * (`.agents/notes/implemented/architecture/2026-10-09-content-channel-seam-and-duplication.md`).
- */
-export const MAX_CHANNEL_ID_CHARS = 256
-
 /** The tool this channel serves. */
 export const ACT_COMPONENT_TOOL_NAME = 'act_component'
-
-/** Most steps one call may carry. A protocol ceiling; a deployment bounds nothing narrower. */
-export const MAX_ACT_COMPONENT_STEPS = 8
 
 /** Longest a named block, key, or field name may be. */
 export const MAX_TARGET_CHARS = 64

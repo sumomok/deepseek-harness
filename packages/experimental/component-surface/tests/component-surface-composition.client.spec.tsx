@@ -17,6 +17,7 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { installElementUI } from '@deepseek-ai/dsh-experimental-component-kit/src/client/element-ui.ts'
 import type { ActionDispatch } from '../src/client/action.ts'
 import { ComponentSurface, type ComponentSurfaceProps } from '../src/client/ComponentSurface.tsx'
+import { actStepHolder } from '../src/client/act-step.ts'
 import { RECORD_DETAIL_ID, TABLE_ID } from '../src/component-call.ts'
 import { en } from '../src/client/locales.ts'
 import { kitRendererTable } from './renderer-table.client.ts'
@@ -86,6 +87,7 @@ async function mount(nodes: readonly unknown[]): Promise<Mounted> {
       useSessions,
       onAction,
       pending: new Map(),
+      actStep: actStepHolder(),
       components,
       offerCalls: () => {},
       parkCalls: () => {},

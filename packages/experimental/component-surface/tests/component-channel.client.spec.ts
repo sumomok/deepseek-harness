@@ -23,6 +23,7 @@ import type { ReadComponentCall } from '../src/read-component-call.ts'
 import {
   joinComponentChannel, type ComponentSeatCall, type ContentChannelJoin,
 } from '../src/client/component-channel.ts'
+import { actStepHolder } from '../src/client/act-step.ts'
 
 /** The entry id every case here acts on. */
 const ENTRY = 'demo'
@@ -107,7 +108,7 @@ beforeEach(() => { document.body.innerHTML = '' })
 describe('the component domain', () => {
   it('joins under the package domain\'s name and is always ready', () => {
     const fake = stood()
-    const wiring = joinComponentChannel(fake.channel)
+    const wiring = joinComponentChannel(fake.channel, actStepHolder())
     expect(fake.domain().name).toBe(COMPONENT_DOMAIN)
     expect(fake.domain().ready()).toBe(true)
     expect(typeof wiring.offer).toBe('function')
@@ -115,7 +116,7 @@ describe('the component domain', () => {
 
   it('offers every open call of the session, whichever tool asked, and nothing when the seat holds none', () => {
     const fake = stood()
-    const wiring = joinComponentChannel(fake.channel)
+    const wiring = joinComponentChannel(fake.channel, actStepHolder())
     const second = { ...reading(), callId: 'call_2' }
     wiring.offer('session_1', { pending: [request(), second], stepBudgetMs: 11_250 })
     expect(fake.offers).toEqual([{
@@ -133,7 +134,7 @@ describe('the component domain', () => {
 
   it('parks the seat, which drops the calls it was offering', () => {
     const fake = stood()
-    const wiring = joinComponentChannel(fake.channel)
+    const wiring = joinComponentChannel(fake.channel, actStepHolder())
     wiring.park()
     expect(fake.parked).toBe(1)
   })
@@ -141,7 +142,7 @@ describe('the component domain', () => {
   it('refuses a call while no component entry is in front', async () => {
     document.body.innerHTML = '<div data-content-surface-seat="component"><div data-component-surface></div></div>'
     const fake = stood()
-    joinComponentChannel(fake.channel)
+    joinComponentChannel(fake.channel, actStepHolder())
     expect(await fake.domain().answer(seatCall(request()), CLAIMED))
       .toEqual({
         kind: 'outcome',
@@ -159,7 +160,7 @@ describe('the component domain', () => {
       </div>
     `
     const fake = stood()
-    joinComponentChannel(fake.channel)
+    joinComponentChannel(fake.channel, actStepHolder())
     expect(await fake.domain().answer(seatCall(request()), CLAIMED))
       .toEqual({
         kind: 'outcome',
@@ -169,12 +170,16 @@ describe('the component domain', () => {
 
   it('runs the steps inside the entry and reports what happened', async () => {
     document.body.innerHTML = COLUMN
-    const pressed = vi.fn()
+    const holder = actStepHolder()
+    // What a seat reading the holder during the press would see.
+    const pressed = vi.fn(() => holder.current)
     document.querySelector('[data-component-action="add"]')?.addEventListener('click', pressed)
     const fake = stood()
-    joinComponentChannel(fake.channel)
+    joinComponentChannel(fake.channel, holder)
     const answer = await fake.domain().answer(seatCall(request()), CLAIMED)
     expect(pressed).toHaveBeenCalledTimes(1)
+    expect(pressed.mock.results[0]?.value).toEqual({ entryId: ENTRY, callId: 'call_1', step: 1 })
+    expect(holder.current).toBeUndefined()
     expect(answer).toEqual({
       kind: 'outcome',
       outcome: {
@@ -195,7 +200,7 @@ describe('the component domain', () => {
     const pressed = vi.fn()
     document.querySelector('[data-component-action="add"]')?.addEventListener('click', pressed)
     const fake = stood()
-    joinComponentChannel(fake.channel)
+    joinComponentChannel(fake.channel, actStepHolder())
     const answer = await fake.domain().answer(seatCall(request(), 0), CLAIMED)
     expect(pressed).not.toHaveBeenCalled()
     expect(answer).toMatchObject({
@@ -212,7 +217,7 @@ describe('the component domain', () => {
     const pressed = vi.fn()
     document.querySelector('[data-component-action="add"]')?.addEventListener('click', pressed)
     const fake = stood()
-    joinComponentChannel(fake.channel)
+    joinComponentChannel(fake.channel, actStepHolder())
     const answer = await fake.domain().answer(seatCall(reading()), CLAIMED)
     expect(pressed).not.toHaveBeenCalled()
     expect(answer).toEqual({
@@ -242,7 +247,7 @@ describe('the component domain', () => {
       </div>
     `
     const fake = stood()
-    joinComponentChannel(fake.channel)
+    joinComponentChannel(fake.channel, actStepHolder())
     expect(await fake.domain().answer(seatCall(reading()), CLAIMED))
       .toEqual({
         kind: 'outcome',

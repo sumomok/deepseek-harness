@@ -11,8 +11,9 @@
  *
  * A gesture inside a block does come back: the seat binds which block spoke and
  * hands the report to `action.ts`, which puts it in the session log as one
- * `/component-action` line. Deciding what the agent does with it is the node
- * half's, not this seat's.
+ * `/component-action` line — marked as the agent's own step where an
+ * `act_component` step acting in the same entry is running (`act-step.ts`).
+ * Deciding what the agent does with it is the node half's, not this seat's.
  *
  * A block also publishes its own current reading of itself — the rows a table
  * has ticked, the conditions a filter holds — and that goes nowhere near the
@@ -80,6 +81,7 @@ import {
   type ComponentActionsView,
 } from '../action-state.ts'
 import { pendingPressKey, type ActionDispatch, type PendingPresses } from './action.ts'
+import { markRunningStep, type ActStepHolder } from './act-step.ts'
 import { NO_OUTPUTS, outputKey, type OutputSink, type OutputValues } from './bindings.ts'
 import { acceptSurface, type SurfaceBlock } from './spec.ts'
 import { StackLayout } from './StackLayout.tsx'
@@ -120,6 +122,12 @@ export interface ComponentSurfaceInjected {
    * every unmount the column performs.
    */
   pending: PendingPresses
+  /**
+   * The `act_component` step this page is running, if any: a gesture reported
+   * while a step of a call acting in the same entry runs is marked as that
+   * step's before it is reported.
+   */
+  actStep: ActStepHolder
   /**
    * The components this page can draw, as the component plugins registered
    * them: the catalog an arriving payload is judged against, and the renderer
@@ -320,7 +328,7 @@ function ComponentBlock({ components, entryId, seq, node, report, pending, pendi
  * @returns the caption and the blocks, or nothing while another kind is selected.
  */
 export function ComponentSurface({
-  sessionId, entry, useSessions, onAction, pending, components, offerCalls, parkCalls, t,
+  sessionId, entry, useSessions, onAction, pending, actStep, components, offerCalls, parkCalls, t,
 }: ComponentSurfaceProps) {
   const payload = entry?.payload
   // The entry and the call that placed it, which is what the published values
@@ -369,10 +377,11 @@ export function ComponentSurface({
   // nothing, but the next render of the same seat still owns the call.
   useEffect(() => () => { parkCalls() }, [parkCalls])
   // One sink per session, memoized for the same reason the nodes are: it is a
-  // dependency of every block's props identity.
+  // dependency of every block's props identity. The holder is read when a
+  // block reports, which is during the press a running step makes.
   const report = useMemo<SeatReport>(
-    () => (sessionId === undefined ? REPORT_NOTHING : action => onAction(sessionId, action)),
-    [sessionId, onAction],
+    () => (sessionId === undefined ? REPORT_NOTHING : action => onAction(sessionId, markRunningStep(actStep, action))),
+    [sessionId, onAction, actStep],
   )
 
   if (entry === undefined) return null

@@ -24,6 +24,11 @@
  * `componentId` and `nodeId` are identifiers checked against that spec rather
  * than text.
  *
+ * A report the seat marks as made while one of the agent's own `act_component`
+ * steps was running is told to the agent as that: its account opens with a
+ * sentence naming the step, the describer is told the agent caused it, and it
+ * waits for the agent's next step rather than opening a turn.
+ *
  * What the handler answers with is the delivery, not the grade, and only one
  * delivery earns a sentence: a gesture the agent stopped for that reached the
  * inbox instead of a turn, because a user told "sent to the conversation" while
@@ -73,6 +78,7 @@ import {
   type ActionReport,
   type ComponentAction,
   type ComponentActionNotice,
+  type ComponentActionStep,
   type ComponentCatalog,
 } from './component-call.ts'
 import { componentActionsProjection } from './action-projection.ts'
@@ -117,6 +123,16 @@ const ACTION_TOO_LARGE = '内容太多了，少选几项或写短一些再试。
  */
 const ACTION_QUEUED = '已记下，你下次发消息时对话会看到。'
 
+/**
+ * The sentence a report the agent's own step caused opens with, so the agent
+ * reads it as the effect of its own call, whatever the describer wrote after it.
+ * @param index - which step of the call, counting from 1.
+ * @returns the opening, ending in the space before the describer's account.
+ */
+function ownStepOpening(index: number): string {
+  return `This report comes from step ${String(index)} of your own call acting on this entry, not from the user: `
+}
+
 /** No entry stream is composed: the shared empty table every lookup then misses in. */
 const NO_RECORDS: readonly ContentSurfaceRecord[] = Object.freeze([])
 
@@ -129,11 +145,19 @@ export interface ResolvedAction {
   /**
    * Which block's which gesture this is, as the resolved identifiers spell it:
    * the entry the log carries, the node its spec draws, and the action the
-   * catalog declares. Two occurrences of one gesture on one block share it,
-   * which is what lets the later one replace the earlier one's unclaimed
-   * notice instead of queueing beside it.
+   * catalog declares, and for a report the agent's own step caused, that call
+   * and step as well. Two occurrences of one gesture on one block by the same
+   * cause share it, which is what lets the later one replace the earlier one's
+   * unclaimed notice instead of queueing beside it; a report the agent's step
+   * caused therefore never replaces one the user made, nor one another step
+   * caused.
    */
   readonly key: string
+  /**
+   * The agent's own step the gesture happened during, where the seat marked
+   * it; absent for a gesture the user made. A marked report never opens a turn.
+   */
+  readonly step?: ComponentActionStep
   /**
    * What a data page reported it loaded, where the gesture is that report;
    * absent for every other gesture. Read by the handler before delivery,
@@ -201,23 +225,39 @@ function resolveAction(
   const verdict = acceptsActionPayload(action.payload, definition.payloadSchema)
   if (verdict === 'too-large') return { kind: 'too-large' }
   if (verdict === 'refused') return UNRESOLVED
-  const notice = definition.describe({
+  const { step } = action
+  const described = definition.describe({
     entryId: record.entryId,
     entryTitle: stored.title,
     node,
     component,
     payload: action.payload,
+    actor: step === undefined ? 'user' : 'agent',
   })
-  if (notice === undefined) return UNRESOLVED
+  if (described === undefined) return UNRESOLVED
+  // The opening is this row's, and stands whether or not the describer read
+  // the actor: a component plugin's account may still say "The user …".
+  const notice = step === undefined
+    ? described
+    : { text: `${ownStepOpening(step.index)}${described.text}`, summary: described.summary }
   // Built from what the lookups returned rather than from what the document
   // said, so two seats spelling one gesture differently cannot land on two keys.
-  const key = JSON.stringify([record.entryId, node.id, definition.id])
+  const key = JSON.stringify([record.entryId, node.id, definition.id, ...step === undefined ? [] : [step.call, step.index]])
   // The payload passed the load action's own schema and `describe` accepted
   // it as this block's table, so the cast records what has already been judged.
   const load = component.id === DATA_PAGE_ID && definition.id === DATA_PAGE_LOAD_ID
     ? action.payload as unknown as DataPageLoadReport
     : undefined
-  return { kind: 'resolved', action: { notice, report: definition.report, key, ...load === undefined ? {} : { load } } }
+  return {
+    kind: 'resolved',
+    action: {
+      notice,
+      report: definition.report,
+      key,
+      ...step === undefined ? {} : { step },
+      ...load === undefined ? {} : { load },
+    },
+  }
 }
 
 /**
@@ -237,7 +277,10 @@ export type ActionDelivery =
   | 'opened'
   /** It asked for an answer and got the inbox: nothing follows it until the user writes again. */
   | 'queued'
-  /** It is news for the agent's next step, and waits in the inbox as the action asked. */
+  /**
+   * It is news for the agent's next step, and waits in the inbox as the action
+   * asked, or as every report the agent's own step caused does.
+   */
   | 'context'
 
 /**
@@ -301,6 +344,10 @@ function deliverContext(agent: Agent, pending: Map<string, MessageId>, key: stri
  * and on an agent already working, it takes that same inbox — and is reported as
  * `queued` rather than as `context`, because the person who pressed is waiting
  * on an answer that will not come until they write again.
+ *
+ * A report the agent's own `act_component` step caused ({@link ResolvedAction.step})
+ * takes the `context` route whatever its grade: it answers nothing the agent
+ * stopped for, so it opens no turn, spends no budget, and is never `queued`.
  * @param agent - the agent whose seat reported the action.
  * @param memory - the tables this installation's presses share.
  * @param resolved - the accounts to deliver, the grade to deliver them at, and which gesture they are.
@@ -321,12 +368,13 @@ export function deliverAction(
     },
   })
   const spent = memory.spentWakes.get(agent) ?? 0
-  if (resolved.report === 'wake' && agent.status === 'idle' && spent < WAKE_BUDGET) {
+  const wakes = resolved.report === 'wake' && resolved.step === undefined
+  if (wakes && agent.status === 'idle' && spent < WAKE_BUDGET) {
     memory.spentWakes.set(agent, spent + 1)
     agent.followup(message)
     return 'opened'
   }
-  if (resolved.report === 'wake') {
+  if (wakes) {
     agent.inject(message)
     return 'queued'
   }

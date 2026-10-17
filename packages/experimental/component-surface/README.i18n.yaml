@@ -72,17 +72,20 @@
   en: 9a81b75369f2d129
   zh: 44a98ce1cbbf337a
 /deepseek-ai-dsh-experimental-component-surface/what-comes-back:
-  en: 7b1a3e7ec503f582
-  zh: 1f2a30c6c389c525
+  en: f4ba81a7e13ad7e9
+  zh: fe9059dfb4f14e17
 /deepseek-ai-dsh-experimental-component-surface/what-comes-back/what-a-press-is-answered-with:
-  en: f74cb3c80354c3cd
-  zh: c4a1c6ad02357c45
+  en: c10aea70d1930752
+  zh: b72ca2726cd230c6
+/deepseek-ai-dsh-experimental-component-surface/what-comes-back/a-report-the-agent-s-own-step-caused:
+  en: e424e1e4540689e3
+  zh: b9aeecc898a86c5f
 /deepseek-ai-dsh-experimental-component-surface/what-comes-back/the-pressed-state:
   en: f95d04493dc833fd
   zh: 1509873232060d26
 /deepseek-ai-dsh-experimental-component-surface/what-comes-back/the-three-grades:
-  en: ad4a9454a09c91a6
-  zh: 3841332e619268d8
+  en: 3ada65a3d74f7d33
+  zh: c9397e5466edf98b
 /deepseek-ai-dsh-experimental-component-surface/what-comes-back/the-wake-budget:
   en: 8d104822cde8023f
   zh: 22d10c095ad11fa4
@@ -180,8 +183,8 @@
   en: e4850a739d8599af
   zh: 22a192c03b6f7b7b
 /deepseek-ai-dsh-experimental-component-surface/known-limitations-and-deferred-work:
-  en: 9964535665549ec4
-  zh: 1e46b9f5acfc1f5f
+  en: 900d845f89fff903
+  zh: 419fd094882f71e6
 /deepseek-ai-dsh-experimental-component-surface/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 3bb0c20c93f16f98

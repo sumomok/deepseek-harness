@@ -19,6 +19,8 @@ import type {} from '@deepseek-ai/dsh-experimental-content-column/client'
 import { apply, inject } from '../src/client/index.ts'
 import type { ActComponentCall } from '../src/act-component-call.ts'
 import { ComponentSurface, type ComponentSurfaceInjected } from '../src/client/ComponentSurface.tsx'
+import type { ComponentSeatCall } from '../src/client/component-channel.ts'
+import type { ChannelDomain } from '@deepseek-ai/dsh-experimental-content-frame/src/client/access/channel.ts'
 import { ActionCommandRow } from '../src/client/ActionCommandRow.tsx'
 import { ViewCommandRow } from '../src/client/ViewCommandRow.tsx'
 import { COMPONENT_KIT_ENTRIES, CONFIRM_BAR_ID, CONFIRM_BAR_PRESS_ID } from '../src/component-call.ts'
@@ -72,22 +74,38 @@ interface StoodChannel {
   channel: unknown
   offers: unknown[]
   parked: () => number
+  /** The domain this row joined, once it has. */
+  domain: () => ChannelDomain<ComponentSeatCall> | undefined
 }
 
 /** Stand in the content channel, joining every domain to one spy-backed seat. */
 function stoodChannel(): StoodChannel {
   const offers: unknown[] = []
   let parked = 0
+  let joined: ChannelDomain<ComponentSeatCall> | undefined
   return {
     channel: {
-      join: () => ({
-        offer: (demand: unknown) => { offers.push(demand) },
-        park: () => { parked += 1 },
-      }),
+      join: (domain: ChannelDomain<ComponentSeatCall>) => {
+        joined = domain
+        return {
+          offer: (demand: unknown) => { offers.push(demand) },
+          park: () => { parked += 1 },
+        }
+      },
     },
     offers,
     parked: () => parked,
+    domain: () => joined,
   }
+}
+
+/**
+ * Whether the face the kind registration injects carries the step holder.
+ * @param face - what the registration's `inject` answered.
+ * @returns whether the holder is there.
+ */
+function carriesActStep(face: Record<string, unknown> | undefined): face is Record<string, unknown> & Pick<ComponentSurfaceInjected, 'actStep'> {
+  return typeof face?.actStep === 'object' && face.actStep !== null && 'current' in face.actStep
 }
 
 /** The part of the seat's injected face a case offers calls through. */
@@ -258,6 +276,32 @@ describe('show-component browser half', () => {
     // bidding for calls after the row is gone.
     await fiber.dispose()
     expect(stood.parked()).toBe(2)
+  })
+
+  it('hands the seats the holder the channel seat writes while a step runs', async () => {
+    const stood = stoodChannel()
+    const { ctx } = await bench(stood.channel)
+    const face = ctx.slots.entries('content.surface.kind')[0]?.inject?.()
+    if (!carriesActStep(face)) throw new Error('the kind registration injects no step holder')
+    document.body.innerHTML = `
+      <nav data-content-surface-switcher>
+        <button data-content-surface-entry="component demo" data-content-surface-selected>Demo</button>
+      </nav>
+      <div data-content-surface-seat="component" data-content-surface-active>
+        <div data-component-surface><button data-component-action="add">Add</button></div>
+      </div>
+    `
+    const seen: unknown[] = []
+    document.querySelector('[data-component-action="add"]')?.addEventListener('click', () => { seen.push(face.actStep.current) })
+    const request: ActComponentCall = {
+      callId: 'call_1',
+      tool: 'act_component',
+      args: { entry: 'demo', steps: [{ action: 'click', key: 'add' }] },
+    }
+    await stood.domain()?.answer({ callId: 'call_1', sessionId: 'session-a', request, stepBudgetMs: 10_000 }, { claimed: true })
+    expect(seen).toEqual([{ entryId: 'demo', callId: 'call_1', step: 1 }])
+    expect(face.actStep.current).toBeUndefined()
+    document.body.innerHTML = ''
   })
 
   it('offers nothing through a channel row that left while the seat stayed', async () => {

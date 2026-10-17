@@ -26,6 +26,7 @@ import { kitRendererTable, rendererTable } from './renderer-table.client.ts'
 import { ComponentSurface, type ComponentSurfaceProps } from '../src/client/ComponentSurface.tsx'
 import type { ComponentActionRecord } from '../src/action-state.ts'
 import { pendingPressKey, type ActionDispatch, type PendingPresses } from '../src/client/action.ts'
+import { actStepHolder, type ActStepHolder } from '../src/client/act-step.ts'
 import type { ComponentRendererTable } from '../src/client/registry.ts'
 import type { ComponentRendererProps } from '../src/client/renderer.ts'
 import {
@@ -93,6 +94,8 @@ interface Seat {
   pending?: PendingPresses
   /** The components the page draws; the component row's own unless a case draws stand-ins. */
   components?: ComponentRendererTable
+  /** Where the page holds the `act_component` step it is running; an empty one unless a case is about a running step. */
+  actStep?: ActStepHolder
 }
 
 /** What one mounted seat hands back to the case driving it. */
@@ -108,6 +111,7 @@ type Mounted = ReturnType<typeof render> & {
 /** Render the seat for one selection, over an action sink that records what it is handed. */
 function mount(seat: Seat): Mounted {
   const pending = seat.pending ?? new Map<string, number>()
+  const actStep = seat.actStep ?? actStepHolder()
   const onAction = vi.fn(() => Promise.resolve(seat.dispatch ?? 'dispatched'))
   const element = (next: Seat) => {
     const components = next.components ?? KIT_COMPONENTS
@@ -118,6 +122,7 @@ function mount(seat: Seat): Mounted {
       onAction,
       components,
       pending,
+      actStep,
       offerCalls: () => {},
       parkCalls: () => {},
       t,
@@ -198,6 +203,37 @@ describe('component content seat', () => {
       nodeId: 'ask',
       payload: { buttonId: 'approve' },
     }]])
+  })
+
+  it('marks a press made while a step of a call acting in this entry runs, and no other', () => {
+    // A pressed bar takes no second press until its record arrives, so each
+    // press is made on a seat of its own.
+    const pressDuring = (current: ActStepHolder['current']): unknown => {
+      const actStep = actStepHolder()
+      actStep.current = current
+      const view = mount({ entry: ASK, actStep })
+      fireEvent.click(view.getByText('Reject'))
+      view.unmount()
+      return view.onAction.mock.calls[0]?.[1]
+    }
+    expect(pressDuring({ entryId: 'budget', callId: 'call_7', step: 2 })).toEqual({
+      entryId: 'budget',
+      componentId: CONFIRM_BAR_ID,
+      actionId: CONFIRM_BAR_PRESS_ID,
+      nodeId: 'ask',
+      payload: { buttonId: 'reject' },
+      step: { call: 'call_7', index: 2 },
+    })
+    // A step acting in another entry, and no step at all: the press is the user's.
+    for (const current of [{ entryId: 'other', callId: 'call_9', step: 1 }, undefined]) {
+      expect(pressDuring(current)).toEqual({
+        entryId: 'budget',
+        componentId: CONFIRM_BAR_ID,
+        actionId: CONFIRM_BAR_PRESS_ID,
+        nodeId: 'ask',
+        payload: { buttonId: 'reject' },
+      })
+    }
   })
 
   it('names the block that spoke when several are stacked', () => {

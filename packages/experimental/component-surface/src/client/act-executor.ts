@@ -33,6 +33,7 @@ import {
   noOptionReason, NO_ENTRY_IN_FRONT, notWritableReason, notDrawnReason, optionNotTakenReason, OUT_OF_TIME_REASON,
   readOnlyFieldReason, sharedActionReason, sharedOwnKeyReason, unkeyedActionReason, waitTimeoutReason,
 } from '../act-component-text.ts'
+import type { ActStepHolder } from './act-step.ts'
 import type { DrawnEntry } from './entry-container.ts'
 import {
   addedAskingRow, askingRowPresent, autocompleteOf, autocompleteOptions, clickTarget, drawsKey, FIELD_KEY, isCovered,
@@ -555,6 +556,10 @@ function displacedReason(run: StepRun): string | undefined {
  * @param locate - reads the entry in front again, for the check before every step.
  * @param deadline - the moment the steps must be over by, as a `Date.now()`
  * value: no step starts past it, and every wait a step makes ends at it.
+ * @param callId - the call the steps belong to, which a gesture reported while
+ * one of them runs is marked with.
+ * @param holder - where the step running now is held for the seats: written
+ * as each step starts and emptied as it ends, however it ends.
  * @returns what the call ended as.
  */
 export async function runActComponent(
@@ -562,6 +567,8 @@ export async function runActComponent(
   entry: DrawnEntry,
   locate: () => DrawnEntry | undefined,
   deadline: number,
+  callId: string,
+  holder: ActStepHolder,
 ): Promise<ActComponentRun> {
   const run: StepRun = { entry, locate, deadline }
   const results: ActComponentStepResult[] = []
@@ -578,7 +585,15 @@ export async function runActComponent(
       if (Date.now() >= deadline) throw new Error(OUT_OF_TIME_REASON)
       const displaced = displacedReason(run)
       if (displaced !== undefined) throw new Error(displaced)
-      await runStep(run, step)
+      // Held from here, after the turn the previous step's press drew in: a
+      // gesture a block reports during that turn is the previous step's
+      // aftermath, not this step's.
+      holder.current = { entryId: entry.entryId, callId, step: at + 1 }
+      try {
+        await runStep(run, step)
+      } finally {
+        holder.current = undefined
+      }
       results.push({ index: at + 1, status: 'ok' })
     } catch (refusal) {
       failed = true

@@ -33,6 +33,7 @@ import { ACT_COMPONENT_TOOL_NAME, type ComponentCall, type ComponentView } from 
 import { READ_COMPONENT_TOOL_NAME } from '../src/read-component-call.ts'
 import * as ComponentSurface from '../src/index.ts'
 import { joinComponentChannel, type ComponentChannelWiring } from '../src/client/component-channel.ts'
+import { actStepHolder } from '../src/client/act-step.ts'
 
 /**
  * The hosted directory this composition serves; any real directory will do.
@@ -159,7 +160,7 @@ async function boot(config: { actClaimTimeoutMs?: number; actTimeoutMs?: number;
 
   const session = storeOf(ctx).create()
   const channel = new ContentChannel()
-  const wiring = joinComponentChannel(channel)
+  const wiring = joinComponentChannel(channel, actStepHolder())
   const posts: Post[] = []
   const origin = `http://127.0.0.1:${String(ctx.webServer.port)}`
   vi.stubGlobal('fetch', (url: URL | string, init?: RequestInit) => {

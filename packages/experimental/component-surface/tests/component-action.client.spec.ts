@@ -39,7 +39,9 @@ import {
   FILTER_BAR_ID,
   FILTER_CHANGE_ID,
   FILTER_SUBMIT_ID,
+  MAX_ACT_COMPONENT_STEPS,
   MAX_ACTION_PAYLOAD_BYTES,
+  MAX_CHANNEL_ID_CHARS,
   MAX_FILTER_CONDITIONS,
   MAX_TABLE_ROWS,
   parseComponentActionLine,
@@ -222,6 +224,35 @@ describe('the action document', () => {
     expect(readComponentAction({ ...PRESS, payload: null })).toBeUndefined()
   })
 
+  it('writes and reads back an action marked with the step it happened during', () => {
+    const marked: ComponentAction = { ...PRESS, step: { call: 'call_1', index: 2 } }
+    const line = formatComponentActionLine(marked)
+    expect(parseComponentActionLine(line.slice(`/${COMPONENT_ACTION_COMMAND} `.length))).toEqual(marked)
+    // Both bounds are read from the side that admits them.
+    for (const step of [{ call: 'c'.repeat(MAX_CHANNEL_ID_CHARS), index: 1 }, { call: 'c', index: MAX_ACT_COMPONENT_STEPS }]) {
+      expect(readComponentAction({ ...PRESS, step })).toEqual({ ...PRESS, step })
+    }
+  })
+
+  it('reads nothing out of a document whose step mark is not one', () => {
+    const malformed: unknown[] = [
+      null, 'call_1', ['call_1', 1], {},
+      { index: 1 },
+      { call: '', index: 1 },
+      { call: 'c'.repeat(MAX_CHANNEL_ID_CHARS + 1), index: 1 },
+      { call: 7, index: 1 },
+      { call: 'call_1' },
+      { call: 'call_1', index: 0 },
+      { call: 'call_1', index: MAX_ACT_COMPONENT_STEPS + 1 },
+      { call: 'call_1', index: 1.5 },
+      { call: 'call_1', index: '1' },
+      { call: 'call_1', index: 1, by: 'agent' },
+    ]
+    for (const step of malformed) {
+      expect({ step, read: readComponentAction({ ...PRESS, step }) }).toEqual({ step, read: undefined })
+    }
+  })
+
   it('reads nothing out of a document carrying a property it does not know', () => {
     // The same rule the payload is held to, one level up: an extra top-level
     // property is refused whole rather than dropped on the way through.
@@ -354,6 +385,50 @@ describe('the /component-action command', () => {
       form: 'notice',
       summary: PRESS_SUMMARY,
     })
+  })
+
+  it('tells the agent a press its own step caused as that step\'s, and opens no turn for it', async () => {
+    for (const status of ['running', 'idle'] as const) {
+      const ctx = await setup()
+      const session = newSession(ctx)
+      const inject = vi.fn()
+      const followup = vi.fn()
+      const agent = fakeAgent(ctx, session, { inject, followup, status })
+      show(session, 'budget', '确认删除')
+
+      // No sentence back: the press answered nothing the agent stopped for,
+      // and nobody is left waiting on the user's next message.
+      expect(await run(ctx, agent, formatComponentActionLine({ ...PRESS, step: { call: 'call_1', index: 2 } })))
+        .toEqual({ kind: 'success' })
+      expect({ status, followups: followup.mock.calls.length }).toEqual({ status, followups: 0 })
+      expect(inject).toHaveBeenCalledTimes(1)
+      const message = inject.mock.calls[0]?.[0] as UserMessage
+      expect(message.content).toEqual([{
+        type: 'text',
+        text: 'This report comes from step 2 of your own call acting on this entry, not from the user: '
+          + 'You pressed "删除" in content panel entry "budget" ("确认删除"), on the 确认条 block "bar".',
+      }])
+      expect(message.source).toEqual({
+        kind: COMPONENT_ACTION_PLUGIN,
+        form: 'notice',
+        summary: '助手在「确认删除」里点了「删除」',
+      })
+    }
+  })
+
+  it('spends no wake on a press the agent\'s own step caused', async () => {
+    const ctx = await setup()
+    const session = newSession(ctx)
+    const followup = vi.fn()
+    const agent = fakeAgent(ctx, session, { followup })
+    show(session, 'budget', '确认删除')
+    for (let press = 0; press < WAKE_BUDGET; press += 1) {
+      await run(ctx, agent, formatComponentActionLine({ ...PRESS, step: { call: `call_${String(press)}`, index: 1 } }))
+    }
+    expect(followup).not.toHaveBeenCalled()
+    // The user's own press still has the whole budget.
+    expect(await run(ctx, agent, formatComponentActionLine(PRESS))).toEqual({ kind: 'success' })
+    expect(followup).toHaveBeenCalledTimes(1)
   })
 
   it('reports nothing for a gesture that names nothing on display', async () => {
@@ -515,6 +590,39 @@ describe('a table reporting back', () => {
       type: 'text',
       text: 'The user selected 2 rows in content panel entry "devices" ("设备列表"), on the 数据表 block "grid": "A-1", "A-2".',
     }])
+  })
+
+  it('keeps a selection the agent\'s own step caused beside the user\'s unclaimed one, never in its place', async () => {
+    const ctx = await setup()
+    const session = newSession(ctx)
+    const agent = fakeAgent(ctx, session, { status: 'running' })
+    show(session, 'devices', '设备列表', TABLE_SPEC)
+    const tick = (rowIndexes: number[], step?: { call: string; index: number }): string =>
+      formatComponentActionLine({ ...gesture(TABLE_SELECT_ID, { rowIndexes }), ...step === undefined ? {} : { step } })
+
+    await run(ctx, agent, tick([0]))
+    await run(ctx, agent, tick([0, 1], { call: 'call_1', index: 1 }))
+    // Neither replaced the other: one is the user's, the other the agent's own.
+    expect(agent.inbox.nextStep.map(message => message.source.kind === COMPONENT_ACTION_PLUGIN && message.content))
+      .toEqual([
+        [{ type: 'text', text: 'The user selected 1 row in content panel entry "devices" ("设备列表"), on the 数据表 block "grid": "A-1".' }],
+        [{
+          type: 'text',
+          text: 'This report comes from step 1 of your own call acting on this entry, not from the user: '
+            + 'The user selected 2 rows in content panel entry "devices" ("设备列表"), on the 数据表 block "grid": "A-1", "A-2".',
+        }],
+      ])
+    // The same gesture from the same step replaces its own unclaimed report;
+    // a later step's, and the user's next tick, keep places of their own.
+    await run(ctx, agent, tick([1], { call: 'call_1', index: 1 }))
+    await run(ctx, agent, tick([1], { call: 'call_1', index: 2 }))
+    await run(ctx, agent, tick([]))
+    expect(agent.inbox.nextStep).toHaveLength(3)
+    expect(agent.inbox.nextStep.map(message => JSON.stringify(message.content))).toEqual([
+      expect.stringContaining('The user cleared the selection'),
+      expect.stringContaining('step 1 of your own call'),
+      expect.stringContaining('step 2 of your own call'),
+    ])
   })
 
   it('tells the agent nothing at all about a sort', async () => {

@@ -16,6 +16,7 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { CONFIRM_BAR_ID } from '../src/component-call.ts'
 import { en } from '../src/client/locales.ts'
 import { ComponentSurface, type ComponentSurfaceProps } from '../src/client/ComponentSurface.tsx'
+import { actStepHolder } from '../src/client/act-step.ts'
 import type { ComponentRendererTable } from '../src/client/registry.ts'
 import { KIT_CATALOG } from './kit-catalog.client.ts'
 import { NO_COMPONENTS } from './renderer-table.client.ts'
@@ -49,6 +50,7 @@ function seat(components: ComponentRendererTable) {
     useSessions,
     onAction: () => Promise.resolve('dispatched'),
     pending: new Map(),
+    actStep: actStepHolder(),
     components,
     offerCalls: () => {},
     parkCalls: () => {},

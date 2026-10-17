@@ -5512,8 +5512,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type CompactionTrigger = \'pressure\' | \'context-overflow\';',
   },
   {
+    name: 'ComponentActionActor',
+    declaration: 'export type ComponentActionActor = \'user\' | \'agent\';',
+  },
+  {
     name: 'ComponentActionContext',
-    declaration: 'export interface ComponentActionContext {\n    readonly entryId: string;\n    readonly entryTitle: string;\n    readonly node: ComponentNode;\n    readonly component: ComponentCatalogEntry;\n    readonly payload: Readonly<Record<string, unknown>>;\n}',
+    declaration: 'export interface ComponentActionContext {\n    readonly entryId: string;\n    readonly entryTitle: string;\n    readonly node: ComponentNode;\n    readonly component: ComponentCatalogEntry;\n    readonly payload: Readonly<Record<string, unknown>>;\n    readonly actor?: ComponentActionActor;\n}',
   },
   {
     name: 'ComponentActionDefinition',

@@ -14,10 +14,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MAX_MESSAGE_CHARS, parseActComponentArgs, type ActComponentArgs } from '../src/act-component-call.ts'
 import { drawnEntry, type DrawnEntry } from '../src/client/entry-container.ts'
 import { runActComponent, type ActComponentRun } from '../src/client/act-executor.ts'
+import { actStepHolder, type ActStepHolder } from '../src/client/act-step.ts'
 import { isCovered } from '../src/client/targets.ts'
 
 /** The entry id every case here acts on. */
 const ENTRY = 'demo'
+
+/** The call id every run here belongs to. */
+const CALL = 'call_1'
+
+/** Where every run here holds its running step; emptied before each case. */
+let holder: ActStepHolder = actStepHolder()
 
 /** How the console's content column is drawn around one component entry. */
 const COLUMN = `
@@ -62,7 +69,7 @@ function args(steps: ActComponentArgs['steps']): ActComponentArgs {
  * @returns what the call ended as.
  */
 function run(call: ActComponentArgs, entry: DrawnEntry, budgetMs = 10_000): Promise<ActComponentRun> {
-  return runActComponent(call, entry, () => drawnEntry(document), Date.now() + budgetMs)
+  return runActComponent(call, entry, () => drawnEntry(document), Date.now() + budgetMs, CALL, holder)
 }
 
 /**
@@ -86,6 +93,7 @@ let hit: (x: number, y: number) => Element | null = () => null
 
 beforeEach(() => {
   document.body.innerHTML = ''
+  holder = actStepHolder()
   hit = () => null
   document.elementFromPoint = (x, y) => hit(x, y)
 })
@@ -1896,6 +1904,41 @@ describe('the key one control declares for itself', () => {
       <button data-component-action="press" data-component-key="ok">OK</button>
     `)
     expect((await run(args([{ action: 'wait', key: 'press' }, { action: 'wait', key: 'ok' }]), drawn)).status).toBe('done')
+  })
+})
+
+describe('the step a gesture is reported during', () => {
+  it('holds each step while it runs, with its call and its position, and nothing between or after them', async () => {
+    const drawn = drawEntry(`
+      <button data-component-action="add">Add</button>
+      <button data-component-action="save">Save</button>
+    `)
+    const seen: unknown[] = []
+    document.querySelector('[data-component-action="add"]')?.addEventListener('click', () => {
+      seen.push(holder.current)
+      // A report the block sends once the press returned, as an answer from
+      // a backend would arrive: the next step has not started, so nothing is
+      // held.
+      setTimeout(() => { seen.push(holder.current) }, 0)
+    })
+    document.querySelector('[data-component-action="save"]')?.addEventListener('click', () => { seen.push(holder.current) })
+    expect((await run(args([{ action: 'click', key: 'add' }, { action: 'click', key: 'save' }]), drawn)).status).toBe('done')
+    expect(seen).toEqual([
+      { entryId: ENTRY, callId: CALL, step: 1 },
+      undefined,
+      { entryId: ENTRY, callId: CALL, step: 2 },
+    ])
+    expect(holder.current).toBeUndefined()
+  })
+
+  it('empties the holder when a step fails, and holds nothing for the steps it skips', async () => {
+    const drawn = drawEntry('<button data-component-action="add">Add</button>')
+    const seen: unknown[] = []
+    document.querySelector('[data-component-action="add"]')?.addEventListener('click', () => { seen.push(holder.current) })
+    const report = await run(args([{ action: 'click', key: 'gone' }, { action: 'click', key: 'add' }]), drawn)
+    expect(report.steps.map(step => step.status)).toEqual(['failed', 'skipped'])
+    expect(seen).toEqual([])
+    expect(holder.current).toBeUndefined()
   })
 })
 

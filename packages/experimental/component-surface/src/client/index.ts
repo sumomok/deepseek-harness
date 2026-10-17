@@ -52,6 +52,7 @@ import type {} from '@deepseek-ai/dsh-experimental-content-column/client'
 // Type-only: pulls ui-conversation's `conversation.chat.commandview` SlotMap declaration.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { postAction, type PendingPresses } from './action.ts'
+import { actStepHolder } from './act-step.ts'
 import { joinComponentChannel, type ComponentChannelWiring } from './component-channel.ts'
 import { ActionCommandRow } from './ActionCommandRow.tsx'
 import { ComponentSurface, type ComponentSurfaceInjected } from './ComponentSurface.tsx'
@@ -79,6 +80,7 @@ export type {
 } from './renderer.ts'
 export type { ComponentSurfaceInjected, ComponentSurfaceProps } from './ComponentSurface.tsx'
 export type { ComponentChannelWiring, ComponentSeatCall } from './component-channel.ts'
+export type { ActStepHolder, RunningActStep } from './act-step.ts'
 export type { ActComponentRun } from './act-executor.ts'
 export type { ComponentReading } from '../read-component-call.ts'
 export type { DrawnEntry } from './entry-container.ts'
@@ -112,6 +114,9 @@ export function apply(ctx: ClientContext): void {
   // presses whose records have not come back, and every seat this registration
   // ever mounts reads and writes the same ones.
   const pending: PendingPresses = new Map()
+  // One holder for the instance: the channel seat writes the step it runs,
+  // and every seat drawing an entry reads it when a block reports a gesture.
+  const actStep = actStepHolder()
   // What the seat offers through: the channel row's seat while that row is
   // composed, and nothing before it is or after it leaves.
   let channelWiring = NO_CHANNEL
@@ -124,7 +129,7 @@ export function apply(ctx: ClientContext): void {
   // what a deployment loses are the tools, which the host half offers only
   // where the same service is composed.
   ctx.inject(['contentTabChannel'], (channelCtx) => {
-    const channel = joinComponentChannel(channelCtx.contentTabChannel)
+    const channel = joinComponentChannel(channelCtx.contentTabChannel, actStep)
     channelWiring = channel
     // A seat still mounted after the channel row left would otherwise go on
     // offering calls to a domain whose channel no longer exists, and that
@@ -145,6 +150,7 @@ export function apply(ctx: ClientContext): void {
       inject: (): ComponentSurfaceInjected => ({
         onAction: (sessionId, action) => postAction(seatCtx, sessionId, action),
         pending,
+        actStep,
         // A page with no channel row is handed a wiring that does nothing:
         // there is no tab-side answerer for the host to reach, which the host
         // half reads the same way and offers no tool for.

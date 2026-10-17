@@ -33,6 +33,7 @@ import {
 import { NO_ENTRY_IN_FRONT, anotherEntryInFront } from '../act-component-text.ts'
 import { readComponentReportText } from '../read-component-text.ts'
 import { runActComponent } from './act-executor.ts'
+import type { ActStepHolder } from './act-step.ts'
 import { drawnEntry } from './entry-container.ts'
 import { readComponentEntry } from './read-executor.ts'
 
@@ -77,9 +78,11 @@ export interface ContentChannelJoin {
 /**
  * Join this page's component seat to the shared content channel.
  * @param channel - the channel service, read at the moment this seat joins it.
+ * @param holder - where a claimed call's running step is held for the seats
+ *   that report gestures, the same holder the plugin instance hands them.
  * @returns the seat's offering point and its parking call.
  */
-export function joinComponentChannel(channel: ContentChannelJoin): ComponentChannelWiring {
+export function joinComponentChannel(channel: ContentChannelJoin, holder: ActStepHolder): ComponentChannelWiring {
   const domain: ChannelDomain<ComponentSeatCall> = {
     name: COMPONENT_DOMAIN,
     ready: () => true,
@@ -99,7 +102,7 @@ export function joinComponentChannel(channel: ContentChannelJoin): ComponentChan
         // The same reading is handed to the run, which takes it again before
         // every step: a step that starts after the column switched what it
         // draws would otherwise land in the entry that took this one's place.
-        const run = await runActComponent(call.request.args, drawn, () => drawnEntry(document), deadline)
+        const run = await runActComponent(call.request.args, drawn, () => drawnEntry(document), deadline, call.callId, holder)
         return {
           kind: 'outcome',
           outcome: {
