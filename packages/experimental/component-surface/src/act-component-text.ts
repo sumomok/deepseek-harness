@@ -232,9 +232,9 @@ export function sharedActionReason(key: string, count: number, node: string | un
 }
 
 /**
- * The sentence ending every refusal of a key whose controls are drawn in
- * several blocks: the blocks, bounded as {@link listed} states, and what a
- * `node` naming one of them does.
+ * The sentence refusing a key whose controls are drawn in several blocks:
+ * the blocks, bounded as {@link listed} states, and what a `node` naming one
+ * of them does.
  * @param subject - the words naming the key and how many controls carry it.
  * @param blocks - the blocks the controls are drawn in, in document order.
  * @returns the model-facing sentence.
