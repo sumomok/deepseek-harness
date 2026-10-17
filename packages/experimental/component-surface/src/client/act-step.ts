@@ -12,8 +12,9 @@
  * Only a `click` or a `set` is held, and only what is reported while it runs is
  * marked: what the press or the write reports synchronously, and whatever is
  * reported before the step's own promise settles, such as while a `set` waits
- * for a select to take its option. A report a block sends after that — from a
- * timer or a later task, an answer from a backend the press asked — and every
+ * for a select to take its option. A report a block sends only once the step's
+ * own promise has settled — a promise callback a few microtasks later, a timer,
+ * or a later task, an answer from a backend the press asked — and every
  * report sent while a `wait` step runs are reported as the user's; a gesture
  * the user makes inside a held step's window is reported as the step's. The
  * README records both as limitations.
