@@ -36,6 +36,7 @@ import {
   isRemote,
   presentedCredential,
   readSettings,
+  remoteRequestHeaders,
   remoteResponseHeaders,
   requestFraming,
   requestPathname,
@@ -762,6 +763,8 @@ describe('configuration fails loud at start', () => {
     [{ ...base, AUTH_CHECK_REPLY: 'body' }, /AUTH_CHECK_REPLY/],
     [{ ...base, ALLOWED_TENANTS: ' , ,' }, /ALLOWED_TENANTS is set but lists no value/],
     [{ ...base, AUTH_CACHE_SECONDS: '-1' }, /AUTH_CACHE_SECONDS/],
+    [{ ...base, AUTH_REFUSAL_CACHE_SECONDS: '-1' }, /AUTH_REFUSAL_CACHE_SECONDS/],
+    [{ ...base, AUTH_REFUSAL_CACHE_SECONDS: 'ten' }, /AUTH_REFUSAL_CACHE_SECONDS/],
     [{ ...base, DSH_EXTRA_PREFIXES: ' , ' }, /DSH_EXTRA_PREFIXES is set but lists no value/],
     [{ ...base, DSH_EXTRA_PREFIXES: 'map-component' }, /DSH_EXTRA_PREFIXES entry "map-component" must be a path/],
     [{ ...base, DSH_EXTRA_PREFIXES: '/' }, /DSH_EXTRA_PREFIXES entry "\/" must be a path/],
@@ -795,6 +798,7 @@ describe('configuration fails loud at start', () => {
       authCheckPath: '/nrms-auth/api/renewal',
       authCheckReply: 'renewal',
       authCacheSeconds: 30,
+      authRefusalCacheSeconds: 10,
       assertion: undefined,
       claims: NO_CLAIMS_CHECKS,
       dshExtraPrefixes: [],
@@ -851,6 +855,14 @@ describe('routing', () => {
     }
     expect(new Set(exact)).toEqual(GATE_EXEMPT_EXACT)
     expect(prefixes).toEqual(GATE_EXEMPT_PREFIXES)
+  })
+
+  it('drops every dsh-auth cookie from a remote-application request and keeps the deployment\'s own', () => {
+    expect(remoteRequestHeaders({ cookie: 'accessToken=t; dsh-auth-0a1b=signed; other=1; dsh-auth-exchange=1', accept: '*/*' }))
+      .toEqual({ cookie: 'accessToken=t; other=1', accept: '*/*' })
+    expect(remoteRequestHeaders({ cookie: 'dsh-auth-0a1b=signed;dsh-auth-exchange=1', accept: '*/*' })).toEqual({ accept: '*/*' })
+    expect(remoteRequestHeaders({ cookie: 'xdsh-auth-0a1b=kept; dsh-authz=kept' })).toEqual({ cookie: 'xdsh-auth-0a1b=kept; dsh-authz=kept' })
+    expect(remoteRequestHeaders({ accept: '*/*' })).toEqual({ accept: '*/*' })
   })
 
   it('strips the framing and cookie attributes that block embedding the remote application', () => {
@@ -1092,6 +1104,22 @@ describe('proxy mode', () => {
     expect((await send(plain.port, '/map-component/settings', LOGGED_IN)).status).toBe(200)
     expect(plain.customer.requests.at(-1)?.path).toBe('/map-component/settings')
     expect(plain.dsh.requests).toHaveLength(0)
+  })
+
+  it('sends the remote application no dsh-auth cookie, by request or upgrade, and dsh all of them', async () => {
+    const jar = { cookie: `accessToken=${TOKEN}; dsh-auth-0a1b=signed; theme=dark; dsh-auth-exchange=1` }
+    const w = await world()
+    expect((await send(w.port, '/ini-web2/index.html', jar)).status).toBe(200)
+    expect(w.customer.requests.at(-1)?.headers.cookie).toBe(`accessToken=${TOKEN}; theme=dark`)
+    expect(await upgrade(w.port, '/toy-proxy/socket', jar)).toBe(101)
+    expect(w.customer.upgrades.at(-1)?.headers.cookie).toBe(`accessToken=${TOKEN}; theme=dark`)
+    expect((await send(w.port, '/api/rpc', jar)).status).toBe(200)
+    expect(w.dsh.requests.at(-1)?.headers.cookie).toBe(jar.cookie)
+    expect(await upgrade(w.port, '/api/remote.mux', jar)).toBe(101)
+    expect(w.dsh.upgrades.at(-1)?.headers.cookie).toBe(jar.cookie)
+
+    expect((await send(w.port, '/ini-web2/index.html', { cookie: 'dsh-auth-0a1b=signed' })).status).toBe(200)
+    expect(w.customer.requests.at(-1)?.headers.cookie).toBeUndefined()
   })
 
   it('forwards everything with the header stripped when the login gate is off', async () => {
@@ -1580,6 +1608,33 @@ describe('node proxy.mjs', () => {
 })
 
 describe('gate', () => {
+  it.each([
+    [{}, [1, 1, 2]],
+    [{ AUTH_REFUSAL_CACHE_SECONDS: '0' }, [1, 2, 3]],
+    [{ AUTH_REFUSAL_CACHE_SECONDS: '60' }, [1, 1, 1]],
+  ])('remembers a refusal for AUTH_REFUSAL_CACHE_SECONDS (%j)', async (env, asked) => {
+    let renewals = 0
+    const customer = await stub((_req, res) => {
+      renewals += 1
+      res.statusCode = 401
+      res.end()
+      return true
+    })
+    const clock = { now: 1_800_000_000_000 }
+    const gate = createGate(readSettings({ PROXY_MODE: 'verify', AUTH_ORIGIN: `http://127.0.0.1:${String(customer.port)}`, ...env }), { log: () => {}, now: () => clock.now })
+    closers.push(async () => { gate.close() })
+    const credential = `Bearer ${TOKEN}`
+    const refused = { outcome: 'refused', reason: 'service' }
+    expect(await gate.authorize(credential)).toEqual(refused)
+    expect(renewals).toBe(asked[0])
+    clock.now += 9_000
+    expect(await gate.authorize(credential)).toEqual(refused)
+    expect(renewals).toBe(asked[1])
+    clock.now += 2_000
+    expect(await gate.authorize(credential)).toEqual(refused)
+    expect(renewals).toBe(asked[2])
+  })
+
   it('shares one check among concurrent requests and asks again once the admission expires', async () => {
     let renewals = 0
     const customer = await stub((req, res) => {

@@ -115,6 +115,7 @@ import { pathToFileURL } from 'node:url'
  * @property {string} authCheckPath - AUTH_CHECK_PATH.
  * @property {'renewal' | 'status'} authCheckReply - AUTH_CHECK_REPLY.
  * @property {number} authCacheSeconds - AUTH_CACHE_SECONDS.
+ * @property {number} authRefusalCacheSeconds - AUTH_REFUSAL_CACHE_SECONDS.
  * @property {ClaimsPolicy} claims - the optional claims checks.
  * @property {{ privateKey: import('node:crypto').KeyObject, deploymentId: string } | undefined} assertion - the signing key and audience, when this deployment signs.
  * @property {string | undefined} launchTokenFile - DSH_LAUNCH_TOKEN_FILE, proxy mode only.
@@ -130,8 +131,6 @@ const ASSERTION_VERSION = 'v1'
 
 /** Address of the local dsh process. dsh listens only on loopback, which is what keeps it unreachable except through this gate. */
 const DSH_HOST = '127.0.0.1'
-/** How long a refusal is remembered, so an expired token cannot spin the authentication service. */
-const AUTH_REFUSED_CACHE_MS = 10_000
 /** How long the check itself may take before the gate calls the authentication service unavailable. */
 const AUTH_CHECK_TIMEOUT_MS = 8_000
 /** Cache ceiling; each entry is one presented credential string. */
@@ -146,6 +145,12 @@ const AUTH_REPLY_LIMIT_BYTES = 65_536
 const UPGRADE_RESPONSE_HEAD_LIMIT_BYTES = 65_536
 /** One-shot marker set with the exchange redirect; see sendExchange. */
 const EXCHANGE_MARKER_COOKIE = 'dsh-auth-exchange'
+/**
+ * Name prefix of every cookie dsh's browser auth signs
+ * (packages/client/connection/src/browser-auth.ts) and of the exchange marker
+ * above: the cookies a remote-application request never carries.
+ */
+const DSH_COOKIE_PREFIX = 'dsh-auth-'
 const EXCHANGE_MARKER_SECONDS = 15
 
 /**
@@ -276,6 +281,23 @@ export function forwardHeaders(headers, host, assertion) {
   if (host !== undefined) out.host = host
   if (assertion !== undefined) out[MEMBER_HEADER] = assertion
   return out
+}
+
+/**
+ * The inbound headers a remote-application request carries: every cookie whose
+ * name starts with `dsh-auth-` is dropped from `cookie`, and `cookie` itself
+ * when nothing else is left. dsh's signed session cookie admits whoever holds
+ * it to the console as its operator, and the remote application has no use
+ * for it; the deployment's own cookies, the mirror cookie among them, pass
+ * through unchanged.
+ * @param {import('node:http').IncomingHttpHeaders} headers - inbound request headers.
+ * @returns {import('node:http').IncomingHttpHeaders} the headers with dsh's cookies removed.
+ */
+export function remoteRequestHeaders(headers) {
+  const { cookie, ...rest } = headers
+  if (cookie === undefined) return rest
+  const kept = cookie.split(';').map(pair => pair.trim()).filter(pair => pair !== '' && !pair.startsWith(DSH_COOKIE_PREFIX))
+  return kept.length === 0 ? rest : { ...rest, cookie: kept.join('; ') }
 }
 
 /**
@@ -763,6 +785,7 @@ export function readSettings(env, readFile = readFileSync) {
     authCheckPath,
     authCheckReply: /** @type {'renewal' | 'status'} */ (envChoice(env, 'AUTH_CHECK_REPLY', ['renewal', 'status'])),
     authCacheSeconds: envInteger(env, 'AUTH_CACHE_SECONDS', '30', 0, 86_400),
+    authRefusalCacheSeconds: envInteger(env, 'AUTH_REFUSAL_CACHE_SECONDS', '10', 0, 86_400),
     claims: {
       expectedIss: envText(env, 'EXPECTED_ISS'),
       allowedTenants: envList(env, 'ALLOWED_TENANTS'),
@@ -902,7 +925,7 @@ export function createGate(settings, runtime) {
             const oldest = cache.keys().next()
             if (!oldest.done) cache.delete(oldest.value)
           }
-          const ttl = verification.outcome === 'admitted' ? settings.authCacheSeconds * 1000 : AUTH_REFUSED_CACHE_MS
+          const ttl = (verification.outcome === 'admitted' ? settings.authCacheSeconds : settings.authRefusalCacheSeconds) * 1000
           cache.set(credential, { verification, expires: runtime.now() + ttl })
         }
         return verification
@@ -1381,7 +1404,9 @@ export function createProxyServer(settings, runtime) {
         port: remote ? settings.remotePort : settings.dshPort,
         method: req.method,
         path: req.url,
-        headers: upstreamRequestHeaders(req.headers, remote ? remoteHostHeader : undefined, assertion, framing),
+        headers: remote
+          ? upstreamRequestHeaders(remoteRequestHeaders(req.headers), remoteHostHeader, assertion, framing)
+          : upstreamRequestHeaders(req.headers, undefined, assertion, framing),
         agent: remote ? remoteAgent : dshAgent,
       }, (response) => {
         upstreamRes = response
@@ -1493,7 +1518,9 @@ export function createProxyServer(settings, runtime) {
         }
         assertion = decision.assertion
       }
-      const headers = upstreamRequestHeaders(req.headers, remote ? remoteHostHeader : undefined, assertion, { body: 'none' })
+      const headers = remote
+        ? upstreamRequestHeaders(remoteRequestHeaders(req.headers), remoteHostHeader, assertion, { body: 'none' })
+        : upstreamRequestHeaders(req.headers, undefined, assertion, { body: 'none' })
       // The upgrade handshake is replayed on a raw socket: the gateway's stream
       // client negotiates the WebSocket itself
       // (packages/api/gateway/src/client/stream-client.ts), so nothing here may

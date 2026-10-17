@@ -85,6 +85,8 @@ export interface Settings {
   authCheckReply: 'renewal' | 'status'
   /** AUTH_CACHE_SECONDS. */
   authCacheSeconds: number
+  /** AUTH_REFUSAL_CACHE_SECONDS. */
+  authRefusalCacheSeconds: number
   /** The optional claims checks. */
   claims: ClaimsPolicy
   /** The signing key and audience, when this deployment signs. */
@@ -132,6 +134,13 @@ export function requestFraming(headers: IncomingHttpHeaders): RequestFraming
  * @returns headers for the next hop.
  */
 export function forwardHeaders(headers: IncomingHttpHeaders, host: string | undefined, assertion?: string): Record<string, string | string[]>
+/**
+ * The inbound headers a remote-application request carries: every `dsh-auth-*` cookie
+ * is dropped from `cookie`, and `cookie` itself when nothing else is left.
+ * @param headers - inbound request headers.
+ * @returns the headers with dsh's cookies removed.
+ */
+export function remoteRequestHeaders(headers: IncomingHttpHeaders): IncomingHttpHeaders
 /**
  * Strip the framing and cookie attributes that would break embedding the remote application.
  * @param headers - upstream response headers.
