@@ -7,7 +7,7 @@
  * @module @deepseek-ai/dsh-experimental-component-surface/act-component-text
  */
 
-import type { ActComponentStep, ActComponentStepResult } from './act-component-call.ts'
+import type { ActComponentStep, ActComponentStepResult, IgnoredStepField } from './act-component-call.ts'
 import { MAX_ACT_COMPONENT_STEPS } from './act-component-call.ts'
 
 /** The tool's description: what it acts on, how a call addresses it, and what comes back. */
@@ -72,6 +72,28 @@ export function tooManyStepsRefusal(max: number): string {
  */
 export function stepRefusal(index: number, reason: string): string {
   return `step ${String(index)}: ${reason}`
+}
+
+/**
+ * What one step is refused for when it carries a field naming a target or a
+ * value its action does not take.
+ * @param ignored - the action and the field it carried.
+ * @returns the reason, for {@link stepRefusal}.
+ */
+export function ignoredFieldReason(ignored: IgnoredStepField): string {
+  switch (ignored.action) {
+    case 'click': return `a click presses one control named by its key, so it takes no "${ignored.field}".`
+    case 'set': return `a set writes the one field its name addresses, so it takes no "${ignored.field}".`
+    case 'wait': return `a wait waits for a block or a control, so it takes no "${ignored.field}".`
+    /* v8 ignore start -- IgnoredStepField is closed and every variant returns above. */
+    default: {
+      // Not `assertNever` from dsh-llm, for the reason validate.ts states at its
+      // own exhaustiveness check: this module is loaded by the browser seat.
+      const unhandled: never = ignored
+      throw new Error(`component-surface: unhandled field ${JSON.stringify(unhandled)}`)
+    }
+    /* v8 ignore stop */
+  }
 }
 
 /** Refusal for a call with no owning session, which has no column to act on. */

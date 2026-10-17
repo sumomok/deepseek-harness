@@ -236,6 +236,37 @@ describe('a call the tool refuses before any console is asked', () => {
     if (result.isError) expect(result.error.message).toBe('step 2: a step must name `click`, `set`, or `wait`, with the block, key, name, or value that action takes, in the components\' own alphabet of letters, digits, underscores and hyphens.')
   })
 
+  it('refuses the whole call for a step carrying a target its action does not take, naming the field', async () => {
+    const { run, calls: opened } = await bench({ kind: 'unclaimed' })
+    const cases: [unknown, string][] = [
+      [
+        [{ action: 'click', key: 'add' }, { action: 'click', key: 'press', name: 'ok' }],
+        'step 2: a click presses one control named by its key, so it takes no "name".',
+      ],
+      [
+        [{ action: 'set', key: 'save', name: 'title', value: 'X' }],
+        'step 1: a set writes the one field its name addresses, so it takes no "key".',
+      ],
+      [
+        [{ action: 'wait', node: 'grid', value: 'X' }],
+        'step 1: a wait waits for a block or a control, so it takes no "value".',
+      ],
+    ]
+    for (const [steps, message] of cases) {
+      const result = await run({ entry: ENTRY, steps })
+      expect({ steps, isError: result.isError }).toEqual({ steps, isError: true })
+      if (result.isError) expect(result.error.message).toBe(message)
+    }
+    // No console is asked about a call the host refused.
+    expect(opened.open).not.toHaveBeenCalled()
+    // A timeout on a press bounds no wait the press makes, so the call goes on
+    // to a claim with the field dropped.
+    const timed = await run({ entry: ENTRY, steps: [{ action: 'click', key: 'add', timeoutMs: 500 }] })
+    expect(opened.open).toHaveBeenCalledTimes(1)
+    expect(timed.isError).toBe(true)
+    if (timed.isError) expect(timed.error.message).toBe(unclaimedRefusal(TIMEOUTS.claimTimeoutMs))
+  })
+
   it('refuses a call with no owning session, which has no column to act on', async () => {
     const result = await runWithoutAgent(ARGS)
     expect(result.isError).toBe(true)

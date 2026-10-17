@@ -472,7 +472,7 @@ schema 说不出的是一个字符串**意味着**什么。把某个字符串读
 <a id="acting-inside-the-entry-on-display"></a>
 ## 在眼前的条目里动手
 
-`act_component` 是模型伸进内容栏的另一个方向：一次调用只指名一条条目，带 1 到 8 个步骤，按顺序跑，第一个失败的步骤就停下。步骤只有三种——`click` 按下某个块用动作键申明的控件，`set` 往条目为某一列或某个属性指认的字段里写值，`wait` 等到某个块或某个申明的控件被画出来——而且每一种都用组件自己的语言寻址，而不是 DOM 引用：`entry` 是 `show_component` 摆下它时用的 id，`node` 是摆放写下的块 id，`key` 是组件为某个控件申明的动作，`name` 是字段所属的列名或属性名。写进字段的值最多 4096 个字符，名字最多 64 个字母、数字、下划线和连字符，一次 `wait` 最多十秒。
+`act_component` 是模型伸进内容栏的另一个方向：一次调用只指名一条条目，带 1 到 8 个步骤，按顺序跑，第一个失败的步骤就停下。步骤只有三种——`click` 按下某个块用动作键申明的控件，`set` 往条目为某一列或某个属性指认的字段里写值，`wait` 等到某个块或某个申明的控件被画出来——而且每一种都用组件自己的语言寻址，而不是 DOM 引用：`entry` 是 `show_component` 摆下它时用的 id，`node` 是摆放写下的块 id，`key` 是组件为某个控件申明的动作，`name` 是字段所属的列名或属性名。写进字段的值最多 4096 个字符，名字最多 64 个字母、数字、下划线和连字符，一次 `wait` 最多十秒。步骤若带了它的动作不接受、却会指定目标或值的字段——`click` 或 `wait` 带 `name` 或 `value`，`set` 带 `key`——整次调用在问任何控制台之前就被拒绝，拒绝语点明是哪一步、哪个字段：带了这个字段，说明这次调用想要的控件或值是这个动作的任何步骤都够不到的。`click` 或 `set` 上的 `timeoutMs` 不选控件，直接丢掉。
 
 **一次调用只在一条条目里动手，别处都不碰。** 控制台凭借内容栏自己的两个标记找到条目的容器——被选中切换按钮的键，以及处于在前状态的 kind 包装元素里的条目根——并在认领之后重新读一遍，读到的不是这次调用指名的那条条目就拒绝。步骤的每一次查找都以那个容器为界：控制台画在条目旁边的东西——它自己的侧栏、聊天输入框、另一条条目、同一 kind 里已经过期的座位——是够不着，而不只是没去查；步骤指认的目标条目没有申明，就只回一句拒绝。这句话对「哪里都没有」和「在条目之外」是完全一样的，因为从这次调用的角度看它们是同一件事：这次调用被限在的那条条目里没有它指认的东西。
 
@@ -589,7 +589,7 @@ schema 说不出的是一个字符串**意味着**什么。把某个字符串读
 
 #### What the model sees
 
-跑过的调用答 `status`（`done` 或 `failed`）、它作用的条目 `{id, title}`、每个请求步骤一条 `steps`——`{index, status}`，停下这次调用的那一步还带 `message`——以及一段 `text`，点名条目和每一步的结局：先是 `Acted on the component entry "Demo" (demo).`，然后每步一行，`- click on "add": done`、`- set "title" in grid: …`、`- wait for grid: done`，失败后面的步骤读作 `not run`。控制台给这次调用的时间用完时停在的那一步读作 `The console's time for this call ran out before this step finished.`。步骤指认的控件条目没有申明时读作 `control "console-add" is not part of the entry on display.`——`哪里都没有`和`控制台画在条目之外`共用这一句，因为从调用这一侧看它们是同一件事。只有块没画出来的控件带着某个键时读作 `control "deleted" is not drawn, so this call cannot press it.`——条目持有这个控件、却没有人按得到它，这是关于调用自身寻址的另一件事。没有任何控制台认领的调用会带着 `No console showing this session claimed the call within <claimTimeoutMs>ms, so no step ran.` 拒绝；被控制台答成什么都没跑的调用——眼前没有条目、在前的是另一条条目、某个组件抛了错——用控制台自己那句话拒绝，前面加上 `act_component did not run: `。认领之后始终不上报的调用答 `status: "unverified"`，没有条目也没有步骤，文本说这些步骤可能跑全了、跑了一部分，或者一步都没跑。
+跑过的调用答 `status`（`done` 或 `failed`）、它作用的条目 `{id, title}`、每个请求步骤一条 `steps`——`{index, status}`，停下这次调用的那一步还带 `message`——以及一段 `text`，点名条目和每一步的结局：先是 `Acted on the component entry "Demo" (demo).`，然后每步一行，`- click on "add": done`、`- set "title" in grid: …`、`- wait for grid: done`，失败后面的步骤读作 `not run`。控制台给这次调用的时间用完时停在的那一步读作 `The console's time for this call ran out before this step finished.`。步骤指认的控件条目没有申明时读作 `control "console-add" is not part of the entry on display.`——`哪里都没有`和`控制台画在条目之外`共用这一句，因为从调用这一侧看它们是同一件事。只有块没画出来的控件带着某个键时读作 `control "deleted" is not drawn, so this call cannot press it.`——条目持有这个控件、却没有人按得到它，这是关于调用自身寻址的另一件事。带了动作不接受的字段的步骤，让整次调用在问任何控制台之前就被拒绝，拒绝语带着那一步的序号和字段：`step 2: a click presses one control named by its key, so it takes no "name".`。没有任何控制台认领的调用会带着 `No console showing this session claimed the call within <claimTimeoutMs>ms, so no step ran.` 拒绝；被控制台答成什么都没跑的调用——眼前没有条目、在前的是另一条条目、某个组件抛了错——用控制台自己那句话拒绝，前面加上 `act_component did not run: `。认领之后始终不上报的调用答 `status: "unverified"`，没有条目也没有步骤，文本说这些步骤可能跑全了、跑了一部分，或者一步都没跑。
 
 #### Token effect
 

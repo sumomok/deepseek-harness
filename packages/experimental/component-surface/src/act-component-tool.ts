@@ -21,14 +21,14 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { CallTable, CallTimeouts } from '@deepseek-ai/dsh-experimental-content-frame/src/access/pending.ts'
 import type { ActOutcome } from '@deepseek-ai/dsh-experimental-content-frame/src/access/wire.ts'
 import {
-  ACT_COMPONENT_ACTIONS, ACT_COMPONENT_TOOL_NAME, MAX_ACT_COMPONENT_STEPS, isActComponentReport, isEntryId,
-  parseActComponentArgs, readActComponentStep,
+  ACT_COMPONENT_ACTIONS, ACT_COMPONENT_TOOL_NAME, MAX_ACT_COMPONENT_STEPS, ignoredStepField, isActComponentReport,
+  isEntryId, parseActComponentArgs, readActComponentStep,
 } from './act-component-call.ts'
 import {
   ACTION_DESCRIPTION, ACT_COMPONENT_DESCRIPTION, BAD_ENTRY_REFUSAL, CANCELLED_REFUSAL, ENTRY_DESCRIPTION,
   KEY_DESCRIPTION, MISREPORTED_REFUSAL, NAME_DESCRIPTION, NODE_DESCRIPTION, NO_AGENT_REFUSAL, NO_STEPS_REFUSAL,
-  STEP_REFUSAL_TEXT, STEPS_DESCRIPTION, TIMEOUT_DESCRIPTION, VALUE_DESCRIPTION, failureRefusal, stepRefusal,
-  tooManyStepsRefusal, unclaimedRefusal, unverifiedRefusal,
+  STEP_REFUSAL_TEXT, STEPS_DESCRIPTION, TIMEOUT_DESCRIPTION, VALUE_DESCRIPTION, failureRefusal, ignoredFieldReason,
+  stepRefusal, tooManyStepsRefusal, unclaimedRefusal, unverifiedRefusal,
 } from './act-component-text.ts'
 import { channelCallCard, channelResultCard, settleChannelCall, type ChannelToolText } from './channel-tool.ts'
 
@@ -60,8 +60,9 @@ export interface ActComponentValue {
  * Refuse arguments no console can run, saying what is wrong with them.
  *
  * The schema has already checked the field types; this checks what it cannot
- * state — the entry id's bound and each step's target alphabet — with the
- * reader a browser runs, and names the step to fix.
+ * state — the entry id's bound, a field naming a target or a value the step's
+ * action does not take, and each step's target alphabet — with the readers a
+ * browser runs, and names the step to fix.
  * @param args - the arguments as the schema validated them.
  * @throws {Error} naming the step and the parameter to fix.
  */
@@ -70,6 +71,10 @@ function checkActArgs(args: { readonly entry: string; readonly steps: readonly u
   if (args.steps.length === 0) throw new Error(NO_STEPS_REFUSAL)
   if (args.steps.length > MAX_ACT_COMPONENT_STEPS) throw new Error(tooManyStepsRefusal(MAX_ACT_COMPONENT_STEPS))
   for (const [at, raw] of args.steps.entries()) {
+    // Asked first: the step reader refuses the same step, and this sentence
+    // names the field where that refusal names none.
+    const ignored = ignoredStepField(raw)
+    if (ignored !== undefined) throw new Error(stepRefusal(at + 1, ignoredFieldReason(ignored)))
     if (readActComponentStep(raw) === undefined) throw new Error(stepRefusal(at + 1, STEP_REFUSAL_TEXT))
   }
 }

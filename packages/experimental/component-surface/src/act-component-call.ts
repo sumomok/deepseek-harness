@@ -205,12 +205,57 @@ export function isEntryId(value: unknown): value is string {
 }
 
 /**
+ * A field one step carries that names a target or a value its action does not
+ * take: `name` or `value` on a `click` or a `wait`, and `key` on a `set`.
+ */
+export type IgnoredStepField =
+  | {
+    /** The action that takes no such field. */
+    readonly action: 'click' | 'wait'
+    /** The field it carried. */
+    readonly field: 'name' | 'value'
+  }
+  | {
+    /** The action that takes no such field. */
+    readonly action: 'set'
+    /** The field it carried. */
+    readonly field: 'key'
+  }
+
+/**
+ * Find the field one step carries that would name a target or a value its
+ * action does not take. A step carrying one is refused whole: the field shows
+ * the call meant a control or a value that no step of that action reaches.
+ * `timeoutMs` on a `click` or a `set` is not such a field, since it bounds time
+ * rather than choosing a control, and the reader drops it. The host's argument
+ * check and {@link readActComponentStep} both ask this.
+ * @param value - the step, however malformed.
+ * @returns the action and the field it does not take, or `undefined` when the
+ *   step carries none or names no action this tool runs.
+ */
+export function ignoredStepField(value: unknown): IgnoredStepField | undefined {
+  if (value === null || typeof value !== 'object') return undefined
+  const step = value as { action?: unknown; key?: unknown; name?: unknown; value?: unknown }
+  switch (step.action) {
+    case 'click':
+    case 'wait':
+      if (step.name !== undefined) return { action: step.action, field: 'name' }
+      return step.value === undefined ? undefined : { action: step.action, field: 'value' }
+    case 'set': return step.key === undefined ? undefined : { action: 'set', field: 'key' }
+    // `action` is whatever the model sent.
+    default: return undefined
+  }
+}
+
+/**
  * Read one step from a decoded value.
  * @param value - the step, however malformed.
- * @returns the step, or `undefined` when the value is not one this tool runs.
+ * @returns the step, or `undefined` when the value is not one this tool runs,
+ *   including a step carrying an {@link ignoredStepField}.
  */
 export function readActComponentStep(value: unknown): ActComponentStep | undefined {
   if (value === null || typeof value !== 'object') return undefined
+  if (ignoredStepField(value) !== undefined) return undefined
   const step = value as {
     action?: unknown
     node?: unknown

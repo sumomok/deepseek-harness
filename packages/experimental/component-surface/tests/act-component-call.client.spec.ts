@@ -20,7 +20,7 @@ import { MAX_NAME_CHARS } from '@deepseek-ai/dsh-experimental-content-frame/src/
 import {
   ACT_COMPONENT_TOOL_NAME, MAX_ACT_COMPONENT_STEPS, MAX_MESSAGE_CHARS,
   MAX_REPORT_TEXT_CHARS, MAX_SET_VALUE_CHARS, MAX_TARGET_CHARS, MAX_TITLE_CHARS, MAX_WAIT_MS,
-  isActComponentReport, parseActComponentArgs, parseActComponentOutcome, parseActComponentReport,
+  ignoredStepField, isActComponentReport, parseActComponentArgs, parseActComponentOutcome, parseActComponentReport,
   readActComponentCall, readActComponentStep, settledComponentCall,
 } from '../src/act-component-call.ts'
 import { MAX_ENTRY_ID_LENGTH } from '../src/component-call.ts'
@@ -52,7 +52,7 @@ const REPORT = {
 }
 
 describe('reading one step', () => {
-  it('accepts each action with the fields it needs, and omits the ones it does not', () => {
+  it('accepts each action with the fields it takes, and writes none the step left out', () => {
     expect(readActComponentStep({ action: 'click', key: 'add' }))
       .toEqual({ action: 'click', key: 'add' })
     expect(readActComponentStep({ action: 'click', node: 'toolbar', key: 'add' }))
@@ -98,6 +98,31 @@ describe('reading one step', () => {
     expect(readActComponentStep({ action: 'wait', key: TOO_LONG_TARGET })).toBeUndefined()
     for (const timeoutMs of [0, MAX_WAIT_MS + 1, 1.5, '1000', Number.NaN]) {
       expect(readActComponentStep({ action: 'wait', key: 'add', timeoutMs })).toBeUndefined()
+    }
+  })
+
+  it('refuses a step carrying a target or a value its action does not take, naming the field', () => {
+    const refused: [Record<string, unknown>, unknown][] = [
+      [{ action: 'click', key: 'press', name: 'ok' }, { action: 'click', field: 'name' }],
+      [{ action: 'click', key: 'press', value: 'ok' }, { action: 'click', field: 'value' }],
+      [{ action: 'set', key: 'save', name: 'title', value: 'X' }, { action: 'set', field: 'key' }],
+      [{ action: 'wait', key: 'add', name: 'title' }, { action: 'wait', field: 'name' }],
+      [{ action: 'wait', node: 'grid', value: 'X' }, { action: 'wait', field: 'value' }],
+    ]
+    for (const [step, field] of refused) {
+      expect({ step, field: ignoredStepField(step) }).toEqual({ step, field })
+      expect({ step, read: readActComponentStep(step) }).toEqual({ step, read: undefined })
+    }
+  })
+
+  it('drops a timeout from a click or a set, which chooses no control', () => {
+    expect(ignoredStepField({ action: 'click', key: 'add', timeoutMs: 500 })).toBeUndefined()
+    expect(readActComponentStep({ action: 'click', key: 'add', timeoutMs: 500 })).toEqual({ action: 'click', key: 'add' })
+    expect(readActComponentStep({ action: 'set', name: 'title', value: 'X', timeoutMs: 500 }))
+      .toEqual({ action: 'set', name: 'title', value: 'X' })
+    // A step naming no action this tool runs has no field to judge.
+    for (const value of [null, 'click', { action: 'press', name: 'ok' }]) {
+      expect(ignoredStepField(value)).toBeUndefined()
     }
   })
 })
