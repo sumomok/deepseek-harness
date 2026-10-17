@@ -609,7 +609,7 @@ describe('a table reporting back', () => {
         [{
           type: 'text',
           text: 'This report comes from step 1 of your own call acting on this entry, not from the user: '
-            + 'The user selected 2 rows in content panel entry "devices" ("设备列表"), on the 数据表 block "grid": "A-1", "A-2".',
+            + 'You selected 2 rows in content panel entry "devices" ("设备列表"), on the 数据表 block "grid": "A-1", "A-2".',
         }],
       ])
     // The same gesture from the same step is appended again, and so is a later

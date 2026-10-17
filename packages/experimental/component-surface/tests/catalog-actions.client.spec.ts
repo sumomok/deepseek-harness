@@ -944,6 +944,7 @@ describe('what a form page and an info card report', () => {
    * @param props - the block's properties, as the view wrote them.
    * @param actionId - the action the block reports.
    * @param payload - the payload the seat reported.
+   * @param actor - who caused the gesture; left out as a context built outside the command handler does.
    * @returns the two accounts, or `undefined` where the gesture names nothing on display.
    */
   function viewNotice(
@@ -951,6 +952,7 @@ describe('what a form page and an info card report', () => {
     props: Record<string, unknown>,
     actionId: string,
     payload: Record<string, unknown>,
+    actor?: ComponentActionActor,
   ): ComponentActionNotice | undefined {
     const result = validateComponentSpec(KIT_CATALOG, { nodes: [PAGE_BLOCK, { id: 'block', component: componentId, props }] })
     if (!result.ok) throw new Error(result.failure.text)
@@ -959,7 +961,7 @@ describe('what a form page and an info card report', () => {
     if (node === undefined || component === undefined) throw new Error(`no ${componentId} block was built`)
     const action = catalogAction(component, actionId)
     if (action === undefined) throw new Error(`${componentId} declares no ${actionId}`)
-    return action.describe({ entryId: 'crud', entryTitle: '图层管理', node, component, payload })
+    return action.describe({ entryId: 'crud', entryTitle: '图层管理', node, component, payload, ...actor === undefined ? {} : { actor } })
   }
 
   /** The bytes one action document of a view-placed block costs, at every identifier's own ceiling. */
@@ -998,6 +1000,18 @@ describe('what a form page and an info card report', () => {
     expect(viewNotice(FORM_PAGE_ID, FORM_PROPS, DATA_PAGE_MODIFIED_ID, { record: {} })).toEqual({
       text: 'The user saved an edit of "SpaceLayer" in content panel entry "crud" ("图层管理"), on the 表单页 block "block".',
       summary: '用户在「图层管理」里改了一条记录',
+    })
+  })
+
+  it('addresses the agent and names the assistant for a form page save its own step caused', () => {
+    expect(viewNotice(FORM_PAGE_ID, FORM_PROPS, DATA_PAGE_ADDED_ID, { record: { zh_label: '测试-1' } }, 'agent')).toEqual({
+      text: 'You saved a new record of "SpaceLayer" in content panel entry "crud" ("图层管理"), on the 表单页 block '
+        + '"block": "测试-1" (zh_label: "测试-1").',
+      summary: '助手在「图层管理」里新增了「测试-1」',
+    })
+    expect(viewNotice(FORM_PAGE_ID, FORM_PROPS, DATA_PAGE_MODIFIED_ID, { record: {} }, 'agent')).toEqual({
+      text: 'You saved an edit of "SpaceLayer" in content panel entry "crud" ("图层管理"), on the 表单页 block "block".',
+      summary: '助手在「图层管理」里改了一条记录',
     })
   })
 
@@ -1247,5 +1261,70 @@ describe('a gesture the agent\'s own step caused', () => {
     })
     expect(both(DATA_PAGE_ID, PAGE_PROPS, DATA_PAGE_OPERATION_ID, { opId: 'ping', row }).user?.text)
       .toBe(`The user pressed "测试连通" (ping) on row "北京-核心-01" in ${PAGE_PLACE}.`)
+  })
+
+  it('does the same for a table\'s selection and sort, and for a filter bar\'s submitted and edited filter', () => {
+    expect(both(TABLE_ID, TABLE, TABLE_SELECT_ID, { rowIndexes: [0, 2] }).agent).toEqual({
+      text: `You selected 2 rows in ${TABLE_PLACE}: "A-1", "A-3".`,
+      summary: '助手在「设备列表」里选中了 2 行：A-1、A-3',
+    })
+    expect(both(TABLE_ID, TABLE, TABLE_SELECT_ID, { rowIndexes: [] }).agent).toEqual({
+      text: `You cleared the selection in ${TABLE_PLACE}.`,
+      summary: '助手在「设备列表」里取消了选择',
+    })
+    expect(both(TABLE_ID, TABLE, TABLE_SORT_ID, { prop: 'state', order: 'asc' }).agent).toEqual({
+      text: `You sorted by "状态", ascending, in ${TABLE_PLACE}.`,
+      summary: '助手把「设备列表」按「状态」升序排列',
+    })
+    expect(both(TABLE_ID, TABLE, TABLE_SORT_ID, { prop: 'state', order: 'none' }).agent).toEqual({
+      text: `You cleared the sort in ${TABLE_PLACE}.`,
+      summary: '助手取消了「设备列表」的排序',
+    })
+    expect(both(FILTER_BAR_ID, FILTER, FILTER_SUBMIT_ID, { conditions: [{ key: 'zh_label', op: 'EQ', value: 'A-1' }] }).agent)
+      .toEqual({
+        text: `You submitted a filter in ${FILTER_PLACE}: 名称 等于 "A-1".`,
+        summary: '助手提交了筛选条件：名称 等于 “A-1”',
+      })
+    // The verb agrees with whoever is editing.
+    expect(both(FILTER_BAR_ID, FILTER, FILTER_CHANGE_ID, { count: 1 })).toEqual({
+      user: { text: `The user is editing the filter in ${FILTER_PLACE}: 1 condition so far.`, summary: '用户正在改「设备列表」的筛选条件（1 条）' },
+      agent: { text: `You are editing the filter in ${FILTER_PLACE}: 1 condition so far.`, summary: '助手正在改「设备列表」的筛选条件（1 条）' },
+    })
+  })
+
+  it('does the same for what a data page reports was saved, opened, exported, deleted and changed in it', () => {
+    const agent = (actionId: string, payload: Record<string, unknown>): ComponentActionNotice | undefined =>
+      both(DATA_PAGE_ID, PAGE_PROPS, actionId, payload).agent
+    const record = { zh_label: '新建-01' }
+    expect(agent(DATA_PAGE_ADDED_ID, { record })).toEqual({
+      text: `You saved a new record in ${PAGE_PLACE}: "新建-01" (zh_label: "新建-01").`,
+      summary: '助手在「设备列表」里新增了「新建-01」',
+    })
+    expect(agent(DATA_PAGE_MODIFIED_ID, { record })).toEqual({
+      text: `You saved an edit in ${PAGE_PLACE}: "新建-01" (zh_label: "新建-01").`,
+      summary: '助手在「设备列表」里改了「新建-01」',
+    })
+    expect(agent(DATA_PAGE_CARD_OPEN_ID, { name: '北京-核心-01', type: 'device' })).toEqual({
+      text: `You opened the side card of "北京-核心-01" (table "device") in ${PAGE_PLACE}.`,
+      summary: '助手在「设备列表」里打开了「北京-核心-01」的卡片',
+    })
+    expect(agent(DATA_PAGE_EXPORTED_ID, { mode: 'grid_csv' })).toEqual({
+      text: `You submitted a table export (gridexp) from the data page of "device" in ${PAGE_PLACE}. This deployment's `
+        + 'backend queued it as a task, and the file is collected from that deployment\'s own task list; nothing was '
+        + 'downloaded here, and this block reports neither the rows the export covers nor where the file ends up.',
+      summary: '助手在「设备列表」里提交了表格导出任务，文件要到这套系统自己的任务列表里取',
+    })
+    expect(agent(DATA_PAGE_DELETED_ID, { succeeded: 2, failed: 0, names: ['测试-1', '测试-2'] })).toEqual({
+      text: `You deleted 2 records of "device" in ${PAGE_PLACE}: "测试-1", "测试-2".`,
+      summary: '助手在「设备列表」里删除了 2 条：测试-1、测试-2',
+    })
+    expect(agent(DATA_PAGE_DELETED_ID, { succeeded: 0, failed: 2, names: [] })).toEqual({
+      text: `You tried to delete 2 records of "device" in ${PAGE_PLACE}, and none was deleted.`,
+      summary: '助手在「设备列表」里删除没有成功（2 条）',
+    })
+    expect(agent(DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 2, names: ['a', 'b'], fields: ['status'] })).toEqual({
+      text: `You changed 2 records of "device" at once in ${PAGE_PLACE}: "a", "b"; fields changed: status.`,
+      summary: '助手在「设备列表」里批量修改了 2 条',
+    })
   })
 })

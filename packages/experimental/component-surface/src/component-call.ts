@@ -901,6 +901,12 @@ function entryName({ entryTitle }: ComponentActionContext): string {
   return plainLine(entryTitle)
 }
 
+/** Who made one gesture, as the two accounts name them. */
+interface ActorPhrase extends NoticePhrase {
+  /** The agent's subject with the present tense of "to be" that agrees with it. */
+  readonly agentIs: string
+}
+
 /**
  * Name who made one gesture, in both accounts: the agent is addressed as the
  * one who did it where its own step caused the gesture, and the user's line
@@ -908,8 +914,10 @@ function entryName({ entryTitle }: ComponentActionContext): string {
  * @param context - the action's context, carrying who caused it.
  * @returns the subject of the agent's sentence and of the user's line.
  */
-function actorOf({ actor }: ComponentActionContext): NoticePhrase {
-  return actor === 'agent' ? { agent: 'You', user: '助手' } : { agent: 'The user', user: '用户' }
+function actorOf({ actor }: ComponentActionContext): ActorPhrase {
+  return actor === 'agent'
+    ? { agent: 'You', user: '助手', agentIs: 'You are' }
+    : { agent: 'The user', user: '用户', agentIs: 'The user is' }
 }
 
 /** One data field name, as a column, a filter attribute and a record key all declare it. */
@@ -1238,18 +1246,19 @@ const TABLE_ACTIONS: readonly ComponentActionDefinition[] = [
       const names = nameRows(context.node, indexes)
       if (names === undefined) return undefined
       const where = place(context)
+      const by = actorOf(context)
       if (names.length === 0) {
         return {
-          text: `The user cleared the selection in ${where}.`,
-          summary: `用户在「${entryName(context)}」里取消了选择`,
+          text: `${by.agent} cleared the selection in ${where}.`,
+          summary: `${by.user}在「${entryName(context)}」里取消了选择`,
         }
       }
       const shown = names.slice(0, MAX_NAMED_ROWS)
       const hidden = names.length - shown.length
       return {
-        text: `The user selected ${names.length} row${names.length === 1 ? '' : 's'} in ${where}: `
+        text: `${by.agent} selected ${names.length} row${names.length === 1 ? '' : 's'} in ${where}: `
           + `${shown.map(name => name.agent).join(', ')}${hidden === 0 ? '' : ` and ${hidden} more`}.`,
-        summary: `用户在「${entryName(context)}」里选中了 ${names.length} 行：`
+        summary: `${by.user}在「${entryName(context)}」里选中了 ${names.length} 行：`
           + `${shown.map(name => name.user).join('、')}${hidden === 0 ? '' : ` 等 ${names.length} 行`}`,
       }
     },
@@ -1281,17 +1290,18 @@ const TABLE_ACTIONS: readonly ComponentActionDefinition[] = [
       if (column === undefined) return undefined
       const order = context.payload['order']
       const where = place(context)
+      const by = actorOf(context)
       if (order === 'none') {
         return {
-          text: `The user cleared the sort in ${where}.`,
-          summary: `用户取消了「${entryName(context)}」的排序`,
+          text: `${by.agent} cleared the sort in ${where}.`,
+          summary: `${by.user}取消了「${entryName(context)}」的排序`,
         }
       }
       if (order !== 'asc' && order !== 'desc') return undefined
       const header = quote(column.alias ?? column.relatedMetaAttr)
       return {
-        text: `The user sorted by ${header.agent}, ${order === 'asc' ? 'ascending' : 'descending'}, in ${where}.`,
-        summary: `用户把「${entryName(context)}」按「${header.user}」${order === 'asc' ? '升序' : '降序'}排列`,
+        text: `${by.agent} sorted by ${header.agent}, ${order === 'asc' ? 'ascending' : 'descending'}, in ${where}.`,
+        summary: `${by.user}把「${entryName(context)}」按「${header.user}」${order === 'asc' ? '升序' : '降序'}排列`,
       }
     },
   },
@@ -1609,10 +1619,11 @@ const FILTER_BAR_ACTIONS: readonly ComponentActionDefinition[] = [
         stated.push(one)
       }
       const mode = matchModeWording(context.payload['matchMode'])
+      const by = actorOf(context)
       return {
-        text: `The user submitted a filter in ${place(context)}${mode === undefined ? '' : `, matching ${mode.agent}`}`
+        text: `${by.agent} submitted a filter in ${place(context)}${mode === undefined ? '' : `, matching ${mode.agent}`}`
           + `: ${stated.map(one => one.agent).join('; ')}.`,
-        summary: `用户提交了筛选条件${mode === undefined ? '' : `（${mode.user}）`}`
+        summary: `${by.user}提交了筛选条件${mode === undefined ? '' : `（${mode.user}）`}`
           + `：${stated.map(one => one.user).join('；')}`,
       }
     },
@@ -1626,9 +1637,10 @@ const FILTER_BAR_ACTIONS: readonly ComponentActionDefinition[] = [
     describe: (context) => {
       const count = context.payload['count']
       if (typeof count !== 'number') return undefined
+      const by = actorOf(context)
       return {
-        text: `The user is editing the filter in ${place(context)}: ${count} condition${count === 1 ? '' : 's'} so far.`,
-        summary: `用户正在改「${entryName(context)}」的筛选条件（${count} 条）`,
+        text: `${by.agentIs} editing the filter in ${place(context)}: ${count} condition${count === 1 ? '' : 's'} so far.`,
+        summary: `${by.user}正在改「${entryName(context)}」的筛选条件（${count} 条）`,
       }
     },
   },
@@ -2230,10 +2242,11 @@ function describeDataPageSave(context: ComponentActionContext, written: 'added' 
   const record = context.payload['record'] as Readonly<Record<string, unknown>>
   const name = nameDataPageRow(record)
   const fields = Object.entries(record).map(([key, value]) => `${key}: ${quote(String(value)).agent}`).join(', ')
+  const by = actorOf(context)
   return {
-    text: `The user saved ${written === 'added' ? 'a new record' : 'an edit'} in ${place(context)}: ${name.agent}`
+    text: `${by.agent} saved ${written === 'added' ? 'a new record' : 'an edit'} in ${place(context)}: ${name.agent}`
       + `${fields.length === 0 ? '' : ` (${fields})`}.`,
-    summary: `用户在「${entryName(context)}」里${written === 'added' ? '新增' : '改'}了「${name.user}」`,
+    summary: `${by.user}在「${entryName(context)}」里${written === 'added' ? '新增' : '改'}了「${name.user}」`,
   }
 }
 
@@ -2448,10 +2461,11 @@ const DATA_PAGE_ACTIONS: readonly ComponentActionDefinition[] = [
     },
     describe: (context) => {
       const name = quote(context.payload['name'] as string)
+      const by = actorOf(context)
       return {
-        text: `The user opened the side card of ${name.agent} (table "${context.payload['type'] as string}") in `
+        text: `${by.agent} opened the side card of ${name.agent} (table "${context.payload['type'] as string}") in `
           + `${place(context)}.`,
-        summary: `用户在「${entryName(context)}」里打开了「${name.user}」的卡片`,
+        summary: `${by.user}在「${entryName(context)}」里打开了「${name.user}」的卡片`,
       }
     },
   },
@@ -2507,12 +2521,13 @@ const DATA_PAGE_ACTIONS: readonly ComponentActionDefinition[] = [
     describe: (context) => {
       const export_ = DATA_PAGE_EXPORT_NAMES[context.payload['mode'] as string] as NoticePhrase
       const fileType = context.payload['fileType'] as string | undefined
+      const by = actorOf(context)
       return {
-        text: `The user submitted ${export_.agent}${fileType === undefined ? '' : ` as ${fileType}`} from the data page `
+        text: `${by.agent} submitted ${export_.agent}${fileType === undefined ? '' : ` as ${fileType}`} from the data page `
           + `of "${dataPageMeta(context.node)}" in ${place(context)}. This deployment's backend queued it as a task, `
           + 'and the file is collected from that deployment\'s own task list; nothing was downloaded here, and this '
           + 'block reports neither the rows the export covers nor where the file ends up.',
-        summary: `用户在「${entryName(context)}」里提交了${export_.user}任务，文件要到这套系统自己的任务列表里取`,
+        summary: `${by.user}在「${entryName(context)}」里提交了${export_.user}任务，文件要到这套系统自己的任务列表里取`,
       }
     },
   },
@@ -2531,17 +2546,18 @@ const DATA_PAGE_ACTIONS: readonly ComponentActionDefinition[] = [
       const failed = context.payload['failed'] as number
       if (succeeded + failed === 0) return undefined
       const where = `of "${dataPageMeta(context.node)}" in ${place(context)}`
+      const by = actorOf(context)
       if (succeeded === 0) {
         return {
-          text: `The user tried to delete ${recordCount(failed)} ${where}, and none was deleted.`,
-          summary: `用户在「${entryName(context)}」里删除没有成功（${failed} 条）`,
+          text: `${by.agent} tried to delete ${recordCount(failed)} ${where}, and none was deleted.`,
+          summary: `${by.user}在「${entryName(context)}」里删除没有成功（${failed} 条）`,
         }
       }
       const named = namedRecords(context.payload['names'] as readonly string[], succeeded)
       return {
-        text: `The user deleted ${recordCount(succeeded)} ${where}${named.agent}.`
+        text: `${by.agent} deleted ${recordCount(succeeded)} ${where}${named.agent}.`
           + (failed === 0 ? '' : ` ${failed} could not be deleted.`),
-        summary: `用户在「${entryName(context)}」里删除了 ${succeeded} 条${named.user}`,
+        summary: `${by.user}在「${entryName(context)}」里删除了 ${succeeded} 条${named.user}`,
       }
     },
   },
@@ -2565,10 +2581,11 @@ const DATA_PAGE_ACTIONS: readonly ComponentActionDefinition[] = [
       const where = `of "${dataPageMeta(context.node)}" at once in ${place(context)}`
       const named = namedRecords(context.payload['names'] as readonly string[], succeeded)
       const fields = context.payload['fields'] as readonly string[]
+      const by = actorOf(context)
       return {
-        text: `The user changed ${recordCount(succeeded)} ${where}${named.agent}`
+        text: `${by.agent} changed ${recordCount(succeeded)} ${where}${named.agent}`
           + `${fields.length === 0 ? '' : `; fields changed: ${fields.join(', ')}`}.`,
-        summary: `用户在「${entryName(context)}」里批量修改了 ${succeeded} 条`,
+        summary: `${by.user}在「${entryName(context)}」里批量修改了 ${succeeded} 条`,
       }
     },
   },
@@ -2727,17 +2744,18 @@ function formPageMeta(node: ComponentNode): string {
  */
 function describeFormSave(context: ComponentActionContext, written: 'added' | 'modified'): ComponentActionNotice {
   const record = context.payload['record'] as Readonly<Record<string, unknown>>
-  const saved = `The user saved ${written === 'added' ? 'a new record' : 'an edit'} of "${formPageMeta(context.node)}" `
+  const by = actorOf(context)
+  const saved = `${by.agent} saved ${written === 'added' ? 'a new record' : 'an edit'} of "${formPageMeta(context.node)}" `
     + `in ${place(context)}`
   const done = written === 'added' ? '新增' : '改'
   const fields = Object.entries(record)
   if (fields.length === 0) {
-    return { text: `${saved}.`, summary: `用户在「${entryName(context)}」里${done}了一条记录` }
+    return { text: `${saved}.`, summary: `${by.user}在「${entryName(context)}」里${done}了一条记录` }
   }
   const name = nameDataPageRow(record)
   return {
     text: `${saved}: ${name.agent} (${fields.map(([key, value]) => `${key}: ${quote(String(value)).agent}`).join(', ')}).`,
-    summary: `用户在「${entryName(context)}」里${done}了「${name.user}」`,
+    summary: `${by.user}在「${entryName(context)}」里${done}了「${name.user}」`,
   }
 }
 
