@@ -651,6 +651,35 @@ describe('a table reporting back', () => {
     ])
   })
 
+  it('clears only the gesture the agent\'s own report repeats, so the user\'s other unclaimed notices still take their place', async () => {
+    const ctx = await setup()
+    const session = newSession(ctx)
+    const agent = fakeAgent(ctx, session, { status: 'running' })
+    show(session, 'devices', '设备列表', TABLE_SPEC)
+    const texts = (): string[] =>
+      agent.inbox.nextStep.map(message => message.content.map(part => part.type === 'text' ? part.text : '').join(''))
+
+    await run(ctx, agent, formatComponentActionLine(gesture(TABLE_ROW_CLICK_ID, { rowIndex: 0 })))
+    await run(ctx, agent, formatComponentActionLine(gesture(TABLE_SELECT_ID, { rowIndexes: [0] })))
+    await run(ctx, agent, formatComponentActionLine({
+      ...gesture(TABLE_SELECT_ID, { rowIndexes: [0, 1] }),
+      step: { call: 'call_1', index: 1 },
+    }))
+    await run(ctx, agent, formatComponentActionLine(gesture(TABLE_ROW_CLICK_ID, { rowIndex: 1 })))
+    await run(ctx, agent, formatComponentActionLine(gesture(TABLE_SELECT_ID, { rowIndexes: [1] })))
+
+    // The agent's report cleared the selection's unclaimed notice, so the
+    // user's second tick appends; it cleared nothing for the opened row, whose
+    // first notice the user's second click replaced in place.
+    expect(texts()).toEqual([
+      'The user clicked row "A-2" in content panel entry "devices" ("设备列表"), on the 数据表 block "grid".',
+      'The user selected 1 row in content panel entry "devices" ("设备列表"), on the 数据表 block "grid": "A-1".',
+      'This report comes from step 1 of your own call acting on this entry, not from the user: '
+        + 'You selected 2 rows in content panel entry "devices" ("设备列表"), on the 数据表 block "grid": "A-1", "A-2".',
+      'The user selected 1 row in content panel entry "devices" ("设备列表"), on the 数据表 block "grid": "A-2".',
+    ])
+  })
+
   it('tells the agent nothing at all about a sort', async () => {
     const ctx = await setup()
     const session = newSession(ctx)
