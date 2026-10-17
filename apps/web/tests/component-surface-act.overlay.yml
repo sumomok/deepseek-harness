@@ -1,0 +1,35 @@
+# The component rows of `component-surface.overlay.yml` plus `content-frame`,
+# which provides the shared content channel: `act_component` and
+# `read_component` are registered only where that channel is composed, because
+# it is how a call reaches the tab showing the session.
+#
+# `content-frame` carries no `pageAccess`, so the session is offered no page read
+# or page step; `root` comes from the environment, which the scenario sets to the
+# package's own fixture application before the loader runs. No page is shown:
+# the column draws the component entry the seed placed.
+- id: ui-layout
+  name: '@deepseek-ai/dsh-client-ui-layout'
+  disabled: true
+
+- insert:
+    - id: server-layout
+      name: '@deepseek-ai/dsh-experimental-server-layout'
+    - id: content-surface
+      name: '@deepseek-ai/dsh-experimental-content-surface'
+    - id: content-column
+      name: '@deepseek-ai/dsh-experimental-content-column'
+    - id: content-frame
+      name: '@deepseek-ai/dsh-experimental-content-frame'
+      config:
+        root: !!js process.env.DSH_CONTENT_APP_ROOT
+        pages:
+          - id: home
+            title: Home
+            description: The hosted application's entry page.
+            url: /content-app/
+    - id: vue2-echarts-poc
+      name: '@deepseek-ai/dsh-experimental-vue2-echarts-poc'
+    - id: component-kit
+      name: '@deepseek-ai/dsh-experimental-component-kit'
+    - id: show-component
+      name: '@deepseek-ai/dsh-experimental-component-surface'

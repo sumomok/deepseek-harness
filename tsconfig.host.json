@@ -54,6 +54,7 @@
     "apps/web/tests/component-surface.e2e.ts",
     "apps/web/tests/component-surface-datasource.e2e.ts",
     "apps/web/tests/component-surface-data-page.e2e.ts",
+    "apps/web/tests/component-surface-act.e2e.ts",
     "apps/web/tests/content-point.e2e.ts",
     "apps/web/tests/content-surface.e2e.ts",
     "apps/web/tests/vue-ui-poc.e2e.ts",
