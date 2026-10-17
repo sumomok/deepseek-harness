@@ -26407,7 +26407,7 @@
         "packages/experimental/component-surface/src/component-call.ts#ComponentSpec"
       ],
       "sources": [
-        "packages/experimental/component-surface/src/component-call.ts:3513"
+        "packages/experimental/component-surface/src/component-call.ts:3514"
       ]
     },
     {
@@ -26514,7 +26514,7 @@
         "packages/experimental/component-surface/src/component-call.ts#ComponentNode"
       ],
       "sources": [
-        "packages/experimental/component-surface/src/component-call.ts:3333"
+        "packages/experimental/component-surface/src/component-call.ts:3334"
       ]
     },
     {
@@ -28021,8 +28021,8 @@
         "packages/experimental/component-surface/src/component-call.ts#LayoutStack"
       ],
       "sources": [
-        "packages/experimental/component-surface/src/component-call.ts:3368",
-        "packages/experimental/component-surface/src/component-call.ts:3424"
+        "packages/experimental/component-surface/src/component-call.ts:3369",
+        "packages/experimental/component-surface/src/component-call.ts:3425"
       ]
     },
     {
@@ -28641,7 +28641,7 @@
         "packages/experimental/component-surface/src/component-call.ts#LayoutChild"
       ],
       "sources": [
-        "packages/experimental/component-surface/src/component-call.ts:3421"
+        "packages/experimental/component-surface/src/component-call.ts:3422"
       ]
     },
     {
@@ -29060,7 +29060,7 @@
         "packages/experimental/component-surface/src/component-call.ts#LayoutBlock"
       ],
       "sources": [
-        "packages/experimental/component-surface/src/component-call.ts:3399"
+        "packages/experimental/component-surface/src/component-call.ts:3400"
       ]
     },
     {
@@ -29514,7 +29514,7 @@
         "packages/experimental/component-surface/src/component-call.ts#LayoutDirection"
       ],
       "sources": [
-        "packages/experimental/component-surface/src/component-call.ts:3349"
+        "packages/experimental/component-surface/src/component-call.ts:3350"
       ]
     },
     {
