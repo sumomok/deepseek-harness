@@ -14,7 +14,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ActComponentStep } from '../src/act-component-call.ts'
 import {
-  ACT_COMPONENT_DESCRIPTION, NO_ENTRY_IN_FRONT, NO_STEPS_REFUSAL, STEP_REFUSAL_TEXT,
+  ACT_COMPONENT_DESCRIPTION, KEY_DESCRIPTION, NO_ENTRY_IN_FRONT, NO_STEPS_REFUSAL, STEP_REFUSAL_TEXT,
   actComponentReportText, anotherEntryInFront, failureRefusal, ignoredFieldReason, missingTargetReason, notWritableReason,
   sharedActionReason, sharedOwnKeyReason, stepRefusal, tooManyStepsRefusal, unclaimedRefusal, unkeyedActionReason,
   unverifiedRefusal, waitTimeoutReason,
@@ -27,10 +27,16 @@ describe('the offer and its refusals', () => {
   it('states the addressing vocabulary and the confine in the description', () => {
     expect(ACT_COMPONENT_DESCRIPTION).toContain('Act inside the component entry the user is looking at')
     expect(ACT_COMPONENT_DESCRIPTION).toContain('it must be the entry currently in front')
-    expect(ACT_COMPONENT_DESCRIPTION).toContain('`click` presses the control')
+    expect(ACT_COMPONENT_DESCRIPTION).toContain(
+      '- `click` presses one control: name it by the action key a block declares for it (a toolbar button\'s `add`),\n'
+      + '  or, where several drawn controls share one action — one locate button per point — by that control\'s own key.',
+    )
     expect(ACT_COMPONENT_DESCRIPTION).toContain('`set` writes a value')
     expect(ACT_COMPONENT_DESCRIPTION).toContain('`wait` waits until a block')
     expect(ACT_COMPONENT_DESCRIPTION).toContain('The answer says which steps ran')
+    expect(KEY_DESCRIPTION).toBe(
+      'The control this step presses or waits for: its action key, or its own key where several drawn controls share one action.',
+    )
     expect(NO_STEPS_REFUSAL).toBe('act_component needs at least one step.')
     expect(STEP_REFUSAL_TEXT).toContain('a step must name `click`, `set`, or `wait`')
   })

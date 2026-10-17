@@ -2,7 +2,8 @@
  * The sentences `act_component` is described, refused, and reported with.
  *
  * The description states the addressing vocabulary — entry, block, declared
- * key, field name — and nothing about the console's layout. Refusals say only
+ * action key or a control's own key, field name — and nothing about the
+ * console's layout. Refusals say only
  * what stopped the call and never describe what stands outside the named entry.
  * @module @deepseek-ai/dsh-experimental-component-surface/act-component-text
  */
@@ -18,7 +19,8 @@ export const ACT_COMPONENT_DESCRIPTION = [
   'another entry, the chat input — is ever touched, and a step that resolves outside it is refused.',
   '',
   'Steps address the components\' own language, never a DOM reference:',
-  '- `click` presses the control a block declares under an action key (a toolbar button\'s `add`, a bar\'s submit).',
+  '- `click` presses one control: name it by the action key a block declares for it (a toolbar button\'s `add`),',
+  '  or, where several drawn controls share one action — one locate button per point — by that control\'s own key.',
   '- `set` writes a value into the field the entry names for one column or property (a filter value on `zh_label`);',
   '  a field drawn as a select or a suggestion field is set by choosing the option whose label is the value.',
   '- `wait` waits until a block or a declared control is drawn, for a call that acts on what it just asked for.',
@@ -41,7 +43,8 @@ export const ACTION_DESCRIPTION = 'What the step does: press a declared control,
 export const NODE_DESCRIPTION = 'The block within the entry, by the id the placement wrote for it. Omit to search the whole entry.'
 
 /** What `key` is. */
-export const KEY_DESCRIPTION = 'The action key the component declares for the control this step presses, or waits for.'
+export const KEY_DESCRIPTION =
+  'The control this step presses or waits for: its action key, or its own key where several drawn controls share one action.'
 
 /** What `name` is. */
 export const NAME_DESCRIPTION = 'The column or property the field is named by, as the component labels it.'

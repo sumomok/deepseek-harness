@@ -5,7 +5,8 @@
  *
  * Arguments use the components' own names rather than DOM references: `node`
  * is the block id `show_component`'s spec declared, `key` an action key a
- * component declares, and `name` the column or property a field is named by.
+ * component declares or a control's own key, and `name` the column or property
+ * a field is named by.
  * The host and the browser parse with the same readers, so neither accepts what
  * the other refuses.
  * @module @deepseek-ai/dsh-experimental-component-surface/act-component-call
@@ -64,7 +65,10 @@ export interface ActComponentClick {
   readonly action: 'click'
   /** The block the control belongs to; the whole entry when absent. */
   readonly node?: string
-  /** The action key the component declares for that control. */
+  /**
+   * The action key the component declares for that control, or the control's
+   * own key where several drawn controls share that action.
+   */
   readonly key: string
 }
 
@@ -90,13 +94,13 @@ export type ActComponentWait = {
   | {
     /** The block to wait for, or to wait in for the key. */
     readonly node: string
-    /** The action key to wait for. */
+    /** The action key, or a control's own key, to wait for. */
     readonly key?: string
   }
   | {
     /** No block: the key is waited for anywhere in the entry. */
     readonly node?: undefined
-    /** The action key to wait for. */
+    /** The action key, or a control's own key, to wait for. */
     readonly key: string
   }
 )
