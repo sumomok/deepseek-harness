@@ -190,10 +190,12 @@ function blockOf(el: Element, within: Element): string | undefined {
  * @param controls - the controls one key names.
  * @param within - the entry's own container, past which nothing is asked.
  * @returns the block ids in document order, each once; a control drawn in no
- *   block adds none.
+ *   block adds none; none at all where any id is one a step could not name,
+ *   since no `node` could name that block either.
  */
 function blocksOf(controls: readonly Element[], within: Element): string[] {
   const ids = controls.map(el => blockOf(el, within)).filter((id): id is string => id !== undefined)
+  if (!ids.every(isTarget)) return []
   return [...new Set(ids)]
 }
 

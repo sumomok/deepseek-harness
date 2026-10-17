@@ -1931,6 +1931,37 @@ describe('the key one control declares for itself', () => {
     expect(pressed).toEqual(['bar2/approve'])
   })
 
+  it('lists no blocks where one of them has an id no step can name', async () => {
+    // "bar 2" carries a space, which no target name admits, so a `node` could
+    // never name that block: the sentence stays the unlisted one.
+    const drawn = drawEntry(['bar1', 'bar 2'].map(bar => `
+      <div data-component-node="${bar}">
+        <button data-component-action="press" data-component-key="approve">Approve</button>
+      </div>
+    `).join(''))
+    expect((await run(args([{ action: 'click', key: 'approve' }]), drawn)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'own key "approve" is carried by 2 drawn controls in the entry, so no step can tell them apart.',
+    }])
+
+    // An id past the length a step's name may reach is no more nameable, and
+    // listing it would carry the sentence past what a host reads.
+    const long = drawEntry(`
+      <div data-component-node="${'x'.repeat(600)}">
+        <button data-component-action="press" data-component-key="approve">Approve</button>
+      </div>
+      <div data-component-node="bar1">
+        <button data-component-action="press" data-component-key="approve">Approve</button>
+      </div>
+    `)
+    const [result] = (await run(args([{ action: 'click', key: 'approve' }]), long)).steps
+    const message = result?.status === 'failed' ? result.message : ''
+    expect(message).toBe('own key "approve" is carried by 2 drawn controls in the entry, so no step can tell them apart.')
+    expect(message).not.toContain('blocks of the entry')
+    expect(message.length).toBeLessThanOrEqual(MAX_MESSAGE_CHARS)
+  })
+
   it('lists at most ten own keys, and fewer where the sentence would pass the report bound', async () => {
     const twelve = Array.from({ length: 12 }, (_, at) => `k${String(at + 1)}`)
     const many = drawEntry(twelve.map(key => `<button data-component-action="locate" data-component-key="${key}">x</button>`).join(''))
