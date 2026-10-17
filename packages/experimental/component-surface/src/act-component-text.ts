@@ -185,8 +185,8 @@ export function coveredReason(key: string): string {
   return `control "${key}" is covered where it is drawn.`
 }
 
-/** Most own keys {@link sharedActionReason} lists; the rest are counted. */
-export const MAX_LISTED_OWN_KEYS = 10
+/** Most own keys or blocks one shared-key sentence lists; the rest are counted. */
+export const MAX_LISTED_NAMES = 10
 
 /**
  * Where a step looked, in the wording the shared-key sentences use.
@@ -198,11 +198,29 @@ function lookedIn(node: string | undefined): string {
 }
 
 /**
- * The sentence a console posts for an action key several drawn controls
- * declare, each with an own key that names it. The list stops at
- * {@link MAX_LISTED_OWN_KEYS}, and earlier where the sentence would pass
+ * One sentence listing names between an opening and a closing. The list stops
+ * at {@link MAX_LISTED_NAMES}, and earlier where the sentence would pass
  * {@link MAX_MESSAGE_CHARS}, the bound a host reads one step's sentence
- * against; the keys left out are counted.
+ * against; the names left out are counted.
+ * @param opening - the words before the list.
+ * @param names - the names, in document order.
+ * @param closing - the words after the list, ending the sentence.
+ * @returns the sentence.
+ */
+function listed(opening: string, names: readonly string[], closing: string): string {
+  const sentence = (shown: number): string => {
+    const hidden = names.length - shown
+    return `${opening}${names.slice(0, shown).join(', ')}${hidden === 0 ? '' : ` and ${String(hidden)} more`}${closing}`
+  }
+  let shown = Math.min(names.length, MAX_LISTED_NAMES)
+  while (shown > 1 && sentence(shown).length > MAX_MESSAGE_CHARS) shown -= 1
+  return sentence(shown)
+}
+
+/**
+ * The sentence a console posts for an action key several drawn controls
+ * declare, each with an own key that names it; the own keys are bounded as
+ * {@link listed} states.
  * @param key - the action key the step named.
  * @param count - how many drawn controls declare it.
  * @param node - the block the step named, absent for the whole entry.
@@ -210,20 +228,56 @@ function lookedIn(node: string | undefined): string {
  * @returns the model-facing sentence.
  */
 export function sharedActionReason(key: string, count: number, node: string | undefined, ownKeys: readonly string[]): string {
-  const opening = `action "${key}" names ${String(count)} drawn controls ${lookedIn(node)}; name the one to press by its own key: `
-  const listing = (shown: number): string => {
-    const hidden = ownKeys.length - shown
-    return `${opening}${ownKeys.slice(0, shown).join(', ')}${hidden === 0 ? '' : ` and ${String(hidden)} more`}.`
-  }
-  let shown = Math.min(ownKeys.length, MAX_LISTED_OWN_KEYS)
-  while (shown > 1 && listing(shown).length > MAX_MESSAGE_CHARS) shown -= 1
-  return listing(shown)
+  return listed(`action "${key}" names ${String(count)} drawn controls ${lookedIn(node)}; name the one to press by its own key: `, ownKeys, '.')
+}
+
+/**
+ * The sentence ending every refusal of a key whose controls are drawn in
+ * several blocks: the blocks, bounded as {@link listed} states, and what a
+ * `node` naming one of them does.
+ * @param subject - the words naming the key and how many controls carry it.
+ * @param blocks - the blocks the controls are drawn in, in document order.
+ * @returns the model-facing sentence.
+ */
+function spreadReason(subject: string, blocks: readonly string[]): string {
+  return listed(
+    `${subject} in ${String(blocks.length)} blocks of the entry: `,
+    blocks,
+    '; name one of them as `node` to look in that block alone.',
+  )
 }
 
 /**
  * The sentence a console posts for an action key several drawn controls
- * declare where their own keys do not tell them apart: one of them carries
- * none a step can name, or two carry the same.
+ * declare where their own keys do not tell them apart and the controls are
+ * drawn in more than one block, so a `node` looks at fewer of them.
+ * @param key - the action key the step named.
+ * @param count - how many drawn controls declare it.
+ * @param blocks - the blocks they are drawn in, in document order.
+ * @returns the model-facing sentence.
+ */
+export function spreadActionReason(key: string, count: number, blocks: readonly string[]): string {
+  return spreadReason(`action "${key}" names ${String(count)} drawn controls`, blocks)
+}
+
+/**
+ * The sentence a console posts for an own key several drawn controls carry
+ * where those controls are drawn in more than one block, so a `node` looks at
+ * fewer of them.
+ * @param key - the own key the step named.
+ * @param count - how many drawn controls carry it.
+ * @param blocks - the blocks they are drawn in, in document order.
+ * @returns the model-facing sentence.
+ */
+export function spreadOwnKeyReason(key: string, count: number, blocks: readonly string[]): string {
+  return spreadReason(`own key "${key}" is carried by ${String(count)} drawn controls`, blocks)
+}
+
+/**
+ * The sentence a console posts for an action key several drawn controls
+ * declare where their own keys do not tell them apart — one of them carries
+ * none a step can name, or two carry the same — and the controls are drawn in
+ * one block at most.
  * @param key - the action key the step named.
  * @param count - how many drawn controls declare it.
  * @param node - the block the step named, absent for the whole entry.
@@ -234,8 +288,9 @@ export function unkeyedActionReason(key: string, count: number, node: string | u
 }
 
 /**
- * The sentence a console posts for an own key several drawn controls carry.
- * The component drew the duplicate, so no wording of the step separates them.
+ * The sentence a console posts for an own key several drawn controls carry in
+ * one block at most. The component drew the duplicate, so no wording of the
+ * step separates them.
  * @param key - the own key the step named.
  * @param count - how many drawn controls carry it.
  * @param node - the block the step named, absent for the whole entry.

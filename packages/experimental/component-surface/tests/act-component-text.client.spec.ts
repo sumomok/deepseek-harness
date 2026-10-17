@@ -12,12 +12,13 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { ActComponentStep } from '../src/act-component-call.ts'
+import { MAX_MESSAGE_CHARS, type ActComponentStep } from '../src/act-component-call.ts'
+import { MAX_NODE_ID_LENGTH } from '../src/component-call.ts'
 import {
   ACT_COMPONENT_DESCRIPTION, KEY_DESCRIPTION, NO_ENTRY_IN_FRONT, NO_STEPS_REFUSAL, STEP_REFUSAL_TEXT,
   actComponentReportText, anotherEntryInFront, failureRefusal, ignoredFieldReason, missingTargetReason, notWritableReason,
-  sharedActionReason, sharedOwnKeyReason, stepRefusal, tooManyStepsRefusal, unclaimedRefusal, unkeyedActionReason,
-  unverifiedRefusal, waitTimeoutReason,
+  sharedActionReason, sharedOwnKeyReason, spreadActionReason, spreadOwnKeyReason, stepRefusal, tooManyStepsRefusal,
+  unclaimedRefusal, unkeyedActionReason, unverifiedRefusal, waitTimeoutReason,
 } from '../src/act-component-text.ts'
 
 /** The entry id every report here names. */
@@ -70,6 +71,24 @@ describe('the offer and its refusals', () => {
       .toBe('action "cell-click" names 12 drawn controls in the entry, and no step can name each of them by an own key.')
     expect(sharedOwnKeyReason('modify', 5, undefined))
       .toBe('own key "modify" is carried by 5 drawn controls in the entry, so no step can tell them apart.')
+  })
+
+  it('names the blocks a key\'s controls are drawn in, and counts the ones past the list or the report bound', () => {
+    expect(spreadActionReason('press', 4, ['bar1', 'bar2']))
+      .toBe('action "press" names 4 drawn controls in 2 blocks of the entry: bar1, bar2; name one of them as `node` to look in that block alone.')
+    const twelve = Array.from({ length: 12 }, (_, at) => `bar${String(at + 1)}`)
+    expect(spreadOwnKeyReason('approve', 12, twelve)).toBe(
+      'own key "approve" is carried by 12 drawn controls in 12 blocks of the entry: '
+      + 'bar1, bar2, bar3, bar4, bar5, bar6, bar7, bar8, bar9, bar10 and 2 more; name one of them as `node` to look in that block alone.',
+    )
+    // Block ids as long as a block id may be: ten of them would carry the
+    // sentence past what a host reads one step's sentence as.
+    const long = Array.from({ length: 10 }, (_, at) => `${String(at)}${'b'.repeat(MAX_NODE_ID_LENGTH - 1)}`)
+    const sentence = spreadOwnKeyReason('k'.repeat(64), 10, long)
+    expect(sentence.length).toBeLessThanOrEqual(MAX_MESSAGE_CHARS)
+    expect(sentence).toContain(long[0])
+    expect(sentence).not.toContain(long[9])
+    expect(sentence).toMatch(/ and \d+ more; name one of them as `node` to look in that block alone\.$/)
   })
 
   it('says only that a target is not part of the entry, whichever side of the confine it is on', () => {

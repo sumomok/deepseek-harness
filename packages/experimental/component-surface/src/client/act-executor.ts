@@ -31,7 +31,8 @@ import {
   actComponentReportText, ambiguousFieldReason, ambiguousOptionReason, anotherEntryInFront, coveredReason,
   disabledFieldReason, disabledOptionReason, disabledReason, ENTRY_REDRAWN_REASON, missingTargetReason,
   noOptionReason, NO_ENTRY_IN_FRONT, notWritableReason, notDrawnReason, optionNotTakenReason, OUT_OF_TIME_REASON,
-  readOnlyFieldReason, sharedActionReason, sharedOwnKeyReason, unkeyedActionReason, waitTimeoutReason,
+  readOnlyFieldReason, sharedActionReason, sharedOwnKeyReason, spreadActionReason, spreadOwnKeyReason,
+  unkeyedActionReason, waitTimeoutReason,
 } from '../act-component-text.ts'
 import type { ActStepHolder } from './act-step.ts'
 import type { DrawnEntry } from './entry-container.ts'
@@ -432,7 +433,9 @@ async function waitFor(run: StepRun, step: ActComponentWait, timeoutMs: number):
  * @param step - the click step.
  * @param within - the entry's own container.
  * @throws {Error} with the model-facing reason when the key names no drawn
- * control, names several, or names one a person could not press.
+ * control, names several — naming the blocks they are drawn in where no own
+ * key tells them apart and they are drawn in more than one — or names one a
+ * person could not press.
  */
 function pressNamed(scope: Element, step: ActComponentClick, within: Element): void {
   const named = clickTarget(scope, step.key, within)
@@ -445,10 +448,14 @@ function pressNamed(scope: Element, step: ActComponentClick, within: Element): v
         ? notDrawnReason(step.key)
         : missingTargetReason(`control "${step.key}"`))
     case 'shared-action':
-      throw new Error(named.ownKeys === undefined
-        ? unkeyedActionReason(step.key, named.count, step.node)
-        : sharedActionReason(step.key, named.count, step.node, named.ownKeys))
-    case 'shared-own-key': throw new Error(sharedOwnKeyReason(step.key, named.count, step.node))
+      if (named.ownKeys !== undefined) throw new Error(sharedActionReason(step.key, named.count, step.node, named.ownKeys))
+      throw new Error(named.blocks.length > 1
+        ? spreadActionReason(step.key, named.count, named.blocks)
+        : unkeyedActionReason(step.key, named.count, step.node))
+    case 'shared-own-key':
+      throw new Error(named.blocks.length > 1
+        ? spreadOwnKeyReason(step.key, named.count, named.blocks)
+        : sharedOwnKeyReason(step.key, named.count, step.node))
     /* v8 ignore start -- ClickTarget is closed and every variant returns or throws above. */
     default: {
       // Not `assertNever` from dsh-llm, for the reason validate.ts states at its

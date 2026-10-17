@@ -1876,6 +1876,43 @@ describe('the key one control declares for itself', () => {
     expect(pressed).not.toHaveBeenCalled()
   })
 
+  it('names the blocks a key\'s controls are drawn in where naming one of them looks at fewer', async () => {
+    // Two confirmation bars, each drawing the same two buttons: no own key
+    // tells the four apart, and a block does.
+    const drawn = drawEntry(['bar1', 'bar2'].map(bar => `
+      <div data-component-node="${bar}">
+        <button data-component-action="press" data-component-key="approve">Approve</button>
+        <button data-component-action="press" data-component-key="reject">Reject</button>
+      </div>
+    `).join(''))
+    const pressed: string[] = []
+    for (const button of document.querySelectorAll('button')) {
+      const named = `${String(button.parentElement?.getAttribute('data-component-node'))}/${String(button.getAttribute('data-component-key'))}`
+      button.addEventListener('click', () => { pressed.push(named) })
+    }
+    expect((await run(args([{ action: 'click', key: 'approve' }]), drawn)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'own key "approve" is carried by 2 drawn controls in 2 blocks of the entry: bar1, bar2; '
+        + 'name one of them as `node` to look in that block alone.',
+    }])
+    expect((await run(args([{ action: 'click', key: 'press' }]), drawn)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'action "press" names 4 drawn controls in 2 blocks of the entry: bar1, bar2; '
+        + 'name one of them as `node` to look in that block alone.',
+    }])
+    expect(pressed).toEqual([])
+    // Within one block the action still names two buttons, which their own keys tell apart.
+    expect((await run(args([{ action: 'click', node: 'bar1', key: 'press' }]), drawn)).steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'action "press" names 2 drawn controls in block "bar1"; name the one to press by its own key: approve, reject.',
+    }])
+    expect((await run(args([{ action: 'click', node: 'bar2', key: 'approve' }]), drawn)).status).toBe('done')
+    expect(pressed).toEqual(['bar2/approve'])
+  })
+
   it('lists at most ten own keys, and fewer where the sentence would pass the report bound', async () => {
     const twelve = Array.from({ length: 12 }, (_, at) => `k${String(at + 1)}`)
     const many = drawEntry(twelve.map(key => `<button data-component-action="locate" data-component-key="${key}">x</button>`).join(''))

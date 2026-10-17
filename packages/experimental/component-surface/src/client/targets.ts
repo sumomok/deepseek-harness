@@ -130,15 +130,19 @@ export type ClickTarget =
     /**
      * Each one's own key, in document order, where every one of them carries
      * one a step can name and no two carry the same; absent otherwise, since
-     * then no step tells them apart.
+     * then no own key tells them apart.
      */
     readonly ownKeys: readonly string[] | undefined
+    /** The blocks they are drawn in, as {@link blocksOf} reads them. */
+    readonly blocks: readonly string[]
   }
   | {
     /** Several drawn controls carry the key as their own key. */
     readonly kind: 'shared-own-key'
     /** How many. */
     readonly count: number
+    /** The blocks they are drawn in, as {@link blocksOf} reads them. */
+    readonly blocks: readonly string[]
   }
 
 /**
@@ -166,6 +170,34 @@ function distinctOwnKeys(controls: readonly Element[]): string[] | undefined {
 }
 
 /**
+ * The block one element is drawn in: the id its nearest {@link NODE_KEY}
+ * element inside the entry carries.
+ * @param el - the element.
+ * @param within - the entry's own container, past which nothing is asked.
+ * @returns the block id, or undefined where no block inside the entry holds it.
+ */
+function blockOf(el: Element, within: Element): string | undefined {
+  for (let node: Element | null = el; node !== null && node !== within; node = node.parentElement) {
+    const id = node.getAttribute(NODE_KEY)
+    if (id !== null) return id
+  }
+  return undefined
+}
+
+/**
+ * The blocks several controls are drawn in, each control's {@link blockOf},
+ * which tells whether a step naming a block would look at fewer of them.
+ * @param controls - the controls one key names.
+ * @param within - the entry's own container, past which nothing is asked.
+ * @returns the block ids in document order, each once; a control drawn in no
+ *   block adds none.
+ */
+function blocksOf(controls: readonly Element[], within: Element): string[] {
+  const ids = controls.map(el => blockOf(el, within)).filter((id): id is string => id !== undefined)
+  return [...new Set(ids)]
+}
+
+/**
  * The control one `click` step presses: the one drawn ({@link isDrawn})
  * control carrying the key as its declared action ({@link ACTION_KEY}), else
  * the one carrying it as its own key ({@link OWN_KEY}). A block keeps closed
@@ -173,7 +205,8 @@ function distinctOwnKeys(controls: readonly Element[]): string[] | undefined {
  * and a press must land where a person's could, so undrawn candidates are
  * passed over. Where several drawn controls carry the key, the step does not
  * say which one it means and nothing is pressed; the answer says how many there
- * are and, for an action key, which own keys would name each one.
+ * are, the blocks they are drawn in, and, for an action key, which own keys
+ * would name each one.
  * @param scope - the subtree the step is confined to.
  * @param key - the action key, or the control's own key, the step names.
  * @param within - the entry's own container, past which nothing is asked.
@@ -181,11 +214,18 @@ function distinctOwnKeys(controls: readonly Element[]): string[] | undefined {
  */
 export function clickTarget(scope: Element, key: string, within: Element): ClickTarget {
   const byAction = drawnCarrying(scope, ACTION_KEY, key, within)
-  if (byAction.length > 1) return { kind: 'shared-action', count: byAction.length, ownKeys: distinctOwnKeys(byAction) }
+  if (byAction.length > 1) {
+    return {
+      kind: 'shared-action',
+      count: byAction.length,
+      ownKeys: distinctOwnKeys(byAction),
+      blocks: blocksOf(byAction, within),
+    }
+  }
   const [action] = byAction
   if (action !== undefined) return { kind: 'one', target: action }
   const byOwnKey = drawnCarrying(scope, OWN_KEY, key, within)
-  if (byOwnKey.length > 1) return { kind: 'shared-own-key', count: byOwnKey.length }
+  if (byOwnKey.length > 1) return { kind: 'shared-own-key', count: byOwnKey.length, blocks: blocksOf(byOwnKey, within) }
   const [own] = byOwnKey
   return own === undefined ? { kind: 'none' } : { kind: 'one', target: own }
 }
