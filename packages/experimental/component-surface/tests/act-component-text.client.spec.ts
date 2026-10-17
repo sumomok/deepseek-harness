@@ -30,7 +30,7 @@ describe('the offer and its refusals', () => {
     expect(ACT_COMPONENT_DESCRIPTION).toContain('it must be the entry currently in front')
     expect(ACT_COMPONENT_DESCRIPTION).toContain(
       '- `click` presses one control: name it by the action key a block declares for it (a toolbar button\'s `add`),\n'
-      + '  or, where several drawn controls share one action — one locate button per point — by that control\'s own key.',
+      + '  or, where several drawn controls share one action — one button per listed item — by that control\'s own key.',
     )
     expect(ACT_COMPONENT_DESCRIPTION).toContain('`set` writes a value')
     expect(ACT_COMPONENT_DESCRIPTION).toContain('`wait` waits until a block')
