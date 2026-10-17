@@ -249,6 +249,12 @@ function loginPage(): string {
 </script></body></html>`
 }
 
+/** Where the card draws a table's icon from: the deployment's own static path on the shell's origin, outside the base path. */
+const ICON_PREFIX = '/nrms-file/icon-res/'
+
+/** The icon the stub serves for every table: one transparent pixel. */
+const ICON = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64')
+
 /** The visitor may do everything on the table: without every write ability, the page draws no modify button. */
 const ALL_ABILITIES = { create: true, update: true, delete: true, import: true, export: true }
 
@@ -418,6 +424,10 @@ describe.skipIf(MODE === 'record')('web e2e: act_component presses a per-row con
     // would give is answered here, granting every ability.
     await page.route(url => url.pathname === '/component-kit/abilities', route =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ALL_ABILITIES) }))
+    // The record card draws its table's icon from this path, which the reverse
+    // proxy in front of a real console serves.
+    await page.route(url => url.pathname.startsWith(ICON_PREFIX), route =>
+      route.fulfill({ status: 200, contentType: 'image/png', body: ICON }))
     tripwire = watchConsole(page)
     page.on('console', (message: ConsoleMessage) => {
       if (message.type() === 'error') consoleErrors.push(message.text())
