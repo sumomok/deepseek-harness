@@ -1834,6 +1834,24 @@ describe('the key one control declares for itself', () => {
       message: 'action "cell-click" names 3 drawn controls in the entry, and no step can name each of them by an own key.',
     }])
     expect(clicked).not.toHaveBeenCalled()
+    // Drawn in one block instead of none, they are still one place to look:
+    // the sentence stays the unlisted one rather than counting blocks.
+    const blocked = drawEntry(`
+      <div data-component-node="page-1">
+        <table><tbody>
+          <tr><td data-component-action="cell-click">a</td></tr>
+          <tr><td data-component-action="cell-click">b</td></tr>
+          <tr><td data-component-action="cell-click">c</td></tr>
+        </tbody></table>
+      </div>
+    `)
+    const refused = (await run(args([{ action: 'click', key: 'cell-click' }]), blocked)).steps
+    expect(refused).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'action "cell-click" names 3 drawn controls in the entry, and no step can name each of them by an own key.',
+    }])
+    expect(refused[0]?.status === 'failed' ? refused[0].message : '').not.toContain('blocks of the entry')
     // Own keys that repeat, and one a step could not name, tell them apart no
     // better than none.
     for (const keys of [['modify', 'modify'], ['keep', 'a b']]) {
