@@ -95,6 +95,26 @@ export interface Settings {
   launchTokenFile: string | undefined
   /** DSH_EXTRA_PREFIXES, proxy mode only; empty when unset. */
   dshExtraPrefixes: readonly string[]
+  /** OGC_READ_PREFIXES, proxy mode only; empty when unset. */
+  ogcReadPrefixes: readonly string[]
+  /** REMOTE_PREFIX_ORIGINS, proxy mode only; empty when unset. */
+  remotePrefixOrigins: readonly PrefixOrigin[]
+}
+
+/** One REMOTE_PREFIX_ORIGINS entry. */
+export interface PrefixOrigin {
+  /** A path prefix at or under an OGC_READ_PREFIXES entry. */
+  prefix: string
+  /** The http origin requests under the prefix go to instead of the remote application. */
+  origin: URL
+}
+
+/** Why a request under an OGC_READ_PREFIXES entry is not forwarded as a read. */
+export interface OgcRefusal {
+  /** The status the client is answered with. */
+  status: 400 | 403 | 405
+  /** The category logged and answered; never the offending value. */
+  reason: 'method' | 'fetch-site' | 'path' | 'body' | 'duplicate' | 'service' | 'request' | 'param' | 'format'
 }
 
 /**
@@ -147,6 +167,29 @@ export function remoteRequestHeaders(headers: IncomingHttpHeaders): IncomingHttp
  * @returns headers for the client.
  */
 export function remoteResponseHeaders(headers: IncomingHttpHeaders): Record<string, string | string[]>
+/**
+ * Why one request under an OGC_READ_PREFIXES entry may not be forwarded as a read.
+ * @param method - the request method.
+ * @param headers - inbound request headers.
+ * @param url - the raw request target.
+ * @param prefix - the OGC_READ_PREFIXES entry the path is under.
+ * @returns the refusal, or undefined for a read.
+ */
+export function ogcReadRefusal(method: string | undefined, headers: IncomingHttpHeaders, url: string | undefined, prefix: string): OgcRefusal | undefined
+/**
+ * The headers an OGC read carries upstream, with `authorization` set to the mirror cookie's credential.
+ * @param headers - inbound request headers.
+ * @param host - the upstream Host header.
+ * @param credential - the credential, `Bearer <token>`.
+ * @returns headers for the upstream request.
+ */
+export function ogcRequestHeaders(headers: IncomingHttpHeaders, host: string, credential: string): Record<string, string | string[]>
+/**
+ * The headers an OGC read's answer reaches the client with.
+ * @param headers - upstream response headers.
+ * @returns headers for the client.
+ */
+export function ogcResponseHeaders(headers: IncomingHttpHeaders): Record<string, string | string[]>
 /**
  * Read the mirrored customer token from a Cookie header as a credential.
  * @param header - the inbound Cookie header.

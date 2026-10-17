@@ -2,7 +2,8 @@
  * Coverage for `deploy/proxy.mjs`, the deployment-layer login gate. The pure
  * functions are called directly; the two modes run as real servers on
  * loopback ports between a stand-in dsh process and a stand-in customer
- * system, which answers the renewal check and serves the remote application.
+ * system, which answers the renewal check and serves the remote application;
+ * OGC reads also run against a stand-in map gateway.
  *
  * The member assertion is checked by a verifier written here from the
  * documented format alone, so a change to the format fails these cases rather
@@ -34,6 +35,9 @@ import {
   inspectCredential,
   isGateExempt,
   isRemote,
+  ogcReadRefusal,
+  ogcRequestHeaders,
+  ogcResponseHeaders,
   presentedCredential,
   readSettings,
   remoteRequestHeaders,
@@ -43,7 +47,7 @@ import {
   signAssertion,
   verdictOf,
 } from '../deploy/proxy.mjs'
-import type { ClaimsPolicy, Gate } from '../deploy/proxy.mjs'
+import type { ClaimsPolicy, Gate, OgcRefusal } from '../deploy/proxy.mjs'
 
 /** A 19-digit `login_uid`, past the range a JavaScript number holds exactly. */
 const MEMBER = '1234567890123456789'
@@ -279,6 +283,14 @@ function upgrade(port: number, path: string, headers: OutgoingHttpHeaders = {}):
 
 const LOGGED_IN = { 'cookie': `accessToken=${TOKEN}`, 'x-dsh-member': 'forged-by-the-client' }
 const FORGED_ONLY = { 'x-dsh-member': 'forged-by-the-client' }
+
+/** The OGC_READ_PREFIXES entry the read cases configure: one workspace's virtual service root. */
+const OGC = '/geoserver/dshsim'
+const GET_MAP = `${OGC}/wms?SERVICE=WMS&REQUEST=GetMap&LAYERS=dshsim:roads&FORMAT=image/png`
+const SAME_ORIGIN = { 'sec-fetch-site': 'same-origin' }
+const READ = { ...LOGGED_IN, ...SAME_ORIGIN }
+/** The proxy's settings for a gate with no login check, which cannot sign assertions. */
+const GATE_OFF = { LOGIN_GATE: 'off', MEMBER_ASSERTION_KEY_FILE: undefined, MEMBER_ASSERTION_DEPLOYMENT_ID: undefined }
 
 /**
  * The member header the last request a stub received carried.
@@ -660,9 +672,10 @@ interface HeldWorld {
 /**
  * Start a proxy-mode gate whose renewal answers are held until `release`,
  * between a stand-in dsh that counts its connections and that held service.
+ * @param env - further settings, given the stand-in dsh's port.
  * @returns the world.
  */
-async function heldWorld(): Promise<HeldWorld> {
+async function heldWorld(env: (dshPort: number) => Record<string, string> = () => ({})): Promise<HeldWorld> {
   const checking = Promise.withResolvers<true>()
   const held: Array<() => void> = []
   let released = false
@@ -682,6 +695,7 @@ async function heldWorld(): Promise<HeldWorld> {
     REMOTE_HOST: '127.0.0.1',
     REMOTE_PORT: String(await closedPort()),
     AUTH_ORIGIN: `http://127.0.0.1:${String(renewalPort)}`,
+    ...env(dsh.port),
   })
   const logs: string[] = []
   const { server, gate } = createProxyServer(settings, { log: (line) => { logs.push(line) }, now: () => 1_800_000_000_000 })
@@ -736,6 +750,7 @@ function sendAndEnd(port: number, text: string): Promise<string> {
 
 describe('configuration fails loud at start', () => {
   const base = { DSH_WEB_PORT: '3739', REMOTE_HOST: '127.0.0.1', REMOTE_PORT: '9532' }
+  const ogc = { ...base, OGC_READ_PREFIXES: '/geoserver/dshsim' }
   const ecKey = generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ format: 'pem', type: 'pkcs8' })
 
   it.each([
@@ -778,6 +793,26 @@ describe('configuration fails loud at start', () => {
     [{ ...base, DSH_EXTRA_PREFIXES: '/map,/map' }, /DSH_EXTRA_PREFIXES entry "\/map" repeats or lies under another entry/],
     [{ ...base, DSH_EXTRA_PREFIXES: '/map,/map/tiles' }, /"\/map\/tiles" repeats or lies under another entry/],
     [{ PROXY_MODE: 'verify', AUTH_ORIGIN: 'http://127.0.0.1:9532', DSH_EXTRA_PREFIXES: '/map' }, /DSH_EXTRA_PREFIXES applies only in PROXY_MODE=proxy/],
+    [{ ...base, OGC_READ_PREFIXES: '/geoserver/dshsim/' }, /OGC_READ_PREFIXES entry "\/geoserver\/dshsim\/" must be a path/],
+    [{ ...base, OGC_READ_PREFIXES: '/geoserver/%64shsim' }, /OGC_READ_PREFIXES entry .* must be a path/],
+    [{ ...base, OGC_READ_PREFIXES: '/api' }, /OGC_READ_PREFIXES entry "\/api" is already a dsh path/],
+    [{ ...base, DSH_EXTRA_PREFIXES: '/map-component', OGC_READ_PREFIXES: '/map-component/ows' }, /OGC_READ_PREFIXES entry "\/map-component\/ows" is already a dsh path/],
+    [{ ...base, DSH_EXTRA_PREFIXES: '/geoserver/dshsim/wms', OGC_READ_PREFIXES: '/geoserver/dshsim' }, /OGC_READ_PREFIXES entry "\/geoserver\/dshsim" holds the dsh path "\/geoserver\/dshsim\/wms"/],
+    [{ ...base, OGC_READ_PREFIXES: '/geoserver,/geoserver/dshsim' }, /OGC_READ_PREFIXES entry "\/geoserver\/dshsim" repeats or lies under another entry/],
+    [{ ...base, REMOTE_PREFIX_ORIGINS: '/geoserver/dshsim=http://127.0.0.1:9701' }, /REMOTE_PREFIX_ORIGINS entry "\/geoserver\/dshsim" must be at or under an OGC_READ_PREFIXES entry/],
+    [{ ...ogc, REMOTE_PREFIX_ORIGINS: '/geoserver/dshsimx=http://127.0.0.1:9701' }, /must be at or under an OGC_READ_PREFIXES entry/],
+    [{ ...ogc, REMOTE_PREFIX_ORIGINS: '/geoserver/dshsim' }, /REMOTE_PREFIX_ORIGINS entry "\/geoserver\/dshsim" must be <prefix>=<http origin>/],
+    [{ ...ogc, REMOTE_PREFIX_ORIGINS: '=http://127.0.0.1:9701' }, /REMOTE_PREFIX_ORIGINS entry "" must be a path/],
+    [{ ...ogc, REMOTE_PREFIX_ORIGINS: '/geoserver/dshsim=http://127.0.0.1:9701,/geoserver/dshsim=http://127.0.0.1:9702' }, /REMOTE_PREFIX_ORIGINS entry "\/geoserver\/dshsim" repeats or lies under another entry/],
+    [{ ...ogc, REMOTE_PREFIX_ORIGINS: '/geoserver/dshsim=127.0.0.1:9701' }, /must be an http origin with no path, query, or credentials/],
+    [{ ...ogc, REMOTE_PREFIX_ORIGINS: '/geoserver/dshsim=http://127.0.0.1:9701/geoserver' }, /must be an http origin with no path, query, or credentials/],
+    [{ ...ogc, REMOTE_PREFIX_ORIGINS: '/geoserver/dshsim=http://gw:secret@127.0.0.1:9701' }, /must be an http origin with no path, query, or credentials/],
+    [{ ...ogc, REMOTE_PREFIX_ORIGINS: '/geoserver/dshsim=https://127.0.0.1:9701' }, /must be http on 127\.0\.0\.1 or the remote application's own origin/],
+    [{ ...ogc, REMOTE_PREFIX_ORIGINS: '/geoserver/dshsim=http://localhost:9701' }, /must be http on 127\.0\.0\.1/],
+    [{ ...ogc, REMOTE_PREFIX_ORIGINS: '/geoserver/dshsim=http://10.0.0.5:9701' }, /must be http on 127\.0\.0\.1/],
+    [{ ...ogc, REMOTE_PREFIX_ORIGINS: '/geoserver/dshsim=http://127.0.0.2:9701' }, /must be http on 127\.0\.0\.1/],
+    [{ PROXY_MODE: 'verify', AUTH_ORIGIN: 'http://127.0.0.1:9532', OGC_READ_PREFIXES: '/geoserver/dshsim' }, /OGC_READ_PREFIXES applies only in PROXY_MODE=proxy/],
+    [{ PROXY_MODE: 'verify', AUTH_ORIGIN: 'http://127.0.0.1:9532', REMOTE_PREFIX_ORIGINS: '/geoserver/dshsim=http://127.0.0.1:9701' }, /REMOTE_PREFIX_ORIGINS applies only in PROXY_MODE=proxy/],
   ])('refuses %j', (env, message) => {
     expect(() => readSettings(env, readKeyFile)).toThrow(message)
   })
@@ -802,6 +837,8 @@ describe('configuration fails loud at start', () => {
       assertion: undefined,
       claims: NO_CLAIMS_CHECKS,
       dshExtraPrefixes: [],
+      ogcReadPrefixes: [],
+      remotePrefixOrigins: [],
     })
     expect(settings.authOrigin.href).toBe('http://127.0.0.1:9532/')
   })
@@ -810,6 +847,15 @@ describe('configuration fails loud at start', () => {
     expect(readSettings({ ...base, DSH_EXTRA_PREFIXES: ' /map-component , /a/b ' }, readKeyFile).dshExtraPrefixes).toEqual(['/map-component', '/a/b'])
     expect(readSettings({ ...base, DSH_EXTRA_PREFIXES: '/mapper,/map' }, readKeyFile).dshExtraPrefixes).toEqual(['/mapper', '/map'])
     expect(readSettings({ PROXY_MODE: 'verify', AUTH_ORIGIN: 'http://127.0.0.1:9532' }, readKeyFile).dshExtraPrefixes).toEqual([])
+  })
+
+  it('reads OGC_READ_PREFIXES and REMOTE_PREFIX_ORIGINS as trimmed lists, each origin on loopback or the remote application\'s own', () => {
+    const remote = { ...base, REMOTE_HOST: '10.1.2.3', OGC_READ_PREFIXES: ' /geoserver/dshsim , /geoserver/ws2 ' }
+    const settings = readSettings({ ...remote, REMOTE_PREFIX_ORIGINS: '/geoserver/dshsim = http://127.0.0.1:9701 , /geoserver/ws2/roads=http://10.1.2.3:9532' }, readKeyFile)
+    expect(settings.ogcReadPrefixes).toEqual(['/geoserver/dshsim', '/geoserver/ws2'])
+    expect(settings.remotePrefixOrigins.map(entry => [entry.prefix, entry.origin.origin]))
+      .toEqual([['/geoserver/dshsim', 'http://127.0.0.1:9701'], ['/geoserver/ws2/roads', 'http://10.1.2.3:9532']])
+    expect(() => readSettings({ ...remote, REMOTE_PREFIX_ORIGINS: '/geoserver/ws2=http://10.1.2.3:9533' }, readKeyFile)).toThrow(/must be http on 127\.0\.0\.1/)
   })
 
   it('derives the default AUTH_ORIGIN from REMOTE_HOST and REMOTE_PORT, with an IPv6 address in brackets', () => {
@@ -1216,6 +1262,16 @@ describe('a client that leaves during the login check', () => {
     expect((await send(w.port, '/api/rpc', LOGGED_IN)).status).toBe(200)
     expect(w.dshConnections()).toBe(1)
     expect(w.dsh.requests).toHaveLength(1)
+    expect(w.logs).toEqual([])
+  })
+
+  it('causes no upstream request for an OGC read, sent to the stand-in dsh as its gateway', async () => {
+    const w = await heldWorld(port => ({ OGC_READ_PREFIXES: OGC, REMOTE_PREFIX_ORIGINS: `${OGC}=http://127.0.0.1:${String(port)}` }))
+    await leaveDuringCheck(w, `GET ${GET_MAP} HTTP/1.1\r\nHost: 127.0.0.1\r\nSec-Fetch-Site: same-origin\r\nCookie: accessToken=${TOKEN}\r\n\r\n`, 'reset')
+    w.release()
+    expect((await send(w.port, GET_MAP, READ)).status).toBe(200)
+    expect(w.dshConnections()).toBe(1)
+    expect(w.dsh.requests.map(received => received.headers.authorization)).toEqual([`Bearer ${TOKEN}`])
     expect(w.logs).toEqual([])
   })
 
@@ -1696,6 +1752,281 @@ describe('verify mode', () => {
     const answer = await send(w.port, '/', { authorization: `Bearer ${TOKEN}` })
     expect(answer.status).toBe(200)
     expect(answer.headers[MEMBER_HEADER]).toBeUndefined()
+  })
+})
+
+/**
+ * A stand-in OGC gateway that records each request and answers the way a
+ * GeoServer can: with a session cookie and a login challenge beside the body.
+ * @param status - the status every request is answered with.
+ * @returns the stub.
+ */
+async function gateway(status = 200): Promise<Stub> {
+  const requests: Received[] = []
+  const upgrades: Received[] = []
+  const server = http.createServer((req, res) => {
+    req.resume()
+    req.on('end', () => {
+      requests.push({ method: req.method ?? '', path: req.url ?? '', headers: req.headers, body: '' })
+      res.writeHead(status, {
+        'content-type': 'image/png',
+        'set-cookie': 'JSESSIONID=gateway; Path=/geoserver',
+        'www-authenticate': 'Basic realm="GeoServer"',
+      })
+      res.end('png')
+    })
+  })
+  server.on('upgrade', (req, socket) => {
+    upgrades.push({ method: req.method ?? '', path: req.url ?? '', headers: req.headers, body: '' })
+    socket.destroy()
+  })
+  return { server, port: await listen(server), requests, upgrades }
+}
+
+/**
+ * A proxy-mode world whose OGC prefix is sent to a stand-in gateway.
+ * @param env - environment overrides.
+ * @param renewal - the renewal endpoint's answers.
+ * @param status - the gateway's answer status.
+ * @returns the world and its gateway.
+ */
+async function ogcWorld(
+  env: Record<string, string | undefined> = {},
+  renewal: Renewal = ECHO_RENEWAL,
+  status = 200,
+): Promise<World & { gateway: Stub }> {
+  const ogc = await gateway(status)
+  const w = await world({ OGC_READ_PREFIXES: OGC, REMOTE_PREFIX_ORIGINS: `${OGC}=http://127.0.0.1:${String(ogc.port)}`, ...env }, renewal)
+  return { ...w, gateway: ogc }
+}
+
+/**
+ * A member token with the given `exp` claim, as JSON member text.
+ * @param exp - the claim, or undefined for none.
+ * @returns the bare token.
+ */
+function expiringToken(exp: string | undefined): string {
+  return jwt(`{"sub":"alice","jti":"jti-exp","login_uid":${MEMBER}${exp === undefined ? '' : `,"exp":${exp}`}}`)
+}
+
+describe('OGC reads', () => {
+  it.each([
+    GET_MAP,
+    `${OGC}/roads/wms/?service=wms&request=getmap&format=image/jpeg`,
+    `${OGC}/wms?service=WMS&request=GetCapabilities`,
+    `${OGC}/wms?service=WMS&request=GetFeatureInfo&INFO_FORMAT=application/json`,
+    `${OGC}/ows?service=WMS&request=GetMap&format=IMAGE/PNG`,
+    `${OGC}/ows?service=WFS&request=GetFeature&outputFormat=application/json&typeNames=dshsim:roads`,
+    `${OGC}/wfs?service=WFS&request=DescribeFeatureType`,
+  ])('passes the read %s', (path) => {
+    expect(ogcReadRefusal('GET', SAME_ORIGIN, path, OGC)).toBeUndefined()
+  })
+
+  it('passes a read framed with an empty body', () => {
+    expect(ogcReadRefusal('GET', { ...SAME_ORIGIN, 'content-length': '0' }, GET_MAP, OGC)).toBeUndefined()
+  })
+
+  it.each<[string, string, IncomingHttpHeaders, string, OgcRefusal]>([
+    ['a POST', 'POST', SAME_ORIGIN, GET_MAP, { status: 405, reason: 'method' }],
+    ['a HEAD', 'HEAD', SAME_ORIGIN, GET_MAP, { status: 405, reason: 'method' }],
+    ['a request with no Fetch Metadata', 'GET', {}, GET_MAP, { status: 403, reason: 'fetch-site' }],
+    ['a request from another port of this host', 'GET', { 'sec-fetch-site': 'same-site' }, GET_MAP, { status: 403, reason: 'fetch-site' }],
+    ['a request from another site', 'GET', { 'sec-fetch-site': 'cross-site' }, GET_MAP, { status: 403, reason: 'fetch-site' }],
+    ['a navigation the user typed', 'GET', { 'sec-fetch-site': 'none' }, GET_MAP, { status: 403, reason: 'fetch-site' }],
+    ['the REST API', 'GET', SAME_ORIGIN, `${OGC}/rest/workspaces`, { status: 403, reason: 'path' }],
+    ['the tile cache', 'GET', SAME_ORIGIN, `${OGC}/gwc/service/wmts?service=WMTS&request=GetTile`, { status: 403, reason: 'path' }],
+    ['a processing service', 'GET', SAME_ORIGIN, `${OGC}/wps?service=WPS&request=Execute`, { status: 403, reason: 'path' }],
+    ['the prefix itself', 'GET', SAME_ORIGIN, `${OGC}?service=WMS&request=GetCapabilities`, { status: 403, reason: 'path' }],
+    ['two layer segments', 'GET', SAME_ORIGIN, `${OGC}/a/b/wms?service=WMS&request=GetCapabilities`, { status: 403, reason: 'path' }],
+    ['a dotted layer segment', 'GET', SAME_ORIGIN, `${OGC}/a.b/wms?service=WMS&request=GetCapabilities`, { status: 403, reason: 'path' }],
+    ['a percent-encoded path', 'GET', SAME_ORIGIN, `${OGC}/wm%73?service=WMS&request=GetCapabilities`, { status: 403, reason: 'path' }],
+    ['a path parameter', 'GET', SAME_ORIGIN, `${OGC}/wms;jsessionid=1?service=WMS&request=GetCapabilities`, { status: 403, reason: 'path' }],
+    ['a backslash', 'GET', SAME_ORIGIN, `${OGC}/roads\\wms?service=WMS&request=GetCapabilities`, { status: 403, reason: 'path' }],
+    ['a body', 'GET', { ...SAME_ORIGIN, 'content-length': '5' }, GET_MAP, { status: 400, reason: 'body' }],
+    ['a chunked body', 'GET', { ...SAME_ORIGIN, 'transfer-encoding': 'chunked' }, GET_MAP, { status: 400, reason: 'body' }],
+    ['service named twice', 'GET', SAME_ORIGIN, `${GET_MAP}&service=WMS`, { status: 400, reason: 'duplicate' }],
+    ['request named twice', 'GET', SAME_ORIGIN, `${GET_MAP}&Request=Transaction`, { status: 400, reason: 'duplicate' }],
+    ['no service', 'GET', SAME_ORIGIN, `${OGC}/wms?request=GetCapabilities`, { status: 403, reason: 'service' }],
+    ['a service its endpoint does not serve', 'GET', SAME_ORIGIN, `${OGC}/wms?service=WFS&request=GetFeature&outputformat=application/json`, { status: 403, reason: 'service' }],
+    ['a coverage service', 'GET', SAME_ORIGIN, `${OGC}/ows?service=WCS&request=GetCoverage`, { status: 403, reason: 'service' }],
+    ['a WFS Transaction', 'GET', SAME_ORIGIN, `${OGC}/wfs?service=WFS&request=Transaction`, { status: 403, reason: 'request' }],
+    ['a WFS LockFeature', 'GET', SAME_ORIGIN, `${OGC}/wfs?service=WFS&request=LockFeature`, { status: 403, reason: 'request' }],
+    ['a WFS GetFeatureWithLock', 'GET', SAME_ORIGIN, `${OGC}/ows?service=WFS&request=GetFeatureWithLock`, { status: 403, reason: 'request' }],
+    ['a legend', 'GET', SAME_ORIGIN, `${OGC}/wms?service=WMS&request=GetLegendGraphic&format=image/png`, { status: 403, reason: 'request' }],
+    ['no request', 'GET', SAME_ORIGIN, `${OGC}/wms?service=WMS`, { status: 403, reason: 'request' }],
+    ['an SLD address', 'GET', SAME_ORIGIN, `${GET_MAP}&SLD=http://attacker.example/style.sld`, { status: 403, reason: 'param' }],
+    ['an inline SLD', 'GET', SAME_ORIGIN, `${GET_MAP}&sld_body=%3CStyledLayerDescriptor%2F%3E`, { status: 403, reason: 'param' }],
+    ['a remote service address', 'GET', SAME_ORIGIN, `${GET_MAP}&REMOTE_OWS_URL=http://attacker.example/ows`, { status: 403, reason: 'param' }],
+    ['a remote service type', 'GET', SAME_ORIGIN, `${GET_MAP}&remote_ows_type=WFS`, { status: 403, reason: 'param' }],
+    ['a style address', 'GET', SAME_ORIGIN, `${GET_MAP}&STYLE_URL=http://attacker.example/style.sld`, { status: 403, reason: 'param' }],
+    ['an inline style', 'GET', SAME_ORIGIN, `${GET_MAP}&style_body=%3CStyledLayerDescriptor%2F%3E`, { status: 403, reason: 'param' }],
+    ['a name a server upper-cases to SLD', 'GET', SAME_ORIGIN, `${GET_MAP}&%C5%BFld=http://attacker.example/style.sld`, { status: 403, reason: 'param' }],
+    ['a name a server upper-cases to REQUEST', 'GET', SAME_ORIGIN, `${GET_MAP}&reque%C5%BFt=Transaction`, { status: 403, reason: 'param' }],
+    ['a name with a space', 'GET', SAME_ORIGIN, `${GET_MAP}&cql+filter=x`, { status: 403, reason: 'param' }],
+    ['a GetMap with no format', 'GET', SAME_ORIGIN, `${OGC}/wms?service=WMS&request=GetMap`, { status: 403, reason: 'format' }],
+    ['a GetMap as an HTML page', 'GET', SAME_ORIGIN, `${OGC}/wms?service=WMS&request=GetMap&format=application/openlayers`, { status: 403, reason: 'format' }],
+    ['a GetMap with a second format', 'GET', SAME_ORIGIN, `${GET_MAP}&format=application/openlayers`, { status: 403, reason: 'format' }],
+    ['a GetFeatureInfo with no info_format', 'GET', SAME_ORIGIN, `${OGC}/wms?service=WMS&request=GetFeatureInfo`, { status: 403, reason: 'format' }],
+    ['a GetFeatureInfo as HTML', 'GET', SAME_ORIGIN, `${OGC}/wms?service=WMS&request=GetFeatureInfo&info_format=text/html`, { status: 403, reason: 'format' }],
+    ['a GetFeature as a script', 'GET', SAME_ORIGIN, `${OGC}/wfs?service=WFS&request=GetFeature&outputformat=text/javascript`, { status: 403, reason: 'format' }],
+  ])('refuses %s', (_label, method, headers, path, refusal) => {
+    expect(ogcReadRefusal(method, headers, path, OGC)).toEqual(refusal)
+  })
+
+  it('sends upstream only the mirror cookie\'s credential: no cookie, no client Authorization or CertificationToken, no member header', () => {
+    expect(ogcRequestHeaders({
+      'cookie': `accessToken=${TOKEN}; dsh-auth-0a1b=signed`,
+      'authorization': 'Basic Zm9yZ2Vk',
+      'certificationtoken': 'forged',
+      'x-dsh-member': 'forged-by-the-client',
+      'content-length': '0',
+      'connection': 'keep-alive',
+      'host': '127.0.0.1:8082',
+      'accept': 'image/png',
+    }, '127.0.0.1:9701', `Bearer ${TOKEN}`)).toEqual({ accept: 'image/png', host: '127.0.0.1:9701', authorization: `Bearer ${TOKEN}` })
+  })
+
+  it('relays the answer with no cookie or login challenge, sandboxed so no page the server generates runs as this origin', () => {
+    expect(ogcResponseHeaders({
+      'content-type': 'image/png',
+      'set-cookie': ['JSESSIONID=1; Path=/geoserver'],
+      'www-authenticate': 'Basic realm="GeoServer"',
+      'content-security-policy': "default-src 'self'; frame-ancestors 'none'",
+      'x-frame-options': 'DENY',
+    })).toEqual({ 'content-type': 'image/png', 'x-content-type-options': 'nosniff', 'content-security-policy': 'sandbox' })
+  })
+
+  it('sends a checked read to its prefix\'s origin with the mirror cookie\'s token as its only credential', async () => {
+    const w = await ogcWorld()
+    const answer = await send(w.port, GET_MAP, {
+      ...READ,
+      'cookie': `accessToken=${TOKEN}; dsh-auth-0a1b=signed; JSESSIONID=old`,
+      'authorization': 'Basic Zm9yZ2Vk',
+      'certificationtoken': 'forged',
+    })
+    expect(answer.status).toBe(200)
+    expect(answer.headers).not.toHaveProperty('set-cookie')
+    expect(answer.headers).not.toHaveProperty('www-authenticate')
+    expect(answer.headers['x-content-type-options']).toBe('nosniff')
+    expect(answer.headers['content-security-policy']).toBe('sandbox')
+    expect(w.renewals()).toBe(1)
+    expect(w.gateway.requests).toHaveLength(1)
+    const headers = w.gateway.requests[0]?.headers ?? {}
+    expect(w.gateway.requests[0]?.path).toBe(`${OGC}/wms?SERVICE=WMS&REQUEST=GetMap&LAYERS=dshsim%3Aroads&FORMAT=image%2Fpng`)
+    expect(headers.authorization).toBe(`Bearer ${TOKEN}`)
+    expect(headers.host).toBe(`127.0.0.1:${String(w.gateway.port)}`)
+    expect(headers).not.toHaveProperty('cookie')
+    expect(headers).not.toHaveProperty('certificationtoken')
+    expect(memberHeaderNames(headers)).toEqual([])
+    expect(w.customer.requests).toEqual([])
+    expect(w.dsh.requests).toEqual([])
+  })
+
+  it('forwards the path it checked, with dot segments resolved, and the query it parsed, serialized again', async () => {
+    const w = await ogcWorld()
+    const query = '?service=WMS&request=GetCapabilities'
+    expect((await send(w.port, `/geoserver/other/../dshsim/wms${query}`, READ)).status).toBe(200)
+    expect((await send(w.port, `${GET_MAP}&cql_filter=a;sld=http://attacker.example/s`, READ)).status).toBe(200)
+    expect(w.gateway.requests.map(received => received.path)).toEqual([
+      `${OGC}/wms${query}`,
+      `${OGC}/wms?SERVICE=WMS&REQUEST=GetMap&LAYERS=dshsim%3Aroads&FORMAT=image%2Fpng&cql_filter=a%3Bsld%3Dhttp%3A%2F%2Fattacker.example%2Fs`,
+    ])
+  })
+
+  it('sends a read under a prefix with no origin of its own to the remote application, with the same credential', async () => {
+    const w = await world({ OGC_READ_PREFIXES: OGC })
+    expect((await send(w.port, GET_MAP, READ)).status).toBe(200)
+    expect(w.customer.requests).toHaveLength(1)
+    const headers = w.customer.requests[0]?.headers ?? {}
+    expect(headers.authorization).toBe(`Bearer ${TOKEN}`)
+    expect(headers.host).toBe(`127.0.0.1:${String(w.customer.port)}`)
+    expect(headers).not.toHaveProperty('cookie')
+  })
+
+  it('leaves every other remote-application path as it was: its cookies forwarded, no Authorization added, no read check', async () => {
+    const w = await ogcWorld()
+    const paths = ['/geoserver/web/', '/geoserver/other/wms?service=WMS&request=GetMap&format=application/openlayers', `${OGC}x/wms`]
+    for (const path of paths) {
+      expect((await send(w.port, path, { cookie: `accessToken=${TOKEN}; dsh-auth-0a1b=signed` })).status).toBe(200)
+    }
+    expect(w.gateway.requests).toEqual([])
+    expect(w.customer.requests.map(received => [received.path, received.headers.cookie, received.headers.authorization]))
+      .toEqual(paths.map(path => [path, `accessToken=${TOKEN}`, undefined]))
+  })
+
+  it('answers a read refused for its form itself, before the login check, and sends nothing upstream', async () => {
+    const w = await ogcWorld()
+    const posted = await exchange(w.port, `POST ${GET_MAP} HTTP/1.1\r\nHost: 127.0.0.1\r\nSec-Fetch-Site: same-origin\r\nCookie: accessToken=${TOKEN}\r\nContent-Length: 2\r\nConnection: close\r\n\r\nhi`)
+    expect(posted.split('\r\n')[0]).toBe('HTTP/1.1 405 Method Not Allowed')
+    expect(posted).toMatch(/\r\nallow: GET\r\n/i)
+    expect(posted).toContain('{"error":"ogc read refused: method"}')
+    const bodied = await exchange(w.port, `GET ${GET_MAP} HTTP/1.1\r\nHost: 127.0.0.1\r\nSec-Fetch-Site: same-origin\r\nCookie: accessToken=${TOKEN}\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello`)
+    expect(bodied.split('\r\n')[0]).toBe('HTTP/1.1 400 Bad Request')
+    expect((await send(w.port, GET_MAP, LOGGED_IN)).status).toBe(403)
+    expect((await send(w.port, `${OGC}/rest/workspaces`, READ)).status).toBe(403)
+    expect(w.renewals()).toBe(0)
+    expect(w.gateway.requests).toEqual([])
+    expect(w.customer.requests).toEqual([])
+  })
+
+  it.each([
+    ['no mirror cookie', {}, 'no-credential'],
+    ['a token past its exp', { cookie: `accessToken=${expiringToken('1799999999')}` }, 'expired'],
+    ['a token at its exp', { cookie: `accessToken=${expiringToken('1800000000')}` }, 'expired'],
+    ['a token with no exp', { cookie: `accessToken=${expiringToken(undefined)}` }, 'no-expiry'],
+    ['a token whose exp is not whole seconds', { cookie: `accessToken=${expiringToken('4.1e9')}` }, 'no-expiry'],
+    ['a token that does not decode', { cookie: 'accessToken=not-a-token' }, 'no-expiry'],
+  ])('refuses a read with %s with 401 and no login check, whether the login gate is on or off', async (_label, headers, reason) => {
+    for (const env of [{}, GATE_OFF]) {
+      const w = await ogcWorld(env)
+      expect((await send(w.port, GET_MAP, { ...SAME_ORIGIN, ...headers })).status).toBe(401)
+      expect(w.renewals()).toBe(0)
+      expect(w.gateway.requests).toEqual([])
+      expect(w.logs).toEqual([`proxy: ogc refused GET ${OGC}/wms: ${reason}`])
+    }
+  })
+
+  it('refuses a read the login check refuses, and sends one an open gate admits without asking', async () => {
+    const refused = await ogcWorld({}, () => ({ status: 401, body: '' }))
+    expect((await send(refused.port, GET_MAP, READ)).status).toBe(401)
+    expect(refused.renewals()).toBe(1)
+    expect(refused.gateway.requests).toEqual([])
+    const unavailable = await ogcWorld({}, () => ({ status: 500, body: '' }))
+    expect((await send(unavailable.port, GET_MAP, READ)).status).toBe(503)
+    expect(unavailable.gateway.requests).toEqual([])
+    const open = await ogcWorld(GATE_OFF)
+    expect((await send(open.port, GET_MAP, READ)).status).toBe(200)
+    expect(open.renewals()).toBe(0)
+    expect(open.gateway.requests.map(received => received.headers.authorization)).toEqual([`Bearer ${TOKEN}`])
+  })
+
+  it('closes an upgrade under the prefix with 403 and opens no upstream connection', async () => {
+    const w = await ogcWorld()
+    expect(await upgrade(w.port, `${OGC}/wms`, READ)).toBe(403)
+    expect(w.renewals()).toBe(0)
+    expect(w.gateway.upgrades).toEqual([])
+    expect(w.customer.upgrades).toEqual([])
+    expect(w.logs).toEqual([`proxy: ogc refused upgrade ${OGC}/wms`])
+  })
+
+  it('logs the method, path, and reason or status of each read that is refused or fails, and never its credential or query', async () => {
+    const expired = expiringToken('1700000000')
+    const w = await ogcWorld({}, ECHO_RENEWAL, 500)
+    await send(w.port, GET_MAP, LOGGED_IN)
+    await send(w.port, `${OGC}/wms?service=WMS&request=GetMap&format=application/openlayers&marker=query-value`, READ)
+    await send(w.port, GET_MAP, { ...SAME_ORIGIN, cookie: `accessToken=${expired}` })
+    expect((await send(w.port, GET_MAP, READ)).status).toBe(500)
+    const unreachable = await world({ OGC_READ_PREFIXES: OGC, REMOTE_PREFIX_ORIGINS: `${OGC}=http://127.0.0.1:${String(await closedPort())}` })
+    expect((await send(unreachable.port, GET_MAP, READ)).status).toBe(502)
+    expect(w.logs).toEqual([
+      `proxy: ogc refused GET ${OGC}/wms: fetch-site`,
+      `proxy: ogc refused GET ${OGC}/wms: format`,
+      `proxy: ogc refused GET ${OGC}/wms: expired`,
+      `proxy: ogc GET ${OGC}/wms -> 500`,
+    ])
+    expect(unreachable.logs).toEqual([expect.stringMatching(new RegExp(`^proxy: ogc request GET ${OGC}/wms failed: `))])
+    const logs = [...w.logs, ...unreachable.logs].join('\n')
+    for (const secret of [TOKEN, expired, 'Bearer ', '?', 'query-value', 'openlayers']) expect(logs).not.toContain(secret)
   })
 })
 

@@ -120,6 +120,14 @@ import { pathToFileURL } from 'node:url'
  * @property {{ privateKey: import('node:crypto').KeyObject, deploymentId: string } | undefined} assertion - the signing key and audience, when this deployment signs.
  * @property {string | undefined} launchTokenFile - DSH_LAUNCH_TOKEN_FILE, proxy mode only.
  * @property {readonly string[]} dshExtraPrefixes - DSH_EXTRA_PREFIXES, proxy mode only; empty when unset.
+ * @property {readonly string[]} ogcReadPrefixes - OGC_READ_PREFIXES, proxy mode only; empty when unset.
+ * @property {readonly PrefixOrigin[]} remotePrefixOrigins - REMOTE_PREFIX_ORIGINS, proxy mode only; empty when unset.
+ */
+
+/**
+ * @typedef {object} PrefixOrigin
+ * @property {string} prefix - a path prefix at or under an OGC_READ_PREFIXES entry.
+ * @property {URL} origin - the http origin requests under the prefix go to instead of the remote application.
  */
 
 /** Request header that carries the member assertion to dsh; console-members reads the same name. */
@@ -661,26 +669,79 @@ function envList(env, name) {
 const PREFIX_SEGMENT = /^[A-Za-z0-9._~-]+$/
 
 /**
- * Read DSH_EXTRA_PREFIXES: route roots of dsh plugins the built-in list does
- * not name, such as a plugin installed from outside this repository. Each one
- * is gated like any other dsh path.
+ * Read one comma-separated list of path prefixes: DSH_EXTRA_PREFIXES, the
+ * route roots of dsh plugins the built-in list does not name, such as a plugin
+ * installed from outside this repository, each gated like any other dsh path;
+ * or OGC_READ_PREFIXES, the remote-application prefixes whose reads carry the
+ * mirror cookie's token as an Authorization header.
  * @param {Record<string, string | undefined>} env - the environment.
+ * @param {string} name - the variable name.
+ * @param {readonly string[]} dshPrefixes - the extra prefixes dsh already owns besides its built-in list.
  * @returns {string[]} the prefixes, empty when the variable is unset.
- * @throws {Error} when an entry is not a slash-led path of plain segments, lies at or under a path dsh already owns, or repeats or nests another entry.
+ * @throws {Error} when an entry is not a slash-led path of plain segments, lies at or under a path dsh already owns or holds a `dshPrefixes` entry, or repeats or nests another entry.
  */
-function readExtraPrefixes(env) {
-  const entries = envList(env, 'DSH_EXTRA_PREFIXES') ?? []
+function readPrefixes(env, name, dshPrefixes) {
+  const entries = envList(env, name) ?? []
+  checkPrefixList(name, entries)
   for (const entry of entries) {
-    const segments = entry.split('/')
-    if (segments[0] !== '' || segments.slice(1).some(segment => !PREFIX_SEGMENT.test(segment) || segment === '.' || segment === '..')) {
-      throw new Error(`proxy: DSH_EXTRA_PREFIXES entry ${JSON.stringify(entry)} must be a path such as /my-plugin, with no trailing slash`)
-    }
-    if (!isRemote(entry, [])) throw new Error(`proxy: DSH_EXTRA_PREFIXES entry ${JSON.stringify(entry)} is already a dsh path`)
-    if (entries.some(other => other !== entry && entry.startsWith(other + '/')) || entries.indexOf(entry) !== entries.lastIndexOf(entry)) {
-      throw new Error(`proxy: DSH_EXTRA_PREFIXES entry ${JSON.stringify(entry)} repeats or lies under another entry`)
-    }
+    if (!isRemote(entry, dshPrefixes)) throw new Error(`proxy: ${name} entry ${JSON.stringify(entry)} is already a dsh path`)
+    const held = dshPrefixes.find(prefix => prefix.startsWith(entry + '/'))
+    if (held !== undefined) throw new Error(`proxy: ${name} entry ${JSON.stringify(entry)} holds the dsh path ${JSON.stringify(held)}`)
   }
   return entries
+}
+
+/**
+ * Check the form of one list of path prefixes.
+ * @param {string} name - the variable the list came from, named in the error.
+ * @param {readonly string[]} entries - the prefixes.
+ * @returns {void}
+ * @throws {Error} when an entry is not a slash-led path of plain segments with no trailing slash, or repeats or nests another entry.
+ */
+function checkPrefixList(name, entries) {
+  for (const entry of entries) {
+    const segments = entry.split('/')
+    if (segments.length < 2 || segments[0] !== '' || segments.slice(1).some(segment => !PREFIX_SEGMENT.test(segment) || segment === '.' || segment === '..')) {
+      throw new Error(`proxy: ${name} entry ${JSON.stringify(entry)} must be a path such as /my-plugin, with no trailing slash`)
+    }
+    if (entries.some(other => other !== entry && entry.startsWith(other + '/')) || entries.indexOf(entry) !== entries.lastIndexOf(entry)) {
+      throw new Error(`proxy: ${name} entry ${JSON.stringify(entry)} repeats or lies under another entry`)
+    }
+  }
+}
+
+/**
+ * Read REMOTE_PREFIX_ORIGINS: `<prefix>=<http origin>` entries sending the
+ * reads under one OGC_READ_PREFIXES path to another origin than the remote
+ * application. The origin is held to two places the deployment already
+ * trusts with the token: a gateway on this host's loopback address, or the
+ * remote application's own origin. A data-backend origin configured in
+ * auth-gate is not visible to this process; where it serves the remote
+ * application's origin, as it does on the hosted console, this is the same
+ * origin.
+ * @param {Record<string, string | undefined>} env - the environment.
+ * @param {readonly string[]} ogcPrefixes - the validated OGC_READ_PREFIXES.
+ * @param {URL} remoteOrigin - the remote application's origin.
+ * @returns {PrefixOrigin[]} the entries, empty when the variable is unset.
+ * @throws {Error} when an entry has no `=`, its prefix is malformed, repeats or nests another, or lies under no OGC_READ_PREFIXES entry, or its origin is not an http origin on 127.0.0.1 or the remote application's own.
+ */
+function readPrefixOrigins(env, ogcPrefixes, remoteOrigin) {
+  const entries = (envList(env, 'REMOTE_PREFIX_ORIGINS') ?? []).map((entry) => {
+    const at = entry.indexOf('=')
+    if (at < 0) throw new Error(`proxy: REMOTE_PREFIX_ORIGINS entry ${JSON.stringify(entry)} must be <prefix>=<http origin>`)
+    return { prefix: entry.slice(0, at).trim(), originText: entry.slice(at + 1).trim() }
+  })
+  checkPrefixList('REMOTE_PREFIX_ORIGINS', entries.map(entry => entry.prefix))
+  return entries.map(({ prefix, originText }) => {
+    if (!ogcPrefixes.some(ogc => prefix === ogc || prefix.startsWith(ogc + '/'))) {
+      throw new Error(`proxy: REMOTE_PREFIX_ORIGINS entry ${JSON.stringify(prefix)} must be at or under an OGC_READ_PREFIXES entry`)
+    }
+    const origin = httpOrigin(originText, `proxy: REMOTE_PREFIX_ORIGINS origin for ${JSON.stringify(prefix)} must be an http origin with no path, query, or credentials`)
+    if (origin.protocol !== 'http:' || (origin.hostname !== '127.0.0.1' && origin.origin !== remoteOrigin.origin)) {
+      throw new Error(`proxy: REMOTE_PREFIX_ORIGINS origin for ${JSON.stringify(prefix)} must be http on 127.0.0.1 or the remote application's own origin`)
+    }
+    return { prefix, origin }
+  })
 }
 
 /**
@@ -728,15 +789,23 @@ export function readSettings(env, readFile = readFileSync) {
   let remoteOrigin
   /** @type {string[]} */
   let dshExtraPrefixes = []
+  /** @type {string[]} */
+  let ogcReadPrefixes = []
+  /** @type {PrefixOrigin[]} */
+  let remotePrefixOrigins = []
   if (mode === 'proxy') {
     dshPort = envInteger(env, 'DSH_WEB_PORT', undefined, 1, 65_535)
     remoteHost = envText(env, 'REMOTE_HOST')
     if (remoteHost === undefined) throw new Error('proxy: REMOTE_HOST must name the remote application host')
     remotePort = envInteger(env, 'REMOTE_PORT', undefined, 1, 65_535)
     remoteOrigin = httpOrigin(`http://${authorityHost(remoteHost)}:${String(remotePort)}`, 'proxy: REMOTE_HOST must be a host name or an IP address, with an IPv6 address written without brackets')
-    dshExtraPrefixes = readExtraPrefixes(env)
-  } else if (envText(env, 'DSH_EXTRA_PREFIXES') !== undefined) {
-    throw new Error('proxy: DSH_EXTRA_PREFIXES applies only in PROXY_MODE=proxy; in verify mode the front proxy routes')
+    dshExtraPrefixes = readPrefixes(env, 'DSH_EXTRA_PREFIXES', [])
+    ogcReadPrefixes = readPrefixes(env, 'OGC_READ_PREFIXES', dshExtraPrefixes)
+    remotePrefixOrigins = readPrefixOrigins(env, ogcReadPrefixes, remoteOrigin)
+  } else {
+    for (const name of ['DSH_EXTRA_PREFIXES', 'OGC_READ_PREFIXES', 'REMOTE_PREFIX_ORIGINS']) {
+      if (envText(env, name) !== undefined) throw new Error(`proxy: ${name} applies only in PROXY_MODE=proxy; in verify mode the front proxy routes`)
+    }
   }
 
   const originText = envText(env, 'AUTH_ORIGIN')
@@ -794,6 +863,8 @@ export function readSettings(env, readFile = readFileSync) {
     assertion,
     launchTokenFile: mode === 'proxy' ? envText(env, 'DSH_LAUNCH_TOKEN_FILE') : undefined,
     dshExtraPrefixes,
+    ogcReadPrefixes,
+    remotePrefixOrigins,
   }
 }
 
@@ -1041,6 +1112,177 @@ function sendExchange(req, res, token, runtime) {
     'set-cookie': `${EXCHANGE_MARKER_COOKIE}=1; Path=/; Max-Age=${String(EXCHANGE_MARKER_SECONDS)}; SameSite=Lax`,
   })
   res.end()
+}
+
+/** Paths under an OGC_READ_PREFIXES entry a read may name: a service root, or one layer's. */
+const OGC_READ_PATH = /^\/(?:[A-Za-z0-9_-]+\/)?(ows|wms|wfs)\/?$/
+/** The read requests each OGC service may carry, lowercased; `ows` takes either service. */
+const OGC_READ_REQUESTS = new Map([
+  ['wms', new Set(['getmap', 'getcapabilities', 'getfeatureinfo'])],
+  ['wfs', new Set(['getfeature', 'describefeaturetype'])],
+])
+/** The image formats a GetMap may ask for. */
+const OGC_MAP_FORMATS = new Set(['image/png', 'image/jpeg'])
+/**
+ * Parameters that make the server fetch or apply caller-supplied styling or
+ * services: GeoServer's `sld` and `style_url` fetch a style, `sld_body` and
+ * `style_body` carry one, and `remote_ows_url` and `remote_ows_type` name a
+ * service to fetch layers from.
+ */
+const OGC_REFUSED_PARAMS = ['sld', 'sld_body', 'style_url', 'style_body', 'remote_ows_url', 'remote_ows_type']
+/**
+ * The parameter names a read may use. A server that compares names
+ * case-insensitively by upper-casing them reads some non-ASCII names as ASCII
+ * ones — `ſld` as `SLD` — which this check, lower-casing, would not.
+ */
+const OGC_PARAM_NAME = /^[A-Za-z0-9_.-]+$/
+/** Inbound headers an OGC read never forwards: the one it sends is the mirror cookie's token. */
+const OGC_DROPPED_REQUEST_HEADERS = new Set(['authorization', 'certificationtoken', 'cookie'])
+/** Upstream headers an OGC read never relays: a session cookie for this origin, or a browser login prompt. */
+const OGC_DROPPED_RESPONSE_HEADERS = new Set(['set-cookie', 'www-authenticate'])
+
+/**
+ * @typedef {object} OgcRefusal
+ * @property {400 | 403 | 405} status - the status the client is answered with.
+ * @property {'method' | 'fetch-site' | 'path' | 'body' | 'duplicate' | 'service' | 'request' | 'param' | 'format'} reason - the category logged and answered; never the offending value.
+ */
+
+/**
+ * The OGC_READ_PREFIXES entry a remote-application path is at or under.
+ * @param {Settings} settings - validated settings.
+ * @param {string} pathname - request path, query stripped.
+ * @returns {string | undefined} the entry, or undefined when the path is under none.
+ */
+function ogcPrefixOf(settings, pathname) {
+  return settings.ogcReadPrefixes.find(prefix => pathname === prefix || pathname.startsWith(prefix + '/'))
+}
+
+/**
+ * Why one request under an OGC_READ_PREFIXES entry may not be forwarded as a
+ * read, or undefined when it may: a GET from this origin's own pages
+ * (`sec-fetch-site: same-origin`) with no body, to a service root or one
+ * layer's (`ows`, `wms`, `wfs`), naming one `service` and one `request` that
+ * endpoint serves — WMS GetMap, GetCapabilities, GetFeatureInfo; WFS
+ * GetFeature, DescribeFeatureType — with no SLD, style, or remote-service
+ * parameter. A GetMap names `image/png` or `image/jpeg`, and a GetFeatureInfo
+ * `info_format=application/json`, so the server never picks either format
+ * itself; an `info_format` or `outputformat`, wherever present, is
+ * `application/json`. Parameter names are ASCII letters, digits, `_`, `.`,
+ * and `-`, and compare case-insensitively, as the server reads them. The raw
+ * path may hold no `%`, `;`, or `\`.
+ * @param {string | undefined} method - the request method.
+ * @param {import('node:http').IncomingHttpHeaders} headers - inbound request headers.
+ * @param {string | undefined} url - the raw request target.
+ * @param {string} prefix - the OGC_READ_PREFIXES entry the path is under.
+ * @returns {OgcRefusal | undefined} the refusal, or undefined for a read.
+ */
+export function ogcReadRefusal(method, headers, url, prefix) {
+  if (method !== 'GET') return { status: 405, reason: 'method' }
+  if (headers['sec-fetch-site'] !== 'same-origin') return { status: 403, reason: 'fetch-site' }
+  const target = url ?? '/'
+  if (/[%;\\]/.test(target.split('?')[0])) return { status: 403, reason: 'path' }
+  const parsed = new URL(target, 'http://x')
+  const endpoint = OGC_READ_PATH.exec(parsed.pathname.slice(prefix.length))?.[1]
+  if (endpoint === undefined) return { status: 403, reason: 'path' }
+  const framing = requestFraming(headers)
+  if (framing.body !== 'none' && !(framing.body === 'length' && framing.length === '0')) return { status: 400, reason: 'body' }
+  /** @type {Map<string, string[]>} */
+  const params = new Map()
+  for (const [key, value] of parsed.searchParams) {
+    if (!OGC_PARAM_NAME.test(key)) return { status: 403, reason: 'param' }
+    const name = key.toLowerCase()
+    params.set(name, [...(params.get(name) ?? []), value])
+  }
+  const service = params.get('service') ?? []
+  const request = params.get('request') ?? []
+  if (service.length > 1 || request.length > 1) return { status: 400, reason: 'duplicate' }
+  const serviceName = service[0]?.toLowerCase()
+  const requests = serviceName === undefined ? undefined : OGC_READ_REQUESTS.get(serviceName)
+  if (requests === undefined || (endpoint !== 'ows' && endpoint !== serviceName)) return { status: 403, reason: 'service' }
+  const requestName = request[0]?.toLowerCase()
+  if (requestName === undefined || !requests.has(requestName)) return { status: 403, reason: 'request' }
+  if (OGC_REFUSED_PARAMS.some(name => params.has(name))) return { status: 403, reason: 'param' }
+  const formats = (params.get('format') ?? []).map(value => value.toLowerCase())
+  if (requestName === 'getmap' && (formats.length === 0 || !formats.every(format => OGC_MAP_FORMATS.has(format)))) {
+    return { status: 403, reason: 'format' }
+  }
+  const infoFormats = params.get('info_format') ?? []
+  if (requestName === 'getfeatureinfo' && infoFormats.length === 0) return { status: 403, reason: 'format' }
+  const dataFormats = [...infoFormats, ...params.get('outputformat') ?? []]
+  if (!dataFormats.every(format => format.toLowerCase() === 'application/json')) return { status: 403, reason: 'format' }
+  return undefined
+}
+
+/**
+ * The credential an OGC read carries upstream: the mirror cookie's, while its
+ * token's `exp` is still ahead. A token past it, or with no `exp` of whole
+ * seconds to read, is not sent anywhere.
+ * @param {Settings} settings - validated settings.
+ * @param {Runtime} runtime - the clock.
+ * @param {string | undefined} cookieHeader - the inbound Cookie header.
+ * @returns {{ credential: string } | { reason: 'no-credential' | 'no-expiry' | 'expired' }} the credential, or why there is none to send.
+ */
+function ogcCredential(settings, runtime, cookieHeader) {
+  const credential = presentedCredential(cookieHeader, settings.authCookie)
+  if (credential === undefined) return { reason: 'no-credential' }
+  const exp = claimText(decodeClaims(bareToken(credential))?.exp)
+  if (exp === undefined || !/^\d+$/.test(exp)) return { reason: 'no-expiry' }
+  if (Number(exp) * 1000 <= runtime.now()) return { reason: 'expired' }
+  return { credential }
+}
+
+/**
+ * The headers an OGC read carries upstream: the client's, framed for a request
+ * with no body, less its own `authorization`, `certificationtoken`, and every
+ * cookie, with `authorization` set to the mirror cookie's credential.
+ * @param {import('node:http').IncomingHttpHeaders} headers - inbound request headers.
+ * @param {string} host - the upstream Host header.
+ * @param {string} credential - the credential, `Bearer <token>`.
+ * @returns {Record<string, string | string[]>} headers for the upstream request.
+ */
+export function ogcRequestHeaders(headers, host, credential) {
+  const out = upstreamRequestHeaders(headers, host, undefined, { body: 'none' })
+  for (const name of Object.keys(out)) {
+    if (OGC_DROPPED_REQUEST_HEADERS.has(name.toLowerCase())) delete out[name]
+  }
+  out.authorization = credential
+  return out
+}
+
+/**
+ * The headers an OGC read's answer reaches the client with: the remote
+ * application's treatment, less `set-cookie` and `www-authenticate`, with
+ * `x-content-type-options: nosniff` and `content-security-policy: sandbox`, so
+ * no document the server generates runs as this origin.
+ * @param {import('node:http').IncomingHttpHeaders} headers - upstream response headers.
+ * @returns {Record<string, string | string[]>} headers for the client.
+ */
+export function ogcResponseHeaders(headers) {
+  const out = remoteResponseHeaders(headers)
+  for (const name of Object.keys(out)) {
+    if (OGC_DROPPED_RESPONSE_HEADERS.has(name.toLowerCase())) delete out[name]
+  }
+  out['x-content-type-options'] = 'nosniff'
+  out['content-security-policy'] = 'sandbox'
+  return out
+}
+
+/**
+ * Answer an OGC read refused for its form, naming the reason category.
+ * Nothing was sent upstream. A body the request carries was framed by
+ * `requestFraming` before this check, so Node discards it and the connection
+ * stays usable.
+ * @param {import('node:http').ServerResponse} res - the client response.
+ * @param {OgcRefusal} refusal - why.
+ * @returns {void}
+ */
+function refuseOgcRead(res, refusal) {
+  res.writeHead(refusal.status, {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store',
+    ...(refusal.status === 405 ? { allow: 'GET' } : {}),
+  })
+  res.end(`{"error":"ogc read refused: ${refusal.reason}"}`)
 }
 
 /**
@@ -1310,6 +1552,17 @@ async function admitToDsh(settings, gate, runtime, req, pathname) {
 }
 
 /**
+ * @typedef {object} Route
+ * @property {'dsh' | 'remote' | 'ogc'} label - which upstream a request goes to, as the log names it.
+ * @property {string} host - the upstream host.
+ * @property {number} port - the upstream port.
+ * @property {string} path - the request target sent upstream.
+ * @property {Record<string, string | string[]>} headers - the upstream request headers.
+ * @property {import('node:http').Agent} agent - the connection pool for that upstream.
+ * @property {(headers: import('node:http').IncomingHttpHeaders) => Record<string, string | string[]>} responseHeaders - how the upstream's response headers reach the client.
+ */
+
+/**
  * Build the PROXY_MODE=proxy server. It is returned unlistened; the caller
  * owns `listen` and `close`. A client that leaves before its request body is
  * complete, or before its response is completely written while the upstream
@@ -1334,6 +1587,13 @@ export function createProxyServer(settings, runtime) {
   const remoteHostHeader = `${authorityHost(String(settings.remoteHost))}:${String(settings.remotePort)}`
   const remoteAgent = new http.Agent({ keepAlive: true })
   const dshAgent = new http.Agent({ keepAlive: true })
+  const ogcOrigins = settings.remotePrefixOrigins.map(({ prefix, origin }) => ({
+    prefix,
+    host: origin.hostname.replace(/^\[|\]$/g, ''),
+    port: Number(origin.port === '' ? '80' : origin.port),
+    hostHeader: origin.host,
+    agent: new http.Agent({ keepAlive: true }),
+  }))
 
   const server = http.createServer(async (req, res) => {
     let pathname
@@ -1383,8 +1643,58 @@ export function createProxyServer(settings, runtime) {
     })
     try {
       const remote = isRemote(pathname, settings.dshExtraPrefixes)
-      let assertion
-      if (!remote) {
+      const ogcPrefix = remote ? ogcPrefixOf(settings, pathname) : undefined
+      /** @type {Route} */
+      let route
+      if (ogcPrefix !== undefined) {
+        const refusal = ogcReadRefusal(req.method, req.headers, req.url, ogcPrefix)
+        if (refusal !== undefined) {
+          runtime.log(`proxy: ogc refused ${req.method ?? '?'} ${pathname}: ${refusal.reason}`)
+          refuseOgcRead(res, refusal)
+          return
+        }
+        // Checked before the gate: with LOGIN_GATE=off the gate admits a
+        // request that carries no credential, and an OGC read needs one to send.
+        const carried = ogcCredential(settings, runtime, req.headers.cookie)
+        if (!('credential' in carried)) {
+          runtime.log(`proxy: ogc refused ${req.method ?? '?'} ${pathname}: ${carried.reason}`)
+          denyRequest(res, 'refused')
+          return
+        }
+        const decision = await admitToDsh(settings, gate, runtime, req, pathname)
+        if (req.destroyed || abandoned) return
+        if (decision.outcome !== 'admitted') {
+          if (decision.outcome === 'refused') runtime.log(`proxy: gate ${req.method ?? '?'} ${pathname} -> 401`)
+          denyRequest(res, decision.outcome)
+          return
+        }
+        // The target the read was classified on, not the raw one: the
+        // resolved path, and the parsed query serialized again, so `&` alone
+        // separates its parameters and every other reserved character
+        // arrives percent-encoded, as the check read them.
+        const target = new URL(req.url ?? '/', 'http://x')
+        const query = target.searchParams.toString()
+        const elsewhere = ogcOrigins.find(entry => pathname === entry.prefix || pathname.startsWith(entry.prefix + '/'))
+        route = {
+          label: 'ogc',
+          host: elsewhere?.host ?? String(settings.remoteHost),
+          port: elsewhere?.port ?? Number(settings.remotePort),
+          path: query === '' ? target.pathname : `${target.pathname}?${query}`,
+          headers: ogcRequestHeaders(req.headers, elsewhere?.hostHeader ?? remoteHostHeader, carried.credential),
+          agent: elsewhere?.agent ?? remoteAgent,
+          responseHeaders: ogcResponseHeaders,
+        }
+      } else if (remote) {
+        route = {
+          label: 'remote',
+          host: String(settings.remoteHost),
+          port: Number(settings.remotePort),
+          path: req.url ?? '/',
+          headers: upstreamRequestHeaders(remoteRequestHeaders(req.headers), remoteHostHeader, undefined, framing),
+          agent: remoteAgent,
+          responseHeaders: remoteResponseHeaders,
+        }
+      } else {
         const decision = await admitToDsh(settings, gate, runtime, req, pathname)
         // A request whose connection closed during the check gets no upstream
         // request at all. Node destroys the request when its connection
@@ -1397,22 +1707,28 @@ export function createProxyServer(settings, runtime) {
           denyRequest(res, decision.outcome)
           return
         }
-        assertion = decision.assertion
+        route = {
+          label: 'dsh',
+          host: DSH_HOST,
+          port: Number(settings.dshPort),
+          path: req.url ?? '/',
+          headers: upstreamRequestHeaders(req.headers, undefined, decision.assertion, framing),
+          agent: dshAgent,
+          responseHeaders: headers => forwardHeaders(headers, undefined),
+        }
       }
       upstream = http.request({
-        host: remote ? settings.remoteHost : DSH_HOST,
-        port: remote ? settings.remotePort : settings.dshPort,
+        host: route.host,
+        port: route.port,
         method: req.method,
-        path: req.url,
-        headers: remote
-          ? upstreamRequestHeaders(remoteRequestHeaders(req.headers), remoteHostHeader, assertion, framing)
-          : upstreamRequestHeaders(req.headers, undefined, assertion, framing),
-        agent: remote ? remoteAgent : dshAgent,
+        path: route.path,
+        headers: route.headers,
+        agent: route.agent,
       }, (response) => {
         upstreamRes = response
-        const headers = remote ? remoteResponseHeaders(response.headers) : forwardHeaders(response.headers, undefined)
+        const headers = route.responseHeaders(response.headers)
         const status = response.statusCode ?? 502
-        if (!remote && status === 401 && exchangeable(req, pathname)) {
+        if (route.label === 'dsh' && status === 401 && exchangeable(req, pathname)) {
           const token = launchToken(settings.launchTokenFile)
           if (token !== undefined) {
             response.resume()
@@ -1420,7 +1736,7 @@ export function createProxyServer(settings, runtime) {
             return
           }
         }
-        if (status >= 400) runtime.log(`proxy: ${remote ? 'remote' : 'dsh'} ${req.method ?? '?'} ${pathname} -> ${String(status)}`)
+        if (status >= 400) runtime.log(`proxy: ${route.label} ${req.method ?? '?'} ${pathname} -> ${String(status)}`)
         res.writeHead(status, headers)
         // An upstream connection that closes, resets, or sends a malformed
         // body before the response is complete closes `response` with
@@ -1433,7 +1749,7 @@ export function createProxyServer(settings, runtime) {
         response.once('close', () => {
           if (response.complete || abandoned) return
           const cause = upstreamFailure === undefined ? '' : `: ${String(upstreamFailure)}`
-          runtime.log(`proxy: ${remote ? 'remote' : 'dsh'} ${req.method ?? '?'} ${pathname} -> upstream disconnected mid-response${cause}`)
+          runtime.log(`proxy: ${route.label} ${req.method ?? '?'} ${pathname} -> upstream disconnected mid-response${cause}`)
           res.destroy()
         })
         response.pipe(res)
@@ -1447,11 +1763,12 @@ export function createProxyServer(settings, runtime) {
           upstreamFailure = error
           return
         }
-        runtime.log(`proxy: ${remote ? 'remote' : 'dsh'} request ${req.method ?? '?'} ${pathname} failed: ${String(error)}`)
+        runtime.log(`proxy: ${route.label} request ${req.method ?? '?'} ${pathname} failed: ${String(error)}`)
         if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' })
         res.end('bad gateway')
       })
-      if (framing.body === 'none') upstream.end()
+      // An OGC read carries no body: anything but an empty one was refused above.
+      if (framing.body === 'none' || route.label === 'ogc') upstream.end()
       else req.pipe(upstream)
     } catch (error) {
       // An async handler's rejection is an unhandled rejection, which ends the
@@ -1506,6 +1823,11 @@ export function createProxyServer(settings, runtime) {
     }
     try {
       const remote = isRemote(pathname, settings.dshExtraPrefixes)
+      if (remote && ogcPrefixOf(settings, pathname) !== undefined) {
+        runtime.log(`proxy: ogc refused upgrade ${pathname}`)
+        closeWithStatus(socket, '403 Forbidden')
+        return
+      }
       let assertion
       if (!remote) {
         const decision = await admitToDsh(settings, gate, runtime, req, pathname)
@@ -1549,6 +1871,7 @@ export function createProxyServer(settings, runtime) {
   server.on('close', () => {
     remoteAgent.destroy()
     dshAgent.destroy()
+    for (const { agent } of ogcOrigins) agent.destroy()
   })
 
   return { server, gate }
