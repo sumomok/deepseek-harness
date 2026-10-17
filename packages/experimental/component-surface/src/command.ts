@@ -149,8 +149,8 @@ export interface ResolvedAction {
    * which is what lets the later one replace the earlier one's unclaimed
    * notice instead of queueing beside it. A report the agent's own step caused
    * ({@link ResolvedAction.step}) replaces no notice and is replaced by none;
-   * it clears the key's unclaimed notice instead, as
-   * {@link ActionMemory.pendingContext} states.
+   * it drops the key from {@link ActionMemory.pendingContext} instead, so the
+   * user's unclaimed notice stays in the inbox and no later gesture replaces it.
    */
   readonly key: string
   /**
