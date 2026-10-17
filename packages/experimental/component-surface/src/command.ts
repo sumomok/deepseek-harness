@@ -292,7 +292,12 @@ export type ActionDelivery =
 export interface ActionMemory {
   /** Turns each agent's actions have opened since it last claimed human input. */
   readonly spentWakes: WeakMap<Agent, number>
-  /** The still-unclaimed `context` notice each gesture the user made last left, by {@link ResolvedAction.key}. */
+  /**
+   * The still-unclaimed `context` notice each gesture the user made last left,
+   * by {@link ResolvedAction.key}. A report of the agent's own step on one key
+   * clears its entry, so a later user gesture there appends after that report
+   * instead of taking the place of the user's notice.
+   */
   readonly pendingContext: WeakMap<Agent, Map<string, MessageId>>
 }
 
@@ -348,7 +353,10 @@ function deliverContext(agent: Agent, pending: Map<string, MessageId>, key: stri
  * stopped for, so it opens no turn, spends no budget, and is never `queued`.
  * It is appended to the inbox outside the replacement the user's gestures take
  * part in, so it never takes the place of a notice the user's gesture left
- * unclaimed, and no later gesture takes its place.
+ * unclaimed, and no later gesture takes its place. A gesture the user later
+ * makes on the same block and action appends after it rather than taking the
+ * place of the user's earlier notice, so the inbox keeps the order in which the
+ * gestures happened.
  * @param agent - the agent whose seat reported the action.
  * @param memory - the tables this installation's presses share.
  * @param resolved - the accounts to deliver, the grade to deliver them at, and which gesture they are.
@@ -380,6 +388,7 @@ export function deliverAction(
     return 'queued'
   }
   if (resolved.step !== undefined) {
+    memory.pendingContext.get(agent)?.delete(resolved.key)
     agent.inject(message)
     return 'context'
   }

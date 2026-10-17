@@ -613,16 +613,41 @@ describe('a table reporting back', () => {
         }],
       ])
     // The same gesture from the same step is appended again, and so is a later
-    // step's; the user's next tick takes the place of the user's own unclaimed
-    // notice and of none of the steps'.
+    // step's. The user's next tick appends too, behind the agent's reports,
+    // because those reports cleared the user's own unclaimed notice for this
+    // key: the inbox reads in the order the gestures happened.
     await run(ctx, agent, tick([1], { call: 'call_1', index: 1 }))
     await run(ctx, agent, tick([1], { call: 'call_1', index: 2 }))
     await run(ctx, agent, tick([]))
     expect(agent.inbox.nextStep.map(message => message.content.map(part => part.type === 'text' ? part.text : '').join(''))).toEqual([
-      expect.stringMatching(/^The user cleared the selection in /),
+      'The user selected 1 row in content panel entry "devices" ("设备列表"), on the 数据表 block "grid": "A-1".',
       expect.stringMatching(/^This report comes from step 1 of your own call .*: "A-1", "A-2"\.$/),
       expect.stringMatching(/^This report comes from step 1 of your own call .*: "A-2"\.$/),
       expect.stringMatching(/^This report comes from step 2 of your own call .*: "A-2"\.$/),
+      expect.stringMatching(/^The user cleared the selection in /),
+    ])
+  })
+
+  it('keeps a user\'s gesture that follows the agent\'s own report behind it', async () => {
+    const ctx = await setup()
+    const session = newSession(ctx)
+    const agent = fakeAgent(ctx, session, { status: 'running' })
+    show(session, 'devices', '设备列表', TABLE_SPEC)
+    const tick = (rowIndexes: number[], step?: { call: string; index: number }): string =>
+      formatComponentActionLine({ ...gesture(TABLE_SELECT_ID, { rowIndexes }), ...step === undefined ? {} : { step } })
+    const texts = (): string[] =>
+      agent.inbox.nextStep.map(message => message.content.map(part => part.type === 'text' ? part.text : '').join(''))
+
+    await run(ctx, agent, tick([0]))
+    await run(ctx, agent, tick([0, 1], { call: 'call_1', index: 1 }))
+    await run(ctx, agent, tick([0]))
+    // The agent's report took neither the user's notice nor the order the two
+    // gestures happened in: the later tick appends behind it.
+    expect(texts()).toEqual([
+      'The user selected 1 row in content panel entry "devices" ("设备列表"), on the 数据表 block "grid": "A-1".',
+      'This report comes from step 1 of your own call acting on this entry, not from the user: '
+        + 'You selected 2 rows in content panel entry "devices" ("设备列表"), on the 数据表 block "grid": "A-1", "A-2".',
+      'The user selected 1 row in content panel entry "devices" ("设备列表"), on the 数据表 block "grid": "A-1".',
     ])
   })
 
