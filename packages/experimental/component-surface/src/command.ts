@@ -145,12 +145,10 @@ export interface ResolvedAction {
   /**
    * Which block's which gesture this is, as the resolved identifiers spell it:
    * the entry the log carries, the node its spec draws, and the action the
-   * catalog declares, and for a report the agent's own step caused, that call
-   * and step as well. Two occurrences of one gesture on one block by the same
-   * cause share it, which is what lets the later one replace the earlier one's
-   * unclaimed notice instead of queueing beside it; a report the agent's step
-   * caused therefore never replaces one the user made, nor one another step
-   * caused.
+   * catalog declares. Two occurrences of one gesture on one block share it,
+   * which is what lets the later one replace the earlier one's unclaimed
+   * notice instead of queueing beside it. A report the agent's own step caused
+   * ({@link ResolvedAction.step}) takes no part in that replacement.
    */
   readonly key: string
   /**
@@ -242,7 +240,7 @@ function resolveAction(
     : { text: `${ownStepOpening(step.index)}${described.text}`, summary: described.summary }
   // Built from what the lookups returned rather than from what the document
   // said, so two seats spelling one gesture differently cannot land on two keys.
-  const key = JSON.stringify([record.entryId, node.id, definition.id, ...step === undefined ? [] : [step.call, step.index]])
+  const key = JSON.stringify([record.entryId, node.id, definition.id])
   // The payload passed the load action's own schema and `describe` accepted
   // it as this block's table, so the cast records what has already been judged.
   const load = component.id === DATA_PAGE_ID && definition.id === DATA_PAGE_LOAD_ID
@@ -294,7 +292,7 @@ export type ActionDelivery =
 export interface ActionMemory {
   /** Turns each agent's actions have opened since it last claimed human input. */
   readonly spentWakes: WeakMap<Agent, number>
-  /** The still-unclaimed `context` notice each gesture last left, by {@link ResolvedAction.key}. */
+  /** The still-unclaimed `context` notice each gesture the user made last left, by {@link ResolvedAction.key}. */
   readonly pendingContext: WeakMap<Agent, Map<string, MessageId>>
 }
 
@@ -348,6 +346,9 @@ function deliverContext(agent: Agent, pending: Map<string, MessageId>, key: stri
  * A report the agent's own `act_component` step caused ({@link ResolvedAction.step})
  * takes the `context` route whatever its grade: it answers nothing the agent
  * stopped for, so it opens no turn, spends no budget, and is never `queued`.
+ * It is appended to the inbox outside the replacement the user's gestures take
+ * part in, so it never takes the place of a notice the user's gesture left
+ * unclaimed, and no later gesture takes its place.
  * @param agent - the agent whose seat reported the action.
  * @param memory - the tables this installation's presses share.
  * @param resolved - the accounts to deliver, the grade to deliver them at, and which gesture they are.
@@ -377,6 +378,10 @@ export function deliverAction(
   if (wakes) {
     agent.inject(message)
     return 'queued'
+  }
+  if (resolved.step !== undefined) {
+    agent.inject(message)
+    return 'context'
   }
   const pending = memory.pendingContext.get(agent) ?? new Map<string, MessageId>()
   memory.pendingContext.set(agent, pending)

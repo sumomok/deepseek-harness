@@ -592,7 +592,7 @@ describe('a table reporting back', () => {
     }])
   })
 
-  it('keeps a selection the agent\'s own step caused beside the user\'s unclaimed one, never in its place', async () => {
+  it('appends a selection the agent\'s own step caused, never in the place of an unclaimed notice nor replaced by one', async () => {
     const ctx = await setup()
     const session = newSession(ctx)
     const agent = fakeAgent(ctx, session, { status: 'running' })
@@ -612,16 +612,17 @@ describe('a table reporting back', () => {
             + 'The user selected 2 rows in content panel entry "devices" ("设备列表"), on the 数据表 block "grid": "A-1", "A-2".',
         }],
       ])
-    // The same gesture from the same step replaces its own unclaimed report;
-    // a later step's, and the user's next tick, keep places of their own.
+    // The same gesture from the same step is appended again, and so is a later
+    // step's; the user's next tick takes the place of the user's own unclaimed
+    // notice and of none of the steps'.
     await run(ctx, agent, tick([1], { call: 'call_1', index: 1 }))
     await run(ctx, agent, tick([1], { call: 'call_1', index: 2 }))
     await run(ctx, agent, tick([]))
-    expect(agent.inbox.nextStep).toHaveLength(3)
-    expect(agent.inbox.nextStep.map(message => JSON.stringify(message.content))).toEqual([
-      expect.stringContaining('The user cleared the selection'),
-      expect.stringContaining('step 1 of your own call'),
-      expect.stringContaining('step 2 of your own call'),
+    expect(agent.inbox.nextStep.map(message => message.content.map(part => part.type === 'text' ? part.text : '').join(''))).toEqual([
+      expect.stringMatching(/^The user cleared the selection in /),
+      expect.stringMatching(/^This report comes from step 1 of your own call .*: "A-1", "A-2"\.$/),
+      expect.stringMatching(/^This report comes from step 1 of your own call .*: "A-2"\.$/),
+      expect.stringMatching(/^This report comes from step 2 of your own call .*: "A-2"\.$/),
     ])
   })
 
