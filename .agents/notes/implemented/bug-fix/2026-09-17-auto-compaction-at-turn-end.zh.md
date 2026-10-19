@@ -58,7 +58,7 @@ token 计量器被刻意留在 realm 之外——preset 自己写了原因，它
 
 被委派的这次运行到达那个 idle 转换只有两条路，哪一条都不值得压一次。
 
-**前台**（`run_in_background: false`）：父代理的工具调用在进程内 driver 里以 `await child.whenIdle()` 结算（`packages/subagent/subagent-in-process-driver/src/index.ts:178-182`），而从子代理 idle 转换起跑的压缩会同步占住维护相位、替换 `activityDone`——于是那次工具调用要等整段摘要跑完才返回，而那正是用户正在看的那段回答中间；子代理随后就被 dispose，摘要没人读。对着真的 `AgentLoop` 实测（800ms 替身摘要器，三次）：被跳过的委派会话 3ms 安静，真的压缩的那个会话 803/804/804ms、一次 `compactNow`。
+**前台**（`run_in_background: false`）：父代理的工具调用在本地激活结算 watcher 里以 `await child.whenIdle()` 结算（`packages/subagent/subagent/src/manager.ts:1024-1035`），而从子代理 idle 转换起跑的压缩会同步占住维护相位、替换 `activityDone`——于是那次工具调用要等整段摘要跑完才返回，而那正是用户正在看的那段回答中间；子代理随后就被 dispose，摘要没人读。对着真的 `AgentLoop` 实测（800ms 替身摘要器，三次）：被跳过的委派会话 3ms 安静，真的压缩的那个会话 803/804/804ms、一次 `compactNow`。
 
 **后台**，也就是随附出厂的那种：standard preset 把两个进程内委派工具都配成 `backgroundMode: continuable`（`packages/bundle/web-app/presets/standard.patch.yml:96` 与 `:102`；`:109`/`:117` 那两行 `one-shot` 是 `disabled: true` 的 codex 与 claude-code 提供方，在本进程里根本不起 agent），而 `runInBackground` 于是默认取 `options.continuable`（`packages/subagent/tool-subagent/src/index.ts:303`），工具在收件箱受理时就返回一个子代理 id，不等任何东西。在那里压缩不拖住任何回答，但子代理的结果同样要等摘要跑完才给出来，之后的 `send_message` 排在摘要后面，而一个再也没人跟它说话的子会话，留着的那份摘要没人会读。
 
