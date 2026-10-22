@@ -40,7 +40,7 @@ Status: implemented
 
 ## 后果
 
-`packages/api/session-controller/tests/referent.client.spec.ts` 钉住这条缝隙：无监听者时的默认动作、认领的监听者压住默认动作、经 `next()` 的转交、由外向内的注册顺序与 `prepend`、经 `ctx.effect` 的 disposer 摘除监听者、同步抛出与 promise 拒绝两条回落路径及其日志、转交之后才抛错时默认动作不重跑的保证，以及未识别的 `kind` 走转交而不是抛错。其 `ClientReferent` 代码块覆盖注册为 `ctx.referent`、默认与认领两条路径上与自由函数的一致性、派发用的是调用方 context 而非构造时的 context，以及所属 fiber 卸载时的注销。`packages/client/ui-chat/tests/apply-inject.client.spec.tsx` 钉住派发点：各自产出的确切 `ReferentRef`、工作区根目录以 `kind: 'dir'` 到达而其余路径一律 `kind: 'file'`，以及未被认领时回落到 `openWorkspacePath`、回落到 `window.open`、回落到 composer 的 not-found 提示。`packages/client/ui-reference/tests/browser-plugin.client.spec.ts` 钉住用户文本的派发：它产出的、目标已按工作区解析的 `ReferentRef`，认领的监听者压住 Sidebar 打开，以及转交的监听者到达该默认动作。
+`packages/api/session-controller/tests/referent.client.spec.ts` 钉住这条缝隙：无监听者时的默认动作、认领的监听者压住默认动作、经 `next()` 的转交、由外向内的注册顺序与 `prepend`、经 `ctx.effect` 的 disposer 摘除监听者、同步抛出与 promise 拒绝两条回落路径及其日志、转交之后才抛错时默认动作不重跑的保证，以及未识别的 `kind` 走转交而不是抛错。其 `ClientReferent` 代码块覆盖注册为 `ctx.referent`、默认与认领两条路径上与自由函数的一致性、派发用的是调用方 context 而非构造时的 context，以及所属 fiber 卸载时的注销。`packages/client/ui-chat/tests/apply-inject.client.spec.tsx` 钉住派发点：各自产出的确切 `ReferentRef`、工作区根目录以 `kind: 'dir'` 到达而其余路径一律 `kind: 'file'`，以及未被认领时回落到 `openWorkspacePath`、回落到 `window.open`、回落到 composer 的 not-found 提示。`packages/client/ui-reference/tests/browser-plugin.client.spec.ts` 钉住用户文本的派发：它产出的、目标已按 Session 当前工作目录解析的 `ReferentRef`（[reference-active-directory](2026-10-22-reference-active-directory.zh.md)），认领的监听者压住 Sidebar 打开，以及转交的监听者到达该默认动作。
 
 `packages/test-support/client-runtime` 的 `SlotTestRuntime` 挂载的是生产实现 `ClientReferent` 而不是测试替身：它是一个无状态的派发薄封装，因此每个测试台都能获得真实的 `referent/open` waterfall 行为，也不必再维护一个需要同步跟进的桩件。
 

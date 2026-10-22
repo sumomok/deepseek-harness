@@ -87,12 +87,27 @@ export const inject = [
 ]
 
 /**
+ * The directory a Session's relative paths resolve against at this moment: its
+ * current working directory when the Client holds that projection, the same
+ * directory the Session's file tools resolve relative paths against,
+ * otherwise its header directory.
+ * @param sessions - the Client Session registry.
+ * @param sessionId - the Session the path belongs to.
+ * @returns an absolute directory, or undefined when neither is known.
+ */
+function currentDirectoryOf(sessions: ISessions, sessionId: SessionId): string | undefined {
+  const current = sessions.binding(sessionId)?.session.projections.faceOf('workingDirectory').getSnapshot()
+  return typeof current === 'string' ? current : sessions.list.getSnapshot().byId[sessionId]?.cwd
+}
+
+/**
  * Build the render-facing prose-referent scanner/opener for one session, or
  * undefined when no {@link ProseReferents} provider is composed in.
- * `scan` reads the session cwd and Host account home fresh on every call
- * (the same lazy-read technique `openFile` below uses for cwd), so composing
- * the provider in or out, or a workspace change, takes effect on the very
- * next render with no re-registration.
+ * `scan` and `resolveLink` read the session's current directory
+ * ({@link currentDirectoryOf}) and Host account home fresh on every call (the
+ * same lazy-read technique `openFile` below uses), so composing the provider
+ * in or out, a workspace change, or a working-directory change takes effect on
+ * the very next render with no re-registration.
  * @param ctx - client root context.
  * @param sessions - resolved once by the caller, mirroring the other apply-time service reads below.
  * @param connection - resolved once by the caller; its `generation` snapshot names the Host account home.
@@ -124,7 +139,7 @@ function buildProseReferents(
   const { resolveLink: providerResolveLink, subscribe: providerSubscribe } = provider
   return {
     scan: (text, inlineCode) => provider.scan(text, {
-      cwd: sessions.list.getSnapshot().byId[sessionId]?.cwd,
+      cwd: currentDirectoryOf(sessions, sessionId),
       home: connection.generation.getSnapshot()?.host.home,
       inlineCode,
     }),
@@ -133,7 +148,7 @@ function buildProseReferents(
     // conditional spreads below are what that distinction requires.
     ...(providerResolveLink === undefined ? {} : {
       resolveLink: (destination: string, displayText: string) => providerResolveLink(destination, displayText, {
-        cwd: sessions.list.getSnapshot().byId[sessionId]?.cwd,
+        cwd: currentDirectoryOf(sessions, sessionId),
         home: connection.generation.getSnapshot()?.host.home,
       }),
     }),
@@ -413,31 +428,32 @@ export function apply(ctx: Context): void {
           //
           // Files open in the right Sidebar, not in a desktop application: the
           // content stays in the product, beside the conversation that produced
-          // it. A relative path, or an absolute one inside the session's
-          // workspace, is addressed under this session's scope,
-          // `dsh-resource://file/session/<id>/<path>`; an absolute path
-          // elsewhere keeps its absolute spelling in the same Session's address.
-          // Which tab type claims the
+          // it. A relative path resolves against the session's current
+          // directory at the moment of the click. The resolved path, when it
+          // lies inside the session's header workspace, is addressed under
+          // this session's scope, `dsh-resource://file/session/<id>/<path>`;
+          // a path elsewhere keeps its absolute spelling in the same Session's
+          // address. Which tab type claims the
           // address is the Sidebar's decision, not this call site's.
           // A line travels as a navigation parameter, not as part of the
           // address: the file is one piece of content whether it is opened at
           // its top or at line 400, so the same tab is revealed and told where
           // to land.
           openFile: async (path, options) => {
-            const cwd = ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd
+            const target = resolveWorkspacePath(currentDirectoryOf(ctx.sessions, sessionId), path)
             const ref: ReferentRef = {
-              // ProducedFiles opens the session workspace root as '.'; every
-              // other path this closure ever receives names a file (no
-              // richer file/dir signal reaches this closure).
+              // '.' names the current directory itself; every other path
+              // this closure ever receives names a file (no richer file/dir
+              // signal reaches this closure).
               kind: path === '.' ? 'dir' : 'file',
-              target: resolveWorkspacePath(cwd, path),
+              target,
               raw: path,
               sessionId,
               source: 'chat-view.openFile',
               enteredAs: 'structured',
             }
             await ctx.referent.open(ref, async () => {
-              const url = fileAddressFor(sessionId, cwd, path)
+              const url = fileAddressFor(sessionId, ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd, target)
               if (options?.line === undefined) ctx.sidebarRight.openResource(url)
               else ctx.sidebarRight.openResource(url, { params: { line: options.line } })
               await Promise.resolve()

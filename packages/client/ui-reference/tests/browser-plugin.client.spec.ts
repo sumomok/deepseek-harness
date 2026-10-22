@@ -730,6 +730,86 @@ describe('reference preview', () => {
     ])
   })
 
+  it('resolves each inline file action against the Session directory current at the click', async () => {
+    const { ctx, sessions } = await bench()
+    await sessions.add({ id: 'in-project', summary: { cwd: '/proj' } })
+    using _reference = sessions.retain(sid('in-project'))
+    const entry = ctx.slots.entries('conversation.user.text.node').find(candidate => candidate.options.key === 'file')!
+    const factory = entry.inject as NonNullable<typeof entry.inject> & ((id: SessionId) => FileReferenceInjected)
+    const openResource = vi.spyOn(ctx.sidebarRight, 'openResource')
+    const seen: string[] = []
+    ctx.on('referent/open', async (ref, next) => {
+      seen.push(ref.target)
+      await next()
+    })
+    const open = factory(sid('in-project')).openFile
+    // No working directory recorded yet: the header directory is the base.
+    await open('notes.md')
+    await sessions.setProjection('in-project', 'workingDirectory', '/proj/child')
+    await open('notes.md')
+    // An absolute path keeps its own spelling whatever the current directory.
+    await open('/proj/top.md')
+    // Outside the header workspace the address keeps the absolute path.
+    await sessions.setProjection('in-project', 'workingDirectory', '/tmp/wt')
+    await open('docs/a b.md')
+    // A null projection means no recorded directory: back to the header.
+    await sessions.setProjection('in-project', 'workingDirectory', null)
+    await open('notes.md')
+    expect(seen).toEqual([
+      '/proj/notes.md', '/proj/child/notes.md', '/proj/top.md', '/tmp/wt/docs/a b.md', '/proj/notes.md',
+    ])
+    expect(openResource.mock.calls).toEqual([
+      ['dsh-resource://file/session/in-project/notes.md'],
+      ['dsh-resource://file/session/in-project/child/notes.md'],
+      ['dsh-resource://file/session/in-project/top.md'],
+      ['dsh-resource://file/session/in-project//tmp/wt/docs/a%20b.md'],
+      ['dsh-resource://file/session/in-project/notes.md'],
+    ])
+  })
+
+  it('resolves Windows paths against the current directory in either separator spelling', async () => {
+    const { ctx, sessions, source } = await bench()
+    await sessions.add({ id: 'win', summary: { cwd: 'C:\\proj' } })
+    using _reference = sessions.retain(sid('win'))
+    const entry = ctx.slots.entries('conversation.user.text.node').find(candidate => candidate.options.key === 'file')!
+    const factory = entry.inject as NonNullable<typeof entry.inject> & ((id: SessionId) => FileReferenceInjected)
+    const openResource = vi.spyOn(ctx.sidebarRight, 'openResource')
+    const seen: string[] = []
+    ctx.on('referent/open', async (ref, next) => {
+      seen.push(ref.target)
+      await next()
+    })
+    await sessions.setProjection('win', 'workingDirectory', 'C:\\proj\\child')
+    await factory(sid('win')).openFile('notes\\a.md')
+    expect(source.openReference?.({ sessionId: sid('win') }, { ref: '@notes/b.md', appearance: 'file' })).toBe(true)
+    await sessions.setProjection('win', 'workingDirectory', 'D:\\wt')
+    await factory(sid('win')).openFile('a.md')
+    expect(seen).toEqual(['C:\\proj\\child\\notes\\a.md', 'D:\\wt\\a.md'])
+    expect(openResource.mock.calls).toEqual([
+      ['dsh-resource://file/session/win/child/notes/a.md'],
+      ['dsh-resource://file/session/win/child/notes/b.md'],
+      ['dsh-resource://file/session/win/D:/wt/a.md'],
+    ])
+  })
+
+  it('opens a composer file chip against the Session directory current at the click', async () => {
+    const { ctx, sessions, source } = await bench()
+    await sessions.add({ id: 'in-project', summary: { cwd: '/proj' } })
+    using _reference = sessions.retain(sid('in-project'))
+    const composer = { sessionId: sid('in-project') }
+    const openResource = vi.spyOn(ctx.sidebarRight, 'openResource')
+    expect(source.openReference?.(composer, { ref: '@notes.md', appearance: 'file' })).toBe(true)
+    await sessions.setProjection('in-project', 'workingDirectory', '/proj/child')
+    expect(source.openReference?.(composer, { ref: '@"a b.md"', appearance: 'file' })).toBe(true)
+    await sessions.setProjection('in-project', 'workingDirectory', '/elsewhere')
+    expect(source.openReference?.(composer, { ref: '@notes.md', appearance: 'file' })).toBe(true)
+    expect(openResource.mock.calls).toEqual([
+      ['dsh-resource://file/session/in-project/notes.md'],
+      ['dsh-resource://file/session/in-project/child/a%20b.md'],
+      ['dsh-resource://file/session/in-project//elsewhere/notes.md'],
+    ])
+  })
+
   it('opens plain and quoted file references without treating folders or sessions as files', async () => {
     const { ctx, source, fiber } = await bench()
     const openResource = vi.spyOn(ctx.sidebarRight, 'openResource')
