@@ -40,9 +40,21 @@ export const NODE_KEY = 'data-component-node'
  * The attribute naming the row one control is drawn in, by the key the
  * component gives that row: written on the control or on an ancestor inside
  * the entry, and read off the nearest one. Which value a row carries is the
- * component's own choice; this module only compares it.
+ * component's own choice; this module only compares it. A step names a row by
+ * it wherever it is written, while a reading prints a row's key only for a row
+ * drawn as {@link ROW}. The key says which row a step presses in; the words a
+ * reading calls that row by are {@link ROW_NAME}'s.
  */
 export const ROW_KEY = 'data-component-row'
+
+/**
+ * The attribute, carrying no value, marking the element whose drawn words are
+ * the name of the row it is drawn in: a table's name cell rather than a
+ * relation cell that draws another record's name. A reading calls a row by the
+ * first drawn element of its copies carrying it that draws words, and by the
+ * row's first drawn target that draws any where none does; no step reads it.
+ */
+export const ROW_NAME = 'data-component-row-name'
 
 /**
  * The attribute naming the column or property a `set` step may write; the

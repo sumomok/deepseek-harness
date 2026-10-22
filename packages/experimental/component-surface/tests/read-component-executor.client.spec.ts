@@ -20,6 +20,7 @@ import { MAX_ROW_NAMES, type ComponentReading, type ReadComponentArgs } from '..
 import { readComponentReportText } from '../src/read-component-text.ts'
 import { drawnEntry, type DrawnEntry } from '../src/client/entry-container.ts'
 import { readComponentEntry } from '../src/client/read-executor.ts'
+import { clickTarget } from '../src/client/targets.ts'
 
 /** The entry id every case here reads. */
 const ENTRY = 'demo'
@@ -400,6 +401,71 @@ describe('the rows a scope draws, folded', () => {
       '        - "1": "丙站"',
       '        - "2": "甲站"',
     ].join('\n'))
+  })
+
+  it('names a row by the element its copies mark as its name, before any other words it draws', () => {
+    // The scrolling body's copy comes first and draws a relation; the fixed
+    // layer's name cell is the one the component marks as the row's name.
+    const drawn = drawEntry(`
+      <div data-component-node="grid">
+        <div class="body"><table><tbody>
+          <tr data-component-row="k1"><td><a data-component-action="card-open" data-component-key="city_id">北京</a></td></tr>
+        </tbody></table></div>
+        <div class="fixed"><table><tbody>
+          <tr data-component-row="k1"><td data-component-action="cell-click" data-component-row-name>甲</td></tr>
+        </tbody></table></div>
+      </div>
+    `)
+    expect(reading(drawn).blocks[0]?.rows?.named).toEqual([expect.objectContaining({ key: 'k1', name: '甲' })])
+  })
+
+  it('names a row by its first drawn words where nothing it draws is marked as its name, or the marked one draws none', () => {
+    const unmarked = drawEntry(`
+      <div data-component-node="grid">
+        <div class="body"><table><tbody>
+          <tr data-component-row="k1"><td><a data-component-action="card-open" data-component-key="city_id">北京</a></td></tr>
+        </tbody></table></div>
+        <div class="fixed"><table><tbody>
+          <tr data-component-row="k1"><td data-component-action="cell-click">甲</td></tr>
+        </tbody></table></div>
+      </div>
+    `)
+    expect(reading(unmarked).blocks[0]?.rows?.named[0]?.name).toBe('北京')
+    // A marked element the document holds back, or one drawing no words, names nothing.
+    const silent = drawEntry(`
+      <div data-component-node="grid"><table><tbody>
+        <tr data-component-row="k1">
+          <td data-component-row-name hidden>旧名</td>
+          <td data-component-row-name></td>
+          <td data-component-action="cell-click">甲</td>
+        </tr>
+      </tbody></table></div>
+    `)
+    expect(reading(silent).blocks[0]?.rows?.named[0]?.name).toBe('甲')
+  })
+
+  it('names each record by its own name cell where a relation draws another record\'s name, under the key a step presses it by', () => {
+    // Each record's relation refers to the other record, so the first words
+    // either row draws are the other record's name.
+    const drawn = drawEntry(`
+      <div data-component-node="grid">
+        <div class="body"><table><tbody>
+          <tr data-component-row="r1"><td><a data-component-action="card-open" data-component-key="parent_id">乙站</a></td></tr>
+          <tr data-component-row="r2"><td><a data-component-action="card-open" data-component-key="parent_id">甲站</a></td></tr>
+        </tbody></table></div>
+        <div class="fixed"><table><tbody>
+          <tr data-component-row="r1"><td data-component-action="cell-click" data-component-row-name>甲站</td></tr>
+          <tr data-component-row="r2"><td data-component-action="cell-click" data-component-row-name>乙站</td></tr>
+        </tbody></table></div>
+      </div>
+    `)
+    expect(read(drawn)).toContain([
+      '      Named rows (`row` key: name):',
+      '        - "r1": "甲站"',
+      '        - "r2": "乙站"',
+    ].join('\n'))
+    const named = clickTarget(drawn.container, { action: 'click', key: 'cell-click', row: 'r1' }, drawn.container)
+    expect(named.kind === 'one' ? named.target.textContent : named.kind).toBe('甲站')
   })
 
   it('names a row by the first copy that draws words, where the first copy draws none', () => {

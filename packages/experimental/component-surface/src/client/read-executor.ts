@@ -20,7 +20,7 @@ import { MAX_ROW_NAMES } from '../read-component-call.ts'
 import type { DrawnEntry } from './entry-container.ts'
 import { isTarget } from '../act-component-call.ts'
 import {
-  ACTION_KEY, FIELD_KEY, NODE_KEY, OVERLAY, OWN_KEY, WRITABLE,
+  ACTION_KEY, FIELD_KEY, NODE_KEY, OVERLAY, OWN_KEY, ROW_NAME, WRITABLE,
   isCovered, isDisabled, isDrawn, openDialog, optionLabel, ownName, pagerTotal, rowCopies, rowKeyOf, rowOf, scopeOf,
   withAttribute,
 } from './targets.ts'
@@ -305,13 +305,22 @@ function fieldsOf(scope: Element, within: Element): DrawnTarget<ComponentReadFie
 }
 
 /**
- * What one drawn row is called: the words of its first drawn target that draws
- * any, so a model reads a record's own name rather than an index.
+ * What one drawn row is called, so a model reads a record's own name rather
+ * than an index: the words of the first drawn element its copies mark as the
+ * row's name ({@link ROW_NAME}) that draws any, and otherwise those of its
+ * first drawn target that draws any.
  * @param copies - the row's drawn copies, first drawn first.
  * @param within - the entry's own container.
  * @returns the name, empty where the row draws no words at all.
  */
 function rowName(copies: readonly Element[], within: Element): string {
+  for (const copy of copies) {
+    const declared = [...copy.querySelectorAll(`[${ROW_NAME}]`)]
+      .filter(el => isDrawn(el, within))
+      .map(el => drawnWords(el))
+      .find(words => words !== '')
+    if (declared !== undefined) return declared
+  }
   for (const copy of copies) {
     const named = [...copy.querySelectorAll(`[${ACTION_KEY}], [${OWN_KEY}], [${FIELD_KEY}], ${WRITABLE}`)]
       .filter(el => isDrawn(el, within))
