@@ -288,7 +288,9 @@ const FORGED_ONLY = { 'x-dsh-member': 'forged-by-the-client' }
 const OGC = '/geoserver/dshsim'
 const GET_MAP = `${OGC}/wms?SERVICE=WMS&REQUEST=GetMap&LAYERS=dshsim:roads&FORMAT=image/png`
 const SAME_ORIGIN = { 'sec-fetch-site': 'same-origin' }
-const READ = { ...LOGGED_IN, ...SAME_ORIGIN }
+const READ = { ...LOGGED_IN, ...SAME_ORIGIN, authorization: `Bearer ${TOKEN}` }
+/** A value of the cache-busting `_t` the page's data client adds: sixteen characters of its alphabet. */
+const BUSTER = 'ABCDEFGHJKMNPQRS'
 /** The proxy's settings for a gate with no login check, which cannot sign assertions. */
 const GATE_OFF = { LOGIN_GATE: 'off', MEMBER_ASSERTION_KEY_FILE: undefined, MEMBER_ASSERTION_DEPLOYMENT_ID: undefined }
 
@@ -672,10 +674,9 @@ interface HeldWorld {
 /**
  * Start a proxy-mode gate whose renewal answers are held until `release`,
  * between a stand-in dsh that counts its connections and that held service.
- * @param env - further settings, given the stand-in dsh's port.
  * @returns the world.
  */
-async function heldWorld(env: (dshPort: number) => Record<string, string> = () => ({})): Promise<HeldWorld> {
+async function heldWorld(): Promise<HeldWorld> {
   const checking = Promise.withResolvers<true>()
   const held: Array<() => void> = []
   let released = false
@@ -695,7 +696,6 @@ async function heldWorld(env: (dshPort: number) => Record<string, string> = () =
     REMOTE_HOST: '127.0.0.1',
     REMOTE_PORT: String(await closedPort()),
     AUTH_ORIGIN: `http://127.0.0.1:${String(renewalPort)}`,
-    ...env(dsh.port),
   })
   const logs: string[] = []
   const { server, gate } = createProxyServer(settings, { log: (line) => { logs.push(line) }, now: () => 1_800_000_000_000 })
@@ -1265,16 +1265,6 @@ describe('a client that leaves during the login check', () => {
     expect(w.logs).toEqual([])
   })
 
-  it('causes no upstream request for an OGC read, sent to the stand-in dsh as its gateway', async () => {
-    const w = await heldWorld(port => ({ OGC_READ_PREFIXES: OGC, REMOTE_PREFIX_ORIGINS: `${OGC}=http://127.0.0.1:${String(port)}` }))
-    await leaveDuringCheck(w, `GET ${GET_MAP} HTTP/1.1\r\nHost: 127.0.0.1\r\nSec-Fetch-Site: same-origin\r\nCookie: accessToken=${TOKEN}\r\n\r\n`, 'reset')
-    w.release()
-    expect((await send(w.port, GET_MAP, READ)).status).toBe(200)
-    expect(w.dshConnections()).toBe(1)
-    expect(w.dsh.requests.map(received => received.headers.authorization)).toEqual([`Bearer ${TOKEN}`])
-    expect(w.logs).toEqual([])
-  })
-
   it('causes no upstream upgrade when it resets the connection', async () => {
     const w = await heldWorld()
     await leaveDuringCheck(w, handshake('/api/remote.mux'), 'reset')
@@ -1800,15 +1790,6 @@ async function ogcWorld(
   return { ...w, gateway: ogc }
 }
 
-/**
- * A member token with the given `exp` claim, as JSON member text.
- * @param exp - the claim, or undefined for none.
- * @returns the bare token.
- */
-function expiringToken(exp: string | undefined): string {
-  return jwt(`{"sub":"alice","jti":"jti-exp","login_uid":${MEMBER}${exp === undefined ? '' : `,"exp":${exp}`}}`)
-}
-
 describe('OGC reads', () => {
   it.each([
     GET_MAP,
@@ -1824,6 +1805,9 @@ describe('OGC reads', () => {
       + '&BBOX=0,0,1,1&WIDTH=256&HEIGHT=256&X=10&Y=20&INFO_FORMAT=application/json&FEATURE_COUNT=5',
     `${OGC}/wfs?service=WFS&version=2.0.0&request=GetFeature&typeNames=dshsim:roads&count=50&startIndex=0&srsName=EPSG:4326`
       + '&outputFormat=application/json&propertyName=name&sortBy=name&cql_filter=kind%3D%27main%27',
+    `${GET_MAP}&_t=${BUSTER}`,
+    `${GET_MAP}&_t=abcdefhijkmnprst`,
+    `${GET_MAP}&_t=0123456789WXYZwx`,
   ])('passes the read %s', (path) => {
     expect(ogcReadRefusal('GET', SAME_ORIGIN, path, OGC)).toBeUndefined()
   })
@@ -1875,6 +1859,11 @@ describe('OGC reads', () => {
     ['remote reference resolution', 'GET', SAME_ORIGIN, `${OGC}/wfs?service=WFS&request=GetFeature&resolve=remote`, { status: 403, reason: 'param', param: 'resolve' }],
     ['a cache-busting parameter', 'GET', SAME_ORIGIN, `${GET_MAP}&_=1700000000`, { status: 403, reason: 'param', param: '_' }],
     ['a map parameter on GetCapabilities', 'GET', SAME_ORIGIN, `${OGC}/wms?service=WMS&request=GetCapabilities&layers=a`, { status: 403, reason: 'param', param: 'layers' }],
+    ['a _t shorter than the client draws', 'GET', SAME_ORIGIN, `${GET_MAP}&_t=ABCDEFGHJKMNPQR`, { status: 403, reason: 'param', param: '_t' }],
+    ['a _t longer than the client draws', 'GET', SAME_ORIGIN, `${GET_MAP}&_t=ABCDEFGHJKMNPQRST`, { status: 403, reason: 'param', param: '_t' }],
+    ['a _t with a letter the client never draws', 'GET', SAME_ORIGIN, `${GET_MAP}&_t=IBCDEFGHJKMNPQRS`, { status: 403, reason: 'param', param: '_t' }],
+    ['a _t carrying a parameter', 'GET', SAME_ORIGIN, `${GET_MAP}&_t=ABCDEFGH%26sld%3Dx`, { status: 403, reason: 'param', param: '_t' }],
+    ['_t named twice', 'GET', SAME_ORIGIN, `${GET_MAP}&_t=${BUSTER}&_T=${BUSTER}`, { status: 400, reason: 'duplicate' }],
     ['a GetFeatureInfo parameter on GetMap', 'GET', SAME_ORIGIN, `${GET_MAP}&query_layers=a`, { status: 403, reason: 'param', param: 'query_layers' }],
     ['a GetMap with no format', 'GET', SAME_ORIGIN, `${OGC}/wms?service=WMS&request=GetMap`, { status: 403, reason: 'format' }],
     ['a GetMap as an HTML page', 'GET', SAME_ORIGIN, `${OGC}/wms?service=WMS&request=GetMap&format=application/openlayers`, { status: 403, reason: 'format' }],
@@ -1886,10 +1875,10 @@ describe('OGC reads', () => {
     expect(ogcReadRefusal(method, headers, path, OGC)).toEqual(refusal)
   })
 
-  it('sends upstream only the mirror cookie\'s credential and the four listed client headers', () => {
+  it('sends upstream the page\'s own Authorization as sent and four other listed headers, and no cookie, CertificationToken, or forwarding header', () => {
     expect(ogcRequestHeaders({
       'cookie': `accessToken=${TOKEN}; dsh-auth-0a1b=signed`,
-      'authorization': 'Basic Zm9yZ2Vk',
+      'authorization': `Bearer ${TOKEN}`,
       'certificationtoken': 'forged',
       'x-dsh-member': 'forged-by-the-client',
       'x-forwarded-host': 'attacker.example',
@@ -1903,7 +1892,8 @@ describe('OGC reads', () => {
       'accept-encoding': 'gzip',
       'accept-language': 'zh-CN',
       'user-agent': 'test',
-    }, '127.0.0.1:9701', `Bearer ${TOKEN}`)).toEqual({
+      'tiny-request-id': 'abc',
+    }, '127.0.0.1:9701')).toEqual({
       'host': '127.0.0.1:9701',
       'authorization': `Bearer ${TOKEN}`,
       'accept': 'image/png',
@@ -1930,13 +1920,12 @@ describe('OGC reads', () => {
     })
   })
 
-  it('sends a checked read to its prefix\'s origin with the mirror cookie\'s token as its only credential', async () => {
+  it('sends a checked read to its prefix\'s origin with the page\'s own Authorization and no cookie', async () => {
     const w = await ogcWorld()
     const answer = await send(w.port, GET_MAP, {
       ...READ,
       'cookie': `accessToken=${TOKEN}; dsh-auth-0a1b=signed; JSESSIONID=old`,
-      'authorization': 'Basic Zm9yZ2Vk',
-      'certificationtoken': 'forged',
+      'certificationtoken': `Bearer ${TOKEN}`,
       'x-forwarded-host': 'attacker.example',
     })
     expect(answer.status).toBe(200)
@@ -1945,7 +1934,7 @@ describe('OGC reads', () => {
     expect(answer.headers).not.toHaveProperty('www-authenticate')
     expect(answer.headers['x-content-type-options']).toBe('nosniff')
     expect(answer.headers['content-security-policy']).toBe('sandbox')
-    expect(w.renewals()).toBe(1)
+    expect(w.renewals()).toBe(0)
     expect(w.gateway.requests).toHaveLength(1)
     const headers = w.gateway.requests[0]?.headers ?? {}
     expect(w.gateway.requests[0]?.path).toBe(`${OGC}/wms?SERVICE=WMS&REQUEST=GetMap&LAYERS=dshsim%3Aroads&FORMAT=image%2Fpng`)
@@ -1964,9 +1953,11 @@ describe('OGC reads', () => {
     const query = '?service=WMS&request=GetCapabilities'
     expect((await send(w.port, `/geoserver/other/../dshsim/wms${query}`, READ)).status).toBe(200)
     expect((await send(w.port, `${GET_MAP}&cql_filter=a;sld=http://attacker.example/s`, READ)).status).toBe(200)
+    expect((await send(w.port, `${GET_MAP}&_t=${BUSTER}`, READ)).status).toBe(200)
     expect(w.gateway.requests.map(received => received.path)).toEqual([
       `${OGC}/wms${query}`,
       `${OGC}/wms?SERVICE=WMS&REQUEST=GetMap&LAYERS=dshsim%3Aroads&FORMAT=image%2Fpng&cql_filter=a%3Bsld%3Dhttp%3A%2F%2Fattacker.example%2Fs`,
+      `${OGC}/wms?SERVICE=WMS&REQUEST=GetMap&LAYERS=dshsim%3Aroads&FORMAT=image%2Fpng`,
     ])
   })
 
@@ -1991,7 +1982,7 @@ describe('OGC reads', () => {
       .toEqual(paths.map(path => [path, `accessToken=${TOKEN}`, undefined]))
   })
 
-  it('answers a read refused for its form itself, before the login check, and sends nothing upstream', async () => {
+  it('answers a read refused for its form itself and sends nothing upstream', async () => {
     const w = await ogcWorld()
     const posted = await exchange(w.port, `POST ${GET_MAP} HTTP/1.1\r\nHost: 127.0.0.1\r\nSec-Fetch-Site: same-origin\r\nCookie: accessToken=${TOKEN}\r\nContent-Length: 2\r\nConnection: close\r\n\r\nhi`)
     expect(posted.split('\r\n')[0]).toBe('HTTP/1.1 405 Method Not Allowed')
@@ -2009,35 +2000,16 @@ describe('OGC reads', () => {
     expect(w.customer.requests).toEqual([])
   })
 
-  it.each([
-    ['no mirror cookie', {}, 'no-credential'],
-    ['a token past its exp', { cookie: `accessToken=${expiringToken('1799999999')}` }, 'expired'],
-    ['a token at its exp', { cookie: `accessToken=${expiringToken('1800000000')}` }, 'expired'],
-    ['a token with no exp', { cookie: `accessToken=${expiringToken(undefined)}` }, 'no-expiry'],
-    ['a token whose exp is not whole seconds', { cookie: `accessToken=${expiringToken('4.1e9')}` }, 'no-expiry'],
-    ['a token that does not decode', { cookie: 'accessToken=not-a-token' }, 'no-expiry'],
-  ])('refuses a read with %s with 401 and no login check, whether the login gate is on or off', async (_label, headers, reason) => {
+  it('forwards the Authorization the page sent as it is, or none, and asks the login check nothing, whether the gate is on or off', async () => {
     for (const env of [{}, GATE_OFF]) {
-      const w = await ogcWorld(env)
-      expect((await send(w.port, GET_MAP, { ...SAME_ORIGIN, ...headers })).status).toBe(401)
+      const w = await ogcWorld(env, () => ({ status: 401, body: '' }))
+      expect((await send(w.port, GET_MAP, { ...SAME_ORIGIN, authorization: TOKEN })).status).toBe(200)
+      expect((await send(w.port, GET_MAP, { ...SAME_ORIGIN, cookie: `accessToken=${TOKEN}` })).status).toBe(200)
       expect(w.renewals()).toBe(0)
-      expect(w.gateway.requests).toEqual([])
-      expect(w.logs).toEqual([`proxy: ogc refused GET ${OGC}/wms: ${reason}`])
+      expect(w.gateway.requests.map(received => [received.headers.authorization, received.headers.cookie]))
+        .toEqual([[TOKEN, undefined], [undefined, undefined]])
+      expect(w.logs).toEqual([])
     }
-  })
-
-  it('refuses a read the login check refuses, and sends one an open gate admits without asking', async () => {
-    const refused = await ogcWorld({}, () => ({ status: 401, body: '' }))
-    expect((await send(refused.port, GET_MAP, READ)).status).toBe(401)
-    expect(refused.renewals()).toBe(1)
-    expect(refused.gateway.requests).toEqual([])
-    const unavailable = await ogcWorld({}, () => ({ status: 500, body: '' }))
-    expect((await send(unavailable.port, GET_MAP, READ)).status).toBe(503)
-    expect(unavailable.gateway.requests).toEqual([])
-    const open = await ogcWorld(GATE_OFF)
-    expect((await send(open.port, GET_MAP, READ)).status).toBe(200)
-    expect(open.renewals()).toBe(0)
-    expect(open.gateway.requests.map(received => received.headers.authorization)).toEqual([`Bearer ${TOKEN}`])
   })
 
   it('closes an upgrade under the prefix with 403 and opens no upstream connection', async () => {
@@ -2050,12 +2022,10 @@ describe('OGC reads', () => {
   })
 
   it('logs the method, path, and reason or status of each read that is refused or fails, and never its credential or query', async () => {
-    const expired = expiringToken('1700000000')
     const w = await ogcWorld({}, ECHO_RENEWAL, 500)
     await send(w.port, GET_MAP, LOGGED_IN)
     await send(w.port, `${OGC}/wms?service=WMS&request=GetMap&format=application/openlayers&cql_filter=query-value`, READ)
     await send(w.port, `${GET_MAP}&viewparams=query-value`, READ)
-    await send(w.port, GET_MAP, { ...SAME_ORIGIN, cookie: `accessToken=${expired}` })
     expect((await send(w.port, GET_MAP, READ)).status).toBe(500)
     const unreachable = await world({ OGC_READ_PREFIXES: OGC, REMOTE_PREFIX_ORIGINS: `${OGC}=http://127.0.0.1:${String(await closedPort())}` })
     expect((await send(unreachable.port, GET_MAP, READ)).status).toBe(502)
@@ -2063,12 +2033,11 @@ describe('OGC reads', () => {
       `proxy: ogc refused GET ${OGC}/wms: fetch-site`,
       `proxy: ogc refused GET ${OGC}/wms: format`,
       `proxy: ogc refused GET ${OGC}/wms: param`,
-      `proxy: ogc refused GET ${OGC}/wms: expired`,
       `proxy: ogc GET ${OGC}/wms -> 500`,
     ])
     expect(unreachable.logs).toEqual([expect.stringMatching(new RegExp(`^proxy: ogc request GET ${OGC}/wms failed: `))])
     const logs = [...w.logs, ...unreachable.logs].join('\n')
-    for (const secret of [TOKEN, expired, 'Bearer ', '?', 'query-value', 'openlayers', 'viewparams']) expect(logs).not.toContain(secret)
+    for (const secret of [TOKEN, 'Bearer ', '?', 'query-value', 'openlayers', 'viewparams']) expect(logs).not.toContain(secret)
   })
 })
 

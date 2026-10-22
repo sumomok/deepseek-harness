@@ -672,8 +672,8 @@ const PREFIX_SEGMENT = /^[A-Za-z0-9._~-]+$/
  * Read one comma-separated list of path prefixes: DSH_EXTRA_PREFIXES, the
  * route roots of dsh plugins the built-in list does not name, such as a plugin
  * installed from outside this repository, each gated like any other dsh path;
- * or OGC_READ_PREFIXES, the remote-application prefixes whose reads carry the
- * mirror cookie's token as an Authorization header.
+ * or OGC_READ_PREFIXES, the remote-application prefixes on which only reads
+ * are forwarded, each with the page's own Authorization header and no cookie.
  * @param {Record<string, string | undefined>} env - the environment.
  * @param {string} name - the variable name.
  * @param {readonly string[]} dshPrefixes - the extra prefixes dsh already owns besides its built-in list.
@@ -1158,11 +1158,20 @@ const OGC_READ_PARAMS = new Map([
  */
 const OGC_PARAM_NAME = /^[A-Za-z0-9_.-]+$/
 /**
- * The inbound headers an OGC read forwards. Every other one stays here: the
- * client's own credentials and cookies, and any header a server would trust
- * for its address or a user's identity, such as `x-forwarded-host`.
+ * The inbound headers an OGC read forwards, `authorization` as the page sent
+ * it. Every other one stays here: the client's cookies and `certificationtoken`,
+ * and any header a server would trust for its address or a user's identity,
+ * such as `x-forwarded-host`.
  */
-const OGC_FORWARDED_REQUEST_HEADERS = ['accept', 'accept-encoding', 'accept-language', 'user-agent']
+const OGC_FORWARDED_REQUEST_HEADERS = ['authorization', 'accept', 'accept-encoding', 'accept-language', 'user-agent']
+/**
+ * The cache-busting parameter the console page's data client (toy-core) adds
+ * to every URL: `randomString(16)`, sixteen characters sampled from this
+ * alphabet. A read may carry it once in exactly that form; it is removed
+ * before the read is forwarded.
+ */
+const OGC_CACHE_BUSTER = '_t'
+const OGC_CACHE_BUSTER_VALUE = /^[ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz0-9]{16}$/
 /**
  * Upstream headers an OGC read never relays: a session cookie for this origin,
  * a browser login prompt, and the upstream's caching, which the answer
@@ -1194,7 +1203,7 @@ function ogcPrefixOf(settings, pathname) {
  * layer's (`ows`, `wms`, `wfs`), naming one `service` and one `request` that
  * endpoint serves — WMS GetMap, GetCapabilities, GetFeatureInfo; WFS
  * GetFeature, DescribeFeatureType — carrying only the parameters that request
- * is listed with. A GetMap names `image/png` or `image/jpeg`, and a GetFeatureInfo
+ * is listed with, and at most one `_t` in the page data client's form. A GetMap names `image/png` or `image/jpeg`, and a GetFeatureInfo
  * `info_format=application/json`, so the server never picks either format
  * itself; an `info_format` or `outputformat`, wherever present, is
  * `application/json`. Parameter names are ASCII letters, digits, `_`, `.`,
@@ -1225,15 +1234,17 @@ export function ogcReadRefusal(method, headers, url, prefix) {
   }
   const service = params.get('service') ?? []
   const request = params.get('request') ?? []
-  if (service.length > 1 || request.length > 1) return { status: 400, reason: 'duplicate' }
+  const busters = params.get(OGC_CACHE_BUSTER) ?? []
+  if (service.length > 1 || request.length > 1 || busters.length > 1) return { status: 400, reason: 'duplicate' }
   const serviceName = service[0]?.toLowerCase()
   const requests = serviceName === undefined ? undefined : OGC_READ_REQUESTS.get(serviceName)
   if (requests === undefined || (endpoint !== 'ows' && endpoint !== serviceName)) return { status: 403, reason: 'service' }
   const requestName = request[0]?.toLowerCase()
   if (requestName === undefined || !requests.has(requestName)) return { status: 403, reason: 'request' }
   const allowed = OGC_READ_PARAMS.get(requestName)
-  const unlisted = [...params.keys()].find(name => allowed?.has(name) !== true)
+  const unlisted = [...params.keys()].find(name => name !== OGC_CACHE_BUSTER && allowed?.has(name) !== true)
   if (unlisted !== undefined) return { status: 403, reason: 'param', param: unlisted }
+  if (!busters.every(value => OGC_CACHE_BUSTER_VALUE.test(value))) return { status: 403, reason: 'param', param: OGC_CACHE_BUSTER }
   const formats = (params.get('format') ?? []).map(value => value.toLowerCase())
   if (requestName === 'getmap' && (formats.length === 0 || !formats.every(format => OGC_MAP_FORMATS.has(format)))) {
     return { status: 403, reason: 'format' }
@@ -1246,35 +1257,18 @@ export function ogcReadRefusal(method, headers, url, prefix) {
 }
 
 /**
- * The credential an OGC read carries upstream: the mirror cookie's, while its
- * token's `exp` is still ahead. A token past it, or with no `exp` of whole
- * seconds to read, is not sent anywhere.
- * @param {Settings} settings - validated settings.
- * @param {Runtime} runtime - the clock.
- * @param {string | undefined} cookieHeader - the inbound Cookie header.
- * @returns {{ credential: string } | { reason: 'no-credential' | 'no-expiry' | 'expired' }} the credential, or why there is none to send.
- */
-function ogcCredential(settings, runtime, cookieHeader) {
-  const credential = presentedCredential(cookieHeader, settings.authCookie)
-  if (credential === undefined) return { reason: 'no-credential' }
-  const exp = claimText(decodeClaims(bareToken(credential))?.exp)
-  if (exp === undefined || !/^\d+$/.test(exp)) return { reason: 'no-expiry' }
-  if (Number(exp) * 1000 <= runtime.now()) return { reason: 'expired' }
-  return { credential }
-}
-
-/**
- * The headers an OGC read carries upstream: `host`, `authorization` set to the
- * mirror cookie's credential, and the client's `accept`, `accept-encoding`,
- * `accept-language`, and `user-agent`, nothing else; the request has no body.
+ * The headers an OGC read carries upstream: `host`, and the client's
+ * `authorization`, `accept`, `accept-encoding`, `accept-language`, and
+ * `user-agent` as sent, nothing else; the request has no body. The proxy
+ * neither reads nor judges the credential: the map server, or the gateway in
+ * front of it, does.
  * @param {import('node:http').IncomingHttpHeaders} headers - inbound request headers.
  * @param {string} host - the upstream Host header.
- * @param {string} credential - the credential, `Bearer <token>`.
  * @returns {Record<string, string>} headers for the upstream request.
  */
-export function ogcRequestHeaders(headers, host, credential) {
+export function ogcRequestHeaders(headers, host) {
   /** @type {Record<string, string>} */
-  const out = { host, authorization: credential }
+  const out = { host }
   for (const name of OGC_FORWARDED_REQUEST_HEADERS) {
     const value = headers[name]
     if (typeof value === 'string') out[name] = value
@@ -1691,34 +1685,19 @@ export function createProxyServer(settings, runtime) {
           refuseOgcRead(res, refusal)
           return
         }
-        // Checked before the gate: with LOGIN_GATE=off the gate admits a
-        // request that carries no credential, and an OGC read needs one to send.
-        const carried = ogcCredential(settings, runtime, req.headers.cookie)
-        if (!('credential' in carried)) {
-          runtime.log(`proxy: ogc refused ${req.method ?? '?'} ${pathname}: ${carried.reason}`)
-          denyRequest(res, 'refused')
-          return
-        }
-        const decision = await admitToDsh(settings, gate, runtime, req, pathname)
-        if (req.destroyed || abandoned) return
-        if (decision.outcome !== 'admitted') {
-          if (decision.outcome === 'refused') runtime.log(`proxy: gate ${req.method ?? '?'} ${pathname} -> 401`)
-          denyRequest(res, decision.outcome)
-          return
-        }
         // The target the read was classified on, not the raw one: the
-        // resolved path, and the parsed query serialized again, so `&` alone
-        // separates its parameters and every other reserved character
-        // arrives percent-encoded, as the check read them.
+        // resolved path, and the parsed query less `_t`, serialized again, so
+        // `&` alone separates its parameters and every other reserved
+        // character arrives percent-encoded, as the check read them.
         const target = new URL(req.url ?? '/', 'http://x')
-        const query = target.searchParams.toString()
+        const query = new URLSearchParams([...target.searchParams].filter(([key]) => key.toLowerCase() !== OGC_CACHE_BUSTER)).toString()
         const elsewhere = ogcOrigins.find(entry => pathname === entry.prefix || pathname.startsWith(entry.prefix + '/'))
         route = {
           label: 'ogc',
           host: elsewhere?.host ?? String(settings.remoteHost),
           port: elsewhere?.port ?? Number(settings.remotePort),
           path: query === '' ? target.pathname : `${target.pathname}?${query}`,
-          headers: ogcRequestHeaders(req.headers, elsewhere?.hostHeader ?? remoteHostHeader, carried.credential),
+          headers: ogcRequestHeaders(req.headers, elsewhere?.hostHeader ?? remoteHostHeader),
           agent: elsewhere?.agent ?? remoteAgent,
           responseHeaders: ogcResponseHeaders,
         }
