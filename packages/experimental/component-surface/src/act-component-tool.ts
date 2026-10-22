@@ -27,7 +27,7 @@ import {
 import {
   ACTION_DESCRIPTION, ACT_COMPONENT_DESCRIPTION, BAD_ENTRY_REFUSAL, CANCELLED_REFUSAL, ENTRY_DESCRIPTION,
   KEY_DESCRIPTION, MISREPORTED_REFUSAL, NAME_DESCRIPTION, NODE_DESCRIPTION, NO_AGENT_REFUSAL, NO_STEPS_REFUSAL,
-  STEP_REFUSAL_TEXT, STEPS_DESCRIPTION, TIMEOUT_DESCRIPTION, VALUE_DESCRIPTION, failureRefusal, ignoredFieldReason,
+  ROW_DESCRIPTION, STEP_REFUSAL_TEXT, STEPS_DESCRIPTION, TIMEOUT_DESCRIPTION, VALUE_DESCRIPTION, failureRefusal, ignoredFieldReason,
   stepRefusal, tooManyStepsRefusal, unclaimedRefusal, unverifiedRefusal,
 } from './act-component-text.ts'
 import { channelCallCard, channelResultCard, settleChannelCall, type ChannelToolText } from './channel-tool.ts'
@@ -61,7 +61,7 @@ export interface ActComponentValue {
  *
  * The schema has already checked the field types; this checks what it cannot
  * state — the entry id's bound, a field naming a target or a value the step's
- * action does not take, and each step's target alphabet — with the readers a
+ * action does not take, and each step's target and row alphabet — with the readers a
  * browser runs, and names the step to fix.
  * @param args - the arguments as the schema validated them.
  * @throws {Error} naming the step and the parameter to fix.
@@ -109,6 +109,7 @@ const STEPS_PARAMETER = {
       action: { type: 'string' as const, enum: [...ACT_COMPONENT_ACTIONS], required: true as const, description: ACTION_DESCRIPTION },
       node: { type: 'string' as const, description: NODE_DESCRIPTION },
       key: { type: 'string' as const, description: KEY_DESCRIPTION },
+      row: { type: 'string' as const, description: ROW_DESCRIPTION },
       name: { type: 'string' as const, description: NAME_DESCRIPTION },
       value: { type: 'string' as const, description: VALUE_DESCRIPTION },
       timeoutMs: { type: 'integer' as const, description: TIMEOUT_DESCRIPTION },

@@ -5,8 +5,8 @@
  *
  * Arguments use the components' own names rather than DOM references: `node`
  * is the block id `show_component`'s spec declared, `key` an action key a
- * component declares or a control's own key, and `name` the column or property
- * a field is named by.
+ * component declares or a control's own key, `row` the key a component marks
+ * one drawn row with, and `name` the column or property a field is named by.
  * The host and the browser parse with the same readers, so neither accepts what
  * the other refuses.
  * @module @deepseek-ai/dsh-experimental-component-surface/act-component-call
@@ -62,6 +62,11 @@ export interface ActComponentClick {
    * own key where several drawn controls share that action.
    */
   readonly key: string
+  /**
+   * The row the control is drawn in, by the key the component marks that row
+   * with; absent for a control the step names without one.
+   */
+  readonly row?: string
 }
 
 /** Write one value into the field the entry names for one column or property. */
@@ -202,20 +207,27 @@ export function isEntryId(value: unknown): value is string {
 
 /**
  * A field one step carries that names a target or a value its action does not
- * take: `name` or `value` on a `click` or a `wait`, and `key` on a `set`.
+ * take: `name` or `value` on a `click` or a `wait`, `row` on a `wait` or a
+ * `set`, and `key` on a `set`.
  */
 export type IgnoredStepField =
   | {
     /** The action that takes no such field. */
-    readonly action: 'click' | 'wait'
+    readonly action: 'click'
     /** The field it carried. */
     readonly field: 'name' | 'value'
   }
   | {
     /** The action that takes no such field. */
+    readonly action: 'wait'
+    /** The field it carried. */
+    readonly field: 'name' | 'value' | 'row'
+  }
+  | {
+    /** The action that takes no such field. */
     readonly action: 'set'
     /** The field it carried. */
-    readonly field: 'key'
+    readonly field: 'key' | 'row'
   }
 
 /**
@@ -231,13 +243,18 @@ export type IgnoredStepField =
  */
 export function ignoredStepField(value: unknown): IgnoredStepField | undefined {
   if (value === null || typeof value !== 'object') return undefined
-  const step = value as { action?: unknown; key?: unknown; name?: unknown; value?: unknown }
+  const step = value as { action?: unknown; key?: unknown; name?: unknown; value?: unknown; row?: unknown }
   switch (step.action) {
     case 'click':
+      if (step.name !== undefined) return { action: 'click', field: 'name' }
+      return step.value === undefined ? undefined : { action: 'click', field: 'value' }
     case 'wait':
-      if (step.name !== undefined) return { action: step.action, field: 'name' }
-      return step.value === undefined ? undefined : { action: step.action, field: 'value' }
-    case 'set': return step.key === undefined ? undefined : { action: 'set', field: 'key' }
+      if (step.name !== undefined) return { action: 'wait', field: 'name' }
+      if (step.value !== undefined) return { action: 'wait', field: 'value' }
+      return step.row === undefined ? undefined : { action: 'wait', field: 'row' }
+    case 'set':
+      if (step.key !== undefined) return { action: 'set', field: 'key' }
+      return step.row === undefined ? undefined : { action: 'set', field: 'row' }
     // `action` is whatever the model sent.
     default: return undefined
   }
@@ -258,13 +275,17 @@ export function readActComponentStep(value: unknown): ActComponentStep | undefin
     key?: unknown
     name?: unknown
     value?: unknown
+    row?: unknown
     timeoutMs?: unknown
   }
-  const { node, key } = step
+  const { node, key, row } = step
   if (node !== undefined && !isTarget(node)) return undefined
   const block = node === undefined ? {} : { node }
   switch (step.action) {
-    case 'click': return isTarget(key) ? { action: 'click', ...block, key } : undefined
+    case 'click':
+      if (!isTarget(key)) return undefined
+      if (row === undefined) return { action: 'click', ...block, key }
+      return isTarget(row) ? { action: 'click', ...block, key, row } : undefined
     case 'set':
       return isTarget(step.name) && typeof step.value === 'string' && step.value.length <= MAX_SET_VALUE_CHARS
         ? { action: 'set', ...block, name: step.name, value: step.value }

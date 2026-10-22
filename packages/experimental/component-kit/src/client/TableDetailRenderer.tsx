@@ -26,9 +26,11 @@
  * A row opens only where the call asked for openable rows. The component draws
  * its name link from `isNameClick` and reports a click on any cell through one
  * event of its own, so the cell click is reported as an opened row only while
- * that property is on — and then from a click anywhere in the row rather than
- * on the link alone, which is the one thing this renderer cannot narrow: the
- * component gives it no event for the rest of the row.
+ * that property is on — and then from a person's click anywhere in the row
+ * rather than on the link alone, which is the one thing this renderer cannot
+ * narrow: the component gives it no event for the rest of the row. What a
+ * `click` step presses is narrower: the marks name one opening cell per row,
+ * and every copy of a row carries its position from 1 as its row key.
  *
  * Identity is by position in `displayValueList`, and the list the renderer
  * built is the one el-table holds: `TableDetail` passes it through
@@ -305,15 +307,27 @@ function readTableDetail(props: ComponentRendererProps['props']): TableDetailVue
 }
 
 /**
+ * Key one drawn table's rows by their position, counted from 1: the index a
+ * gesture reports, one more. The rows are the call's own and carry no id, so
+ * a key names the row at that position for as long as the call's rows stand.
+ * @param rows - the scrolling body's record rows.
+ * @returns one key per row.
+ */
+function positionKeys(rows: readonly Element[]): readonly string[] {
+  return rows.map((_, at) => String(at + 1))
+}
+
+/**
  * Mark one drawn table's controls from the block's properties. A row is marked
  * as opening only where the call asked for openable rows, since a click on any
- * other row reports nothing.
+ * other row reports nothing, and every row is keyed by its position.
  * @param root - the block's subtree.
  * @param vueProps - the block's properties, as the table is drawn with them.
  */
 function markTableDetail(root: Element, vueProps: TableDetailVueProps): void {
   markTable(root, {
     ...vueProps.isNameClick === true ? { row: ROW_CLICK_ACTION_ID } : {},
+    rowKeys: positionKeys,
     sort: SORT_ACTION_ID,
     ...vueProps.customOperations === null
       ? {}

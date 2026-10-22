@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.4/act-component-click-targets/guide.md
+/:
+  en: 28897346a3ab83b2
+  zh: f7607688c9185948
+/act-component-extra-step-fields-and-shared-keys-are-refused:
+  en: 5282f798c9451a85
+  zh: 5c85039efc382739
+/act-component-extra-step-fields-and-shared-keys-are-refused/change:
+  en: e95c8466133d88b0
+  zh: 87d69929a240c5f6
+/act-component-extra-step-fields-and-shared-keys-are-refused/migration:
+  en: 9909d154f54dfa31
+  zh: b76320a04983f3cc

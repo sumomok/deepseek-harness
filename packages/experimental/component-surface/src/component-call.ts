@@ -1074,9 +1074,10 @@ export const TABLE_SELECT_ID = 'select'
  * Action id the table reports an opened row under.
  *
  * Reported only by a table whose call asked for openable rows — `isNameClick` —
- * and then for a click anywhere in the row, which is where the component's own
- * cell click is bound. A table that asked for none reports nothing when a cell
- * is clicked, because on such a table a click opens nothing.
+ * and then for a person's click anywhere in the row, which is where the
+ * component's own cell click is bound; a `click` step presses the one cell per
+ * row the block marks with it. A table that asked for none reports nothing when
+ * a cell is clicked, because on such a table a click opens nothing.
  */
 export const TABLE_ROW_CLICK_ID = 'row-click'
 

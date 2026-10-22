@@ -18,6 +18,9 @@ import { installElementUI } from '../src/client/element-ui.ts'
 import { TableDetailRenderer } from '../src/client/TableDetailRenderer.tsx'
 import { en } from '../src/client/locales.ts'
 import type { ComponentActionState, ComponentRendererProps } from '../src/client/renderer.ts'
+import { readComponentReportText } from '@deepseek-ai/dsh-experimental-component-surface/src/read-component-text.ts'
+import { readComponentEntry } from '@deepseek-ai/dsh-experimental-component-surface/src/client/read-executor.ts'
+import { clickTarget } from '@deepseek-ai/dsh-experimental-component-surface/src/client/targets.ts'
 
 beforeAll(installElementUI)
 afterEach(cleanup)
@@ -193,7 +196,11 @@ describe('toy.table', () => {
       isNameClick: true,
     })
     const secondRow = view.container.querySelectorAll('.el-table__body-wrapper tbody tr')[1] as HTMLElement
-    fireEvent.click(secondRow.querySelectorAll('td')[1] as HTMLElement)
+    const status = secondRow.querySelectorAll('td')[1] as HTMLElement
+    // The report is the component's own event for the click, not anything the
+    // mark says: the status cell is not the one the act tool opens a row from.
+    expect(status.getAttribute('data-component-action')).toBeNull()
+    fireEvent.click(status)
     await flush()
     expect(onAction).toHaveBeenCalledTimes(1)
     expect(onAction).toHaveBeenCalledWith('row-click', { rowIndex: 1 })
@@ -407,6 +414,78 @@ describe('toy.table', () => {
   })
 })
 
+describe('a reading of a table with a sortable heading', () => {
+  it('lists the heading\'s sort control as the table\'s own, and every row under its own name and key', async () => {
+    const rows = [
+      { int_id: '1', zh_label: '丙站', status: '在用' },
+      { int_id: '2', zh_label: '甲站', status: '停用' },
+      { int_id: '3', zh_label: '乙站', status: '在用' },
+    ]
+    const onAction = vi.fn()
+    const view = render(
+      <div data-reading-entry="">
+        <div data-component-node="t">
+          <TableDetailRenderer
+            nodeId="t"
+            props={{ tableConfig: { gridItems: COLUMNS }, displayValueList: rows, isNameClick: true, tableSortable: true }}
+            state="idle"
+            onAction={onAction}
+            onOutput={vi.fn()}
+            t={t}
+          />
+        </div>
+      </div>,
+    )
+    await flush()
+    const within = view.container.querySelector('[data-reading-entry]') as Element
+    const read = (): string => readComponentReportText(readComponentEntry({ entry: 'demo' }, { entryId: 'demo', title: 'T', container: within }))
+    const named = [
+      '      Named rows (`row` key: name):',
+      '        - "1": "丙站"',
+      '        - "2": "甲站"',
+      '        - "3": "乙站"',
+    ].join('\n')
+    expect(read()).toContain('      - "sort": th "名称"')
+    expect(read()).toContain(named)
+    // A person sorting by the heading leaves the rows where they are drawn, so
+    // the reading and the row a key presses stay the same.
+    fireEvent.click(view.container.querySelector('.el-table__header-wrapper th.is-sortable .cell') as HTMLElement)
+    await flush()
+    expect(read()).toContain(named)
+    const second = clickTarget(within, { action: 'click', key: 'row-click', row: '2' }, within)
+    expect(second.kind === 'one' ? second.target.textContent?.trim() : second.kind).toBe('甲站')
+  })
+})
+
+describe('the cell a toy.table row is named by', () => {
+  it('marks each row\'s name cell whether or not its rows open, so a reading names the row by it', async () => {
+    for (const isNameClick of [true, false]) {
+      cleanup()
+      const view = render(
+        <div data-reading-entry="">
+          <div data-component-node="t">
+            <TableDetailRenderer
+              nodeId="t"
+              props={{ tableConfig: { gridItems: COLUMNS }, displayValueList: ROWS, isNameClick, selectMode: 'checkbox' }}
+              state="idle"
+              onAction={vi.fn()}
+              onOutput={vi.fn()}
+              t={t}
+            />
+          </div>
+        </div>,
+      )
+      await flush()
+      // Ticking makes each row a row a reading lists, whether or not it opens.
+      expect([...view.container.querySelectorAll('[data-component-row-name]')].map(cell => cell.textContent?.trim()))
+        .toEqual(ROWS.map(row => row.zh_label))
+      const within = view.container.querySelector('[data-reading-entry]') as Element
+      const rows = readComponentEntry({ entry: 'demo' }, { entryId: 'demo', title: 'T', container: within }).blocks[0]?.rows
+      expect(rows?.named.map(row => [row.key, row.name])).toEqual([['1', '一号站点'], ['2', '二号站点']])
+    }
+  })
+})
+
 describe('the controls a table marks for the act tool', () => {
   it('marks the tick boxes, the openable cells, the sortable headings and each row button', async () => {
     const { view } = await draw({
@@ -420,9 +499,14 @@ describe('the controls a table marks for the act tool', () => {
     const container = view.container
     expect(container.querySelectorAll('[data-component-action="select"]')).toHaveLength(2)
     expect(container.querySelector('[data-component-action="select"]')?.className).toContain('el-checkbox__original')
-    // A cell of every drawn row, from the first column the reader may open.
-    expect(container.querySelectorAll('[data-component-action="row-click"]')).toHaveLength(6)
-    expect(container.querySelector('[data-component-action="row-click"]')?.className).toContain('el-table__cell')
+    // One cell of every drawn row: its name cell, the one cell besides the tick
+    // box the fixed layer draws for the row.
+    const opening = [...container.querySelectorAll('[data-component-action="row-click"]')]
+    expect(opening.map(cell => cell.textContent?.trim())).toEqual(['一号站点', '二号站点'])
+    expect(opening.every(cell => cell.matches('.el-table__fixed .el-table__fixed-body-wrapper td.el-table__cell'))).toBe(true)
+    // Every copy of a row carries its position, from 1, as the row's key.
+    const keys = [...container.querySelectorAll('tbody')].map(body => [...body.querySelectorAll('tr.el-table__row')].map(row => row.getAttribute('data-component-row')))
+    expect(keys).toEqual([['1', '2'], ['1', '2'], ['1', '2']])
     expect(container.querySelector('[data-component-action="sort"]')?.className).toContain('is-sortable')
     const operation = container.querySelector('[data-component-action="operation"][data-component-key="inspect"]')
     expect(operation?.textContent).toBe('查看')
@@ -451,6 +535,32 @@ describe('the controls a table marks for the act tool', () => {
     const hiddenHeading = [...container.querySelectorAll('.el-table__header-wrapper th')]
       .find(th => th.classList.contains('is-hidden'))
     expect(hiddenHeading?.getAttribute('data-component-action')).toBeNull()
+  })
+
+  it('opens a row from its first drawn cell where no fixed layer draws a name column', async () => {
+    // No name column: element-ui fixes no column but the tick box, so the
+    // first cell the scrolling body draws opens the row.
+    const { view } = await draw({
+      tableConfig: { gridItems: [{ relatedMetaAttr: 'status', alias: '状态' }, { relatedMetaAttr: 'int_id', alias: '编号' }] },
+      displayValueList: ROWS,
+      selectMode: 'checkbox',
+      isNameClick: true,
+    })
+    const opening = [...view.container.querySelectorAll('[data-component-action="row-click"]')]
+    expect(opening.map(cell => cell.textContent?.trim())).toEqual(['在用', '停用'])
+    expect(opening.every(cell => cell.closest('.el-table__body-wrapper') !== null)).toBe(true)
+  })
+
+  it('takes the row action off a cell a later pass no longer opens the row from', async () => {
+    const { view } = await draw({ tableConfig: { gridItems: COLUMNS }, displayValueList: ROWS, isNameClick: true })
+    // A pass made before the fixed layer drew its rows marked the scrolling
+    // body's cell; the next pass leaves only the name cell marked.
+    const stale = view.container.querySelector('.el-table__body-wrapper tbody td:not(.is-hidden)') as HTMLElement
+    stale.setAttribute('data-component-action', 'row-click')
+    stale.appendChild(document.createElement('span'))
+    await flush()
+    expect(stale.getAttribute('data-component-action')).toBeNull()
+    expect(view.container.querySelectorAll('[data-component-action="row-click"]')).toHaveLength(2)
   })
 
   it('marks no cell as an opened row where the call opened none, and no control it does not draw', async () => {

@@ -106,6 +106,12 @@ export type ComponentReadRowDraw = ComponentControlKeys & {
 export interface ComponentReadRow {
   /** What the row is called: the words of its first drawn target that draws any; empty where none does. */
   readonly name: string
+  /**
+   * The key a `click` step's `row` names the row by: the one row key every
+   * control the row draws is marked with, where that key is one a step can
+   * carry; absent otherwise.
+   */
+  readonly key?: string
   /** The kinds of target the row draws, in the order the row draws them. */
   readonly draws: readonly ComponentReadRowDraw[]
 }

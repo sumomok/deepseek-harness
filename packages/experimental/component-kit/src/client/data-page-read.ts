@@ -790,6 +790,48 @@ function readRecordId(value: unknown): string | undefined {
   return id !== undefined && id.length <= MAX_RECORD_ID_LENGTH ? id : undefined
 }
 
+/** What a mounted data page displays, as its rows are keyed off it. */
+export interface DisplayedRecords {
+  /** The page's last answered query, replaced whole by each answer. */
+  readonly resultData?: {
+    /** The records the page displays, in the order its table draws them; absent once the page is cleared. */
+    readonly displayValue?: readonly unknown[]
+  }
+}
+
+/** One record row as el-table draws it: a component whose root element is the row, holding the record it draws. */
+type DrawnRecordRow = Element & {
+  /** The row component Vue writes on its root element, and sets to `null` once it lets the element go. */
+  readonly __vue__?: { readonly row?: unknown } | null
+}
+
+/**
+ * Key a data page's drawn rows by the ids of the records it displays, spelled
+ * as the outputs spell an id.
+ *
+ * Asked by a mark pass and nowhere else: the page replaces its records before
+ * Vue redraws the rows, so keys read when an answer lands would name the
+ * records the rows are about to draw rather than the ones they draw. The rows
+ * are keyed only where there are as many as records and each row is el-table's
+ * row component holding the record at its position; otherwise nothing is
+ * keyed this pass — a row drawn without that component, or one whose component
+ * Vue has let go, included — and a page that could not be read is left with no
+ * key written rather than a guessed one.
+ * @param page - the mounted page, or `null` while the bridge holds none.
+ * @param rows - the scrolling body's record rows, in the order drawn.
+ * @returns one key per row — `undefined` for a record carrying no id — or
+ *   `undefined` where the rows cannot be keyed on this pass.
+ */
+export function readRowKeys(page: DisplayedRecords | null, rows: readonly Element[]): readonly (string | undefined)[] | undefined {
+  const records = page?.resultData?.displayValue ?? []
+  if (records.length !== rows.length) return undefined
+  const unmatched = rows.some((row, at) => {
+    const drawn = (row as DrawnRecordRow).__vue__
+    return drawn == null || drawn.row !== records[at]
+  })
+  return unmatched ? undefined : records.map(record => spellId(readRecord(record)?.['int_id']))
+}
+
 /**
  * Read one record name an output may carry.
  * @param value - the name, as an event carries it.

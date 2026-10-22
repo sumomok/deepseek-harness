@@ -2,8 +2,8 @@
  * The sentences `act_component` is described, refused, and reported with.
  *
  * The description states the addressing vocabulary — entry, block, declared
- * action key or a control's own key, field name — and nothing about the
- * console's layout. Refusals say only
+ * action key or a control's own key, row key, field name — and nothing about
+ * the console's layout. Refusals say only
  * what stopped the call and never describe what stands outside the named entry.
  * @module @deepseek-ai/dsh-experimental-component-surface/act-component-text
  */
@@ -20,7 +20,8 @@ export const ACT_COMPONENT_DESCRIPTION = [
   '',
   'Steps address the components\' own language, never a DOM reference:',
   '- `click` presses one control: name it by the action key a block declares for it (a toolbar button\'s `add`),',
-  '  or, where several drawn controls share one action — one button per listed item — by that control\'s own key.',
+  '  or, where several drawn controls share one action — one button per listed item — by that control\'s own key;',
+  '  where a table draws the control once per row, add `row` to press the one in that row.',
   '- `set` writes a value into the field the entry names for one column or property (a filter value on `zh_label`);',
   '  a field drawn as a select or a suggestion field is set by choosing the option whose label is the value.',
   '- `wait` waits until a block or a declared control is drawn, for a call that acts on what it just asked for.',
@@ -45,6 +46,10 @@ export const NODE_DESCRIPTION = 'The block within the entry, by the id the place
 /** What `key` is. */
 export const KEY_DESCRIPTION =
   'The control this step presses or waits for: its action key, or its own key where several drawn controls share one action.'
+
+/** What `row` is. */
+export const ROW_DESCRIPTION =
+  'For a click only: the row the control is drawn in, by the key the row carries. Omit for a control outside every row.'
 
 /** What `name` is. */
 export const NAME_DESCRIPTION = 'The column or property the field is named by, as the component labels it.'
@@ -114,7 +119,7 @@ export const BAD_ENTRY_REFUSAL = 'entry must be the id of a component entry in t
 
 /** What one unreadable step is refused for, which is the same list every time. */
 export const STEP_REFUSAL_TEXT =
-  'a step must name `click`, `set`, or `wait`, with the block, key, name, or value that action takes, '
+  'a step must name `click`, `set`, or `wait`, with the block, key, row, name, or value that action takes, '
   + 'in the components\' own alphabet of letters, digits, underscores and hyphens.'
 
 /**
@@ -185,7 +190,7 @@ export function coveredReason(key: string): string {
   return `control "${key}" is covered where it is drawn.`
 }
 
-/** Most own keys or blocks one shared-key sentence lists; the rest are counted. */
+/** Most own keys, blocks or rows one shared-key sentence lists; the rest are counted. */
 export const MAX_LISTED_NAMES = 10
 
 /**
@@ -218,86 +223,164 @@ function listed(opening: string, names: readonly string[], closing: string): str
 }
 
 /**
- * The sentence a console posts for an action key several drawn controls
- * declare, each with an own key that names it; the own keys are bounded as
- * {@link listed} states.
- * @param key - the action key the step named.
- * @param count - how many drawn controls declare it.
- * @param node - the block the step named, absent for the whole entry.
- * @param ownKeys - each control's own key, in document order.
- * @returns the model-facing sentence.
+ * Where several drawn controls one key names stand by block, as far as a
+ * `node` naming one of the blocks would look at fewer of them.
  */
-export function sharedActionReason(key: string, count: number, node: string | undefined, ownKeys: readonly string[]): string {
-  return listed(`action "${key}" names ${String(count)} drawn controls ${lookedIn(node)}; name the one to press by its own key: `, ownKeys, '.')
+export interface ControlSpread {
+  /** The blocks a step could name as `node`, each once, in document order. */
+  readonly blocks: readonly string[]
+  /** How many of the controls are drawn inside the scope and outside every block. */
+  readonly outside: number
+  /** How many of the controls are drawn in blocks whose id no step could name. */
+  readonly unnamed: number
+  /** How many such blocks there are. */
+  readonly unnamedBlocks: number
 }
 
 /**
- * The sentence refusing a key whose controls are drawn in several blocks:
- * the blocks, bounded as {@link listed} states, and what a `node` naming one
- * of them does.
- * @param subject - the words naming the key and how many controls carry it.
- * @param blocks - the blocks the controls are drawn in, in document order.
+ * Where several drawn controls one key names stand by row, as far as a `row`
+ * naming one of the rows would look at fewer of them.
+ */
+export interface ControlRows {
+  /** The row keys a step could name, each once, in document order. */
+  readonly keys: readonly string[]
+  /**
+   * Whether a row draws more than one of the controls: `none`, `told-apart`
+   * where each such row's controls carry own keys that name every one of them,
+   * and `not-told-apart` otherwise.
+   */
+  readonly crowded: 'none' | 'told-apart' | 'not-told-apart'
+  /** How many of the controls are drawn in no row a step could name. */
+  readonly rowless: number
+}
+
+/** The controls one refused `click` step's key names where the step looked. */
+export interface SharedKey {
+  /** The key the step named. */
+  readonly key: string
+  /** Whether the controls declare the key as their action or carry it as their own key. */
+  readonly by: 'action' | 'own-key'
+  /** How many drawn controls carry it there. */
+  readonly count: number
+  /** The block the step named, absent for the whole entry. */
+  readonly node: string | undefined
+  /** The row the step named, absent where it named none. */
+  readonly row: string | undefined
+}
+
+/**
+ * The words naming a shared key and how many controls carry it, in the row the step named.
+ * @param shared - the controls the key names.
+ * @returns the phrase every shared-key sentence opens with.
+ */
+function subjectOf(shared: SharedKey): string {
+  const count = String(shared.count)
+  const row = shared.row === undefined ? '' : ` of row "${shared.row}"`
+  return shared.by === 'action'
+    ? `action "${shared.key}" names ${count} drawn controls${row}`
+    : `own key "${shared.key}" is carried by ${count} drawn controls${row}`
+}
+
+/**
+ * The sentence refusing a key whose controls are drawn in more than one block,
+ * where a `node` naming one of the blocks looks at fewer of them: the blocks,
+ * bounded as {@link listed} states, and the controls no `node` names, counted.
+ * @param shared - the controls the key names.
+ * @param spread - where they stand by block.
  * @returns the model-facing sentence.
  */
-function spreadReason(subject: string, blocks: readonly string[]): string {
+export function spreadReason(shared: SharedKey, spread: ControlSpread): string {
+  const subject = subjectOf(shared)
+  const advice = '; name one of them as `node` to look in that block alone.'
+  if (spread.outside === 0 && spread.unnamed === 0) {
+    const of = shared.node === undefined ? 'of the entry' : `inside block "${shared.node}"`
+    return listed(`${subject} in ${String(spread.blocks.length)} blocks ${of}: `, spread.blocks, advice)
+  }
+  const unnamed = spread.unnamedBlocks === 1 ? 'a block' : 'blocks'
+  const apart = [
+    spread.outside === 0 ? '' : `${String(spread.outside)} of them outside every block`,
+    spread.unnamed === 0 ? '' : `${String(spread.unnamed)} of them in ${unnamed} whose id no step can name`,
+  ].filter(part => part !== '').join(' and ')
+  const one = spread.blocks.length === 1
   return listed(
-    `${subject} in ${String(blocks.length)} blocks of the entry: `,
-    blocks,
-    '; name one of them as `node` to look in that block alone.',
+    `${subject} ${lookedIn(shared.node)}, ${apart}; the rest are in ${one ? 'block ' : `${String(spread.blocks.length)} blocks: `}`,
+    spread.blocks,
+    one ? '; name it as `node` to look in that block alone.' : advice,
   )
 }
 
 /**
- * The sentence a console posts for an action key several drawn controls
- * declare where their own keys do not tell them apart and the controls are
- * drawn in more than one block, so a `node` looks at fewer of them.
- * @param key - the action key the step named.
- * @param count - how many drawn controls declare it.
- * @param blocks - the blocks they are drawn in, in document order.
+ * The sentence refusing a key whose controls are drawn in more than one row of
+ * one place, where a `row` naming one of the rows looks at fewer of them: the
+ * row keys, bounded as {@link listed} states, what is left to tell apart in a
+ * row drawing more than one, and the controls no `row` names, counted.
+ * @param shared - the controls the key names.
+ * @param rows - where they stand by row.
  * @returns the model-facing sentence.
  */
-export function spreadActionReason(key: string, count: number, blocks: readonly string[]): string {
-  return spreadReason(`action "${key}" names ${String(count)} drawn controls`, blocks)
-}
-
-/**
- * The sentence a console posts for an own key several drawn controls carry
- * where those controls are drawn in more than one block, so a `node` looks at
- * fewer of them.
- * @param key - the own key the step named.
- * @param count - how many drawn controls carry it.
- * @param blocks - the blocks they are drawn in, in document order.
- * @returns the model-facing sentence.
- */
-export function spreadOwnKeyReason(key: string, count: number, blocks: readonly string[]): string {
-  return spreadReason(`own key "${key}" is carried by ${String(count)} drawn controls`, blocks)
+export function rowsReason(shared: SharedKey, rows: ControlRows): string {
+  const subject = `${subjectOf(shared)} ${lookedIn(shared.node)}`
+  const placed = rows.crowded === 'none' && rows.rowless === 0
+    ? `${subject}, one per row`
+    : `${subject} across ${String(rows.keys.length)} row${rows.keys.length === 1 ? '' : 's'}`
+  const tails = [
+    rows.crowded === 'told-apart' ? '; a row draws more than one of them, so name the one to press by its own key with `row`' : '',
+    rows.crowded === 'not-told-apart' ? '; a row draws more than one of them, and no step can tell those apart' : '',
+    rows.rowless === 0 ? '' : `; ${String(rows.rowless)} of them ${rows.rowless === 1 ? 'is' : 'are'} drawn in no row a step can name`,
+  ]
+  return listed(`${placed}; name the row with \`row\`: `, rows.keys, `${tails.join('')}.`)
 }
 
 /**
  * The sentence a console posts for an action key several drawn controls
- * declare where their own keys do not tell them apart — one of them carries
- * none a step can name, or two carry the same — and the controls are drawn in
- * one block at most.
- * @param key - the action key the step named.
- * @param count - how many drawn controls declare it.
- * @param node - the block the step named, absent for the whole entry.
+ * declare, each with an own key that names it; the own keys are bounded as
+ * {@link listed} states.
+ * @param shared - the controls the key names.
+ * @param ownKeys - each control's own key, in document order.
  * @returns the model-facing sentence.
  */
-export function unkeyedActionReason(key: string, count: number, node: string | undefined): string {
-  return `action "${key}" names ${String(count)} drawn controls ${lookedIn(node)}, and no step can name each of them by an own key.`
+export function sharedActionReason(shared: SharedKey, ownKeys: readonly string[]): string {
+  return listed(`${subjectOf(shared)} ${lookedIn(shared.node)}; name the one to press by its own key: `, ownKeys, '.')
 }
 
 /**
- * The sentence a console posts for an own key several drawn controls carry in
- * one block at most. The component drew the duplicate, so no wording of the
- * step separates them.
- * @param key - the own key the step named.
- * @param count - how many drawn controls carry it.
+ * The sentence a console posts for a key several drawn controls carry where
+ * nothing a step can name tells them apart: no block or row a step could name
+ * looks at fewer of them, and — for an action key — one of them carries no own
+ * key a step can name, or two carry the same. The component drew them that
+ * way, so no wording of the step separates them.
+ * @param shared - the controls the key names.
+ * @returns the model-facing sentence.
+ */
+export function inseparableReason(shared: SharedKey): string {
+  const subject = `${subjectOf(shared)} ${lookedIn(shared.node)}`
+  return shared.by === 'action'
+    ? `${subject}, and no step can name each of them by an own key.`
+    : `${subject}, so no step can tell them apart.`
+}
+
+/**
+ * The sentence a console posts for a row the step named that nothing drawn
+ * where it looked carries: a row the component no longer draws, or a key it
+ * never gave a row.
+ * @param row - the row key the step named.
  * @param node - the block the step named, absent for the whole entry.
  * @returns the model-facing sentence.
  */
-export function sharedOwnKeyReason(key: string, count: number, node: string | undefined): string {
-  return `own key "${key}" is carried by ${String(count)} drawn controls ${lookedIn(node)}, so no step can tell them apart.`
+export function rowNotDrawnReason(row: string, node: string | undefined): string {
+  return `row "${row}" is not drawn ${lookedIn(node)}.`
+}
+
+/**
+ * The sentence a console posts for a row that is drawn and holds none of the
+ * drawn controls the key names, which are drawn in other rows or in none.
+ * @param key - the key the step named.
+ * @param row - the row key the step named.
+ * @param node - the block the step named, absent for the whole entry.
+ * @returns the model-facing sentence.
+ */
+export function notInRowReason(key: string, row: string, node: string | undefined): string {
+  return `row "${row}" draws no control "${key}" ${lookedIn(node)}.`
 }
 
 /**
@@ -446,7 +529,8 @@ export function actComponentReportText(
  */
 function describeStep(step: ActComponentStep): string {
   switch (step.action) {
-    case 'click': return `click ${step.node === undefined ? '' : `in ${step.node} `}on "${step.key}"`
+    case 'click':
+      return `click ${step.node === undefined ? '' : `in ${step.node} `}on "${step.key}"${step.row === undefined ? '' : ` of row "${step.row}"`}`
     case 'set': return `set "${step.name}"${step.node === undefined ? '' : ` in ${step.node}`}`
     case 'wait': return `wait for ${step.node ?? step.key}`
     /* v8 ignore start -- ActComponentStep is closed and every variant returns above. */

@@ -56,7 +56,7 @@ const DISPOSITIONS: Readonly<Record<string, Readonly<Record<string, string>>>> =
     query: CARRIED,
     'cell-click': CARRIED,
     select: CARRIED,
-    'card-open': 'the page opens its side card from the row interaction already marked as cell-click; the action has no control of its own',
+    'card-open': CARRIED,
     'card-close': CARRIED,
     added: CARRIED,
     modified: CARRIED,
@@ -103,5 +103,75 @@ describe('the actions the catalog declares and the marks the renderers write', (
     markTable(document.body, { operations: { custom: ['ping', 'ghost'] } })
     expect(document.querySelector('.operation-custom a')?.getAttribute('data-component-key')).toBe('ping')
     expect(document.querySelector('[data-component-key="ghost"]')).toBeNull()
+  })
+
+  /** One table as el-table draws it: a scrolling body and a fixed layer, two records each. */
+  const TABLE = `
+    <div class="el-table">
+      <div class="el-table__body-wrapper"><table><tbody>
+        <tr class="el-table__row"><td class="el-table_1_column_1 is-hidden"><a class="trans">甲</a></td><td class="el-table_1_column_2">北京</td></tr>
+        <tr class="el-table__row"><td class="el-table_1_column_1 is-hidden"><a class="trans">乙</a></td><td class="el-table_1_column_2">上海</td></tr>
+      </tbody></table></div>
+      <div class="el-table__fixed"><div class="el-table__fixed-body-wrapper"><table><tbody>
+        <tr class="el-table__row"><td class="el-table_1_column_1"><a class="trans">甲</a></td><td class="el-table_1_column_2 is-hidden">北京</td></tr>
+        <tr class="el-table__row"><td class="el-table_1_column_1"><a class="trans">乙</a></td><td class="el-table_1_column_2 is-hidden">上海</td></tr>
+      </tbody></table></div></div>
+    </div>
+  `
+
+  /** The row key every record row of the document carries, body by body. */
+  function rowKeys(): (string | null)[][] {
+    return [...document.querySelectorAll('tbody')].map(body => [...body.children].map(row => row.getAttribute('data-component-row')))
+  }
+
+  it('keys every copy of a row, takes off a key no step could carry, and leaves the keys where a pass cannot line them up', () => {
+    document.body.innerHTML = TABLE
+    markTable(document.body, { rowKeys: () => ['1044', '1045'] })
+    expect(rowKeys()).toEqual([['1044', '1045'], ['1044', '1045']])
+    // A pass whose keys do not line up with the drawn rows writes nothing.
+    markTable(document.body, { rowKeys: () => ['1046'] })
+    markTable(document.body, { rowKeys: () => undefined })
+    expect(rowKeys()).toEqual([['1044', '1045'], ['1044', '1045']])
+    // A key a step could not carry, or none, is taken off the row.
+    markTable(document.body, { rowKeys: () => ['a b', undefined] })
+    expect(rowKeys()).toEqual([[null, null], [null, null]])
+  })
+
+  it('marks each record\'s name cell in the pass that writes its key, and leaves the names with the keys', () => {
+    document.body.innerHTML = TABLE
+    /** The cells marked as their row's name, by the words they draw. */
+    const names = (): string[] => [...document.querySelectorAll('[data-component-row-name]')].map(cell => cell.textContent ?? '')
+    // A pass that cannot key the rows names none of them either.
+    markTable(document.body, { rowKeys: () => undefined })
+    expect(names()).toEqual([])
+    markTable(document.body, { rowKeys: () => ['1044', '1045'] })
+    expect(names()).toEqual(['甲', '乙'])
+    expect([...document.querySelectorAll('[data-component-row-name]')].every(cell => cell.closest('.el-table__fixed') !== null)).toBe(true)
+    // A pass that leaves the keys leaves the names, and one that writes keys
+    // takes the mark off a cell no longer named.
+    const stale = document.querySelector('.el-table__body-wrapper td.el-table_1_column_2') as Element
+    stale.setAttribute('data-component-row-name', '')
+    markTable(document.body, { rowKeys: () => ['1046'] })
+    expect(names()).toEqual(['北京', '甲', '乙'])
+    markTable(document.body, { rowKeys: () => ['1044', '1045'] })
+    expect(names()).toEqual(['甲', '乙'])
+  })
+
+  it('marks each drawn record link with the column it is drawn in, and with no own key where the table names none', () => {
+    document.body.innerHTML = TABLE
+    const table = document.querySelector('.el-table') as Element
+    markTable(document.body, { link: 'card-open' })
+    const links = (): (string | null)[][] => [...document.querySelectorAll('a.trans')]
+      .map(link => [link.getAttribute('data-component-action'), link.getAttribute('data-component-key')])
+    // The placeholder copies stay unmarked; the drawn ones carry the action.
+    expect(links()).toEqual([[null, null], [null, null], ['card-open', null], ['card-open', null]])
+    // el-table holds its columns on its own component, by the id each cell carries.
+    Object.assign(table, { __vue__: { columns: [{ id: 'el-table_1_column_1', property: 'zh_label' }, { id: 'el-table_1_column_2', property: 'city' }] } })
+    markTable(document.body, { link: 'card-open' })
+    expect(links()).toEqual([[null, null], [null, null], ['card-open', 'zh_label'], ['card-open', 'zh_label']])
+    // A column whose property no step could carry gives the link no own key.
+    Object.assign(table, { __vue__: { columns: [{ id: 'el-table_1_column_1', property: 'zh label' }] } })
+    markTable(document.body, { link: 'card-open' })
+    expect(links()).toEqual([[null, null], [null, null], ['card-open', null], ['card-open', null]])
   })
 })

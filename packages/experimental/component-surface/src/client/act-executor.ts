@@ -4,9 +4,10 @@
  *
  * Every target is resolved inside that element through
  * [the shared resolution](./targets.ts), bounded by the block the step names or
- * by the whole entry. Actions go through the block's own handlers: a press is
- * the element's `click()`, refused for a control that is disabled, covered, or
- * not drawn, and for a key several drawn controls carry; a write goes through
+ * by the whole entry and, for a press naming a row, by that row. Actions go
+ * through the block's own handlers: a press is the element's `click()`,
+ * refused for a control that is disabled, covered, or not drawn, and for a key
+ * several drawn controls carry where the step looked; a write goes through
  * the prototype's value setter and dispatches
  * `input` and `change`; a select or a suggestion field is filled by choosing
  * the option whose label is the value and waiting for the component to take it.
@@ -29,10 +30,10 @@ import {
 } from '../act-component-call.ts'
 import {
   actComponentReportText, ambiguousFieldReason, ambiguousOptionReason, anotherEntryInFront, coveredReason,
-  disabledFieldReason, disabledOptionReason, disabledReason, ENTRY_REDRAWN_REASON, missingTargetReason,
-  noOptionReason, NO_ENTRY_IN_FRONT, notWritableReason, notDrawnReason, optionNotTakenReason, OUT_OF_TIME_REASON,
-  readOnlyFieldReason, sharedActionReason, sharedOwnKeyReason, spreadActionReason, spreadOwnKeyReason,
-  unkeyedActionReason, waitTimeoutReason,
+  disabledFieldReason, disabledOptionReason, disabledReason, ENTRY_REDRAWN_REASON, inseparableReason, missingTargetReason,
+  noOptionReason, NO_ENTRY_IN_FRONT, notInRowReason, notWritableReason, notDrawnReason, optionNotTakenReason,
+  OUT_OF_TIME_REASON, readOnlyFieldReason, rowNotDrawnReason, rowsReason, sharedActionReason, spreadReason,
+  waitTimeoutReason, type SharedKey,
 } from '../act-component-text.ts'
 import type { ActStepHolder } from './act-step.ts'
 import type { DrawnEntry } from './entry-container.ts'
@@ -429,16 +430,23 @@ async function waitFor(run: StepRun, step: ActComponentWait, timeoutMs: number):
 
 /**
  * Press the one control one `click` step names.
+ *
+ * Several drawn controls carrying the key are refused with the first sentence
+ * that names a narrower step, in this order: their own keys, where those name
+ * every one of them, since one of those presses its control in one step and a
+ * control outside every block is reached by no other; the blocks they are
+ * drawn in, where naming one as `node` looks at fewer; the rows they are drawn
+ * in, where naming one as `row` does; and otherwise the sentence saying no step
+ * tells them apart.
  * @param scope - the subtree the step is confined to.
  * @param step - the click step.
  * @param within - the entry's own container.
  * @throws {Error} with the model-facing reason when the key names no drawn
- * control, names several — naming the blocks they are drawn in where no own
- * key tells them apart and they are drawn in more than one — or names one a
- * person could not press.
+ * control, none in the row the step names, several, or one a person could not
+ * press.
  */
 function pressNamed(scope: Element, step: ActComponentClick, within: Element): void {
-  const named = clickTarget(scope, step.key, within)
+  const named = clickTarget(scope, step, within)
   switch (named.kind) {
     case 'one':
       press(named.target, step.key)
@@ -447,15 +455,17 @@ function pressNamed(scope: Element, step: ActComponentClick, within: Element): v
       throw new Error(undrawnTarget(scope, step.key, within)
         ? notDrawnReason(step.key)
         : missingTargetReason(`control "${step.key}"`))
-    case 'shared-action':
-      if (named.ownKeys !== undefined) throw new Error(sharedActionReason(step.key, named.count, step.node, named.ownKeys))
-      throw new Error(named.blocks.length > 1
-        ? spreadActionReason(step.key, named.count, named.blocks)
-        : unkeyedActionReason(step.key, named.count, step.node))
-    case 'shared-own-key':
-      throw new Error(named.blocks.length > 1
-        ? spreadOwnKeyReason(step.key, named.count, named.blocks)
-        : sharedOwnKeyReason(step.key, named.count, step.node))
+    case 'row-not-drawn':
+      throw new Error(rowNotDrawnReason(named.row, step.node))
+    case 'not-in-row':
+      throw new Error(notInRowReason(step.key, named.row, step.node))
+    case 'several': {
+      const shared: SharedKey = { key: step.key, by: named.by, count: named.count, node: step.node, row: step.row }
+      if (named.ownKeys !== undefined) throw new Error(sharedActionReason(shared, named.ownKeys))
+      if (named.spread !== undefined) throw new Error(spreadReason(shared, named.spread))
+      if (named.rows !== undefined) throw new Error(rowsReason(shared, named.rows))
+      throw new Error(inseparableReason(shared))
+    }
     /* v8 ignore start -- ClickTarget is closed and every variant returns or throws above. */
     default: {
       // Not `assertNever` from dsh-llm, for the reason validate.ts states at its

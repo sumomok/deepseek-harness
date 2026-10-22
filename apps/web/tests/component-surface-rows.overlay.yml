@@ -1,0 +1,51 @@
+# The data page composition of `component-surface-data-page.overlay.yml` plus
+# `content-frame`, whose shared content channel is what carries an
+# `act_component` or `read_component` call to the tab showing the session:
+# the gate that signs the visitor in, the base path the data page requests its
+# table under, the `dataPage` offer, and the channel.
+#
+# `content-frame` carries no `pageAccess`, so the session is offered no page read
+# or page step; `root` comes from the environment, which the scenario sets to the
+# package's own fixture application before the loader runs. No page is shown:
+# the column draws the component entry the seed placed. No `bizUpstream`: the
+# host reads nothing for this kind, and the scenario answers what the page
+# requests in the browser, the way a reverse proxy in front of a real console
+# would.
+- id: ui-layout
+  name: '@deepseek-ai/dsh-client-ui-layout'
+  disabled: true
+
+- insert:
+    - id: server-layout
+      name: '@deepseek-ai/dsh-experimental-server-layout'
+    - id: content-surface
+      name: '@deepseek-ai/dsh-experimental-content-surface'
+    - id: content-column
+      name: '@deepseek-ai/dsh-experimental-content-column'
+    - id: content-frame
+      name: '@deepseek-ai/dsh-experimental-content-frame'
+      config:
+        root: !!js process.env.DSH_CONTENT_APP_ROOT
+        pages:
+          - id: home
+            title: Home
+            description: The hosted application's entry page.
+            url: /content-app/
+    - id: vue2-echarts-poc
+      name: '@deepseek-ai/dsh-experimental-vue2-echarts-poc'
+    - id: component-kit
+      name: '@deepseek-ai/dsh-experimental-component-kit'
+      config:
+        bizBasePath: /ini-server/
+    - id: auth-gate
+      name: '@deepseek-ai/dsh-experimental-auth-gate'
+      config:
+        loginUrl: /component-surface-rows-login/#/
+        cookieName: accessToken
+        refreshMarginSeconds: 300
+        mcpUpstreams: {}
+    - id: show-component
+      name: '@deepseek-ai/dsh-experimental-component-surface'
+      config:
+        dataPage: true
+        dataPageLoadTimeoutMs: 20000

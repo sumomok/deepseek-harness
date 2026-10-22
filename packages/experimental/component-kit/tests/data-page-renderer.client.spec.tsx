@@ -34,6 +34,10 @@ import { NO_ABILITIES, type DataPageAbilityTable } from '../src/route.ts'
 import { answers, defineTable, drain, flush, seen, settleProgress, STORED_TOKEN, StubRequest } from './fixtures/crud-backend.client.ts'
 import { BASE_PATH, basePathRead } from './fixtures/base-path.client.ts'
 import { instanceOf } from './fixtures/kit-blocks.client.ts'
+import { MAX_READING_CHARS, MAX_READING_LINES } from '@deepseek-ai/dsh-experimental-component-surface/src/read-component-call.ts'
+import { readComponentReportText } from '@deepseek-ai/dsh-experimental-component-surface/src/read-component-text.ts'
+import { readComponentEntry } from '@deepseek-ai/dsh-experimental-component-surface/src/client/read-executor.ts'
+import { clickTarget } from '@deepseek-ai/dsh-experimental-component-surface/src/client/targets.ts'
 
 vi.mock('../src/client/data-page-settings.ts', () => import('./fixtures/base-path.client.ts'))
 
@@ -135,6 +139,76 @@ defineTable(MASKED_WRITE_META, {
     { int_id: '2', code: 'C-2', zh_label: '济南-接入-07', city: '济南' },
   ],
   modifiableColumns: ['city'],
+})
+
+/**
+ * A table whose rows draw their names as the links that open each record's
+ * card, keyed by nineteen-digit record ids, one of which no step could carry.
+ */
+const LINKED_META = 'probe_linked'
+
+/** The rows of {@link LINKED_META}, in the order the page draws them. */
+const LINKED_ROWS = [
+  { int_id: '1134933624650219530', zh_label: '配送车-离线', city: '北京' },
+  { int_id: '1134933624650219531', zh_label: '燃气管线', city: '济南' },
+  { int_id: '1134933624650219532', zh_label: '调压站', city: '上海' },
+  { int_id: 'no id', zh_label: '无编号', city: '天津' },
+]
+
+defineTable(LINKED_META, {
+  gridItems: [
+    { relatedMetaAttr: 'zh_label', alias: '名称', isShow: '1', relatedComponent: 'display_default' },
+    { relatedMetaAttr: 'city', alias: '城市', isShow: '1' },
+  ],
+  formItems: [
+    { relatedMetaAttr: 'zh_label', alias: '名称', isShow: 1, isEditable: 1, isRequired: 0, relatedComponent: 'edit_input', op: 'LIKE' },
+    { relatedMetaAttr: 'city', alias: '城市', isShow: 1, isEditable: 1, isRequired: 0, relatedComponent: 'edit_input', op: 'EQ' },
+  ],
+  rows: LINKED_ROWS,
+})
+
+/**
+ * A table of twenty records whose relation column refers to a record in every
+ * other row and is empty in the rest, so the page draws a relation link in
+ * half the rows' scrolling body and none in the others.
+ */
+const RELATED_META = 'probe_related'
+
+/** The rows of {@link RELATED_META}, in the order the page draws them. */
+const RELATED_ROWS = Array.from({ length: 20 }, (_, at) => ({
+  int_id: `r${String(at + 1).padStart(2, '0')}`,
+  zh_label: `记录-${String(at + 1).padStart(2, '0')}`,
+  city_id: at % 2 === 0 ? `城市-${String(at + 1)}` : '',
+}))
+
+defineTable(RELATED_META, {
+  gridItems: [
+    { relatedMetaAttr: 'zh_label', alias: '名称', isShow: '1', relatedComponent: 'display_default' },
+    { relatedMetaAttr: 'city_id', alias: '城市', isShow: '1', relatedComponent: 'display_default' },
+  ],
+  formItems: [
+    { relatedMetaAttr: 'zh_label', alias: '名称', isShow: 1, isEditable: 1, isRequired: 0, relatedComponent: 'edit_input', op: 'LIKE' },
+  ],
+  rows: RELATED_ROWS,
+  refs: RELATED_ROWS.map(row => (row.city_id === '' ? {} : { city_id: 'City' })),
+})
+
+/** A table of three records whose rows a case redraws by replacing the records the page displays. */
+const REDRAWN_META = 'probe_redrawn'
+
+defineTable(REDRAWN_META, {
+  gridItems: [
+    { relatedMetaAttr: 'zh_label', alias: '名称', isShow: '1', relatedComponent: 'display_default' },
+    { relatedMetaAttr: 'city', alias: '城市', isShow: '1' },
+  ],
+  formItems: [
+    { relatedMetaAttr: 'zh_label', alias: '名称', isShow: 1, isEditable: 1, isRequired: 0, relatedComponent: 'edit_input', op: 'LIKE' },
+  ],
+  rows: [
+    { int_id: 'a1', zh_label: '甲', city: '北京' },
+    { int_id: 'a2', zh_label: '乙', city: '上海' },
+    { int_id: 'a3', zh_label: '丙', city: '天津' },
+  ],
 })
 
 /** Every node appended straight under the document body, by id, while a case ran. */
@@ -1253,6 +1327,197 @@ describe('the controls one data page marks for the act tool', () => {
     // is taken there is no card and no closer to mark.
     pageOf(view.container).handleTableTransCellClick({ dataBase: { id: '1', name: '北京-核心-01', type: META } })
     await vi.waitFor(() => { expect(marksOn(closer())).toEqual({ action: 'card-close', key: null }) }, { timeout: 5000, interval: 20 })
+  }, 20_000)
+
+  it('keys every copy of each row by its record\'s id, and marks one opening cell and the name link per record', async () => {
+    const { view, onAction } = draw(Object.freeze({
+      relatedMeta: LINKED_META,
+      metaLabel: '链接',
+      readOnly: false,
+      rowOperations: ['modify', 'delete'],
+      selectMode: 'checkbox',
+    }))
+    await loaded(onAction)
+    const ids = LINKED_ROWS.map(row => row.int_id)
+    // The scrolling body and both fixed layers draw every record; each copy
+    // carries the id, and the record whose id no step could carry carries none.
+    await vi.waitFor(() => {
+      expect([...view.container.querySelectorAll('.crud-table tbody')]
+        .map(body => [...body.querySelectorAll('tr.el-table__row')].map(row => row.getAttribute('data-component-row'))))
+        .toEqual([0, 1, 2].map(() => [...ids.slice(0, 3), null]))
+    }, { timeout: 3000, interval: 20 })
+    // One cell per record opens it: the name cell the left fixed layer draws.
+    const opening = [...view.container.querySelectorAll('[data-component-action="cell-click"]')]
+    expect(opening.map(cell => cell.textContent?.trim())).toEqual(LINKED_ROWS.map(row => row.zh_label))
+    expect(opening.every(cell => cell.closest('.el-table__fixed') !== null)).toBe(true)
+    // The name link inside that cell opens the record's card, named by its column.
+    const links = [...view.container.querySelectorAll('[data-component-action="card-open"]')]
+    expect(links.map(link => [link.textContent?.trim(), link.getAttribute('data-component-key')]))
+      .toEqual(LINKED_ROWS.map(row => [row.zh_label, 'zh_label']))
+    expect(links.every(link => link.closest('.el-table__fixed') !== null)).toBe(true)
+    // Each row's own controls stand inside the row its key is written on.
+    const modify = [...view.container.querySelectorAll('[data-component-key="modify"]')]
+    expect(modify.map(control => control.closest('[data-component-row]')?.getAttribute('data-component-row') ?? null))
+      .toEqual([...ids.slice(0, 3), null])
+    const ticks = [...view.container.querySelectorAll('[data-component-action="select"]')]
+    expect(ticks.map(tick => tick.closest('[data-component-row]')?.getAttribute('data-component-row') ?? null))
+      .toEqual([...ids.slice(0, 3), null])
+  }, 20_000)
+
+  it('reports a cell the user clicks whichever cell it is, and both reports for the name link', async () => {
+    const { view, onAction, onOutput } = draw(Object.freeze({ relatedMeta: LINKED_META, metaLabel: '链接', selectMode: 'checkbox' }))
+    await loaded(onAction)
+    await vi.waitFor(() => { expect(view.container.querySelector('[data-component-action="card-open"]')).not.toBeNull() })
+    // The city cell opens nothing the act tool presses, and a person clicking
+    // it is still reported: the report is the page's own event for the click.
+    const city = [...view.container.querySelectorAll('.el-table__body-wrapper tbody td:not(.is-hidden)')]
+      .find(cell => cell.textContent?.trim() === '济南') as HTMLElement
+    expect(city.getAttribute('data-component-action')).toBeNull()
+    fireEvent.click(city)
+    expect(onAction).toHaveBeenLastCalledWith('cell-click', { attr: 'city', label: '城市', row: { zh_label: '燃气管线', city: '济南' } })
+    // The name link opens the card, and its click reaches the row's own cell
+    // click on the way up, so the page reports both, card first.
+    onAction.mockClear()
+    const link = inRow(view.container, '燃气管线', '[data-component-action="card-open"]') as HTMLElement
+    fireEvent.click(link)
+    expect(onAction.mock.calls.map(call => call[0])).toEqual(['card-open', 'cell-click'])
+    expect(onAction).toHaveBeenCalledWith('card-open', { name: '燃气管线', type: LINKED_META })
+    expect(onOutput).toHaveBeenLastCalledWith('opened', { id: '1134933624650219531', name: '燃气管线', type: LINKED_META })
+  }, 20_000)
+
+  it('reads every record of a page whose relation column links only some rows, each under its own key, within the bounds', async () => {
+    const onAction = vi.fn<ComponentActionHandler>()
+    const view = render(
+      <div data-reading-entry="">
+        <div data-component-node="page">
+          <DataPageRenderer
+            nodeId="page"
+            props={Object.freeze({ relatedMeta: RELATED_META, metaLabel: '关联', readOnly: false, rowOperations: ['modify'], selectMode: 'checkbox' })}
+            state="idle"
+            onAction={onAction}
+            onOutput={vi.fn()}
+            t={t}
+          />
+        </div>
+      </div>,
+    )
+    await loaded(onAction)
+    await vi.waitFor(() => {
+      expect(view.container.querySelectorAll('[data-component-action="card-open"][data-component-key="city_id"]')).toHaveLength(10)
+    }, { timeout: 3000, interval: 20 })
+    const within = view.container.querySelector('[data-reading-entry]') as Element
+    const reading = readComponentEntry({ entry: 'related' }, { entryId: 'related', title: '关联', container: within })
+    const keys = RELATED_ROWS.map(row => row.int_id)
+    expect(reading.blocks[0]?.rows?.named.map(row => row.key)).toEqual(keys)
+    const text = readComponentReportText(reading)
+    expect(text.length).toBeLessThanOrEqual(MAX_READING_CHARS)
+    expect(text.split('\n').length).toBeLessThanOrEqual(MAX_READING_LINES)
+    // A row whose relation is empty draws one control fewer, so no one list
+    // of what a row draws stands for every row: each is listed with its own,
+    // which is this page's reading rather than a fold that failed.
+    expect(text).not.toContain('Each row draws:')
+    expect(text).toContain('      - "r02": "记录-02":')
+    expect(text).not.toContain('no row key')
+    for (const key of keys) expect(text).toContain(`        - "${key}": `)
+    // The key printed for a row with no relation is the one a step presses it by.
+    const named = clickTarget(within, { action: 'click', key: 'modify', row: 'r02' }, within)
+    expect(named.kind === 'one' ? named.target.closest('tr')?.getAttribute('data-component-row') : named.kind).toBe('r02')
+  }, 20_000)
+
+  it('marks each record\'s name cell as its row\'s name and no relation cell, so a reading names the record itself', async () => {
+    const onAction = vi.fn<ComponentActionHandler>()
+    const view = render(
+      <div data-reading-entry="">
+        <div data-component-node="page">
+          <DataPageRenderer
+            nodeId="page"
+            props={Object.freeze({ relatedMeta: RELATED_META, metaLabel: '关联', selectMode: 'checkbox' })}
+            state="idle"
+            onAction={onAction}
+            onOutput={vi.fn()}
+            t={t}
+          />
+        </div>
+      </div>,
+    )
+    await loaded(onAction)
+    const named = (): Element[] => [...view.container.querySelectorAll('[data-component-row-name]')]
+    await vi.waitFor(() => { expect(named()).toHaveLength(RELATED_ROWS.length) }, { timeout: 3000, interval: 20 })
+    expect(named().map(cell => cell.textContent?.trim())).toEqual(RELATED_ROWS.map(row => row.zh_label))
+    expect(named().every(cell => cell.closest('.el-table__fixed') !== null)).toBe(true)
+    // The relation links stand in cells no row is named by.
+    const relations = [...view.container.querySelectorAll('[data-component-action="card-open"][data-component-key="city_id"]')]
+    expect(relations).toHaveLength(10)
+    expect(relations.every(link => link.closest('[data-component-row-name]') === null)).toBe(true)
+    const within = view.container.querySelector('[data-reading-entry]') as Element
+    const rows = readComponentEntry({ entry: 'related' }, { entryId: 'related', title: '关联', container: within }).blocks[0]?.rows
+    expect(rows?.named.map(row => [row.key, row.name])).toEqual(RELATED_ROWS.map(row => [row.int_id, row.zh_label]))
+  }, 20_000)
+
+  it('opens and names each record from its name cell beside a radio selection column, not from the relation cell after it', async () => {
+    const onAction = vi.fn<ComponentActionHandler>()
+    const view = render(
+      <div data-reading-entry="">
+        <div data-component-node="page">
+          <DataPageRenderer
+            nodeId="page"
+            props={Object.freeze({ relatedMeta: RELATED_META, metaLabel: '关联', selectMode: 'radio' })}
+            state="idle"
+            onAction={onAction}
+            onOutput={vi.fn()}
+            t={t}
+          />
+        </div>
+      </div>,
+    )
+    await loaded(onAction)
+    const named = (): Element[] => [...view.container.querySelectorAll('[data-component-row-name]')]
+    await vi.waitFor(() => { expect(named()).toHaveLength(RELATED_ROWS.length) }, { timeout: 3000, interval: 20 })
+    // The radio column and the name column are both fixed on the left.
+    expect(view.container.querySelectorAll('.el-table__fixed .el-radio')).toHaveLength(RELATED_ROWS.length)
+    const opening = [...view.container.querySelectorAll('td[data-component-action="cell-click"]')]
+    for (const cells of [opening, named()]) {
+      expect(cells.map(cell => cell.textContent?.trim())).toEqual(RELATED_ROWS.map(row => row.zh_label))
+      expect(cells.every(cell => cell.closest('.el-table__fixed') !== null && cell.querySelector('.el-radio') === null)).toBe(true)
+    }
+    const within = view.container.querySelector('[data-reading-entry]') as Element
+    const rows = readComponentEntry({ entry: 'related' }, { entryId: 'related', title: '关联', container: within }).blocks[0]?.rows
+    expect(rows?.named.map(row => [row.key, row.name])).toEqual(RELATED_ROWS.map(row => [row.int_id, row.zh_label]))
+  }, 20_000)
+
+  it('writes no key a pass run between new records landing and the rows being redrawn would put on the wrong row', async () => {
+    const { view, onAction } = draw(Object.freeze({ relatedMeta: REDRAWN_META, metaLabel: '重画', selectMode: 'checkbox' }))
+    await loaded(onAction)
+    // The scrolling body's rows, then the fixed layer's copies of them.
+    const rows = (): (Element & { readonly __vue__?: { readonly row?: { readonly int_id?: unknown } } })[] =>
+      [...view.container.querySelectorAll('.crud-table tbody tr.el-table__row')]
+    /** Every drawn row whose key names a record other than the one it draws. */
+    const misplaced = (): string[] => rows()
+      .filter(row => row.hasAttribute('data-component-row') && row.getAttribute('data-component-row') !== row.__vue__?.row?.int_id)
+      .map(row => `${row.getAttribute('data-component-row') ?? ''} on ${String(row.__vue__?.row?.int_id)}`)
+    await vi.waitFor(() => { expect(rows().map(row => row.getAttribute('data-component-row'))).toEqual(['a1', 'a2', 'a3', 'a1', 'a2', 'a3']) })
+    const seenMisplaced: string[] = []
+    const watch = new MutationObserver(() => { seenMisplaced.push(...misplaced()) })
+    watch.observe(view.container, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-component-row'] })
+    const page = pageOf(view.container) as PageInstance & { resultData: Readonly<Record<string, unknown>> }
+    /**
+     * Replace the records the page displays the way an answer does, after a
+     * change below the box: the mark pass that change queues runs before Vue
+     * redraws the rows, with the new records and the old rows.
+     */
+    const replaceWith = async (records: readonly Readonly<Record<string, unknown>>[]): Promise<void> => {
+      view.container.querySelector('.crud-table')?.appendChild(document.createElement('span'))
+      Object.assign(page, { resultData: Object.freeze({ ...page.resultData, rawValue: records, displayValue: records }) })
+      await drain()
+    }
+    // As many records, other ones.
+    await replaceWith([{ int_id: 'b1', zh_label: '丁', city: '甲' }, { int_id: 'b2', zh_label: '戊', city: '乙' }, { int_id: 'b3', zh_label: '己', city: '丙' }])
+    expect(rows().map(row => row.getAttribute('data-component-row'))).toEqual(['b1', 'b2', 'b3', 'b1', 'b2', 'b3'])
+    // As many records, the same ids in another order, as new objects.
+    await replaceWith([{ int_id: 'b2', zh_label: '戊', city: '乙' }, { int_id: 'b1', zh_label: '丁', city: '甲' }, { int_id: 'b3', zh_label: '己', city: '丙' }])
+    expect(rows().map(row => row.getAttribute('data-component-row'))).toEqual(['b2', 'b1', 'b3', 'b2', 'b1', 'b3'])
+    watch.disconnect()
+    expect(seenMisplaced).toEqual([])
   }, 20_000)
 
   it('marks a control a redraw adds by the key the call now declares', async () => {
