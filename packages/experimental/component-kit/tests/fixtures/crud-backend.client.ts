@@ -34,6 +34,12 @@ export interface StubTable {
   /** The rows every query is answered with. */
   readonly rows: readonly Readonly<Record<string, unknown>>[]
   /**
+   * What each row's relation columns refer to, by position, as a query
+   * answer's `ref` carries it: the page draws a relation link only in a cell
+   * whose entry here names the related table. None where absent.
+   */
+  readonly refs?: readonly Readonly<Record<string, string>>[]
+  /**
    * The columns the profile this stub answers grants the table's modify forms,
    * which is where the page reads what the visitor may change; every other
    * field of those forms is drawn read-only. None where absent.
@@ -140,9 +146,10 @@ function route(method: string, url: string, body: string): [number, unknown] {
   }
   const search = /\/nrms-datamanagement\/api\/resources\/([^/]+)\/_search$/.exec(path)
   if (method === 'POST' && search !== null) {
-    const rows = tables.get(search[1] ?? '')?.rows ?? []
+    const table = tables.get(search[1] ?? '')
+    const rows = table?.rows ?? []
     const page = { total: rows.length, currentPage: 1, pageSize: 20 }
-    return [200, { code: 0, data: { rawValue: rows, displayValue: rows, ref: [], page } }]
+    return [200, { code: 0, data: { rawValue: rows, displayValue: rows, ref: table?.refs ?? [], page } }]
   }
   if (method === 'POST' && /\/nrms-datamanagement\/api\/batchresources\/delete\/[^/?]+$/.test(path)) return answerBatchWrite(body)
   if (method === 'PUT' && /\/nrms-datamanagement\/api\/batchresources\/[^/?]+$/.test(path)) return answerBatchWrite(body)

@@ -137,6 +137,26 @@ describe('the actions the catalog declares and the marks the renderers write', (
     expect(rowKeys()).toEqual([[null, null], [null, null]])
   })
 
+  it('marks each record\'s name cell in the pass that writes its key, and leaves the names with the keys', () => {
+    document.body.innerHTML = TABLE
+    /** The cells marked as their row's name, by the words they draw. */
+    const names = (): string[] => [...document.querySelectorAll('[data-component-row-name]')].map(cell => cell.textContent ?? '')
+    // A pass that cannot key the rows names none of them either.
+    markTable(document.body, { rowKeys: () => undefined })
+    expect(names()).toEqual([])
+    markTable(document.body, { rowKeys: () => ['1044', '1045'] })
+    expect(names()).toEqual(['甲', '乙'])
+    expect([...document.querySelectorAll('[data-component-row-name]')].every(cell => cell.closest('.el-table__fixed') !== null)).toBe(true)
+    // A pass that leaves the keys leaves the names, and one that writes keys
+    // takes the mark off a cell no longer named.
+    const stale = document.querySelector('.el-table__body-wrapper td.el-table_1_column_2') as Element
+    stale.setAttribute('data-component-row-name', '')
+    markTable(document.body, { rowKeys: () => ['1046'] })
+    expect(names()).toEqual(['北京', '甲', '乙'])
+    markTable(document.body, { rowKeys: () => ['1044', '1045'] })
+    expect(names()).toEqual(['甲', '乙'])
+  })
+
   it('marks each drawn record link with the column it is drawn in, and with no own key where the table names none', () => {
     document.body.innerHTML = TABLE
     const table = document.querySelector('.el-table') as Element

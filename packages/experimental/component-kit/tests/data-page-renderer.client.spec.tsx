@@ -34,6 +34,7 @@ import { NO_ABILITIES, type DataPageAbilityTable } from '../src/route.ts'
 import { answers, defineTable, drain, flush, seen, settleProgress, STORED_TOKEN, StubRequest } from './fixtures/crud-backend.client.ts'
 import { BASE_PATH, basePathRead } from './fixtures/base-path.client.ts'
 import { instanceOf } from './fixtures/kit-blocks.client.ts'
+import { readComponentEntry } from '@deepseek-ai/dsh-experimental-component-surface/src/client/read-executor.ts'
 
 vi.mock('../src/client/data-page-settings.ts', () => import('./fixtures/base-path.client.ts'))
 
@@ -161,6 +162,32 @@ defineTable(LINKED_META, {
     { relatedMetaAttr: 'city', alias: '城市', isShow: 1, isEditable: 1, isRequired: 0, relatedComponent: 'edit_input', op: 'EQ' },
   ],
   rows: LINKED_ROWS,
+})
+
+/**
+ * A table of twenty records whose relation column refers to a record in every
+ * other row and is empty in the rest, so the page draws a relation link in
+ * half the rows' scrolling body and none in the others.
+ */
+const RELATED_META = 'probe_related'
+
+/** The rows of {@link RELATED_META}, in the order the page draws them. */
+const RELATED_ROWS = Array.from({ length: 20 }, (_, at) => ({
+  int_id: `r${String(at + 1).padStart(2, '0')}`,
+  zh_label: `记录-${String(at + 1).padStart(2, '0')}`,
+  city_id: at % 2 === 0 ? `城市-${String(at + 1)}` : '',
+}))
+
+defineTable(RELATED_META, {
+  gridItems: [
+    { relatedMetaAttr: 'zh_label', alias: '名称', isShow: '1', relatedComponent: 'display_default' },
+    { relatedMetaAttr: 'city_id', alias: '城市', isShow: '1', relatedComponent: 'display_default' },
+  ],
+  formItems: [
+    { relatedMetaAttr: 'zh_label', alias: '名称', isShow: 1, isEditable: 1, isRequired: 0, relatedComponent: 'edit_input', op: 'LIKE' },
+  ],
+  rows: RELATED_ROWS,
+  refs: RELATED_ROWS.map(row => (row.city_id === '' ? {} : { city_id: 'City' })),
 })
 
 /** Every node appended straight under the document body, by id, while a case ran. */
@@ -1335,6 +1362,36 @@ describe('the controls one data page marks for the act tool', () => {
     expect(onAction.mock.calls.map(call => call[0])).toEqual(['card-open', 'cell-click'])
     expect(onAction).toHaveBeenCalledWith('card-open', { name: '燃气管线', type: LINKED_META })
     expect(onOutput).toHaveBeenLastCalledWith('opened', { id: '1134933624650219531', name: '燃气管线', type: LINKED_META })
+  }, 20_000)
+
+  it('marks each record\'s name cell as its row\'s name and no relation cell, so a reading names the record itself', async () => {
+    const onAction = vi.fn<ComponentActionHandler>()
+    const view = render(
+      <div data-reading-entry="">
+        <div data-component-node="page">
+          <DataPageRenderer
+            nodeId="page"
+            props={Object.freeze({ relatedMeta: RELATED_META, metaLabel: '关联', selectMode: 'checkbox' })}
+            state="idle"
+            onAction={onAction}
+            onOutput={vi.fn()}
+            t={t}
+          />
+        </div>
+      </div>,
+    )
+    await loaded(onAction)
+    const named = (): Element[] => [...view.container.querySelectorAll('[data-component-row-name]')]
+    await vi.waitFor(() => { expect(named()).toHaveLength(RELATED_ROWS.length) }, { timeout: 3000, interval: 20 })
+    expect(named().map(cell => cell.textContent?.trim())).toEqual(RELATED_ROWS.map(row => row.zh_label))
+    expect(named().every(cell => cell.closest('.el-table__fixed') !== null)).toBe(true)
+    // The relation links stand in cells no row is named by.
+    const relations = [...view.container.querySelectorAll('[data-component-action="card-open"][data-component-key="city_id"]')]
+    expect(relations).toHaveLength(10)
+    expect(relations.every(link => link.closest('[data-component-row-name]') === null)).toBe(true)
+    const within = view.container.querySelector('[data-reading-entry]') as Element
+    const rows = readComponentEntry({ entry: 'related' }, { entryId: 'related', title: '关联', container: within }).blocks[0]?.rows
+    expect(rows?.named.map(row => [row.key, row.name])).toEqual(RELATED_ROWS.map(row => [row.int_id, row.zh_label]))
   }, 20_000)
 
   it('marks a control a redraw adds by the key the call now declares', async () => {

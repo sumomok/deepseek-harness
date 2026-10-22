@@ -38,6 +38,9 @@ export const FIELD_MARK = 'data-component-field'
 /** The attribute naming the row a control is drawn in, by the key the block gives that row. */
 export const ROW_MARK = 'data-component-row'
 
+/** The attribute, carrying no value, marking the cell whose words are its row's name. */
+export const ROW_NAME_MARK = 'data-component-row-name'
+
 /** The one action a table's selection controls report. */
 const SELECT_ACTION = 'select'
 
@@ -138,7 +141,7 @@ export interface TableMarks {
   readonly link?: string
   /**
    * How each drawn row is keyed, read at every pass; absent for a table whose
-   * rows carry no key.
+   * rows carry no key and no name mark.
    */
   readonly rowKeys?: RowKeys
   /** The action a sortable heading reports; absent for a table that reports no sort. */
@@ -319,9 +322,10 @@ function markLinks(table: Element, action: string): void {
  * off the row rather than written.
  * @param bodies - the record rows of every body the table draws, the scrolling one first.
  * @param keys - one key per record, or `undefined` where this pass cannot key the rows.
+ * @returns whether this pass wrote the keys.
  */
-function markRowKeys(bodies: readonly (readonly Element[])[], keys: readonly (string | undefined)[] | undefined): void {
-  if (keys === undefined || bodies.some(rows => rows.length !== keys.length)) return
+function markRowKeys(bodies: readonly (readonly Element[])[], keys: readonly (string | undefined)[] | undefined): boolean {
+  if (keys === undefined || bodies.some(rows => rows.length !== keys.length)) return false
   for (const rows of bodies) {
     for (const [at, row] of rows.entries()) {
       const key = keys[at]
@@ -329,22 +333,42 @@ function markRowKeys(bodies: readonly (readonly Element[])[], keys: readonly (st
       else row.removeAttribute(ROW_MARK)
     }
   }
+  return true
+}
+
+/**
+ * Mark the cell each record is named by — the cell its row opens from, which
+ * is its name cell where the table draws one — and take the mark off every
+ * other cell, so a reading calls the row by the record's own name rather than
+ * by a relation cell drawing another record's.
+ * @param table - the table.
+ * @param named - the cells to mark.
+ */
+function markRowNames(table: Element, named: ReadonlySet<Element>): void {
+  for (const cell of table.querySelectorAll('tbody td')) {
+    if (named.has(cell)) cell.setAttribute(ROW_NAME_MARK, '')
+    else cell.removeAttribute(ROW_NAME_MARK)
+  }
 }
 
 /**
  * Mark one table's rows: the cell each record is opened from, its record
- * links, and the key every row of it carries.
+ * links, and the key every row of it carries with the cell it is named by.
+ * The names are written in the pass that writes the keys and left as they
+ * stand by a pass that leaves the keys, so a row's name and its key are of
+ * one record.
  * @param table - the table.
  * @param marks - what this table reports.
  */
 function markRows(table: Element, marks: TableMarks): void {
   const main = recordRows(table.querySelector(MAIN_BODY))
   const fixed = [table.querySelector(LEFT_BODY), table.querySelector(RIGHT_BODY)]
-  if (marks.row !== undefined) markOpening(table, marks.row, openingCells(main, recordRows(fixed[0] ?? null)))
+  const opening = openingCells(main, recordRows(fixed[0] ?? null))
+  if (marks.row !== undefined) markOpening(table, marks.row, opening)
   if (marks.link !== undefined) markLinks(table, marks.link)
   if (marks.rowKeys === undefined) return
   const drawn = fixed.filter((body): body is Element => body !== null).map(recordRows)
-  markRowKeys([main, ...drawn], marks.rowKeys(main))
+  if (markRowKeys([main, ...drawn], marks.rowKeys(main))) markRowNames(table, opening)
 }
 
 /**

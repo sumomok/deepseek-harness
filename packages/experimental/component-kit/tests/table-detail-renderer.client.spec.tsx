@@ -18,6 +18,7 @@ import { installElementUI } from '../src/client/element-ui.ts'
 import { TableDetailRenderer } from '../src/client/TableDetailRenderer.tsx'
 import { en } from '../src/client/locales.ts'
 import type { ComponentActionState, ComponentRendererProps } from '../src/client/renderer.ts'
+import { readComponentEntry } from '@deepseek-ai/dsh-experimental-component-surface/src/client/read-executor.ts'
 
 beforeAll(installElementUI)
 afterEach(cleanup)
@@ -408,6 +409,35 @@ describe('toy.table', () => {
     expect(host?.childElementCount).toBe(1)
     view.unmount()
     expect(host?.childElementCount).toBe(0)
+  })
+})
+
+describe('the cell a toy.table row is named by', () => {
+  it('marks each row\'s name cell whether or not its rows open, so a reading names the row by it', async () => {
+    for (const isNameClick of [true, false]) {
+      cleanup()
+      const view = render(
+        <div data-reading-entry="">
+          <div data-component-node="t">
+            <TableDetailRenderer
+              nodeId="t"
+              props={{ tableConfig: { gridItems: COLUMNS }, displayValueList: ROWS, isNameClick, selectMode: 'checkbox' }}
+              state="idle"
+              onAction={vi.fn()}
+              onOutput={vi.fn()}
+              t={t}
+            />
+          </div>
+        </div>,
+      )
+      await flush()
+      // Ticking makes each row a row a reading lists, whether or not it opens.
+      expect([...view.container.querySelectorAll('[data-component-row-name]')].map(cell => cell.textContent?.trim()))
+        .toEqual(ROWS.map(row => row.zh_label))
+      const within = view.container.querySelector('[data-reading-entry]') as Element
+      const rows = readComponentEntry({ entry: 'demo' }, { entryId: 'demo', title: 'T', container: within }).blocks[0]?.rows
+      expect(rows?.named.map(row => [row.key, row.name])).toEqual([['1', '一号站点'], ['2', '二号站点']])
+    }
   })
 })
 
