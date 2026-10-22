@@ -31,6 +31,22 @@ export interface GateBrowser {
    * @param value - the value to store, as it is to be read back.
    */
   writeStorage(key: string, value: string): void
+  /**
+   * One value out of this tab's own session storage, or `null` when nothing
+   * is stored under that key or the browser keeps no session storage for the
+   * page.
+   * @param key - the session-storage key to read.
+   * @returns the stored value, or `null`.
+   */
+  readSession(key: string): string | null
+  /**
+   * Put one value into this tab's own session storage.
+   * @param key - the session-storage key to write.
+   * @param value - the value to store.
+   * @returns whether the browser kept it; a browser that stores nothing for
+   * the page refuses rather than throws.
+   */
+  writeSession(key: string, value: string): boolean
   /** The named cookie's value, or `undefined` when the visitor carries no such cookie. */
   readCookie(name: string): string | undefined
   /** Write the named cookie for the deployment path the shell is served under. */
@@ -168,6 +184,23 @@ export function windowGateBrowser(): GateBrowser {
     currentHref: () => location.href,
     readStorage: key => localStorage.getItem(key),
     writeStorage: (key, value) => { localStorage.setItem(key, value) },
+    readSession: (key) => {
+      try {
+        return sessionStorage.getItem(key)
+      } catch (_noSessionStorage) {
+        // A page denied storage throws on the access itself; it has nothing stored.
+        return null
+      }
+    },
+    writeSession: (key, value) => {
+      try {
+        sessionStorage.setItem(key, value)
+      } catch (_noSessionStorage) {
+        // Denied storage, or a full quota: the value was not kept, which the caller acts on.
+        return false
+      }
+      return true
+    },
     readCookie: name => readCookieFrom(document.cookie, name),
     writeCookie: (name, value) => { document.cookie = mirrorCookieLine(name, value, cookiePath) },
     clearCookie: (name) => { document.cookie = clearCookieLine(name, cookiePath) },

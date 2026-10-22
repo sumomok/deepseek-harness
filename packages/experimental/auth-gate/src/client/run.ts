@@ -1,7 +1,8 @@
 /**
  * The gate itself: the boot sequence, the account-switch watch, the expiry
- * schedule, and the renewal a deployment that offers one gets, driven through
- * one {@link GateBrowser} so the whole thing runs without a DOM.
+ * schedule, the renewal a deployment that offers one gets, and the site's own
+ * refusal of the token, driven through one {@link GateBrowser} so the whole
+ * thing runs without a DOM.
  *
  * The mirror never loops. A boot that has to mirror writes the cookie, reads it
  * back, and reloads only when the read-back shows the write took; a write that
@@ -14,15 +15,26 @@ import {
   ACCESS_TOKEN_STORAGE_KEY,
   ACCESS_TOKEN_TIME_STORAGE_KEY,
   LOGIN_USER_INFO_STORAGE_KEY,
+  REFUSED_TOKEN_SESSION_KEY,
   type AuthGateRenewalSettings,
   type AuthGateSettings,
 } from '../route.ts'
 import { storedToken, type GateBrowser } from './browser.ts'
-import { decideChange, decideGate, expiryDelayMs, loginHref, usableToken, type UsableToken } from './gate.ts'
+import { decideChange, decideGate, expiryDelayMs, loginHref, refusalMark, usableToken, type UsableToken } from './gate.ts'
 import { accessTokenTimestamp, parseRenewalAnswer, renewalHeaders } from './renewal.ts'
 
 /** Nothing to release: the page is leaving, and whatever it held goes with it. */
 const LEAVING = (): void => {}
+
+/** The status the site's own login check refuses a token with. */
+export const REFUSED_STATUS = 401
+
+/**
+ * What became of one token handed to the node half: taken; refused by the
+ * site's own login check, which answers {@link REFUSED_STATUS}; or neither, a
+ * failure the client half reports and the gate does not act on.
+ */
+export type PushOutcome = 'taken' | 'refused' | 'unsettled'
 
 /**
  * The access token this page currently has, as the gate reads it: the stored
@@ -38,13 +50,17 @@ function heldToken(browser: GateBrowser): string | null {
  * Run the gate for one page load.
  * @param browser - the page's storage, cookies, clock, and navigation.
  * @param settings - the node half's configuration for this browser.
- * @param push - hands one accepted token to the node half. It must not throw:
- * every call is made from inside a decision this gate is taking — the boot, a
- * storage change, a renewal that landed — so a throw propagates out of this
- * function or out of a timer callback nothing awaits, leaving that decision
- * half-made. The client half posts the token and reports a refusal through
- * `.catch`.
+ * @param push - hands one accepted token to the node half, and resolves with
+ * what became of it. It must neither throw nor reject: every call is made from
+ * inside a decision this gate is taking — the boot, a storage change, a renewal
+ * that landed — so a throw propagates out of this function, and a rejection out
+ * of a promise nothing awaits, leaving that decision half-made. The client half
+ * posts the token, resolves a 401 as `refused`, and reports any other failure
+ * itself before resolving `unsettled`.
  * @param revoke - tells the node half to drop the token it holds.
+ * @param showRefusal - shows the visitor that this page's sign-in is no longer
+ * accepted and that the page stays as it is; called once, when the gate stops
+ * over a token the login page handed back after the site refused it.
  * @returns the disposer releasing the storage subscription, the pending timers,
  * and any renewal in flight.
  * @throws {Error} when the mirror cookie cannot be written, which is the one
@@ -53,8 +69,9 @@ function heldToken(browser: GateBrowser): string | null {
 export function runGate(
   browser: GateBrowser,
   settings: AuthGateSettings,
-  push: (token: string) => void,
+  push: (token: string) => Promise<PushOutcome>,
   revoke: () => void,
+  showRefusal: () => void,
 ): () => void {
   const decision = decideGate(heldToken(browser), browser.readCookie(settings.cookieName), browser.now())
   if (decision.kind === 'login') {
@@ -66,14 +83,14 @@ export function runGate(
     browser.reload()
     return LEAVING
   }
-  return watch(browser, settings, push, revoke, decision.accepted)
+  return watch(browser, settings, { push, revoke, showRefusal }, decision.accepted)
 }
 
 /**
  * Give up the token this page was running on and send the visitor to the login
  * page. The gate's one exit, taken on a boot that found no usable token, on a
- * token another tab removed or let expire, and on an expiry margin no renewal
- * answered.
+ * token another tab removed or let expire, on an expiry margin no renewal
+ * answered, and on a token the site's own login check refused.
  *
  * The order is the whole point. The node half drops the token first, so the
  * process stops spending a credential its visitor no longer has. The mirror
@@ -92,11 +109,23 @@ export function runGate(
  * @param browser - the page's cookies and navigation.
  * @param settings - the node half's configuration for this browser.
  * @param revoke - tells the node half to drop the token it holds.
+ * @param refusedStatus - the status the site refused the token with, when that
+ * is why the visitor is leaving; the login address then carries it.
  */
-function leaveForLogin(browser: GateBrowser, settings: AuthGateSettings, revoke: () => void): void {
+function leaveForLogin(browser: GateBrowser, settings: AuthGateSettings, revoke: () => void, refusedStatus?: number): void {
   revoke()
   browser.clearCookie(settings.cookieName)
-  browser.navigate(loginHref(settings.loginUrl, browser.currentHref()))
+  browser.navigate(loginHref(settings.loginUrl, browser.currentHref(), refusedStatus))
+}
+
+/** The node half's two operations and the refusal notice, as the watch uses them. */
+interface GateHalves {
+  /** Hands one accepted token to the node half and resolves with what became of it. */
+  readonly push: (token: string) => Promise<PushOutcome>
+  /** Tells the node half to drop the token it holds. */
+  readonly revoke: () => void
+  /** Shows the visitor that this page's sign-in is no longer accepted. */
+  readonly showRefusal: () => void
 }
 
 /**
@@ -165,13 +194,13 @@ function storedRenewal(browser: GateBrowser, next: string): boolean {
 }
 
 /**
- * Hand the token to the node half, then keep watching for the three things that
+ * Hand the token to the node half, then keep watching for the four things that
  * can change under a running page: another tab's token, this token's expiry,
- * and — where the deployment offers a renewal endpoint — this token's age.
+ * this token's age where the deployment offers a renewal endpoint, and the
+ * site's own login check refusing it.
  * @param browser - the page's storage, clock, and navigation.
  * @param settings - the node half's configuration for this browser.
- * @param push - hands one accepted token to the node half.
- * @param revoke - tells the node half to drop the token it holds.
+ * @param halves - the node half's operations and the refusal notice.
  * @param first - the token this page load runs on.
  * @returns the disposer releasing the subscription, the pending timers, and any
  * renewal in flight.
@@ -179,10 +208,10 @@ function storedRenewal(browser: GateBrowser, next: string): boolean {
 function watch(
   browser: GateBrowser,
   settings: AuthGateSettings,
-  push: (token: string) => void,
-  revoke: () => void,
+  halves: GateHalves,
   first: UsableToken,
 ): () => void {
+  const { push, revoke, showRefusal } = halves
   const { renewal } = settings
   let current = first
   let cancelExpiry: () => void = LEAVING
@@ -239,9 +268,43 @@ function watch(
   const marginDelayMs = (accepted: UsableToken): number =>
     expiryDelayMs(accepted.expSeconds, settings.refreshMarginSeconds, browser.now())
 
+  /**
+   * What the gate does when the site's own login check refuses the token it
+   * handed the node half: the deployment holds a sign-in the page itself still
+   * reads as usable — revoked, signed with a rotated key, an account since
+   * disabled — so the page leaves for the login page, as it does at the expiry
+   * margin, with the refusal's status in the login address.
+   *
+   * Only the token in hand counts, by the rule each expiry margin follows: a
+   * token another tab, a renewal, or a new sign-in replaced while the post was
+   * out says nothing about the one the page now runs on.
+   *
+   * A login page that hands the same token back would send the visitor round
+   * the two pages for as long as the token lasts, so the trip is taken once per
+   * token. The token's mark goes into this tab's session storage before the
+   * page leaves; finding the mark already there, or a browser that keeps no
+   * session storage, stops the gate instead, and the visitor is told the
+   * sign-in is no longer accepted. Stopped is released: nothing armed for that
+   * token runs, and nothing renews it.
+   * @param refused - the token the site refused.
+   */
+  const onRefused = (refused: UsableToken): void => {
+    if (released || current !== refused) return
+    const mark = refusalMark(refused)
+    if (browser.readSession(REFUSED_TOKEN_SESSION_KEY) === mark || !browser.writeSession(REFUSED_TOKEN_SESSION_KEY, mark)) {
+      release()
+      showRefusal()
+      return
+    }
+    release()
+    leaveForLogin(browser, settings, revoke, REFUSED_STATUS)
+  }
+
   const arm = (accepted: UsableToken): void => {
     current = accepted
-    push(accepted.token)
+    void push(accepted.token).then((outcome) => {
+      if (outcome === 'refused') onRefused(accepted)
+    })
     cancelExpiry()
     // Scheduled with the token it is answering for, so a margin that comes back
     // from a failed renewal can tell whether the page is still running on it.

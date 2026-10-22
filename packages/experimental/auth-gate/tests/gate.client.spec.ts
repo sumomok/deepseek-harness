@@ -15,6 +15,7 @@ import {
   decodeJwtPayload,
   expiryDelayMs,
   loginHref,
+  refusalMark,
   tokenSubject,
   usableToken,
 } from '../src/client/gate.ts'
@@ -143,6 +144,11 @@ describe('auth-gate login address', () => {
       .toBe('/toy-proxy/toy-login/#/?redirect=https%3A%2F%2Fharness.example%2Fchat%3Fsession%3Da%20b')
   })
 
+  it('carries the status the site refused the token with, after the return address', () => {
+    expect(loginHref('/toy-login/#/', 'https://harness.example/chat', 401))
+      .toBe('/toy-login/#/?redirect=https%3A%2F%2Fharness.example%2Fchat&httpstatus=401')
+  })
+
   /** The return address the login page is handed, read back out of the redirect. */
   function returnAddress(currentHref: string): string {
     return decodeURIComponent(loginHref('/toy-login/#/', currentHref).slice('/toy-login/#/?redirect='.length))
@@ -182,6 +188,19 @@ describe('auth-gate login address', () => {
 
   it('leaves an address that carries no query string exactly as it is', () => {
     expect(returnAddress('https://harness.example/chat#/board')).toBe('https://harness.example/chat#/board')
+  })
+})
+
+describe('auth-gate refusal mark', () => {
+  it('names a token by its jti, and by its exp where it carries no usable jti', () => {
+    const exp = NOW / 1000 + 3600
+    const withJti = jwt({ sub: 'u-1', jti: 'j-1', exp })
+    expect(refusalMark({ token: withJti, expSeconds: exp })).toBe('jti:j-1')
+    expect(refusalMark({ token: LIVE, expSeconds: exp })).toBe(`exp:${String(exp)}`)
+    expect(refusalMark({ token: jwt({ sub: 'u-1', jti: '', exp }), expSeconds: exp })).toBe(`exp:${String(exp)}`)
+    expect(refusalMark({ token: jwt({ sub: 'u-1', jti: 7, exp }), expSeconds: exp })).toBe(`exp:${String(exp)}`)
+    // The mark is not the token.
+    expect(refusalMark({ token: withJti, expSeconds: exp })).not.toContain(withJti.split('.')[1])
   })
 })
 

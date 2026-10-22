@@ -184,13 +184,32 @@ function returnAddress(currentHref: string): string {
 
 /**
  * Where an unauthenticated visitor is sent, carrying the page to come back to.
+ * A visitor sent because the site refused the token also carries
+ * `httpstatus=<status>`, the parameter the deployment's own HTTP client adds
+ * when it leaves for the login page over a refused request.
  * @param loginUrl - the configured login destination, which carries no query
  * string of its own.
  * @param currentHref - the page the visitor asked for.
+ * @param refusedStatus - the status the site refused the token with, when that
+ * is why the visitor is leaving.
  * @returns the login URL with the return address appended.
  */
-export function loginHref(loginUrl: string, currentHref: string): string {
-  return `${loginUrl}?redirect=${encodeURIComponent(returnAddress(currentHref))}`
+export function loginHref(loginUrl: string, currentHref: string, refusedStatus?: number): string {
+  const refused = refusedStatus === undefined ? '' : `&httpstatus=${String(refusedStatus)}`
+  return `${loginUrl}?redirect=${encodeURIComponent(returnAddress(currentHref))}${refused}`
+}
+
+/**
+ * What names one token across a trip to the login page and back: its `jti`
+ * claim, or its `exp` where it carries no `jti`. The mark is not the token and
+ * names no member, and it is kept in the same origin's session storage as the
+ * whole token is in its local storage.
+ * @param accepted - the token the site refused.
+ * @returns the mark.
+ */
+export function refusalMark(accepted: UsableToken): string {
+  const jti = decodeJwtPayload(accepted.token)?.jti
+  return typeof jti === 'string' && jti !== '' ? `jti:${jti}` : `exp:${String(accepted.expSeconds)}`
 }
 
 /**

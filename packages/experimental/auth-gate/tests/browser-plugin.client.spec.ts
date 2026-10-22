@@ -23,7 +23,7 @@ import {
   windowGateBrowser,
   type GateBrowser,
 } from '../src/client/browser.ts'
-import { runGate } from '../src/client/run.ts'
+import { runGate, type PushOutcome } from '../src/client/run.ts'
 import {
   ACCESS_TOKEN_STORAGE_KEY,
   ACCESS_TOKEN_TIME_STORAGE_KEY,
@@ -32,6 +32,7 @@ import {
   AUTH_GATE_TOKEN_ROUTE,
   LOGIN_USER_INFO_STORAGE_KEY,
   MAX_TIMER_DELAY_MS,
+  REFUSED_TOKEN_SESSION_KEY,
   type AuthGateSettings,
 } from '../src/route.ts'
 
@@ -86,6 +87,9 @@ interface RenewalRequest {
 /** A browser whose every effect is recorded rather than performed. */
 class Bench implements GateBrowser {
   readonly storage = new Map<string, string>()
+  readonly session = new Map<string, string>()
+  /** Whether a session-storage write is kept, as one in a tab given no storage is not. */
+  sessionWritesTake = true
   readonly cookies = new Map<string, string>()
   /** Whether a cookie write is kept, as a browser refusing `Secure` over plain HTTP would not. */
   cookieWritesTake = true
@@ -126,6 +130,16 @@ class Bench implements GateBrowser {
 
   readStorage(key: string): string | null {
     return this.storage.get(key) ?? null
+  }
+
+  readSession(key: string): string | null {
+    return this.session.get(key) ?? null
+  }
+
+  writeSession(key: string, value: string): boolean {
+    if (!this.sessionWritesTake) return false
+    this.session.set(key, value)
+    return true
   }
 
   writeStorage(key: string, value: string): void {
@@ -188,14 +202,28 @@ class Bench implements GateBrowser {
   }
 }
 
-/** Run the gate over a bench prepared with `token` already in the cookie jar. */
-function boot(bench: Bench, settings: AuthGateSettings = SETTINGS): { dispose: () => void; pushed: string[] } {
+/**
+ * Run the gate over a bench prepared with `token` already in the cookie jar.
+ * @param bench - the browser.
+ * @param settings - the node half's configuration.
+ * @param outcome - what the node half's token route makes of each token it is handed; taken by default.
+ * @returns the disposer and every token handed over.
+ */
+function boot(
+  bench: Bench,
+  settings: AuthGateSettings = SETTINGS,
+  outcome: (token: string) => PushOutcome = () => 'taken',
+): { dispose: () => void; pushed: string[] } {
   const pushed: string[] = []
   const dispose = runGate(
     bench,
     settings,
-    token => pushed.push(token),
+    (token) => {
+      pushed.push(token)
+      return Promise.resolve(outcome(token))
+    },
     () => { bench.log.push('revoke') },
+    () => { bench.log.push('showRefusal') },
   )
   return { dispose, pushed }
 }
@@ -350,6 +378,83 @@ describe('auth-gate while the page runs', () => {
     dispose()
     expect({ subscribed: bench.subscribed, cancelled: bench.cancelledTimers })
       .toEqual({ subscribed: false, cancelled: 0 })
+  })
+})
+
+describe('auth-gate when the site refuses the token', () => {
+  /** The login address a refusal leaves for: the usual one, with the refusal's status. */
+  const REFUSED_LOGIN = `${LOGIN}&httpstatus=401`
+  /** The sign-out sequence a refusal runs, toward that address. */
+  const REFUSED_SIGN_OUT = ['revoke', 'clearCookie:accessToken', `navigate:${REFUSED_LOGIN}`]
+
+  /**
+   * A page running on {@link LIVE}, whose token route answers each token with `outcome`.
+   * @param outcome - what the route makes of each token.
+   * @returns the bench and the gate's disposer.
+   */
+  function refusing(outcome: (token: string) => PushOutcome = () => 'refused'): { bench: Bench; dispose: () => void } {
+    const bench = new Bench()
+    bench.token = LIVE
+    bench.cookies.set('accessToken', LIVE)
+    const { dispose } = boot(bench, SETTINGS, outcome)
+    return { bench, dispose }
+  }
+
+  it('leaves for the login page once, carrying the refusal\'s status, and marks the token in this tab', async () => {
+    const { bench } = refusing()
+    await settled()
+    expect(bench.log).toEqual(REFUSED_SIGN_OUT)
+    expect(bench.session.get(REFUSED_TOKEN_SESSION_KEY)).toBe(`exp:${String(NOW / 1000 + 3600)}`)
+    // Released before leaving: nothing armed for the refused token runs.
+    expect({ subscribed: bench.subscribed, cancelled: bench.cancelledTimers }).toEqual({ subscribed: false, cancelled: 1 })
+  })
+
+  it('stays and tells the visitor when the login page hands back the token it already left over', async () => {
+    const { bench } = refusing()
+    bench.session.set(REFUSED_TOKEN_SESSION_KEY, `exp:${String(NOW / 1000 + 3600)}`)
+    await settled()
+    expect(bench.log).toEqual(['showRefusal'])
+    expect(bench.navigations).toEqual([])
+    expect(bench.cookies.get('accessToken')).toBe(LIVE)
+    expect({ subscribed: bench.subscribed, cancelled: bench.cancelledTimers }).toEqual({ subscribed: false, cancelled: 1 })
+  })
+
+  it('leaves again for a different token the login page signed in with', async () => {
+    const { bench } = refusing()
+    bench.session.set(REFUSED_TOKEN_SESSION_KEY, `exp:${String(NOW / 1000 + 7200)}`)
+    await settled()
+    expect(bench.log).toEqual(REFUSED_SIGN_OUT)
+  })
+
+  it('stays and tells the visitor when this tab cannot keep the mark, rather than risk leaving round and round', async () => {
+    const bench = new Bench()
+    bench.sessionWritesTake = false
+    bench.token = LIVE
+    bench.cookies.set('accessToken', LIVE)
+    boot(bench, SETTINGS, () => 'refused')
+    await settled()
+    expect(bench.log).toEqual(['showRefusal'])
+  })
+
+  it('leaves over a token handed over after a renewal elsewhere, and for nothing the route failed otherwise', async () => {
+    const { bench } = refusing(token => (token === RENEWED ? 'refused' : 'unsettled'))
+    await settled()
+    expect(bench.log).toEqual([])
+    bench.storageWrote(RENEWED)
+    await settled()
+    expect(bench.log).toEqual(REFUSED_SIGN_OUT)
+  })
+
+  it('ignores a refusal for a token the page no longer runs on, and one that lands after disposal', async () => {
+    const replaced = refusing(token => (token === LIVE ? 'refused' : 'taken'))
+    // Another tab renewed before the first post was answered.
+    replaced.bench.storageWrote(RENEWED)
+    await settled()
+    expect(replaced.bench.log).toEqual([])
+    const disposed = refusing()
+    disposed.dispose()
+    await settled()
+    expect(disposed.bench.log).toEqual([])
   })
 })
 
@@ -866,6 +971,25 @@ describe('auth-gate window browser', () => {
     expect(page.stored.get(ACCESS_TOKEN_TIME_STORAGE_KEY)).toBe('2027-01-15T08:00:00.000Z')
   })
 
+  it('reads and writes this tab\'s session storage, and reads nothing and keeps nothing where the page is denied it', () => {
+    stubPage('', null)
+    const session = new Map<string, string>()
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => session.get(key) ?? null,
+      setItem: (key: string, value: string) => { session.set(key, value) },
+    })
+    const browser = windowGateBrowser()
+    expect(browser.readSession(REFUSED_TOKEN_SESSION_KEY)).toBeNull()
+    expect(browser.writeSession(REFUSED_TOKEN_SESSION_KEY, 'exp:1')).toBe(true)
+    expect(browser.readSession(REFUSED_TOKEN_SESSION_KEY)).toBe('exp:1')
+    vi.stubGlobal('sessionStorage', {
+      getItem: () => { throw new Error('SecurityError') },
+      setItem: () => { throw new Error('QuotaExceededError') },
+    })
+    expect(browser.readSession(REFUSED_TOKEN_SESSION_KEY)).toBeNull()
+    expect(browser.writeSession(REFUSED_TOKEN_SESSION_KEY, 'exp:1')).toBe(false)
+  })
+
   it('writes and removes the mirror cookie, navigates, and reloads through the page itself', () => {
     const page = stubPage('', null)
     const browser = windowGateBrowser()
@@ -1010,7 +1134,7 @@ describe('auth-gate browser plugin', () => {
   })
 
   /** Answer the node half's three routes; record what the token and sign-out routes received. */
-  function serve(settings: unknown, ok = true, tokenOk = true, logoutOk = true): {
+  function serve(settings: unknown, ok = true, tokenOk: boolean | number = true, logoutOk = true): {
     posted: string[]
     revoked: { keepalive: boolean; contentType: string | undefined }[]
     requested: string[]
@@ -1032,7 +1156,7 @@ describe('auth-gate browser plugin', () => {
       }
       if (!input.pathname.endsWith(AUTH_GATE_TOKEN_ROUTE)) throw new Error(`unexpected fetch: ${input.href}`)
       posted.push(init?.body ?? '')
-      return Promise.resolve({ ok: tokenOk, status: tokenOk ? 204 : 400 })
+      return Promise.resolve({ ok: tokenOk === true, status: tokenOk === true ? 204 : tokenOk === false ? 400 : tokenOk })
     }))
     return { posted, revoked, requested }
   }
@@ -1051,6 +1175,22 @@ describe('auth-gate browser plugin', () => {
     vi.stubGlobal('addEventListener', () => {})
     vi.stubGlobal('removeEventListener', () => {})
     return token
+  }
+
+  /**
+   * Record every navigation the page attempts, on the page
+   * {@link stubSignedInPage} stubbed.
+   * @returns the addresses assigned to `location.href`, in order.
+   */
+  function recordNavigations(): string[] {
+    const navigations: string[] = []
+    vi.stubGlobal('location', {
+      get href() { return HREF },
+      set href(value: string) { navigations.push(value) },
+      origin: ORIGIN,
+      reload: () => {},
+    })
+    return navigations
   }
 
   /**
@@ -1096,6 +1236,43 @@ describe('auth-gate browser plugin', () => {
     expect(reported).toContain(`${AUTH_GATE_TOKEN_ROUTE} answered 400`)
     // Whatever reads the warning must not learn the credential from it.
     expect(reported).not.toContain(token)
+    await fiber.dispose()
+  })
+
+  it('leaves for the login page with the refusal\'s status when the site refuses the token', async () => {
+    const served = serve(SETTINGS, true, 401)
+    stubSignedInPage()
+    const session = new Map<string, string>()
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => session.get(key) ?? null,
+      setItem: (key: string, value: string) => { session.set(key, value) },
+    })
+    const navigations = recordNavigations()
+    const ctx = new Context()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const fiber = ctx.plugin({ apply })
+    await fiber.await()
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(navigations).toEqual([`${LOGIN}&httpstatus=401`])
+    expect(served.revoked).toHaveLength(1)
+    expect(session.has(REFUSED_TOKEN_SESSION_KEY)).toBe(true)
+    // A refusal is a decision, not a failure to report.
+    expect(warn).not.toHaveBeenCalled()
+    await fiber.dispose()
+  })
+
+  it.each([400, 409, 503])('stays on the page and only warns when the token route answers %i', async (status) => {
+    const served = serve(SETTINGS, true, status)
+    stubSignedInPage()
+    const navigations = recordNavigations()
+    const ctx = new Context()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const fiber = ctx.plugin({ apply })
+    await fiber.await()
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(String(warn.mock.calls[0]?.[0])).toContain(`${AUTH_GATE_TOKEN_ROUTE} answered ${String(status)}`)
+    expect(navigations).toEqual([])
+    expect(served.revoked).toEqual([])
     await fiber.dispose()
   })
 

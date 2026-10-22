@@ -1,0 +1,29 @@
+/* Top-center of the viewport, inside the shell's overlay layer, one line below
+   page-refresh's banner (12px from the top, 36px tall) so both can show at
+   once. It is narrower than the viewport by the narrow frame's hamburger and
+   its margin on either side, so it never covers that button, and it wraps
+   rather than cutting the sentence, which is the whole of what it says. The
+   layer passes pointer events to its children; this box takes them only where
+   it draws. */
+.notice {
+  position: fixed;
+  /* Above the narrow frame's drawer scrim (1), drawer (2), and hamburger (3)
+     in the same layer: a notice about the page outranks the navigation. */
+  z-index: 4;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: min(560px, calc(100vw - 120px));
+  padding: 8px 12px;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-warn-label) 20%, transparent);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-state-warn-tertiary);
+  color: var(--dsw-alias-state-warn-label);
+  box-shadow: var(--dsw-shadow-lv2);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}

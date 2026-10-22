@@ -1,10 +1,17 @@
 /**
  * auth-gate browser half: the first thing a page does about who is looking at
- * it. No slot, no component, no copy — it reads the access token the
- * deployment's login page left in `localStorage`, sends a visitor without one
- * to that login page, mirrors the one it finds into a cookie, hands it to the
- * node half, and — where the deployment offers a renewal endpoint — replaces it
- * with a fresh one before it runs out, in place and without a navigation.
+ * it. It reads the access token the deployment's login page left in
+ * `localStorage`, sends a visitor without one to that login page, mirrors the
+ * one it finds into a cookie, hands it to the node half, and — where the
+ * deployment offers a renewal endpoint — replaces it with a fresh one before it
+ * runs out, in place and without a navigation. A token the site's own login
+ * check refuses sends the visitor to the login page once; one the login page
+ * hands back still refused stops the gate, and the one thing this half draws,
+ * a `shell.overlay` notice, says so.
+ *
+ * The gate itself waits for no other service, so a page whose UI never comes
+ * up is still sent to the login page; the notice waits separately for the slot
+ * and locale services.
  *
  * Its configuration is host configuration, and a browser half receives no
  * cordis config — the boot manifest carries plugin names, not their `config`
@@ -33,8 +40,26 @@ import {
   type AuthGateRenewalSettings,
   type AuthGateSettings,
 } from '../route.ts'
+// Type-only: the `locale` service merge.
+import type {} from '@deepseek-ai/dsh-client-locale/client'
+// Type-only: the `shell.overlay` slot the notice registers into.
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+// Type-only: the `slots` service merge.
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { windowGateBrowser } from './browser.ts'
-import { runGate } from './run.ts'
+import { en, NS, zh, type AuthGateKey } from './locales.ts'
+import { RefusedNotice, type RefusedNoticeFace } from './RefusedNotice.tsx'
+import { REFUSED_STATUS, runGate, type PushOutcome } from './run.ts'
+
+export type { AuthGateKey } from './locales.ts'
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** The refusal notice's copy. */
+    authGate: AuthGateKey
+  }
+}
 
 /**
  * Read the browser-facing half of this plugin's configuration from its node half.
@@ -104,20 +129,21 @@ function readRenewal(url: URL, served: unknown): AuthGateRenewalSettings | undef
 /**
  * Hand one accepted token to the node half.
  * @param token - the token this page is running on.
- * @returns nothing, once the node half has taken it.
- * @throws {Error} when the route refuses it. The token is never named in the
- * message.
+ * @returns `taken` once the node half has taken it, or `refused` when the
+ * site's own login check in front of the route refused it.
+ * @throws {Error} when the route fails it any other way. The token is never
+ * named in the message.
  */
-async function postToken(token: string): Promise<void> {
+async function postToken(token: string): Promise<'taken' | 'refused'> {
   const url = new URL(AUTH_GATE_TOKEN_ROUTE.slice(1), document.baseURI)
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ token }),
   })
-  if (!response.ok) {
-    throw new Error(`auth-gate: ${url.href} answered ${response.status}`)
-  }
+  if (response.ok) return 'taken'
+  if (response.status === REFUSED_STATUS) return 'refused'
+  throw new Error(`auth-gate: ${url.href} answered ${response.status}`)
 }
 
 /**
@@ -149,15 +175,30 @@ async function postLogout(): Promise<void> {
  */
 export async function apply(ctx: ClientContext): Promise<void> {
   const settings = await readSettings()
-  ctx.effect(() => runGate(windowGateBrowser(), settings, (token) => {
-    // A refused push leaves the node half without a token, which its own
-    // forwarding routes report as 503. The page itself stays usable, so this
-    // is a warning rather than a failed row.
-    postToken(token).catch((error: unknown) => { ctx.logger.warn(error) })
+  const refusal = createSnapshotStore(false)
+  ctx.inject(['slots', 'locale'], (ui) => {
+    ui.effect(() => ui.locale.register(NS, { zh, en }), 'auth-gate: dictionaries')
+    ui.slots.inject('shell.overlay', () => ui.slots.register({
+      name: 'shell.overlay',
+      id: 'auth-gate.refused-notice',
+      locale: NS,
+      inject: (): RefusedNoticeFace => ({ hooks: { authGateRefusal: refusal } }),
+    }, RefusedNotice))
+  })
+  ctx.effect(() => runGate(windowGateBrowser(), settings, async (token): Promise<PushOutcome> => {
+    try {
+      return await postToken(token)
+    } catch (error) {
+      // A post failed for any other reason leaves the node half without a
+      // token, which its own forwarding routes report as 503. The page itself
+      // stays usable, so this is a warning rather than a failed row.
+      ctx.logger.warn(error)
+      return 'unsettled'
+    }
   }, () => {
     // A refused revoke leaves the node half holding a token the visitor has
     // given up. The page is leaving for the login page either way, so this is a
     // warning rather than something to hold the navigation for.
     postLogout().catch((error: unknown) => { ctx.logger.warn(error) })
-  }), 'auth-gate: browser boot gate')
+  }, () => { refusal.set(true) }), 'auth-gate: browser boot gate')
 }

@@ -50,6 +50,15 @@ export const ACCESS_TOKEN_STORAGE_KEY = 'accessToken'
 export const ACCESS_TOKEN_TIME_STORAGE_KEY = 'accessTokenTime'
 
 /**
+ * The session-storage key under which the browser half records the token the
+ * site's own login check refused when this tab last left for the login page
+ * over a refusal: a mark naming that token, never the token. A login page that
+ * returns the visitor with that same token is how the tab would otherwise go
+ * back and forth between the two pages for as long as the token lasts.
+ */
+export const REFUSED_TOKEN_SESSION_KEY = 'dsh-auth-gate.refused'
+
+/**
  * The `localStorage` key holding the header table the deployment's own HTTP
  * client puts on every authenticated request — a JSON object of header names to
  * values, written by its login page. Read for the renewal request and for

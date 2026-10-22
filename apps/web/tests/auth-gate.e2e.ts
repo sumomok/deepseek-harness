@@ -13,9 +13,11 @@
  *
  * The rest is what only a real browser can answer: that the mirror reloads once
  * and then stops, that the token reaches the node half well enough to be spent
- * on an MCP request, that a signed-in load is quiet, and that giving the token
- * up reaches all three of the places it lives — the node half's memory, the
- * mirror cookie, and the address the tab is on. The load count is read out of
+ * on an MCP request, that a signed-in load is quiet, that giving the token up
+ * reaches all three of the places it lives — the node half's memory, the
+ * mirror cookie, and the address the tab is on — and that a token the site
+ * refuses leaves for the login page once, then stays put with a notice when
+ * that page hands the same token back. The load count is read out of
  * `sessionStorage`, which survives a reload of the same tab — the loop this
  * scenario guards against would show up there as a fourth load rather than as a
  * failed assertion anywhere else.
@@ -30,7 +32,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Browser, BrowserContext, ConsoleMessage, Page } from 'playwright'
+import type { Browser, BrowserContext, ConsoleMessage, Frame, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import {
@@ -63,8 +65,14 @@ const LOGIN_USER_INFO = { 'X-Tenant': 'acme' }
 const MCP_ROUTE = '/auth-gate/mcp/fixture'
 /** Where the load counter keeps its tally, for this tab. */
 const LOAD_KEY = 'dsh-auth-gate-loads'
+/** The route the browser half posts the token to; the refusal case answers it in the site gate's place. */
+const TOKEN_ROUTE = '/auth-gate/token'
+/** Where the browser half marks a token it left for the login page over. */
+const REFUSED_MARK_KEY = 'dsh-auth-gate.refused'
 /** The landing control of a world with no workspace yet — the signal that the shell is up. */
 const WORKSPACE_PICKER = 'Choose workspace'
+/** The notice the gate shows instead of leaving a second time over the same token. */
+const REFUSED_NOTICE = 'Your sign-in is no longer accepted. Sign in again in the original system, then refresh this page.'
 
 /** Base64url, the way a JWT carries a segment. */
 function segment(value: unknown): string {
@@ -435,5 +443,42 @@ describe.skipIf(MODE === 'record')('web e2e: single sign-on in front of the shel
       return response.status
     }, { timeout: 30_000 }).toBe(503)
     await other.close()
+  }, 120_000)
+
+  it('leaves once for a token the site refuses, then stays with a notice when the same token comes back', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-auth-gate-refused'))
+    // The site gate in front of the process stands here: every post of the
+    // token is answered 401. The stub signs the visitor straight back in with
+    // the same token, which is the bounce the second refusal must stop.
+    const tokenRoute = (url: URL): boolean => url.pathname === TOKEN_ROUTE
+    await page.route(tokenRoute, route => route.fulfill({ status: 401, body: '' }))
+    stubSignsIn = true
+    await page.evaluate((key) => { sessionStorage.setItem(key, '0') }, LOAD_KEY)
+    const loginVisits: string[] = []
+    const onNavigated = (frame: Frame): void => {
+      if (frame === page.mainFrame() && new URL(frame.url()).pathname === LOGIN_PATH) loginVisits.push(frame.url())
+    }
+    page.on('framenavigated', onNavigated)
+
+    try {
+      await page.goto(`${scaffold.baseUrl}/`, { waitUntil: 'load' })
+      await page.getByText(REFUSED_NOTICE).waitFor({ timeout: 60_000 })
+
+      // Two trips to the login page: the boot that found no token, and the
+      // refusal, which says why in the deployment's own parameter.
+      const back = encodeURIComponent(`${scaffold.baseUrl}/`)
+      expect(loginVisits).toEqual([
+        `${scaffold.baseUrl}${LOGIN_PATH}#/?redirect=${back}`,
+        `${scaffold.baseUrl}${LOGIN_PATH}#/?redirect=${back}&httpstatus=401`,
+      ])
+      // Five loads of the shell — each trip back, and the mirror's reload
+      // after each — and none after the notice: the tab stays where it is.
+      expect(page.url()).toBe(`${scaffold.baseUrl}/`)
+      expect(await shellLoads()).toBe(5)
+      expect(await page.evaluate(key => sessionStorage.getItem(key), REFUSED_MARK_KEY)).toMatch(/^exp:\d+$/)
+    } finally {
+      page.off('framenavigated', onNavigated)
+      await page.unroute(tokenRoute)
+    }
   }, 120_000)
 })
