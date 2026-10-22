@@ -489,12 +489,17 @@ function rowPosition(row: Element): number {
  * The records one list of drawn rows holds. A table with fixed columns draws
  * every row in its scrolling body and again in each fixed layer, and a layer
  * holding none of a row's controls leaves that copy out of the list, so the
- * copies are merged by what each row says it draws rather than by where it
- * falls in the list: copies carrying one row key a step could name are one
- * record, and a copy carrying none joins the record standing at its position
- * among its own container's record rows, or stands as a record of its own
- * where none does. The records are in the order of those positions, first
+ * copies are merged by the row key each row element carries rather than by
+ * where it falls in the list: copies carrying one row key a step could name
+ * are one record, and a copy carrying none joins the record standing at its
+ * position among its own container's record rows, or stands as a record of its
+ * own where none does. The records are in the order of those positions, first
  * drawn first where two stand at one.
+ *
+ * Only the key written on the row element itself merges copies; a key a
+ * component writes on a cell or a control inside the row leaves that row a
+ * copy carrying none. Two tables in one scope whose rows carry no key are
+ * merged the same way, so their rows at one position are read as one record.
  * @param rows - the drawn row elements, in document order.
  * @returns one entry per record, each holding that record's copies, first drawn first.
  */
