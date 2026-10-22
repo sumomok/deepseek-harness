@@ -380,6 +380,39 @@ describe('the rows a scope draws, folded', () => {
     ].join('\n'))
   })
 
+  it('merges unkeyed copies by their place among their own container\'s rows where a layer holds no control in some rows', () => {
+    // The scrolling body draws a relation link in the first and third records
+    // only, so its copy of the second holds no control and is not read; the
+    // fixed layer draws every record's name cell. The third record's link is
+    // read with the third record.
+    const sparse = drawEntry(`
+      <div data-component-node="grid">
+        <div class="body"><table><tbody>
+          <tr><td><a data-component-action="card-open">北京</a></td></tr>
+          <tr><td></td></tr>
+          <tr><td><a data-component-action="card-open">天津</a></td></tr>
+        </tbody></table></div>
+        <div class="fixed"><table><tbody>
+          <tr><td data-component-action="cell-click" data-component-row-name>甲</td></tr>
+          <tr><td data-component-action="cell-click" data-component-row-name>乙</td></tr>
+          <tr><td data-component-action="cell-click" data-component-row-name>丙</td></tr>
+        </tbody></table></div>
+      </div>
+    `)
+    expect(reading(sparse).blocks[0]?.rows?.named.map(row => row.name)).toEqual(['甲', '乙', '丙'])
+    expect(read(sparse)).toContain([
+      '    Rows: 3 drawn.',
+      '      - "甲":',
+      '        - "card-open" ×1: link',
+      '        - "cell-click" ×1: td',
+      '      - "乙":',
+      '        - "cell-click" ×1: td',
+      '      - "丙":',
+      '        - "card-open" ×1: link',
+      '        - "cell-click" ×1: td',
+    ].join('\n'))
+  })
+
   it('reads a heading row\'s control as the table\'s own, and the first record under its own name and key', () => {
     const drawn = drawEntry(`
       <div data-component-node="t"><table>
