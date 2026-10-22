@@ -674,9 +674,10 @@ interface HeldWorld {
 /**
  * Start a proxy-mode gate whose renewal answers are held until `release`,
  * between a stand-in dsh that counts its connections and that held service.
+ * @param env - further settings, given the stand-in dsh's port.
  * @returns the world.
  */
-async function heldWorld(): Promise<HeldWorld> {
+async function heldWorld(env: (dshPort: number) => Record<string, string> = () => ({})): Promise<HeldWorld> {
   const checking = Promise.withResolvers<true>()
   const held: Array<() => void> = []
   let released = false
@@ -696,6 +697,7 @@ async function heldWorld(): Promise<HeldWorld> {
     REMOTE_HOST: '127.0.0.1',
     REMOTE_PORT: String(await closedPort()),
     AUTH_ORIGIN: `http://127.0.0.1:${String(renewalPort)}`,
+    ...env(dsh.port),
   })
   const logs: string[] = []
   const { server, gate } = createProxyServer(settings, { log: (line) => { logs.push(line) }, now: () => 1_800_000_000_000 })
@@ -1262,6 +1264,17 @@ describe('a client that leaves during the login check', () => {
     expect((await send(w.port, '/api/rpc', LOGGED_IN)).status).toBe(200)
     expect(w.dshConnections()).toBe(1)
     expect(w.dsh.requests).toHaveLength(1)
+    expect(w.logs).toEqual([])
+  })
+
+  it('causes no upstream request for an OGC read, sent to the stand-in dsh as its gateway', async () => {
+    const w = await heldWorld(port => ({ OGC_READ_PREFIXES: OGC, REMOTE_PREFIX_ORIGINS: `${OGC}=http://127.0.0.1:${String(port)}` }))
+    const read = `GET ${GET_MAP} HTTP/1.1\r\nHost: 127.0.0.1\r\nSec-Fetch-Site: same-origin\r\nCookie: accessToken=${TOKEN}\r\nAuthorization: Bearer ${TOKEN}\r\n\r\n`
+    await leaveDuringCheck(w, read, 'reset')
+    w.release()
+    expect((await send(w.port, GET_MAP, READ)).status).toBe(200)
+    expect(w.dshConnections()).toBe(1)
+    expect(w.dsh.requests.map(received => [received.headers.authorization, received.headers.cookie])).toEqual([[`Bearer ${TOKEN}`, undefined]])
     expect(w.logs).toEqual([])
   })
 
@@ -1934,7 +1947,7 @@ describe('OGC reads', () => {
     expect(answer.headers).not.toHaveProperty('www-authenticate')
     expect(answer.headers['x-content-type-options']).toBe('nosniff')
     expect(answer.headers['content-security-policy']).toBe('sandbox')
-    expect(w.renewals()).toBe(0)
+    expect(w.renewals()).toBe(1)
     expect(w.gateway.requests).toHaveLength(1)
     const headers = w.gateway.requests[0]?.headers ?? {}
     expect(w.gateway.requests[0]?.path).toBe(`${OGC}/wms?SERVICE=WMS&REQUEST=GetMap&LAYERS=dshsim%3Aroads&FORMAT=image%2Fpng`)
@@ -1982,7 +1995,7 @@ describe('OGC reads', () => {
       .toEqual(paths.map(path => [path, `accessToken=${TOKEN}`, undefined]))
   })
 
-  it('answers a read refused for its form itself and sends nothing upstream', async () => {
+  it('answers a read refused for its form itself, before the login check, and sends nothing upstream', async () => {
     const w = await ogcWorld()
     const posted = await exchange(w.port, `POST ${GET_MAP} HTTP/1.1\r\nHost: 127.0.0.1\r\nSec-Fetch-Site: same-origin\r\nCookie: accessToken=${TOKEN}\r\nContent-Length: 2\r\nConnection: close\r\n\r\nhi`)
     expect(posted.split('\r\n')[0]).toBe('HTTP/1.1 405 Method Not Allowed')
@@ -2000,16 +2013,29 @@ describe('OGC reads', () => {
     expect(w.customer.requests).toEqual([])
   })
 
-  it('forwards the Authorization the page sent as it is, or none, and asks the login check nothing, whether the gate is on or off', async () => {
-    for (const env of [{}, GATE_OFF]) {
-      const w = await ogcWorld(env, () => ({ status: 401, body: '' }))
-      expect((await send(w.port, GET_MAP, { ...SAME_ORIGIN, authorization: TOKEN })).status).toBe(200)
-      expect((await send(w.port, GET_MAP, { ...SAME_ORIGIN, cookie: `accessToken=${TOKEN}` })).status).toBe(200)
-      expect(w.renewals()).toBe(0)
-      expect(w.gateway.requests.map(received => [received.headers.authorization, received.headers.cookie]))
-        .toEqual([[TOKEN, undefined], [undefined, undefined]])
-      expect(w.logs).toEqual([])
-    }
+  it('forwards the Authorization the page sent as it is, or none, once the login gate admits the read', async () => {
+    const open = await ogcWorld(GATE_OFF)
+    expect((await send(open.port, GET_MAP, { ...SAME_ORIGIN, authorization: TOKEN })).status).toBe(200)
+    expect((await send(open.port, GET_MAP, { ...SAME_ORIGIN, cookie: `accessToken=${TOKEN}` })).status).toBe(200)
+    expect(open.renewals()).toBe(0)
+    expect(open.gateway.requests.map(received => [received.headers.authorization, received.headers.cookie]))
+      .toEqual([[TOKEN, undefined], [undefined, undefined]])
+    const gated = await ogcWorld()
+    expect((await send(gated.port, GET_MAP, { ...SAME_ORIGIN, cookie: `accessToken=${TOKEN}`, authorization: TOKEN })).status).toBe(200)
+    expect(gated.renewals()).toBe(1)
+    expect(gated.gateway.requests.map(received => received.headers.authorization)).toEqual([TOKEN])
+  })
+
+  it('keeps a read the login gate does not admit from the upstream, a gateway on this host\'s loopback address included', async () => {
+    const refused = await ogcWorld({}, () => ({ status: 401, body: '' }))
+    expect((await send(refused.port, GET_MAP, READ)).status).toBe(401)
+    expect((await send(refused.port, GET_MAP, { ...SAME_ORIGIN, authorization: `Bearer ${TOKEN}` })).status).toBe(401)
+    expect(refused.renewals()).toBe(1)
+    expect(refused.gateway.requests).toEqual([])
+    expect(refused.logs).toEqual([`proxy: gate GET ${OGC}/wms -> 401`, `proxy: gate GET ${OGC}/wms -> 401`])
+    const unavailable = await ogcWorld({}, () => ({ status: 500, body: '' }))
+    expect((await send(unavailable.port, GET_MAP, READ)).status).toBe(503)
+    expect(unavailable.gateway.requests).toEqual([])
   })
 
   it('closes an upgrade under the prefix with 403 and opens no upstream connection', async () => {

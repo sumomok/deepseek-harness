@@ -673,7 +673,8 @@ const PREFIX_SEGMENT = /^[A-Za-z0-9._~-]+$/
  * route roots of dsh plugins the built-in list does not name, such as a plugin
  * installed from outside this repository, each gated like any other dsh path;
  * or OGC_READ_PREFIXES, the remote-application prefixes on which only reads
- * are forwarded, each with the page's own Authorization header and no cookie.
+ * are forwarded, each gated like a dsh path and carrying the page's own
+ * Authorization header and no cookie.
  * @param {Record<string, string | undefined>} env - the environment.
  * @param {string} name - the variable name.
  * @param {readonly string[]} dshPrefixes - the extra prefixes dsh already owns besides its built-in list.
@@ -1683,6 +1684,16 @@ export function createProxyServer(settings, runtime) {
         if (refusal !== undefined) {
           runtime.log(`proxy: ogc refused ${req.method ?? '?'} ${pathname}: ${refusal.reason}`)
           refuseOgcRead(res, refusal)
+          return
+        }
+        // Checked as a dsh path is: a REMOTE_PREFIX_ORIGINS origin on this
+        // host's loopback address is reachable no other way. The credential
+        // forwarded is still the page's own Authorization.
+        const decision = await admitToDsh(settings, gate, runtime, req, pathname)
+        if (req.destroyed || abandoned) return
+        if (decision.outcome !== 'admitted') {
+          if (decision.outcome === 'refused') runtime.log(`proxy: gate ${req.method ?? '?'} ${pathname} -> 401`)
+          denyRequest(res, decision.outcome)
           return
         }
         // The target the read was classified on, not the raw one: the
