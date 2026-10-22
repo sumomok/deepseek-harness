@@ -645,6 +645,10 @@ describe('the keys a page\'s drawn rows carry', () => {
     expect(readRowKeys({ resultData: { displayValue: records } }, drawnRows([records[0], { int_id: '9' }]))).toBeUndefined()
     // A row drawn without el-table's row component is not guessed by position.
     expect(readRowKeys({ resultData: { displayValue: records } }, drawnRows([records[0], undefined]))).toBeUndefined()
+    // Nor is a row whose component Vue has let go.
+    const released = drawnRows(records)
+    for (const row of released.slice(1)) Object.assign(row, { __vue__: null })
+    expect(readRowKeys({ resultData: { displayValue: records } }, released)).toBeUndefined()
     // A cleared page displays nothing, and no page at all is nothing to read.
     expect(readRowKeys({ resultData: {} }, drawnRows([records[0]]))).toBeUndefined()
     expect(readRowKeys({}, [])).toEqual([])

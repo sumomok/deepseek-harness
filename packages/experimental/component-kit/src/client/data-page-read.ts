@@ -801,8 +801,8 @@ export interface DisplayedRecords {
 
 /** One record row as el-table draws it: a component whose root element is the row, holding the record it draws. */
 type DrawnRecordRow = Element & {
-  /** The row component Vue writes on its root element. */
-  readonly __vue__?: { readonly row?: unknown }
+  /** The row component Vue writes on its root element, and sets to `null` once it lets the element go. */
+  readonly __vue__?: { readonly row?: unknown } | null
 }
 
 /**
@@ -814,8 +814,9 @@ type DrawnRecordRow = Element & {
  * records the rows are about to draw rather than the ones they draw. The rows
  * are keyed only where there are as many as records and each row is el-table's
  * row component holding the record at its position; otherwise nothing is
- * keyed this pass — a row drawn without that component included — and a page
- * that could not be read is left with no key written rather than a guessed one.
+ * keyed this pass — a row drawn without that component, or one whose component
+ * Vue has let go, included — and a page that could not be read is left with no
+ * key written rather than a guessed one.
  * @param page - the mounted page, or `null` while the bridge holds none.
  * @param rows - the scrolling body's record rows, in the order drawn.
  * @returns one key per row — `undefined` for a record carrying no id — or
@@ -826,7 +827,7 @@ export function readRowKeys(page: DisplayedRecords | null, rows: readonly Elemen
   if (records.length !== rows.length) return undefined
   const unmatched = rows.some((row, at) => {
     const drawn = (row as DrawnRecordRow).__vue__
-    return drawn === undefined || drawn.row !== records[at]
+    return drawn == null || drawn.row !== records[at]
   })
   return unmatched ? undefined : records.map(record => spellId(readRecord(record)?.['int_id']))
 }
