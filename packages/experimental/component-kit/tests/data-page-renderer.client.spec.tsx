@@ -1454,6 +1454,37 @@ describe('the controls one data page marks for the act tool', () => {
     expect(rows?.named.map(row => [row.key, row.name])).toEqual(RELATED_ROWS.map(row => [row.int_id, row.zh_label]))
   }, 20_000)
 
+  it('opens and names each record from its name cell beside a radio selection column, not from the relation cell after it', async () => {
+    const onAction = vi.fn<ComponentActionHandler>()
+    const view = render(
+      <div data-reading-entry="">
+        <div data-component-node="page">
+          <DataPageRenderer
+            nodeId="page"
+            props={Object.freeze({ relatedMeta: RELATED_META, metaLabel: '关联', selectMode: 'radio' })}
+            state="idle"
+            onAction={onAction}
+            onOutput={vi.fn()}
+            t={t}
+          />
+        </div>
+      </div>,
+    )
+    await loaded(onAction)
+    const named = (): Element[] => [...view.container.querySelectorAll('[data-component-row-name]')]
+    await vi.waitFor(() => { expect(named()).toHaveLength(RELATED_ROWS.length) }, { timeout: 3000, interval: 20 })
+    // The radio column and the name column are both fixed on the left.
+    expect(view.container.querySelectorAll('.el-table__fixed .el-radio')).toHaveLength(RELATED_ROWS.length)
+    const opening = [...view.container.querySelectorAll('td[data-component-action="cell-click"]')]
+    for (const cells of [opening, named()]) {
+      expect(cells.map(cell => cell.textContent?.trim())).toEqual(RELATED_ROWS.map(row => row.zh_label))
+      expect(cells.every(cell => cell.closest('.el-table__fixed') !== null && cell.querySelector('.el-radio') === null)).toBe(true)
+    }
+    const within = view.container.querySelector('[data-reading-entry]') as Element
+    const rows = readComponentEntry({ entry: 'related' }, { entryId: 'related', title: '关联', container: within }).blocks[0]?.rows
+    expect(rows?.named.map(row => [row.key, row.name])).toEqual(RELATED_ROWS.map(row => [row.int_id, row.zh_label]))
+  }, 20_000)
+
   it('writes no key a pass run between new records landing and the rows being redrawn would put on the wrong row', async () => {
     const { view, onAction } = draw(Object.freeze({ relatedMeta: REDRAWN_META, metaLabel: '重画', selectMode: 'checkbox' }))
     await loaded(onAction)

@@ -91,8 +91,11 @@ const RIGHT_BODY = ':scope > .el-table__fixed-right .el-table__fixed-body-wrappe
 /** One record's row in a table body, without the rows el-table draws for anything else. */
 const RECORD_ROW = 'tr.el-table__row'
 
-/** A drawn cell a click may open its row from: not a placeholder, and not the selection column's. */
+/** A drawn cell that is neither a placeholder nor the tick-box selection column's, which el-table classes as such. */
 const OPENABLE_CELL = 'td:not(.is-hidden):not(.el-table-column--selection)'
+
+/** The radio button the radio selection column draws in each row; that column's cells carry no class of their own. */
+const RADIO_BUTTON = '.el-radio'
 
 /** The link a name or a relation column draws, which opens the record it names. */
 const RECORD_LINK = 'a.trans'
@@ -224,15 +227,26 @@ function recordRows(body: Element | null): Element[] {
 }
 
 /**
+ * Whether a click on one drawn cell could open its row: neither a placeholder
+ * nor a selection column's cell, whether that column draws tick boxes or radio
+ * buttons.
+ * @param cell - the cell.
+ * @returns whether the cell is one a row is opened from.
+ */
+function isOpenable(cell: Element): boolean {
+  return cell.matches(OPENABLE_CELL) && cell.querySelector(RADIO_BUTTON) === null
+}
+
+/**
  * The cells of one drawn row a click could open the row from, in the order
- * drawn: neither a placeholder nor the selection column's, and not the cell
- * holding the row's operations.
+ * drawn: openable ({@link isOpenable}), and not the cell holding the row's
+ * operations.
  * @param row - the row, or `undefined` where the body draws none at that position.
  * @returns the cells.
  */
 function openableCells(row: Element | undefined): Element[] {
   if (row === undefined) return []
-  return [...row.children].filter(cell => cell.matches(OPENABLE_CELL) && cell.querySelector('.column-operation') === null)
+  return [...row.children].filter(cell => isOpenable(cell) && cell.querySelector('.column-operation') === null)
 }
 
 /**
@@ -299,7 +313,8 @@ function columnOf(table: DrawnTable, cell: Element): string | undefined {
  * @param action - the action a record link reports.
  */
 function markLinks(table: Element, action: string): void {
-  for (const cell of table.querySelectorAll(`tbody ${OPENABLE_CELL}`)) {
+  for (const cell of table.querySelectorAll('tbody td')) {
+    if (!isOpenable(cell)) continue
     const links = cell.querySelectorAll(RECORD_LINK)
     if (links.length === 0) continue
     const property = columnOf(table, cell)
