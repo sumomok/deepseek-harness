@@ -219,9 +219,11 @@ export interface ProseReferents {
    * here — verification against the session truth index or a prior `stat`
    * result is a cache read, never a fresh probe.
    * @param text - Exact text content of the node being rendered.
-   * @param context - `cwd`/`home` resolve a relative candidate (undefined
-   * wherever the session/workspace has none — the provider decides whether
-   * that suppresses a span or not); `inlineCode` is true for an inline-code
+   * @param context - `cwd`/`home` resolve a relative candidate. `cwd` is the
+   * session's current working directory at this call, or its header
+   * directory when no working directory is recorded (undefined wherever the
+   * session/workspace has neither — the provider decides whether that
+   * suppresses a span or not); `inlineCode` is true for an inline-code
    * token, false for plain prose text.
    * @returns Non-overlapping, verified spans in ascending `start` order.
    */

@@ -1,0 +1,120 @@
+[
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "tool-call"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 0,
+        "id": "call_00_enter_child",
+        "name": "working_directory",
+        "argumentsDelta": "{\"cd\": \"child\"}"
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "tool-call",
+          "id": "call_00_enter_child",
+          "name": "working_directory",
+          "arguments": "{\"cd\": \"child\"}"
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 10,
+          "cacheReadTokens": 0,
+          "reasoningTokens": 0
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "tool-calls"
+        }
+      }
+    ]
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "text"
+      },
+      {
+        "type": "text-delta",
+        "index": 0,
+        "text": "Now working in child.\n\nENTERED_CHILD"
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "text",
+          "text": "Now working in child.\n\nENTERED_CHILD"
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 10,
+          "cacheReadTokens": 0,
+          "reasoningTokens": 0
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "stop"
+        }
+      }
+    ]
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "text"
+      },
+      {
+        "type": "text-delta",
+        "index": 0,
+        "text": "The notes continue in [beta.txt](beta.txt#L2).\n\nLINKED_BETA"
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "text",
+          "text": "The notes continue in [beta.txt](beta.txt#L2).\n\nLINKED_BETA"
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 10,
+          "cacheReadTokens": 0,
+          "reasoningTokens": 0
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "stop"
+        }
+      }
+    ]
+  }
+]

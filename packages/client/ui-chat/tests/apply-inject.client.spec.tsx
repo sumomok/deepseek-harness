@@ -435,6 +435,68 @@ describe('Chat inject API', () => {
     await b.runtime.dispose()
   })
 
+  it('resolves file paths against the Session directory current at the click and keeps the line', async () => {
+    const b = await bench()
+    const targets: string[] = []
+    b.runtime.ctx.on('referent/open', async (ref, next) => {
+      targets.push(ref.target)
+      await next()
+    })
+    const { injected } = b.chatViewApi(b.rootReference)
+    // No working directory recorded yet: the header directory is the base.
+    await injected.openFile('src/a.ts')
+    await b.runtime.sessions.setProjection(ROOT, 'workingDirectory', '/proj/child')
+    await injected.openFile('src/a.ts')
+    await injected.openFile('src/a.ts', { line: 12 })
+    // An absolute path keeps its own spelling whatever the current directory.
+    await injected.openFile('/proj/top.ts')
+    // Outside the header workspace the address keeps the absolute path.
+    await b.runtime.sessions.setProjection(ROOT, 'workingDirectory', '/tmp/wt')
+    await injected.openFile('notes.md', { line: 3 })
+    // A null projection means no recorded directory: back to the header.
+    await b.runtime.sessions.setProjection(ROOT, 'workingDirectory', null)
+    await injected.openFile('src/a.ts')
+    expect(targets).toEqual([
+      '/proj/src/a.ts', '/proj/child/src/a.ts', '/proj/child/src/a.ts', '/proj/top.ts', '/tmp/wt/notes.md', '/proj/src/a.ts',
+    ])
+    expect(b.sidebarRight.openResource.mock.calls).toEqual([
+      ['dsh-resource://file/session/root-1/src/a.ts'],
+      ['dsh-resource://file/session/root-1/child/src/a.ts'],
+      ['dsh-resource://file/session/root-1/child/src/a.ts', { params: { line: 12 } }],
+      ['dsh-resource://file/session/root-1/top.ts'],
+      ['dsh-resource://file/session/root-1//tmp/wt/notes.md', { params: { line: 3 } }],
+      ['dsh-resource://file/session/root-1/src/a.ts'],
+    ])
+    await b.runtime.dispose()
+  })
+
+  it('resolves Windows file paths against the current directory in either separator spelling', async () => {
+    const b = await bench()
+    const WIN = 'root-win' as SessionId
+    await b.runtime.sessions.add({
+      id: WIN,
+      summary: { title: 'W', displayTitle: 'W', cwd: 'C:\\proj' },
+      session: sessionFakeFor(),
+    })
+    using reference = b.runtime.sessions.retain(WIN)
+    const targets: string[] = []
+    b.runtime.ctx.on('referent/open', async (ref, next) => {
+      targets.push(ref.target)
+      await next()
+    })
+    const { injected } = b.chatViewApi(reference)
+    await b.runtime.sessions.setProjection(WIN, 'workingDirectory', 'C:\\proj\\child')
+    await injected.openFile('src\\a.ts', { line: 2 })
+    await b.runtime.sessions.setProjection(WIN, 'workingDirectory', 'D:\\wt')
+    await injected.openFile('a.ts')
+    expect(targets).toEqual(['C:\\proj\\child\\src\\a.ts', 'D:\\wt\\a.ts'])
+    expect(b.sidebarRight.openResource.mock.calls).toEqual([
+      ['dsh-resource://file/session/root-win/child/src/a.ts', { params: { line: 2 } }],
+      ['dsh-resource://file/session/root-win/D:/wt/a.ts'],
+    ])
+    await b.runtime.dispose()
+  })
+
   it('fails loud when a Chat View inject resolves no Session', async () => {
     const b = await bench()
     const entry = b.runtime.slots.entries('conversation.view')[0]!
@@ -497,6 +559,20 @@ describe('Chat inject API', () => {
     expect(injected.referents).toBeDefined()
     injected.referents!.scan('see /proj/src/a.ts', true)
     expect(scan).toHaveBeenCalledWith('see /proj/src/a.ts', { cwd: '/proj', home: '/home/fixture', inlineCode: true })
+    await b.runtime.dispose()
+  })
+
+  it('referents.scan and resolveLink pass the Session directory current at each call', async () => {
+    const b = await bench()
+    const scan = vi.fn((_text: string, _context: { cwd?: string; home?: string; inlineCode: boolean }) => [])
+    const resolveLink = vi.fn(() => undefined)
+    b.runtime.ctx.provide('proseReferents', { scan, resolveLink })
+    const { injected } = b.chatViewApi(b.rootReference)
+    await b.runtime.sessions.setProjection(ROOT, 'workingDirectory', '/proj/child')
+    injected.referents!.scan('see a.ts', false)
+    expect(injected.referents!.resolveLink!('a.ts', 'a.ts')).toBeUndefined()
+    expect(scan).toHaveBeenLastCalledWith('see a.ts', { cwd: '/proj/child', home: '/home/fixture', inlineCode: false })
+    expect(resolveLink).toHaveBeenLastCalledWith('a.ts', 'a.ts', { cwd: '/proj/child', home: '/home/fixture' })
     await b.runtime.dispose()
   })
 
@@ -617,7 +693,7 @@ describe('Chat inject API', () => {
     const opened: unknown[] = []
     b.runtime.ctx.on('referent/open', (ref: unknown) => { opened.push(ref); return Promise.resolve() })
     const { injected } = b.chatViewApi(b.rootReference)
-    // ProducedFiles opens the workspace root as '.'; no richer file/dir signal
+    // '.' names the current directory itself; no richer file/dir signal
     // reaches this closure, so the two cases are the whole vocabulary.
     await injected.openFile('.')
     await injected.openFile('src/a.ts')

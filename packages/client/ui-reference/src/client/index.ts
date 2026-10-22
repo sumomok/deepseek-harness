@@ -64,16 +64,16 @@ export function apply(ctx: ClientContext): void {
       inject: (sessionId: UserTextNodeProps<'file'>['sessionId']): FileReferenceInjected => ({
         // referent/open first: a listener may claim the click before the Sidebar opens the file.
         openFile: (path) => {
-          const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
+          const file = locateFile(sessions, sessionId, path)
           const ref: ReferentRef = {
             kind: 'file',
-            target: resolveWorkspacePath(cwd, path),
+            target: file.target,
             raw: path,
             sessionId,
             source: 'user-text.file-reference',
             enteredAs: 'user-text',
           }
-          return ctx.referent.open(ref, () => { ctx.sidebarRight.openResource(fileAddressFor(sessionId, cwd, path)) })
+          return ctx.referent.open(ref, () => { ctx.sidebarRight.openResource(file.address) })
         },
       }),
     }, FileReference)
@@ -173,8 +173,7 @@ export function apply(ctx: ClientContext): void {
     openReference(session, { ref, appearance }) {
       if (appearance !== 'file') return false
       const path = ref.startsWith('@"') ? ref.slice(2, -1) : ref.slice(1)
-      const cwd = sessions.list.getSnapshot().byId[session.sessionId]?.cwd
-      ctx.sidebarRight.openResource(fileAddressFor(session.sessionId, cwd, path))
+      ctx.sidebarRight.openResource(locateFile(sessions, session.sessionId, path).address)
       return true
     },
     codec: {
@@ -187,6 +186,39 @@ export function apply(ctx: ClientContext): void {
 }
 
 type Translate = (key: ReferenceKey, params?: Record<string, unknown>) => string
+
+/**
+ * The directory a Session's relative paths resolve against at this moment: its
+ * current working directory when the Client holds that projection, which is
+ * also the directory `@` candidates are listed relative to, otherwise its
+ * header directory.
+ * @param sessions - the Client Session registry.
+ * @param sessionId - the Session the path belongs to.
+ * @returns an absolute directory, or undefined when neither is known.
+ */
+function currentDirectoryOf(sessions: ISessions, sessionId: ClientSessionContext['sessionId']): string | undefined {
+  const current = sessions.binding(sessionId)?.session.projections.faceOf('workingDirectory').getSnapshot()
+  return typeof current === 'string' ? current : sessions.list.getSnapshot().byId[sessionId]?.cwd
+}
+
+/**
+ * Locate a file reference when it is opened: the path resolves against the
+ * Session's current directory at that moment, and the address keeps the
+ * header directory as its root, so a file inside the header workspace gets a
+ * Session-relative address and a file elsewhere keeps its absolute path.
+ * @param sessions - the Client Session registry.
+ * @param sessionId - the Session the reference belongs to.
+ * @param path - absolute or relative path as written in the reference.
+ * @returns the resolved path and its right-Sidebar address.
+ */
+function locateFile(
+  sessions: ISessions,
+  sessionId: ClientSessionContext['sessionId'],
+  path: string,
+): { readonly target: string; readonly address: string } {
+  const target = resolveWorkspacePath(currentDirectoryOf(sessions, sessionId), path)
+  return { target, address: fileAddressFor(sessionId, sessions.list.getSnapshot().byId[sessionId]?.cwd, target) }
+}
 
 type ReferenceCandidateValue =
   | { kind: 'file'; fileKind: FileReferenceCandidate['kind']; label: string; mention: string }

@@ -37,7 +37,7 @@ A session pick inserts an atomic inline reference whose hidden `ref` and clipboa
 
 One unavailable or failed candidate domain yields no rows for that domain while the other still lists. A session-reference preparation failure occurs after prompt acceptance and terminates that agent turn.
 
-Click a file reference in the composer to preview its current contents in the right Sidebar. Quoted paths retain their spaces, and paths resolve in the composer Session. Folder and Session references retain their editing behavior.
+Click a file reference in the composer to preview its current contents in the right Sidebar. Quoted paths retain their spaces, and a relative path resolves against the composer Session's current working directory at the moment of the click, the same directory the `@` menu lists files from. Folder and Session references retain their editing behavior.
 
 -----
 
@@ -60,6 +60,8 @@ Candidate requests require an existing retained Client Session and share one tem
 File picks preserve the natural text defined by the shared `@path` grammar as the hidden serialized and clipboard form. Session picks use the canonical `@[label](dsh-session:…)` mention; serialization never reconstructs identity from the visible title.
 
 The plugin also registers file and folder matchers with [UserText](../ui-conversation/README.md#sent-user-text) and owns their `conversation.user.text.node` renderers. Each query returns the next complete reference at an original-text offset without file discovery; the shared evaluator resolves overlaps by source position. Interactive file nodes receive a Session-bound `openFile` injection that dispatches [`referent/open`](../../api/session-controller/README.md) (`source: 'user-text.file-reference'`, `enteredAs: 'user-text'`) before the right Sidebar opens the file, so a listener can claim the click; navigation failures, synchronous or rejected, keep the reference visible and offer a local retry/close dialog. Folder nodes remain labels.
+
+The composer chip and the sent-message file node resolve a relative path when clicked, against the Session's `workingDirectory` projection, which the Host updates when the agent changes directory; without a recorded working directory they use the Session's header directory. The Sidebar address keeps the header directory as its root, so a file inside the workspace receives a Session-relative address and a file elsewhere keeps its absolute path.
 
 </details>
 
@@ -96,6 +98,7 @@ These limits define when the reference source cannot help; they are current pack
 - **Candidate failure is intentionally quiet** — one unavailable or failed Remote discovery call yields no rows for that domain. A session-reference preparation failure occurs after prompt acceptance and terminates that agent turn.
 - **No browser-side file scan** — Web completion requires a mounted Host `ctx.fileReferences` provider; the browser cannot fall back to its own filesystem.
 - **Session search remains metadata-only** — discovery filters session id, cwd, and the latest log-backed title through `ctx.sessionReferenceResolver`; message bodies and full transcripts are not searched.
+- **Relative file references bind when clicked** — a relative path resolves against the Session's current working directory at the click, so after the agent changes directory again, an earlier relative reference in a sent message resolves against the new directory.
 
 <a id="dev-note"></a>
 ### Dev Note
