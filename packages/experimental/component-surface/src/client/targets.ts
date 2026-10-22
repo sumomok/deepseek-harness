@@ -69,7 +69,7 @@ export const OVERLAY = '[role="dialog"], [aria-modal="true"]'
 export const ROW = 'tr, [role="row"]'
 
 /** A row drawn in a table's heading, which draws the headings of the record rows rather than a record. */
-const HEADING_ROW = 'thead > *'
+const HEAD_ROW = 'thead > *'
 
 /**
  * The vendored page's element holding its words for how many records its query
@@ -466,7 +466,7 @@ export function openDialog(el: Element, within: Element): Element | undefined {
  */
 export function rowOf(el: Element, within: Element): Element | undefined {
   for (let node: Element | null = el; node !== null && node !== within; node = node.parentElement) {
-    if (node.matches(ROW)) return node.matches(HEADING_ROW) ? undefined : node
+    if (node.matches(ROW)) return node.matches(HEAD_ROW) ? undefined : node
   }
   return undefined
 }
