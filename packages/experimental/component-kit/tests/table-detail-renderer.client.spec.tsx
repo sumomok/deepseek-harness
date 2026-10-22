@@ -18,7 +18,9 @@ import { installElementUI } from '../src/client/element-ui.ts'
 import { TableDetailRenderer } from '../src/client/TableDetailRenderer.tsx'
 import { en } from '../src/client/locales.ts'
 import type { ComponentActionState, ComponentRendererProps } from '../src/client/renderer.ts'
+import { readComponentReportText } from '@deepseek-ai/dsh-experimental-component-surface/src/read-component-text.ts'
 import { readComponentEntry } from '@deepseek-ai/dsh-experimental-component-surface/src/client/read-executor.ts'
+import { clickTarget } from '@deepseek-ai/dsh-experimental-component-surface/src/client/targets.ts'
 
 beforeAll(installElementUI)
 afterEach(cleanup)
@@ -409,6 +411,49 @@ describe('toy.table', () => {
     expect(host?.childElementCount).toBe(1)
     view.unmount()
     expect(host?.childElementCount).toBe(0)
+  })
+})
+
+describe('a reading of a table with a sortable heading', () => {
+  it('lists the heading\'s sort control as the table\'s own, and every row under its own name and key', async () => {
+    const rows = [
+      { int_id: '1', zh_label: '丙站', status: '在用' },
+      { int_id: '2', zh_label: '甲站', status: '停用' },
+      { int_id: '3', zh_label: '乙站', status: '在用' },
+    ]
+    const onAction = vi.fn()
+    const view = render(
+      <div data-reading-entry="">
+        <div data-component-node="t">
+          <TableDetailRenderer
+            nodeId="t"
+            props={{ tableConfig: { gridItems: COLUMNS }, displayValueList: rows, isNameClick: true, tableSortable: true }}
+            state="idle"
+            onAction={onAction}
+            onOutput={vi.fn()}
+            t={t}
+          />
+        </div>
+      </div>,
+    )
+    await flush()
+    const within = view.container.querySelector('[data-reading-entry]') as Element
+    const read = (): string => readComponentReportText(readComponentEntry({ entry: 'demo' }, { entryId: 'demo', title: 'T', container: within }))
+    const named = [
+      '      Named rows (`row` key: name):',
+      '        - "1": "丙站"',
+      '        - "2": "甲站"',
+      '        - "3": "乙站"',
+    ].join('\n')
+    expect(read()).toContain('      - "sort": th "名称"')
+    expect(read()).toContain(named)
+    // A person sorting by the heading leaves the rows where they are drawn, so
+    // the reading and the row a key presses stay the same.
+    fireEvent.click(view.container.querySelector('.el-table__header-wrapper th.is-sortable .cell') as HTMLElement)
+    await flush()
+    expect(read()).toContain(named)
+    const second = clickTarget(within, { action: 'click', key: 'row-click', row: '2' }, within)
+    expect(second.kind === 'one' ? second.target.textContent?.trim() : second.kind).toBe('甲站')
   })
 })
 
