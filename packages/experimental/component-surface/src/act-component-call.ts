@@ -15,7 +15,7 @@
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
   ActOutcome, ActStepResult, ChannelOutcome, ChannelReportRequest,
-} from '@deepseek-ai/dsh-experimental-content-frame/src/access/wire.ts'
+} from '@deepseek-ai/dsh-experimental-content-frame/access/wire'
 // Type-only: that module imports this one's readers as values.
 import type { ReadComponentCall } from './read-component-call.ts'
 import { MAX_ACT_COMPONENT_STEPS, MAX_CHANNEL_ID_CHARS, MAX_ENTRY_ID_LENGTH, TOKEN_CHARSET } from './component-call.ts'

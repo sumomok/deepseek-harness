@@ -6,7 +6,7 @@
  */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
-import type { ChannelReportRequest, ComponentReadOutcome } from '@deepseek-ai/dsh-experimental-content-frame/src/access/wire.ts'
+import type { ChannelReportRequest, ComponentReadOutcome } from '@deepseek-ai/dsh-experimental-content-frame/access/wire'
 import {
   isEntryId, isTarget, isText, parseActComponentReport, readChannelReport, readChannelToolCall, readReportedEntry,
 } from './act-component-call.ts'

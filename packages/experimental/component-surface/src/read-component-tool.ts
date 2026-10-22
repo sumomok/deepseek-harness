@@ -20,7 +20,7 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import type { CallTable, CallTimeouts } from '@deepseek-ai/dsh-experimental-content-frame/src/access/pending.ts'
+import type { CallTable, CallTimeouts } from '@deepseek-ai/dsh-experimental-content-frame/access/pending'
 import { isEntryId, isTarget } from './act-component-call.ts'
 import { READ_COMPONENT_TOOL_NAME, parseReadComponentArgs } from './read-component-call.ts'
 import {

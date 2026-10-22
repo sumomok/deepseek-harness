@@ -18,8 +18,8 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import type { CallTable, CallTimeouts } from '@deepseek-ai/dsh-experimental-content-frame/src/access/pending.ts'
-import type { ActOutcome } from '@deepseek-ai/dsh-experimental-content-frame/src/access/wire.ts'
+import type { CallTable, CallTimeouts } from '@deepseek-ai/dsh-experimental-content-frame/access/pending'
+import type { ActOutcome } from '@deepseek-ai/dsh-experimental-content-frame/access/wire'
 import {
   ACT_COMPONENT_ACTIONS, ACT_COMPONENT_TOOL_NAME, MAX_ACT_COMPONENT_STEPS, ignoredStepField, isActComponentReport,
   isEntryId, parseActComponentArgs, readActComponentStep,
