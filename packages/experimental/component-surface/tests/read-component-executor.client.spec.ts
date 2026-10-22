@@ -304,6 +304,104 @@ describe('the rows a scope draws, folded', () => {
     expect(text).toContain('        - "预案二"')
   })
 
+  it('merges copies by their row key where a layer holds no control in some rows', () => {
+    // The scrolling body draws a relation link in two of the three records, so
+    // its copy of the middle record holds no control; the fixed layer draws
+    // every record's opening cell. Each record is read once, under its own key.
+    const sparse = drawEntry(`
+      <div data-component-node="grid">
+        <div class="body"><table><tbody>
+          <tr data-component-row="k1"><td><a data-component-action="card-open" data-component-key="city_id">北京</a></td></tr>
+          <tr data-component-row="k2"><td></td></tr>
+          <tr data-component-row="k3"><td><a data-component-action="card-open" data-component-key="city_id">天津</a></td></tr>
+        </tbody></table></div>
+        <div class="fixed"><table><tbody>
+          <tr data-component-row="k1"><td data-component-action="cell-click">甲</td></tr>
+          <tr data-component-row="k2"><td data-component-action="cell-click">乙</td></tr>
+          <tr data-component-row="k3"><td data-component-action="cell-click">丙</td></tr>
+        </tbody></table></div>
+      </div>
+    `)
+    const rows = reading(sparse).blocks[0]?.rows
+    expect(rows?.drawn).toBe(3)
+    expect(rows?.named.map(row => row.key)).toEqual(['k1', 'k2', 'k3'])
+    const text = read(sparse)
+    // The records draw different kinds, so each is listed with what it draws.
+    expect(text).not.toContain('Each row draws:')
+    expect(text).toContain([
+      '      - "k2": "乙":',
+      '        - "cell-click" ×1: td',
+    ].join('\n'))
+    expect(text).not.toContain('no row key')
+    // Where every record draws the same kinds, the keyed copies fold into one.
+    const uniform = drawEntry(`
+      <div data-component-node="grid">
+        <div class="body"><table><tbody>
+          <tr data-component-row="k1"><td data-component-action="select"></td></tr>
+          <tr data-component-row="k2"><td data-component-action="select"></td></tr>
+        </tbody></table></div>
+        <div class="fixed"><table><tbody>
+          <tr data-component-row="k1"><td data-component-action="cell-click">甲</td></tr>
+          <tr data-component-row="k2"><td data-component-action="cell-click">乙</td></tr>
+        </tbody></table></div>
+      </div>
+    `)
+    expect(read(uniform)).toContain([
+      '    Rows: 2 drawn.',
+      '      Each row draws:',
+      '        - "select" ×1: td',
+      '        - "cell-click" ×1: td',
+      '      Named rows (`row` key: name):',
+      '        - "k1": "甲"',
+      '        - "k2": "乙"',
+    ].join('\n'))
+  })
+
+  it('merges unkeyed copies by their place among their own container\'s rows, past anything else drawn between', () => {
+    const drawn = drawEntry(`
+      <div data-component-node="grid">
+        <div role="rowgroup">
+          <div role="row"><span data-component-action="select"></span></div>
+          <hr>
+          <div role="row"><span data-component-action="select"></span></div>
+        </div>
+        <div role="rowgroup">
+          <div role="row"><span data-component-action="cell-click">甲</span></div>
+          <div role="row"><span data-component-action="cell-click">乙</span></div>
+        </div>
+      </div>
+    `)
+    expect(read(drawn)).toContain([
+      '    Rows: 2 drawn.',
+      '      Each row draws:',
+      '        - "select" ×1: span',
+      '        - "cell-click" ×1: span',
+    ].join('\n'))
+  })
+
+  it('reads a heading row\'s control as the table\'s own, and the first record under its own name and key', () => {
+    const drawn = drawEntry(`
+      <div data-component-node="t"><table>
+        <thead><tr><th data-component-action="sort">名称</th></tr></thead>
+        <tbody>
+          <tr data-component-row="1"><td data-component-action="row-click">丙站</td></tr>
+          <tr data-component-row="2"><td data-component-action="row-click">甲站</td></tr>
+        </tbody>
+      </table></div>
+    `)
+    expect(read(drawn)).toContain([
+      '    Controls:',
+      '      - "sort": th "名称"',
+      '    Fields: none.',
+      '    Rows: 2 drawn.',
+      '      Each row draws:',
+      '        - "row-click" ×1: td',
+      '      Named rows (`row` key: name):',
+      '        - "1": "丙站"',
+      '        - "2": "甲站"',
+    ].join('\n'))
+  })
+
   it('names a row by the first copy that draws words, where the first copy draws none', () => {
     // The copies are compared in the order they stand in the document: a copy
     // that draws nothing but its controls names nothing, and the next copy's

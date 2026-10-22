@@ -56,6 +56,9 @@ export const OVERLAY = '[role="dialog"], [aria-modal="true"]'
 /** The elements a drawn table draws one row of records in, as the platform names them. */
 export const ROW = 'tr, [role="row"]'
 
+/** A row drawn in a table's heading, which draws the headings of the record rows rather than a record. */
+const HEADING_ROW = 'thead > *'
+
 /**
  * The vendored page's element holding its words for how many records its query
  * matched, reported as written in the deployment's language.
@@ -440,46 +443,78 @@ export function openDialog(el: Element, within: Element): Element | undefined {
 }
 
 /**
- * The row (`tr` or `role="row"`) one element is inside. A toolbar, query panel,
- * or dialog footer is outside every row and belongs to the scope, which is how a
- * reading separates controls it lists once from those it folds into a row.
+ * The record row (`tr` or `role="row"`) one element is inside. A toolbar, query
+ * panel, dialog footer, or a table's heading row in its `thead` is outside every
+ * record row and belongs to the scope, which is how a reading separates
+ * controls it lists once — a heading's sort control among them — from those it
+ * folds into a row.
  * @param el - the element.
  * @param within - the scope's own element, past which nothing is asked.
  * @returns the row, or undefined when the element is not drawn inside one.
  */
 export function rowOf(el: Element, within: Element): Element | undefined {
   for (let node: Element | null = el; node !== null && node !== within; node = node.parentElement) {
-    if (node.matches(ROW)) return node
+    if (node.matches(ROW)) return node.matches(HEADING_ROW) ? undefined : node
   }
   return undefined
 }
 
 /**
- * The records one list of drawn rows holds, merging the rows at one position in
- * each container. A table with fixed columns draws every row in its scrolling
- * body and again in each fixed layer, in one order; two different tables of
- * equal length under one block would be paired too, and no block of this row
- * draws that.
+ * Where one row stands among the record rows its container draws, counting
+ * from 0: its own position, whichever of its siblings hold a control.
+ * @param row - the row.
+ * @returns how many record rows are drawn before it in the same container.
+ */
+function rowPosition(row: Element): number {
+  let at = 0
+  for (let sibling = row.previousElementSibling; sibling !== null; sibling = sibling.previousElementSibling) {
+    if (sibling.matches(ROW)) at += 1
+  }
+  return at
+}
+
+/**
+ * The records one list of drawn rows holds. A table with fixed columns draws
+ * every row in its scrolling body and again in each fixed layer, and a layer
+ * holding none of a row's controls leaves that copy out of the list, so the
+ * copies are merged by what each row says it draws rather than by where it
+ * falls in the list: copies carrying one row key a step could name are one
+ * record, and a copy carrying none joins the record standing at its position
+ * among its own container's record rows, or stands as a record of its own
+ * where none does. The records are in the order of those positions, first
+ * drawn first where two stand at one.
  * @param rows - the drawn row elements, in document order.
  * @returns one entry per record, each holding that record's copies, first drawn first.
  */
 export function rowCopies(rows: readonly Element[]): Element[][] {
-  const byContainer = new Map<Element | null, Element[]>()
+  const records: { readonly at: number; readonly copies: Element[] }[] = []
+  const keyed = new Map<string, Element[]>()
+  const unkeyed: Element[] = []
   for (const row of rows) {
-    const container = row.parentElement
-    const held = byContainer.get(container)
-    if (held === undefined) byContainer.set(container, [row])
-    else held.push(row)
-  }
-  const merged: Element[][] = []
-  for (const held of byContainer.values()) {
-    for (const [at, row] of held.entries()) {
-      const copies = merged[at]
-      if (copies === undefined) merged[at] = [row]
-      else copies.push(row)
+    const key = row.getAttribute(ROW_KEY)
+    if (!isTarget(key)) {
+      unkeyed.push(row)
+      continue
     }
+    const held = keyed.get(key)
+    if (held !== undefined) {
+      held.push(row)
+      continue
+    }
+    const copies = [row]
+    keyed.set(key, copies)
+    records.push({ at: rowPosition(row), copies })
   }
-  return merged
+  for (const row of unkeyed) {
+    const at = rowPosition(row)
+    const standing = records.find(record => record.at === at)
+    if (standing === undefined) records.push({ at, copies: [row] })
+    else standing.copies.push(row)
+  }
+  // Stable: two records at one position keep the order they were first drawn
+  // in, and each record's copies keep the order they are drawn in.
+  return records.sort((one, other) => one.at - other.at)
+    .map(record => record.copies.sort((one, other) => rows.indexOf(one) - rows.indexOf(other)))
 }
 
 /**
