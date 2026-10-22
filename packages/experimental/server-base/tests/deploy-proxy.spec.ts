@@ -1762,9 +1762,10 @@ describe('verify mode', () => {
  * A stand-in OGC gateway that records each request and answers the way a
  * GeoServer can: with a session cookie and a login challenge beside the body.
  * @param status - the status every request is answered with.
+ * @param extra - further headers every answer carries.
  * @returns the stub.
  */
-async function gateway(status = 200): Promise<Stub> {
+async function gateway(status = 200, extra: OutgoingHttpHeaders = {}): Promise<Stub> {
   const requests: Received[] = []
   const upgrades: Received[] = []
   const server = http.createServer((req, res) => {
@@ -1775,6 +1776,7 @@ async function gateway(status = 200): Promise<Stub> {
         'content-type': 'image/png',
         'set-cookie': 'JSESSIONID=gateway; Path=/geoserver',
         'www-authenticate': 'Basic realm="GeoServer"',
+        ...extra,
       })
       res.end('png')
     })
@@ -1791,14 +1793,16 @@ async function gateway(status = 200): Promise<Stub> {
  * @param env - environment overrides.
  * @param renewal - the renewal endpoint's answers.
  * @param status - the gateway's answer status.
+ * @param extra - further headers the gateway answers with.
  * @returns the world and its gateway.
  */
 async function ogcWorld(
   env: Record<string, string | undefined> = {},
   renewal: Renewal = ECHO_RENEWAL,
   status = 200,
+  extra: OutgoingHttpHeaders = {},
 ): Promise<World & { gateway: Stub }> {
-  const ogc = await gateway(status)
+  const ogc = await gateway(status, extra)
   const w = await world({ OGC_READ_PREFIXES: OGC, REMOTE_PREFIX_ORIGINS: `${OGC}=http://127.0.0.1:${String(ogc.port)}`, ...env }, renewal)
   return { ...w, gateway: ogc }
 }
@@ -1916,11 +1920,13 @@ describe('OGC reads', () => {
     })
   })
 
-  it('relays the answer with no cookie or login challenge, sandboxed, and kept out of every cache, since another visitor shares its URL', () => {
+  it('relays the answer with no cookie, login challenge, or address to go to, sandboxed, and kept out of every cache, since another visitor shares its URL', () => {
     expect(ogcResponseHeaders({
       'content-type': 'image/png',
       'set-cookie': ['JSESSIONID=1; Path=/geoserver'],
       'www-authenticate': 'Basic realm="GeoServer"',
+      'location': 'https://elsewhere.example/tiles',
+      'refresh': '0; url=https://elsewhere.example/tiles',
       'content-security-policy': "default-src 'self'; frame-ancestors 'none'",
       'x-frame-options': 'DENY',
       'cache-control': 'public, max-age=3600',
@@ -1959,6 +1965,24 @@ describe('OGC reads', () => {
     expect(memberHeaderNames(headers)).toEqual([])
     expect(w.customer.requests).toEqual([])
     expect(w.dsh.requests).toEqual([])
+  })
+
+  it.each([300, 301, 302, 303, 304, 307, 308])('answers 502 in place of an upstream %i, relaying none of it and logging no Location', async (status) => {
+    const w = await ogcWorld({}, ECHO_RENEWAL, status, { location: 'https://elsewhere.example/tiles?leak=query-value' })
+    const answer = await send(w.port, GET_MAP, READ)
+    expect(answer.status).toBe(502)
+    expect(answer.headers['content-type']).toBe('text/plain; charset=utf-8')
+    expect(answer.headers).not.toHaveProperty('location')
+    expect(answer.headers).not.toHaveProperty('set-cookie')
+    expect(w.gateway.requests).toHaveLength(1)
+    expect(w.logs).toEqual([`proxy: ogc GET ${OGC}/wms -> ${String(status)} withheld, answered 502`])
+  })
+
+  it('withholds a redirect to a path of this origin as well', async () => {
+    const w = await ogcWorld({}, ECHO_RENEWAL, 302, { location: '/geoserver/web/' })
+    const answer = await send(w.port, GET_MAP, READ)
+    expect(answer.status).toBe(502)
+    expect(answer.headers).not.toHaveProperty('location')
   })
 
   it('forwards the path it checked, with dot segments resolved, and the query it parsed, serialized again', async () => {

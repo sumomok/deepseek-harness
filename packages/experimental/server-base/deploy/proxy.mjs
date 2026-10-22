@@ -1175,10 +1175,10 @@ const OGC_CACHE_BUSTER = '_t'
 const OGC_CACHE_BUSTER_VALUE = /^[ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz0-9]{16}$/
 /**
  * Upstream headers an OGC read never relays: a session cookie for this origin,
- * a browser login prompt, and the upstream's caching, which the answer
- * replaces.
+ * a browser login prompt, the two headers that send a browser to another
+ * address, and the upstream's caching, which the answer replaces.
  */
-const OGC_DROPPED_RESPONSE_HEADERS = new Set(['set-cookie', 'www-authenticate', 'cache-control', 'expires'])
+const OGC_DROPPED_RESPONSE_HEADERS = new Set(['set-cookie', 'www-authenticate', 'location', 'refresh', 'cache-control', 'expires'])
 
 /**
  * @typedef {object} OgcRefusal
@@ -1279,8 +1279,8 @@ export function ogcRequestHeaders(headers, host) {
 
 /**
  * The headers an OGC read's answer reaches the client with: the remote
- * application's treatment, less `set-cookie`, `www-authenticate`, and the
- * upstream's `cache-control` and `expires`, with
+ * application's treatment, less `set-cookie`, `www-authenticate`, `location`,
+ * `refresh`, and the upstream's `cache-control` and `expires`, with
  * `x-content-type-options: nosniff` and `content-security-policy: sandbox`, so
  * no document the server generates runs as this origin, and
  * `cache-control: private, no-store`, since the answer is the visitor's own:
@@ -1331,6 +1331,17 @@ function denyRequest(res, outcome) {
     'cache-control': 'no-store',
   })
   res.end(unavailable ? '{"error":"login check unavailable"}' : '{"error":"login required"}')
+}
+
+/**
+ * Answer 502 for an upstream answer this proxy does not relay, unless the
+ * client's response has already begun.
+ * @param {import('node:http').ServerResponse} res - the client response.
+ * @returns {void}
+ */
+function badGateway(res) {
+  if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' })
+  res.end('bad gateway')
 }
 
 /**
@@ -1764,6 +1775,16 @@ export function createProxyServer(settings, runtime) {
             return
           }
         }
+        // An OGC read is never answered with a redirect: a browser follows one
+        // from the page's own requests without the page deciding, to another
+        // origin included. Nothing of the upstream's answer is relayed or
+        // logged beyond its status.
+        if (route.label === 'ogc' && status >= 300 && status < 400) {
+          response.resume()
+          runtime.log(`proxy: ogc ${req.method ?? '?'} ${pathname} -> ${String(status)} withheld, answered 502`)
+          badGateway(res)
+          return
+        }
         if (status >= 400) runtime.log(`proxy: ${route.label} ${req.method ?? '?'} ${pathname} -> ${String(status)}`)
         res.writeHead(status, headers)
         // An upstream connection that closes, resets, or sends a malformed
@@ -1792,8 +1813,7 @@ export function createProxyServer(settings, runtime) {
           return
         }
         runtime.log(`proxy: ${route.label} request ${req.method ?? '?'} ${pathname} failed: ${String(error)}`)
-        if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' })
-        res.end('bad gateway')
+        badGateway(res)
       })
       // An OGC read carries no body: anything but an empty one was refused above.
       if (framing.body === 'none' || route.label === 'ogc') upstream.end()
