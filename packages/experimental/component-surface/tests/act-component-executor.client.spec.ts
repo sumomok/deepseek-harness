@@ -2213,13 +2213,35 @@ describe('a control a table draws once per row', () => {
     expect(pressed).toEqual(['page/1045/region'])
   })
 
-  it('names the rows where own keys would also tell the controls apart, since a row is what a reading lists', async () => {
-    const drawn = drawEntry(`<table><tbody>
+  it('names the own keys before the rows and the blocks, since each presses its control in one step', async () => {
+    const rows = drawEntry(`<table><tbody>
       <tr data-component-row="1"><td><a data-component-action="locate" data-component-key="k1">x</a></td></tr>
       <tr data-component-row="2"><td><a data-component-action="locate" data-component-key="k2">x</a></td></tr>
     </tbody></table>`)
-    expect(await refusal(args([{ action: 'click', key: 'locate' }]), drawn)).toBe(
-      'action "locate" names 2 drawn controls in the entry, one per row; name the row with `row`: 1, 2.',
+    expect(await refusal(args([{ action: 'click', key: 'locate' }]), rows)).toBe(
+      'action "locate" names 2 drawn controls in the entry; name the one to press by its own key: k1, k2.',
+    )
+    // A control outside every block is reached by its own key and by nothing else.
+    const loose = drawEntry(`
+      <button data-component-action="press" data-component-key="a">A</button>
+      <div data-component-node="bar1"><button data-component-action="press" data-component-key="b">B</button></div>
+    `)
+    expect(await refusal(args([{ action: 'click', key: 'press' }]), loose)).toBe(
+      'action "press" names 2 drawn controls in the entry; name the one to press by its own key: a, b.',
+    )
+    expect((await run(args([{ action: 'click', key: 'a' }]), loose)).status).toBe('done')
+  })
+
+  it('names the rows for a row operation every row draws under one own key', async () => {
+    const drawn = drawEntry(`<table><tbody>
+      <tr data-component-row="1"><td><i data-component-action="operation" data-component-key="modify"></i></td></tr>
+      <tr data-component-row="2"><td><i data-component-action="operation" data-component-key="modify"></i></td></tr>
+    </tbody></table>`)
+    expect(await refusal(args([{ action: 'click', key: 'operation' }]), drawn)).toBe(
+      'action "operation" names 2 drawn controls in the entry, one per row; name the row with `row`: 1, 2.',
+    )
+    expect(await refusal(args([{ action: 'click', key: 'modify' }]), drawn)).toBe(
+      'own key "modify" is carried by 2 drawn controls in the entry, one per row; name the row with `row`: 1, 2.',
     )
   })
 

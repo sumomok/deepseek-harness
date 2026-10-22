@@ -432,10 +432,12 @@ async function waitFor(run: StepRun, step: ActComponentWait, timeoutMs: number):
  * Press the one control one `click` step names.
  *
  * Several drawn controls carrying the key are refused with the first sentence
- * that names a narrower step, in this order: the blocks they are drawn in,
- * where naming one as `node` looks at fewer; the rows they are drawn in, where
- * naming one as `row` does; their own keys, where those name every one of
- * them; and otherwise the sentence saying no step tells them apart.
+ * that names a narrower step, in this order: their own keys, where those name
+ * every one of them, since one of those presses its control in one step and a
+ * control outside every block is reached by no other; the blocks they are
+ * drawn in, where naming one as `node` looks at fewer; the rows they are drawn
+ * in, where naming one as `row` does; and otherwise the sentence saying no step
+ * tells them apart.
  * @param scope - the subtree the step is confined to.
  * @param step - the click step.
  * @param within - the entry's own container.
@@ -459,9 +461,9 @@ function pressNamed(scope: Element, step: ActComponentClick, within: Element): v
       throw new Error(notInRowReason(step.key, named.row, step.node))
     case 'several': {
       const shared: SharedKey = { key: step.key, by: named.by, count: named.count, node: step.node, row: step.row }
+      if (named.ownKeys !== undefined) throw new Error(sharedActionReason(shared, named.ownKeys))
       if (named.spread !== undefined) throw new Error(spreadReason(shared, named.spread))
       if (named.rows !== undefined) throw new Error(rowsReason(shared, named.rows))
-      if (named.ownKeys !== undefined) throw new Error(sharedActionReason(shared, named.ownKeys))
       throw new Error(inseparableReason(shared))
     }
     /* v8 ignore start -- ClickTarget is closed and every variant returns or throws above. */
