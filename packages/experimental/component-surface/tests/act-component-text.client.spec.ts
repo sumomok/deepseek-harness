@@ -42,7 +42,7 @@ describe('the offer and its refusals', () => {
     expect(ACT_COMPONENT_DESCRIPTION).toContain(
       '- `click` presses one control: name it by the action key a block declares for it (a toolbar button\'s `add`),\n'
       + '  or, where several drawn controls share one action — one button per listed item — by that control\'s own key;\n'
-      + '  where a table draws the control once per row, add `row`, the key the row carries, to press the one in that row.',
+      + '  where a table draws the control once per row, add `row` to press the one in that row.',
     )
     // The description and the parameter name this tool and its own fields alone.
     expect(ACT_COMPONENT_DESCRIPTION).not.toContain('read_component')

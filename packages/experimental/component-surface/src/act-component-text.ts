@@ -21,7 +21,7 @@ export const ACT_COMPONENT_DESCRIPTION = [
   'Steps address the components\' own language, never a DOM reference:',
   '- `click` presses one control: name it by the action key a block declares for it (a toolbar button\'s `add`),',
   '  or, where several drawn controls share one action — one button per listed item — by that control\'s own key;',
-  '  where a table draws the control once per row, add `row`, the key the row carries, to press the one in that row.',
+  '  where a table draws the control once per row, add `row` to press the one in that row.',
   '- `set` writes a value into the field the entry names for one column or property (a filter value on `zh_label`);',
   '  a field drawn as a select or a suggestion field is set by choosing the option whose label is the value.',
   '- `wait` waits until a block or a declared control is drawn, for a call that acts on what it just asked for.',
