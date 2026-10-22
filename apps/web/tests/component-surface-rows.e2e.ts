@@ -500,7 +500,7 @@ describe.skipIf(MODE === 'record')('web e2e: act_component presses a per-row con
     const readings = toolResults(events, 'read_component')
     expect(readings.length).toBe(2)
     expect(readings[0]).toContain('Named rows (`row` key: name):')
-    for (const record of RECORDS) expect(readings[0]).toContain(`- ${record.int_id}: "${record.zh_label}"`)
+    for (const record of RECORDS) expect(readings[0]).toContain(`- "${record.int_id}": "${record.zh_label}"`)
 
     const answers = toolResults(events, 'act_component')
     expect(answers.length).toBe(3)

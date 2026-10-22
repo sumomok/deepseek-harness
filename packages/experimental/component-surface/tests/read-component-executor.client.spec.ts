@@ -246,8 +246,8 @@ describe('the rows a scope draws, folded', () => {
       '        - "cell-click" ×1: td',
       '        - "operation" ×1: link, own key "modify"',
       '      Named rows (`row` key: name):',
-      '        - 1044: "北京市测试站"',
-      '        - 1045: "天津市测试站"',
+      '        - "1044": "北京市测试站"',
+      '        - "1045": "天津市测试站"',
       'No dialog is open.',
     ].join('\n'))
     expect(reading(drawn).blocks[0]?.rows?.named.map(row => row.key)).toEqual(['1044', '1045'])
@@ -273,7 +273,7 @@ describe('the rows a scope draws, folded', () => {
     expect(reading(drawn).blocks[0]?.rows?.named.map(row => row.key)).toEqual(['7', undefined, undefined])
     const text = read(drawn)
     expect(text).toContain('      Named rows (`row` key: name):')
-    expect(text).toContain('        - 7: "甲"')
+    expect(text).toContain('        - "7": "甲"')
     expect(text).toContain('        - "乙" (no row key, so no click names this row)')
     expect(text).toContain('        - "丙" (no row key, so no click names this row)')
     expect(text).not.toContain('These rows carry no row key')

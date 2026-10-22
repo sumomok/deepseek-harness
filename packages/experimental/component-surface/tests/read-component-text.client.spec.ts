@@ -272,9 +272,9 @@ describe('the rows a reading folds', () => {
     const text = readComponentReportText({ ...EMPTY, blockIds: ['grid'], blocks: [block('grid', { rows: { drawn: 3, named } })] })
     expect(text).toContain([
       '      Named rows (`row` key: name):',
-      '        - 1044: "北京市测试站"',
+      '        - "1044": "北京市测试站"',
       '        - "天津市测试站" (no row key, so no click names this row)',
-      '        - 1046: (no words drawn)',
+      '        - "1046": (no words drawn)',
     ].join('\n'))
     expect(text).not.toContain('These rows carry no row key')
   })
@@ -301,7 +301,7 @@ describe('the rows a reading folds', () => {
       blocks: [block('page', { controls: toolbar, fields, rows: { drawn: 50, total: '共 1048 条', named } })],
     })
     expect(text).toContain('      Named rows (`row` key: name):')
-    for (const key of keys) expect(text).toContain(`        - ${key}: "燃气管线-`)
+    for (const key of keys) expect(text).toContain(`        - "${key}": "燃气管线-`)
     expect(text).toContain('        - "card-open" ×1: link, own key "zh_label"')
     expect(text).not.toContain('was cut to fit one answer')
     expect(text).not.toContain('Truncated')

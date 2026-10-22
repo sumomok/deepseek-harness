@@ -306,13 +306,14 @@ function sameDraws(row: ComponentReadRow, against: ComponentReadRow): boolean {
 
 /**
  * What one drawn row is called on its own line: the key a `click` step's
- * `row` names it by, where it carries one, then its name.
+ * `row` names it by, where it carries one, then its name. The key is quoted
+ * as the string a step carries, so a key of digits is not read as a number.
  * @param row - the row.
  * @returns the key and the name, quoted, or the word for a row that draws none.
  */
 function rowNameLine(row: ComponentReadRow): string {
   const name = row.name === '' ? '(no words drawn)' : `"${clip(row.name)}"`
-  return row.key === undefined ? name : `${row.key}: ${name}`
+  return row.key === undefined ? name : `"${row.key}": ${name}`
 }
 
 /**
