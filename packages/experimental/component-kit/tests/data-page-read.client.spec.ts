@@ -635,9 +635,6 @@ describe('the keys a page\'s drawn rows carry', () => {
     const records = [{ int_id: '1134933624650219530' }, { int_id: 41 }, { zh_label: '无编号' }, 'not a record']
     expect(readRowKeys({ resultData: { displayValue: records } }, drawnRows(records)))
       .toEqual(['1134933624650219530', '41', undefined, undefined])
-    // A row el-table draws without a component of its own is taken by position.
-    expect(readRowKeys({ resultData: { displayValue: records } }, drawnRows([undefined, undefined, undefined, undefined])))
-      .toEqual(['1134933624650219530', '41', undefined, undefined])
   })
 
   it('keys nothing where the rows drawn are not the records displayed', () => {
@@ -646,6 +643,8 @@ describe('the keys a page\'s drawn rows carry', () => {
     expect(readRowKeys({ resultData: { displayValue: records } }, drawnRows([records[0]]))).toBeUndefined()
     // As many rows, one still holding the record it was drawn for before the answer.
     expect(readRowKeys({ resultData: { displayValue: records } }, drawnRows([records[0], { int_id: '9' }]))).toBeUndefined()
+    // A row drawn without el-table's row component is not guessed by position.
+    expect(readRowKeys({ resultData: { displayValue: records } }, drawnRows([records[0], undefined]))).toBeUndefined()
     // A cleared page displays nothing, and no page at all is nothing to read.
     expect(readRowKeys({ resultData: {} }, drawnRows([records[0]]))).toBeUndefined()
     expect(readRowKeys({}, [])).toEqual([])
