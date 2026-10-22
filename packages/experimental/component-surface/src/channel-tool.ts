@@ -10,8 +10,8 @@
  */
 
 import type { GenericCallView, GenericResultView, ToolResult, ToolRunContext } from '@deepseek-ai/dsh-tools'
-import type { CallTable, CallTimeouts } from '@deepseek-ai/dsh-experimental-content-frame/src/access/pending.ts'
-import type { ChannelOutcome } from '@deepseek-ai/dsh-experimental-content-frame/src/access/wire.ts'
+import type { CallTable, CallTimeouts } from '@deepseek-ai/dsh-experimental-content-frame/access/pending'
+import type { ChannelOutcome } from '@deepseek-ai/dsh-experimental-content-frame/access/wire'
 
 /**
  * How much of the raw arguments a call card prints for a call its tool could

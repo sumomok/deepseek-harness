@@ -25,8 +25,8 @@
 // Type-only: the shared channel's own shapes, erased before any bundle carries them.
 import type {
   ChannelCall, ChannelDomain, ChannelSeat,
-} from '@deepseek-ai/dsh-experimental-content-frame/src/client/access/channel.ts'
-import type { ChannelOutcome } from '@deepseek-ai/dsh-experimental-content-frame/src/access/wire.ts'
+} from '@deepseek-ai/dsh-experimental-content-frame/client'
+import type { ChannelOutcome } from '@deepseek-ai/dsh-experimental-content-frame/access/wire'
 import {
   ACT_COMPONENT_TOOL_NAME, COMPONENT_DOMAIN, type ComponentCall, type ComponentView,
 } from '../act-component-call.ts'

@@ -20,6 +20,15 @@
       "types": "./lib/types/client/index.d.ts",
       "default": "./lib/client.js"
     },
+    "./access/channel": {
+      "types": "./lib/types/access/channel.d.ts"
+    },
+    "./access/pending": {
+      "types": "./lib/types/access/pending.d.ts"
+    },
+    "./access/wire": {
+      "types": "./lib/types/access/wire.d.ts"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },

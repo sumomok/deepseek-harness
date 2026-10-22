@@ -54,6 +54,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 export type { ContentFrameFace, ContentFrameProps } from './ContentFrame.tsx'
 export type { ContentReadRowProps } from './access/ContentReadRow.tsx'
+export type { ChannelCall, ChannelDomain, ChannelSeat } from './access/channel.ts'
 
 /** Required services: the slot registry, the locale registry, and remote commands (the navigation report's dispatch). */
 export const inject = ['slots', 'locale', 'remote', 'remote.commands']
