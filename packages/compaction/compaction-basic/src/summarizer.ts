@@ -5,13 +5,14 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { contentHasImage, BlockAssembler, LlmError } from '@deepseek-ai/dsh-llm'
+import { contentHasImage, BlockAssembler, createUserMessage, LlmError } from '@deepseek-ai/dsh-llm'
 import { deepFreeze } from '@deepseek-ai/dsh-util-values'
 import type {
   ContentBlock, FinishReason, GenerateOptions, Message, RequestMessage, TokenUsage, ToolSchema,
 } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session } from '@deepseek-ai/dsh-session'
+import type { TokenMeter } from '@deepseek-ai/dsh-token-meter'
 
 interface SummaryConfig {
   readonly summarizationProvider: string
@@ -242,6 +243,31 @@ export function frameSummary(summary: readonly ContentBlock[]): ContentBlock[] {
     ...summary,
     { type: 'text', text: SUMMARY_CLOSE_TAG },
   ]
+}
+
+/** Safety margin over the measured instruction and framing floor. */
+const MINIMUM_SUMMARY_SAFETY_RATIO = 0.1
+
+/**
+ * The smallest summary request whose fixed cost can still make progress: the
+ * compaction instruction plus the checkpoint framing, with a safety margin for
+ * provider tokenization differences. A surface span below this floor cannot
+ * produce a smaller replacement, so a pressure retry stops instead of spending
+ * another guaranteed-failing request.
+ * @param meter - token meter used for the same heuristic pricing as compaction.
+ * @returns minimum route-independent summary envelope tokens.
+ */
+export function minimumSummaryTokens(meter: TokenMeter): number {
+  const instruction = meter.estimateMessage(createUserMessage({
+    content: [{ type: 'text', text: COMPACTION_INSTRUCTION }],
+    source: { kind: 'user' },
+  }))
+  const framing = meter.estimateMessage(createUserMessage({
+    content: frameSummary([]),
+    source: { kind: 'user' },
+  }))
+  const fixed = instruction + framing
+  return fixed + Math.ceil(fixed * MINIMUM_SUMMARY_SAFETY_RATIO)
 }
 
 /** Map a terminal summarization finish to its fail-closed error. */

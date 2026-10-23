@@ -7,6 +7,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { CompactionEngine, ManualCompactionError } from '@deepseek-ai/dsh-compaction'
+import { isCompactCheckpointSource } from '@deepseek-ai/dsh-compaction'
 import type { CompactionResult, CompactionTrigger, ManualCompactionWhileBusy } from '@deepseek-ai/dsh-compaction'
 import type { TokenMeasurement } from '@deepseek-ai/dsh-token-meter'
 import type { Session, SessionSeq } from '@deepseek-ai/dsh-session'
@@ -31,7 +32,7 @@ import {
   selectCompactableRange,
   selectCompactableRangeAtTurnBoundary,
 } from './region.ts'
-import { summarizeWithLlm } from './summarizer.ts'
+import { minimumSummaryTokens, summarizeWithLlm } from './summarizer.ts'
 import { WaitingCompactions } from './waiting.ts'
 import type { WaitingCompaction } from './waiting.ts'
 import type { SummarizationInput, SummaryResult } from './summarizer.ts'
@@ -102,6 +103,7 @@ const summarizationProviderSchema = z.string()
 const summarizationModelSchema = z.string()
 const maxTokensSchema = z.number().step(1).min(1)
 const compactionRetriesSchema = z.number().step(1).min(0)
+const maxConsecutiveFailuresSchema = z.number().step(1).min(0)
 const maxOverflowRetriesSchema = z.number().step(1).min(0)
 
 const modelPolicy: z<ModelCompactPolicyConfig> = z.object({
@@ -115,6 +117,7 @@ const modelPolicy: z<ModelCompactPolicyConfig> = z.object({
   summarizationModel: summarizationModelSchema,
   maxTokens: maxTokensSchema,
   compactionRetries: compactionRetriesSchema,
+  maxConsecutiveFailures: maxConsecutiveFailuresSchema,
   maxOverflowRetries: maxOverflowRetriesSchema,
 })
 
@@ -138,6 +141,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     summarizationModel: summarizationModelSchema,
     maxTokens: maxTokensSchema,
     compactionRetries: compactionRetriesSchema,
+    maxConsecutiveFailures: maxConsecutiveFailuresSchema,
     maxOverflowRetries: maxOverflowRetriesSchema,
     modelPolicies: z.array(modelPolicy),
     auto: z.boolean(),
@@ -151,6 +155,7 @@ export class BasicCompactionEngine extends CompactionEngine {
   private readonly overflowRetries = new WeakMap<Agent, number>()
   private readonly overflowAgents = new WeakMap<Session, Agent>()
   private readonly waiting = new WaitingCompactions()
+  private readonly summaryFailures = new Map<string, { count: number; errorClass: string }>()
 
   constructor(ctx: Context, config: BasicCompactionConfig = {}) {
     super(ctx)
@@ -342,6 +347,16 @@ export class BasicCompactionEngine extends CompactionEngine {
     const target = routedTarget(agent.session)
     if (target === undefined) return null
     const policy = resolveTargetPolicy(this.config, target)
+    const breakerKey = `${String(agent.session.id)}:${target.provider}/${target.model}`
+    const breaker = this.summaryFailures.get(breakerKey)
+    if (policy.maxConsecutiveFailures > 0 && breaker !== undefined
+      && breaker.count >= policy.maxConsecutiveFailures) {
+      this.ctx.logger.info(
+        'compaction (pressure): circuit open for %s after %d consecutive %s failures; skipping',
+        breakerKey, breaker.count, breaker.errorClass,
+      )
+      return null
+    }
     const meter = this.ctx.tokenMeter
     let measurement = meter.measure(agent.session)
     switch (trigger) {
@@ -426,6 +441,7 @@ export class BasicCompactionEngine extends CompactionEngine {
 
     let result: CompactionResult | null = null
     let stoppedForFloor = false
+    let stoppedForCheckpoint = false
     for (let attempt = 0; attempt <= spec.compactionRetries; attempt += 1) {
       const range = selectCompactableRangeAtTurnBoundary(agent.session, measurement, spec.retainTokens)
       if (range === null) {
@@ -434,11 +450,19 @@ export class BasicCompactionEngine extends CompactionEngine {
         /* v8 ignore next -- paired with the defensive post-success branch above. */
         break
       }
+      if (this.isOnlyCheckpointRange(agent.session, range)) {
+        this.ctx.logger.info(
+          'compaction (pressure): skipping; the selected span is only the previous checkpoint, '
+          + 'so another summary would be a summary of a summary',
+        )
+        stoppedForCheckpoint = true
+        break
+      }
       const rangeTokens = this.rangeTokenPrice(measurement, range)
       // A checkpoint already committed in this call made progress; a remaining
       // span below the summary envelope's floor can only fail the shrink check,
       // so stop after the useful attempt instead of spending another request.
-      if (result !== null && rangeTokens < 256) {
+      if (result !== null && rangeTokens < minimumSummaryTokens(meter)) {
         this.ctx.logger.info(
           'compaction (pressure): stopping; remaining span is ~%d route tokens, '
           + 'below the minimum summary envelope',
@@ -454,17 +478,38 @@ export class BasicCompactionEngine extends CompactionEngine {
         prefix === undefined ? 'unknown' : String(prefix.total), reclaimable, needed, spec.retainTokens,
       )
       const started = performance.now()
-      result = await this.compactRegion(range.start, range.end, agent, signal)
+      try {
+        result = await this.compactRegion(range.start, range.end, agent, signal)
+      } catch (error: unknown) {
+        const errorClass = classifyCompactionError(error)
+        if (!signal.aborted) {
+          const previous = this.summaryFailures.get(breakerKey)
+          this.summaryFailures.set(breakerKey, { count: (previous?.count ?? 0) + 1, errorClass })
+        }
+        this.ctx.logger.info(
+          'compaction (pressure): failed after %dms (%s, %d consecutive): %s',
+          Math.round(performance.now() - started), errorClass,
+          this.summaryFailures.get(breakerKey)?.count ?? 0,
+          error instanceof Error ? error.message : String(error),
+        )
+        throw error
+      }
+      this.summaryFailures.delete(breakerKey)
+      const summaryEvent = agent.session.snapshotEvents()
+        .find(event => event.seq === result.summarySeq)
+      const usage = summaryEvent?.type === 'compaction/summary' ? summaryEvent.data.usage : undefined
       this.ctx.logger.info(
-        'compaction (pressure): committed %d shadowed nodes (~%d tokens) in %dms',
+        'compaction (pressure): committed %d shadowed nodes (~%d tokens) in %dms; route=%s/%s usage=%s',
         result.shadowedSeqs.length, result.shadowedTokenCount,
-        Math.round(performance.now() - started),
+        Math.round(performance.now() - started), target.provider, target.model,
+        usage === undefined ? 'none' : JSON.stringify(usage),
       )
       measurement = meter.measure(agent.session)
       occupancy = this.occupancyTokens(agent.session, measurement)
       if (occupancy < spec.thresholdTokens) return result
     }
 
+    if (stoppedForCheckpoint) return result
     if (stoppedForFloor && result !== null) {
       this.ctx.logger.info(
         'compaction (pressure): threshold not reached (%d >= %d) but only a sub-envelope '
@@ -531,6 +576,31 @@ export class BasicCompactionEngine extends CompactionEngine {
     const end = nodes.findIndex(node => node.seq === range.end)
     if (start < 0 || end < start) return 0
     return nodes.slice(start, end + 1).reduce((total, node) => total + node.tokens, 0)
+  }
+
+  /**
+   * Whether every node in the selected span is a prior compaction checkpoint;
+   * summarizing such a span again would replace a summary with a summary.
+   * @param session - session owning the surface.
+   * @param range - selected inclusive positional span.
+   * @returns true when the whole span is checkpoint user messages.
+   */
+  private isOnlyCheckpointRange(
+    session: Session,
+    range: { readonly start: SessionSeq; readonly end: SessionSeq },
+  ): boolean {
+    const surface = session.surface.nodes
+    const start = surface.indexOf(range.start)
+    const end = surface.indexOf(range.end)
+    if (start < 0 || end < start) return false
+    const events = new Map(session.snapshotEvents().map(event => [event.seq, event]))
+    for (let index = start; index <= end; index += 1) {
+      const seq = surface[index]
+      if (seq === undefined) return false
+      const event = events.get(seq)
+      if (event?.type !== 'user/message' || !isCompactCheckpointSource(event.data.source)) return false
+    }
+    return true
   }
 
   /**
@@ -766,6 +836,21 @@ function manualCancellation(error: unknown, agentSignal: AbortSignal, operationS
     return new ManualCompactionError('cancelled', 'manual compaction was cancelled', { cause: error })
   }
   return operationSignal.aborted ? operationSignal.reason : error
+}
+
+/**
+ * Stable failure class for one grouped compaction attempt.
+ * @param error - failure thrown by the transaction.
+ * @returns a small class name for logs and the consecutive-failure ledger.
+ */
+function classifyCompactionError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  if (/abort/i.test(message)) return 'cancelled'
+  if (/summary is not smaller/i.test(message)) return 'summary-not-smaller'
+  if (/Connection error/i.test(message)) return 'connection'
+  if (/^400:|\b400\b.*schema/i.test(message)) return 'provider-400'
+  if (error instanceof TargetPressureConfigError) return 'config'
+  return 'other'
 }
 
 export default BasicCompactionEngine

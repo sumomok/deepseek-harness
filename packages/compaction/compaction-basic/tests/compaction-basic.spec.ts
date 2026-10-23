@@ -208,6 +208,49 @@ function toolConversation(): Session {
   return session
 }
 
+/** One open user turn with `steps` closed assistant/tool steps. */
+function singleTurnSteps(steps: number): Session {
+  const session = Session.create(SessionId(`single-turn-${steps}`))
+  session.append('turn/start', { turn: 1 })
+  session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'single task '.repeat(200) }],
+    source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+  session.append('request/header', {
+    header: { config: { provider: MODEL, model: MODEL } },
+    reason: 'initial',
+  })
+  for (let step = 1; step <= steps; step += 1) {
+    const callId = ToolCallId(`call-${step}`)
+    session.append('step/start', { turn: 1, step })
+    session.append('assistant/message', {
+      stream: [],
+      turn: 1,
+      step,
+      message: createMessage({
+        role: 'assistant',
+        content: [
+          { type: 'text', text: `working ${step} `.repeat(100) },
+          { type: 'tool-call', id: callId, name: 'read', arguments: '{}' },
+        ],
+        source: { kind: 'model', ...{ provider: MODEL, model: MODEL } },
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('tool/call', { turn: 1, step, callId, name: 'read', arguments: '{}' })
+    session.append('tool/result', {
+      turn: 1,
+      step,
+      message: createToolResultMessage({
+        callId,
+        content: [{ type: 'text', text: `result ${step} `.repeat(100) }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('step/end', { turn: 1, step })
+  }
+  return session
+}
+
 /** One closed routed tool step followed by an open turn for rewrite events. */
 function oversizedToolResult(chars = 3_000, withCompactablePrompt = false): Session {
   const session = Session.create(SessionId(`oversized-tool-${chars}`))
@@ -318,6 +361,7 @@ describe('compact configuration and defaults', () => {
       summarizationModel: '',
       maxTokens: 65_536,
       compactionRetries: 1,
+      maxConsecutiveFailures: 3,
       maxOverflowRetries: 1,
       modelPolicies: [],
       auto: true,
@@ -912,6 +956,59 @@ describe('pressure measurement and retention', () => {
     expect(kept?.type).toBe('user/message')
   })
 
+  it('opens a session-and-route circuit after consecutive failures', async () => {
+    const compact = service({ ...compactConfig, maxConsecutiveFailures: 2 })
+    compact.error = new Error('Connection error.')
+    const session = conversation(4)
+
+    await expect(compactIfNeeded(compact, session)).rejects.toThrow('Connection error.')
+    await expect(compactIfNeeded(compact, session)).rejects.toThrow('Connection error.')
+    expect(compact.calls).toHaveLength(2)
+
+    const logs: string[] = []
+    compact.ctx.logger.info = ((message: string) => void logs.push(message)) as typeof compact.ctx.logger.info
+    expect(await compactIfNeeded(compact, session)).toBeNull()
+    expect(compact.calls).toHaveLength(2)
+    expect(logs).toContainEqual(expect.stringContaining('circuit open'))
+  })
+
+  it('compacts earlier steps of a single long turn and keeps its user message and newest group', async () => {
+    const ctx = createContext(2_000)
+    const compact = service({
+      auto: false,
+      thresholdRatio: 0.5,
+      retainTokens: 0,
+      maxTokens: 1,
+    }, ctx)
+    const session = singleTurnSteps(4)
+    const userSeq = session.surface.nodes[0]
+
+    const result = await compactIfNeeded(compact, session)
+
+    expect(result).not.toBeNull()
+    expect(session.surface.nodes[0]).toBe(userSeq)
+    const events = session.snapshotEvents()
+    const replacement = events.find(event =>
+      event.type === 'user/message' && event.surfaceOp?.op === 'replace')
+    expect(replacement).toBeDefined()
+    expect(session.surface.nodes[1]).toBe(replacement!.seq)
+    const firstKept = events.find(event => event.seq === session.surface.nodes[2])
+    expect(firstKept?.type).toBe('assistant/message')
+  })
+
+  it('refuses a single long turn with no earlier step group to compact', async () => {
+    const compact = service({
+      auto: false,
+      thresholdRatio: 0.5,
+      retainTokens: 0,
+      maxTokens: 1,
+    }, createContext(2_000))
+    const session = singleTurnSteps(1)
+
+    expect(await compactIfNeeded(compact, session)).toBeNull()
+    expect(compact.calls).toHaveLength(0)
+  })
+
   it('bounds retries when a shrinking checkpoint remains above threshold', async () => {
     const compact = service({
       auto: false,
@@ -1052,7 +1149,7 @@ describe('optional model-free tool-result pruning', () => {
     expect(summarizedText(compact.calls[0]!.input)).not.toContain('result 1 '.repeat(300))
   })
 
-  it('retains the original compaction-basic behavior without the optional plugin', async () => {
+  it('keeps earlier tool results in the log when compacting them without the optional plugin', async () => {
     const ctx = createContext(2_000)
     const compact = new TestCompactionEngine(ctx, {
       headroomTokens: 0,
@@ -1061,13 +1158,13 @@ describe('optional model-free tool-result pruning', () => {
       thresholdRatio: 0.5,
       retainTokens: 50,
     })
-    const session = oversizedToolResult(3_000, true)
+    const session = singleTurnSteps(2)
 
     expect(await compactIfNeeded(compact, session)).not.toBeNull()
     expect(compact.calls).toHaveLength(1)
     const original = session.snapshotEvents().find(event => event.type === 'tool/result')
     expect(original?.type === 'tool/result' && original.data.message.content[0])
-      .toEqual({ type: 'text', text: 'X'.repeat(3_000) })
+      .toEqual({ type: 'text', text: 'result 1 '.repeat(100) })
     expect(session.snapshotEvents().filter(event =>
       event.type === 'tool/result' && event.surfaceOp !== 'append')).toHaveLength(0)
   })

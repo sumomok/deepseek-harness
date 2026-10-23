@@ -165,9 +165,11 @@ export function selectCompactableRange(
  * retaining a priced recent tail that begins at a complete user turn. The
  * retained tail is widened backwards from the token budget to the first
  * `user/message` of the turn that owns the budget boundary, so a later
- * compaction never keeps a turn from its middle. Tool-call/result pairing still
- * decides the final cut; when no earlier user-turn boundary exists the function
- * returns `null` rather than falling back to a mid-turn tail.
+ * compaction never keeps a turn from its middle. When the budget falls inside
+ * the only user turn, the user message and its newest complete step group stay
+ * verbatim and earlier assistant/tool steps are compactable. Tool-call/result
+ * pairing still decides the final cut; a span with no earlier balanced step is
+ * refused.
  * @param session - session supplying authoritative current surface positions.
  * @param measurement - unified pressure and surface measurement from the conversation meter.
  * @param retainTokens - minimum recent tail budget retained verbatim.
@@ -205,24 +207,49 @@ export function selectCompactableRangeAtTurnBoundary(
     const index = surfaceNodes.indexOf(boundary)
     if (index > boundaryIdx && index <= keepFromIdx) boundaryIdx = index
   }
-  // A tool-only history (or a first user turn that is already the head) has no
-  // later complete turn to keep; preserve the token-tail behavior instead of
-  // refusing every compaction in such a session.
-  if (boundaryIdx <= firstIdx) return selectCompactableRange(session, measurement, retainTokens)
-  keepFromIdx = boundaryIdx
 
-  while (keepFromIdx > firstIdx) {
+  if (boundaryIdx > firstIdx) {
+    keepFromIdx = boundaryIdx
+    while (keepFromIdx > firstIdx) {
+      // oxlint-disable-next-line typescript/no-non-null-assertion
+      if (toolPairingBalancedBefore(session, surfaceNodes[keepFromIdx]!)) break
+      keepFromIdx -= 1
+    }
+    if (keepFromIdx <= firstIdx) return null
     // oxlint-disable-next-line typescript/no-non-null-assertion
-    if (toolPairingBalancedBefore(session, surfaceNodes[keepFromIdx]!)) break
-    keepFromIdx -= 1
+    return { start: surfaceNodes[firstIdx]!, end: surfaceNodes[keepFromIdx - 1]! }
   }
-  if (keepFromIdx <= firstIdx) return null
 
-  // oxlint-disable-next-line typescript/no-non-null-assertion
-  const first = surfaceNodes[firstIdx]!
-  // oxlint-disable-next-line typescript/no-non-null-assertion
-  const cutoff = surfaceNodes[keepFromIdx - 1]!
-  return { start: first, end: cutoff }
+  // No later complete user turn is inside the retained tail. A long single
+  // task still has earlier assistant/tool steps worth compacting: keep the
+  // user message and the newest complete step group, and compact steps before
+  // that group. Only a turn with no earlier balanced step refuses.
+  const firstBoundary = boundaries[0]
+  const userIdx = firstBoundary === undefined ? -1 : surfaceNodes.indexOf(firstBoundary)
+  if (userIdx < firstIdx) return selectCompactableRange(session, measurement, retainTokens)
+  const startIdx = userIdx + 1
+  if (startIdx >= surfaceNodes.length) return null
+  // A single long turn has no later user boundary, so the newest complete
+  // assistant/tool group replaces the token budget as the retention edge:
+  // keeping the user message and that group is the semantic requirement, and
+  // every earlier step stays compactable even when the token budget would
+  // have kept more.
+  const groupStarts = stepStartSeqs(session)
+    .map(seq => surfaceNodes.indexOf(seq))
+    .filter(index => index > startIdx)
+    .sort((left, right) => right - left)
+  for (const groupIdx of groupStarts) {
+    const endIdx = groupIdx - 1
+    if (endIdx < startIdx) continue
+    // oxlint-disable-next-line typescript/no-non-null-assertion
+    const start = surfaceNodes[startIdx]!
+    // oxlint-disable-next-line typescript/no-non-null-assertion
+    const end = surfaceNodes[endIdx]!
+    if (!toolPairingBalancedBefore(session, start)) continue
+    if (!toolPairingBalancedAfter(session, end)) continue
+    return { start, end }
+  }
+  return null
 }
 
 /**
@@ -251,6 +278,30 @@ function userTurnStartSeqs(session: Session): SessionSeq[] {
     if (!inTurn || sawUser || !surface.has(event.seq) || event.type !== 'user/message') continue
     starts.push(event.seq)
     sawUser = true
+  }
+  return starts
+}
+
+/**
+ * Surface seqs of the first assistant message after each `step/start`, in log
+ * order. These are the assistant/tool group boundaries a single long turn can
+ * compact at while keeping its newest complete group; a step without an
+ * assistant message contributes no boundary.
+ * @param session - session whose log and current surface are read.
+ * @returns assistant-message seqs that begin a step's surface contribution.
+ */
+function stepStartSeqs(session: Session): SessionSeq[] {
+  const surface = new Set(session.surface.nodes)
+  const starts: SessionSeq[] = []
+  let pending = false
+  for (const event of session.snapshotEvents()) {
+    if (event.type === 'step/start') {
+      pending = true
+      continue
+    }
+    if (!pending || event.type !== 'assistant/message' || !surface.has(event.seq)) continue
+    starts.push(event.seq)
+    pending = false
   }
   return starts
 }

@@ -32,6 +32,7 @@ const POLICY_CONFIG_KEYS = [
   'summarizationModel',
   'maxTokens',
   'compactionRetries',
+  'maxConsecutiveFailures',
   'maxOverflowRetries',
 ] as const
 
@@ -103,6 +104,7 @@ export function resolveConfig(config: BasicCompactionConfig = {}): ResolvedConfi
     summarizationModel: config.summarizationModel ?? '',
     maxTokens,
     compactionRetries: config.compactionRetries ?? 1,
+    maxConsecutiveFailures: config.maxConsecutiveFailures ?? 3,
     maxOverflowRetries: config.maxOverflowRetries ?? 1,
     modelPolicies,
     auto: config.auto ?? true,
@@ -134,6 +136,7 @@ export function resolveTargetPolicy(
     summarizationModel: override?.summarizationModel ?? config.summarizationModel,
     maxTokens: override?.maxTokens ?? config.maxTokens,
     compactionRetries: override?.compactionRetries ?? config.compactionRetries,
+    maxConsecutiveFailures: override?.maxConsecutiveFailures ?? config.maxConsecutiveFailures,
     maxOverflowRetries: override?.maxOverflowRetries ?? config.maxOverflowRetries,
   })
 }
@@ -284,6 +287,7 @@ function validatePolicy(
   const retainTokens = config.retainTokens
   const maxTokens = config.maxTokens
   const compactionRetries = config.compactionRetries
+  const maxConsecutiveFailures = config.maxConsecutiveFailures
   const maxOverflowRetries = config.maxOverflowRetries
   if (thresholdRatio !== undefined) assertRatio(`${name}.thresholdRatio`, thresholdRatio)
   if (headroomTokens !== undefined) assertNonNegativeInteger(`${name}.headroomTokens`, headroomTokens)
@@ -295,6 +299,9 @@ function validatePolicy(
   if (maxTokens !== undefined) assertPositiveInteger(`${name}.maxTokens`, maxTokens)
   if (compactionRetries !== undefined) {
     assertNonNegativeInteger(`${name}.compactionRetries`, compactionRetries)
+  }
+  if (maxConsecutiveFailures !== undefined) {
+    assertNonNegativeInteger(`${name}.maxConsecutiveFailures`, maxConsecutiveFailures)
   }
   if (maxOverflowRetries !== undefined) {
     assertNonNegativeInteger(`${name}.maxOverflowRetries`, maxOverflowRetries)
