@@ -1009,6 +1009,19 @@ describe('pressure measurement and retention', () => {
     expect(compact.calls).toHaveLength(0)
   })
 
+  it('seeds the circuit from durable failed summaries after a restart', async () => {
+    const compact = service({ ...compactConfig, maxConsecutiveFailures: 2 })
+    const session = conversation(4)
+    for (let index = 0; index < 2; index += 1) {
+      const compactionId = CompactionId(`durable-failure-${index}`)
+      session.append('compaction/start', { compactionId, turn: 5 })
+      session.append('compaction/end', { compactionId, turn: 5, error: 'Connection error.' })
+    }
+
+    expect(await compactIfNeeded(compact, session)).toBeNull()
+    expect(compact.calls).toHaveLength(0)
+  })
+
   it('bounds retries when a shrinking checkpoint remains above threshold', async () => {
     const compact = service({
       auto: false,

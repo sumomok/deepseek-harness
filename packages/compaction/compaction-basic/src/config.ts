@@ -215,6 +215,7 @@ export function resolveCompactSpec(
     summarizationModel: policy.summarizationModel,
     maxTokens: policy.maxTokens,
     compactionRetries: policy.compactionRetries,
+    maxConsecutiveFailures: policy.maxConsecutiveFailures,
     maxOverflowRetries: policy.maxOverflowRetries,
   })
 }

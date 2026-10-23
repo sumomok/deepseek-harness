@@ -348,7 +348,11 @@ export class BasicCompactionEngine extends CompactionEngine {
     if (target === undefined) return null
     const policy = resolveTargetPolicy(this.config, target)
     const breakerKey = `${String(agent.session.id)}:${target.provider}/${target.model}`
-    const breaker = this.summaryFailures.get(breakerKey)
+    let breaker = this.summaryFailures.get(breakerKey)
+    if (breaker === undefined) {
+      breaker = this.seedSummaryFailures(agent.session)
+      if (breaker !== undefined) this.summaryFailures.set(breakerKey, breaker)
+    }
     if (policy.maxConsecutiveFailures > 0 && breaker !== undefined
       && breaker.count >= policy.maxConsecutiveFailures) {
       this.ctx.logger.info(
@@ -479,7 +483,8 @@ export class BasicCompactionEngine extends CompactionEngine {
       )
       const started = performance.now()
       try {
-        result = await this.compactRegion(range.start, range.end, agent, signal)
+        const committed = await this.compactRegion(range.start, range.end, agent, signal)
+        result = committed
       } catch (error: unknown) {
         const errorClass = classifyCompactionError(error)
         if (!signal.aborted) {
@@ -495,12 +500,13 @@ export class BasicCompactionEngine extends CompactionEngine {
         throw error
       }
       this.summaryFailures.delete(breakerKey)
+      const committed = result
       const summaryEvent = agent.session.snapshotEvents()
-        .find(event => event.seq === result.summarySeq)
+        .find(event => event.seq === committed.summarySeq)
       const usage = summaryEvent?.type === 'compaction/summary' ? summaryEvent.data.usage : undefined
       this.ctx.logger.info(
         'compaction (pressure): committed %d shadowed nodes (~%d tokens) in %dms; route=%s/%s usage=%s',
-        result.shadowedSeqs.length, result.shadowedTokenCount,
+        committed.shadowedSeqs.length, committed.shadowedTokenCount,
         Math.round(performance.now() - started), target.provider, target.model,
         usage === undefined ? 'none' : JSON.stringify(usage),
       )
@@ -576,6 +582,31 @@ export class BasicCompactionEngine extends CompactionEngine {
     const end = nodes.findIndex(node => node.seq === range.end)
     if (start < 0 || end < start) return 0
     return nodes.slice(start, end + 1).reduce((total, node) => total + node.tokens, 0)
+  }
+
+  /**
+   * Reconstruct consecutive failed summaries from the durable log so a
+   * restarted engine keeps the circuit open. Trailing `compaction/end` events
+   * carrying an error count as failures; a successful summary or an
+   * error-free end stops the scan. The durable event does not name the route,
+   * so the count is attributed to the current routed target.
+   * @param session - session whose trailing compaction outcomes are read.
+   * @returns the seeded failure count and last class, or undefined when clean.
+   */
+  private seedSummaryFailures(session: Session): { count: number; errorClass: string } | undefined {
+    let count = 0
+    let errorClass = 'recorded'
+    const events = session.snapshotEvents()
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index]
+      if (event === undefined) break
+      if (event.type === 'compaction/summary') break
+      if (event.type !== 'compaction/end') continue
+      if (event.data.error === undefined) break
+      count += 1
+      errorClass = classifyCompactionError(event.data.error)
+    }
+    return count === 0 ? undefined : { count, errorClass }
   }
 
   /**
