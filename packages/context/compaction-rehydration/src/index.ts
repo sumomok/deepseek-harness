@@ -137,12 +137,13 @@ function alreadyRebuilt(session: Session, checkpoint: Checkpoint): boolean {
     && event.data.source.compactionId === checkpoint.id)
 }
 
-/** The current todo list, from the `todos` projection folded over the log. */
-function todoSection(ctx: Context, session: Session): DraftSection | undefined {
-  const projections = ctx.get('sessionProjections')
-  if (projections === undefined) return undefined
-  const todos = projections.stateOf(session, 'todos') as readonly TodoLike[] | null | undefined
-  if (todos === null || todos === undefined || todos.length === 0) return undefined
+/** The current todo list, from the latest whole-list `todo/write` in the log. */
+function todoSection(session: Session): DraftSection | undefined {
+  let todos: readonly TodoLike[] | undefined
+  for (const event of session.snapshotEvents()) {
+    if (event.type === 'todo/write') todos = event.data.todos
+  }
+  if (todos === undefined || todos.length === 0) return undefined
   const lines = todos.map(todo => `- [${todo.status}] ${todo.content}`)
   return { name: 'todos', heading: 'Current todo list', text: lines.join('\n') }
 }
@@ -185,19 +186,26 @@ function planArgument(argumentsJson: string): string | undefined {
 
 /** Background jobs this Session registered and never settled, from the durable events. */
 function jobSection(session: Session): DraftSection | undefined {
-  const registered = new Map<string, UnsettledJob>()
+  const registered = new Map<string, UnsettledJob & { readonly seq: number }>()
   const owner = String(session.id)
+  let restartSeq = -1
   for (const event of session.snapshotEvents()) {
+    if (event.type === 'session/end-seed') {
+      restartSeq = event.seq
+      continue
+    }
     if (event.type === 'job/registered') {
       if (String(event.data.owner) !== owner) continue
-      registered.set(String(event.data.jobId), { label: event.data.label, kind: event.data.kind })
+      registered.set(String(event.data.jobId), { label: event.data.label, kind: event.data.kind, seq: event.seq })
       continue
     }
     if (event.type === 'job/settled') registered.delete(String(event.data.jobId))
   }
   if (registered.size === 0) return undefined
-  const lines = [...registered.values()].map(job => `- ${job.label} (${job.kind})`)
-  return { name: 'jobs', heading: 'Background jobs still running', text: lines.join('\n') }
+  const lines = [...registered.values()].map(job => (job.seq < restartSeq
+    ? `- ${job.label} (${job.kind}) — registered before the last restart; no settlement was logged, so it may have stopped`
+    : `- ${job.label} (${job.kind}) — no settlement logged yet; it may still be running`))
+  return { name: 'jobs', heading: 'Background jobs with no settlement logged', text: lines.join('\n') }
 }
 
 /** Direct children this Session registered, from the parent-owned catalog projection. */
@@ -243,7 +251,7 @@ function rebuildFor(ctx: Context, agent: Agent): ReturnType<typeof createUserMes
   if (checkpoint === undefined) return undefined
   if (alreadyRebuilt(session, checkpoint)) return undefined
   const drafts = [
-    todoSection(ctx, session),
+    todoSection(session),
     planSection(session),
     jobSection(session),
     subagentSection(ctx, session),

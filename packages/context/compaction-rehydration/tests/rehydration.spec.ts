@@ -5,13 +5,14 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { CompactionId } from '@deepseek-ai/dsh-compaction'
 import { JobId } from '@deepseek-ai/dsh-jobs'
 import { createUserMessage, MessageId, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ToolResultMessage } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionSeq } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -29,7 +30,7 @@ interface Bench {
   readonly agent: Agent
 }
 
-async function harness(options: { projections?: boolean; todo?: boolean } = {}): Promise<Bench> {
+async function harness(options: { projections?: boolean; todo?: boolean; subagents?: boolean } = {}): Promise<Bench> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt, { personaPrefix: '' })
@@ -39,8 +40,33 @@ async function harness(options: { projections?: boolean; todo?: boolean } = {}):
   if (options.projections !== false) await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(Rehydration)
   if (options.todo === true) await ctx.plugin(ToolTodo, { allowParallelInProgress: true })
+  if (options.subagents === true) registerCatalogProjection(ctx)
   const session = ctx.sessions.create()
   return { ctx, session, agent: sessionAgent(session, ctx) }
+}
+
+/** A parent-owned catalog projection stub: latest chunked records win per child. */
+function registerCatalogProjection(ctx: Context): void {
+  ctx.sessionProjections.register({
+    key: 'subagentCatalog',
+    stateSchema: z.object({ head: z.any().optional() }),
+    init: () => ({}),
+    apply: (state: Record<string, unknown>, event) => {
+      if (event.type !== 'subagent/catalog') return state
+      const head = state['head'] as { readonly values: readonly unknown[]; readonly previous?: unknown } | undefined
+      const value = {
+        childId: String(event.data.childId),
+        ...'label' in event.data && event.data.label !== undefined ? { label: event.data.label } : {},
+      }
+      return {
+        ...state,
+        head: head === undefined || head.values.length >= 64
+          ? { values: [value], ...head === undefined ? {} : { previous: head } }
+          : { values: [...head.values, value], ...head.previous === undefined ? {} : { previous: head.previous } },
+      }
+    },
+    stateVersion: 0,
+  } as never)
 }
 
 function sessionAgent(session: Session, ctx: Context): Agent {
@@ -98,6 +124,12 @@ function registerJob(session: Session, jobId: string, label: string, owner = ses
 function settleJob(session: Session, jobId: string, label: string): void {
   session.append('job/settled', {
     jobId: JobId(jobId), owner: session.id, kind: 'bash', label, startedAt: 1, finishedAt: 2, status: 'completed',
+  })
+}
+
+function catalogChild(session: Session, childId: string, label: string): void {
+  session.append('subagent/catalog', {
+    version: 1, childId: SessionId(childId), childCreatedAt: 1, mode: 'continuable', label,
   })
 }
 
@@ -191,8 +223,9 @@ describe('the state a compaction rebuilds', () => {
 
     await fire(ctx, agent)
     const text = rebuildTexts(session)[0] ?? ''
-    expect(text).toContain('Background jobs still running')
+    expect(text).toContain('Background jobs with no settlement logged')
     expect(text).toContain('collect logs')
+    expect(text).toContain('may still be running')
     expect(text).not.toContain('finished already')
     expect(text).not.toContain('someone else')
   })
@@ -236,7 +269,7 @@ describe('the state a compaction rebuilds', () => {
     expect(await fire(ctx, agent)).toBe(0)
   })
 
-  it('keeps the log-derived sections when projections are not mounted', async () => {
+  it('rebuilds the log-derived sections when projections are not mounted', async () => {
     const { ctx, session, agent } = await harness({ projections: false })
     openTurn(session)
     callPlan(session, '# Plan\n- keep going', 'plan-4', false)
@@ -245,7 +278,8 @@ describe('the state a compaction rebuilds', () => {
     await fire(ctx, agent)
     const text = rebuildTexts(session)[0] ?? ''
     expect(text).toContain('- keep going')
-    expect(text).not.toContain('not projected')
+    expect(text).toContain('not projected')
+    expect(text).not.toContain('Direct subagents registered by this session')
   })
 
   it('renders a stable message for the snapshot', async () => {
@@ -289,5 +323,51 @@ describe('the state a compaction rebuilds', () => {
     compact(session, 'c2')
     expect(await fire(ctx, agent, 2)).toBe(1)
     expect(rebuildTexts(session)).toHaveLength(2)
+  })
+
+  it('keeps the todo list across a turn boundary before the compaction', async () => {
+    const { ctx, session, agent } = await harness({ todo: true })
+    openTurn(session)
+    writeTodos(session, [{ content: 'survive the turn boundary', status: 'pending' }])
+    openTurn(session, 2)
+    compact(session)
+    await fire(ctx, agent, 2)
+    const text = rebuildTexts(session)[0] ?? ''
+    expect(text).toContain('Current todo list')
+    expect(text).toContain('survive the turn boundary')
+  })
+
+  it('says a job may have stopped after a restart and never claims it is running', async () => {
+    const { ctx, session, agent } = await harness()
+    openTurn(session)
+    registerJob(session, 'bash-7', 'orphaned by the restart')
+    session.append('session/end-seed', {})
+    registerJob(session, 'bash-8', 'registered after the restart')
+    compact(session)
+    await fire(ctx, agent)
+    const text = rebuildTexts(session)[0] ?? ''
+    expect(text).toContain('Background jobs with no settlement logged')
+    expect(text).toContain('orphaned by the restart')
+    expect(text).toContain('may have stopped')
+    expect(text).toContain('registered after the restart')
+    expect(text).toContain('may still be running')
+    expect(text).not.toContain('Background jobs still running')
+  })
+
+  it('lists direct children from the catalog projection and keeps other sessions out', async () => {
+    const { ctx, session, agent } = await harness({ subagents: true })
+    openTurn(session)
+    catalogChild(session, 'child-1', 'reviewer')
+    catalogChild(session, 'child-2', 'prober')
+    const other = ctx.sessions.create()
+    openTurn(other)
+    catalogChild(other, 'child-9', 'foreign helper')
+    compact(session)
+    await fire(ctx, agent)
+    const text = rebuildTexts(session)[0] ?? ''
+    expect(text).toContain('Direct subagents registered by this session')
+    expect(text).toContain('reviewer')
+    expect(text).toContain('prober')
+    expect(text).not.toContain('foreign helper')
   })
 })
