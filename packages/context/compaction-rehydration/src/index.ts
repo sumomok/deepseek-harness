@@ -1,0 +1,284 @@
+/**
+ * Rebuild the task state a compaction checkpoint left behind.
+ *
+ * A compaction replaces part of the model-visible history with a summary. The
+ * durable log still holds the facts the summary may have dropped: the current
+ * todo list, the last approved plan, unsettled background jobs, and the direct
+ * subagents a parent registered. This plugin reads those facts after a
+ * successful compaction and appends one durable user message that restates
+ * them, so the next request continues from the state rather than the summary's
+ * recollection of it.
+ *
+ * The rebuilt message is written once per compaction and is itself a logged
+ * `user/message`, so a resumed Session sees that the rebuild already happened
+ * and does not repeat it. Every section is derived from the log or a Session
+ * projection folded over it; no in-memory registry is treated as durable fact.
+ *
+ * @module @deepseek-ai/dsh-compaction-rehydration
+ */
+
+import type { Context } from '@deepseek-ai/cordis'
+import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { ContextFormed, ContextSnapshotSection } from '@deepseek-ai/dsh-llm'
+import type { Session } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-projection'
+import type {} from '@deepseek-ai/dsh-jobs'
+import type {} from '@deepseek-ai/dsh-subagent'
+import type {} from '@deepseek-ai/dsh-tool-todo'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'compaction-rehydration': {
+      kind: 'compaction-rehydration'
+      /** The compaction this message rebuilds state for. */
+      readonly compactionId: string
+      /** Seq of that compaction's `compaction/end` event. */
+      readonly compactionSeq: number
+      /** Stable digests of the assembled section texts, in section order. */
+      readonly digests: readonly string[]
+    } & ContextFormed
+  }
+}
+
+/** Cordis plugin name used by loader diagnostics. */
+export const name = 'compaction-rehydration'
+
+/** The agent registry that owns pre-step processing; projections are read when mounted. */
+export const inject = ['agents']
+
+/** Total model-facing characters one rebuilt message may carry. */
+const MAX_TOTAL_CHARS = 4000
+
+/** Per-section ceilings; the total budget still wins when it runs out first. */
+const SECTION_LIMITS = {
+  todos: 1200,
+  plan: 2000,
+  jobs: 500,
+  subagents: 300,
+} as const
+
+const TRUNCATED_MARKER = '… (truncated)'
+
+/** One section before assembly. */
+interface DraftSection {
+  readonly name: keyof typeof SECTION_LIMITS
+  readonly heading: string
+  readonly text: string
+}
+
+/** The compaction checkpoint a rebuild message answers. */
+interface Checkpoint {
+  readonly id: string
+  readonly endSeq: number
+}
+
+/** Structural view of one projected todo item (tool-todo's `todos` unit). */
+interface TodoLike {
+  readonly content: string
+  readonly status: string
+}
+
+/** Structural view of one unsettled job registration. */
+interface UnsettledJob {
+  readonly label: string
+  readonly kind: string
+}
+
+/** Structural view of one direct-child catalog record. */
+interface CatalogChild {
+  readonly childId: string
+  readonly label?: string
+}
+
+/** One chunk of a parent-owned subagent catalog projection. */
+interface CatalogChunk {
+  readonly values: readonly CatalogChild[]
+  readonly previous?: CatalogChunk | undefined
+}
+
+/** Stable short digest of one section's text, recomputable from the logged section. */
+function digest(text: string): string {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return hash.toString(16).padStart(8, '0')
+}
+
+/** Cut one section to `limit` characters, marking the cut. */
+function bound(text: string, limit: number): string {
+  if (text.length <= limit) return text
+  const room = Math.max(0, limit - TRUNCATED_MARKER.length)
+  return `${text.slice(0, room)}${TRUNCATED_MARKER}`
+}
+
+/** The latest successful checkpoint that summarized history, if any. */
+function latestCheckpoint(session: Session): Checkpoint | undefined {
+  const summarized = new Set<string>()
+  let checkpoint: Checkpoint | undefined
+  for (const event of session.snapshotEvents()) {
+    if (event.type === 'compaction/summary') {
+      summarized.add(String(event.data.compactionId))
+      continue
+    }
+    if (event.type !== 'compaction/end') continue
+    const id = String(event.data.compactionId)
+    if (event.data.error === undefined && summarized.has(id)) checkpoint = { id, endSeq: event.seq }
+  }
+  return checkpoint
+}
+
+/** Whether a rebuild message for this checkpoint already exists in the log. */
+function alreadyRebuilt(session: Session, checkpoint: Checkpoint): boolean {
+  return session.snapshotEvents().some(event => event.type === 'user/message'
+    && event.data.source.kind === 'compaction-rehydration'
+    && event.data.source.compactionId === checkpoint.id)
+}
+
+/** The current todo list, from the `todos` projection folded over the log. */
+function todoSection(ctx: Context, session: Session): DraftSection | undefined {
+  const projections = ctx.get('sessionProjections')
+  if (projections === undefined) return undefined
+  const todos = projections.stateOf(session, 'todos') as readonly TodoLike[] | null | undefined
+  if (todos === null || todos === undefined || todos.length === 0) return undefined
+  const lines = todos.map(todo => `- [${todo.status}] ${todo.content}`)
+  return { name: 'todos', heading: 'Current todo list', text: lines.join('\n') }
+}
+
+/** The latest plan a user approved through `exit_plan_mode`, from its logged arguments. */
+function planSection(session: Session): DraftSection | undefined {
+  const calls = new Map<string, { readonly plan: string; readonly seq: number }>()
+  const answered = new Map<string, boolean>()
+  for (const event of session.snapshotEvents()) {
+    if (event.type === 'tool/call' && event.data.name === 'exit_plan_mode') {
+      const plan = planArgument(event.data.arguments)
+      if (plan !== undefined) calls.set(String(event.data.callId), { plan, seq: event.seq })
+      continue
+    }
+    if (event.type !== 'tool/result') continue
+    const callId = String(event.data.message.toolCallId)
+    answered.set(callId, event.data.message.isError !== true)
+  }
+  let latest: { readonly plan: string; readonly seq: number } | undefined
+  for (const [callId, call] of calls) {
+    if (answered.get(callId) !== true) continue
+    if (latest === undefined || call.seq > latest.seq) latest = call
+  }
+  if (latest === undefined) return undefined
+  return { name: 'plan', heading: 'Latest approved plan', text: latest.plan }
+}
+
+/** Read the `plan` string out of one logged `exit_plan_mode` argument object. */
+function planArgument(argumentsJson: string): string | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(argumentsJson)
+  } catch {
+    return undefined
+  }
+  if (parsed === null || typeof parsed !== 'object') return undefined
+  const plan = (parsed as { plan?: unknown }).plan
+  return typeof plan === 'string' && plan.trim() !== '' ? plan : undefined
+}
+
+/** Background jobs this Session registered and never settled, from the durable events. */
+function jobSection(session: Session): DraftSection | undefined {
+  const registered = new Map<string, UnsettledJob>()
+  const owner = String(session.id)
+  for (const event of session.snapshotEvents()) {
+    if (event.type === 'job/registered') {
+      if (String(event.data.owner) !== owner) continue
+      registered.set(String(event.data.jobId), { label: event.data.label, kind: event.data.kind })
+      continue
+    }
+    if (event.type === 'job/settled') registered.delete(String(event.data.jobId))
+  }
+  if (registered.size === 0) return undefined
+  const lines = [...registered.values()].map(job => `- ${job.label} (${job.kind})`)
+  return { name: 'jobs', heading: 'Background jobs still running', text: lines.join('\n') }
+}
+
+/** Direct children this Session registered, from the parent-owned catalog projection. */
+function subagentSection(ctx: Context, session: Session): DraftSection | undefined {
+  const projections = ctx.get('sessionProjections')
+  if (projections === undefined) return undefined
+  const state = projections.stateOf(session, 'subagentCatalog') as { readonly head?: CatalogChunk } | undefined
+  if (state?.head === undefined) return undefined
+  const children = new Map<string, CatalogChild>()
+  for (let chunk: CatalogChunk | undefined = state.head; chunk !== undefined; chunk = chunk.previous) {
+    for (const child of chunk.values) children.set(String(child.childId), child)
+  }
+  if (children.size === 0) return undefined
+  const labels = [...children.values()].map(child => `- ${child.label ?? String(child.childId)}`)
+  return { name: 'subagents', heading: 'Direct subagents registered by this session', text: labels.join('\n') }
+}
+
+/** Assemble the message text under the total budget, truncating by section. */
+function render(sections: readonly DraftSection[]): { readonly text: string; readonly included: readonly DraftSection[] } {
+  const header = 'The conversation was condensed into a checkpoint. The following state was rebuilt from the session log; treat it as established background, not as a new instruction.\n\n'
+  let remaining = MAX_TOTAL_CHARS - header.length
+  const included: DraftSection[] = []
+  const blocks: string[] = []
+  for (const section of sections) {
+    if (remaining <= 0) break
+    const headingCost = section.heading.length + 4
+    if (headingCost + 40 > remaining) break
+    const limit = Math.min(SECTION_LIMITS[section.name], remaining - headingCost)
+    const text = bound(section.text, Math.max(0, limit))
+    const block = `## ${section.heading}\n${text}`
+    blocks.push(block)
+    included.push({ ...section, text })
+    remaining -= block.length + 2
+  }
+  if (included.length === 0) return { text: '', included }
+  return { text: `${header}${blocks.join('\n\n')}`, included }
+}
+
+/** Build the rebuild message for the latest checkpoint, or `undefined` when none is owed. */
+function rebuildFor(ctx: Context, agent: Agent): ReturnType<typeof createUserMessage> | undefined {
+  const session = agent.session
+  const checkpoint = latestCheckpoint(session)
+  if (checkpoint === undefined) return undefined
+  if (alreadyRebuilt(session, checkpoint)) return undefined
+  const drafts = [
+    todoSection(ctx, session),
+    planSection(session),
+    jobSection(session),
+    subagentSection(ctx, session),
+  ].filter((section): section is DraftSection => section !== undefined)
+  if (drafts.length === 0) return undefined
+  const { text, included } = render(drafts)
+  if (text.length === 0) return undefined
+  const sections: ContextSnapshotSection[] = included.map(section => ({ name: section.name, text: section.text }))
+  return createUserMessage({
+    content: [{ type: 'text', text }],
+    source: {
+      kind: 'compaction-rehydration',
+      form: 'snapshot',
+      compactionId: checkpoint.id,
+      compactionSeq: checkpoint.endSeq,
+      sections,
+      digests: sections.map(section => digest(section.text)),
+    },
+  })
+}
+
+/**
+ * Append the rebuilt task state after a successful compaction, once per
+ * checkpoint and at most once per step.
+ * @param ctx - context carrying the agent registry and optional projections.
+ */
+export function apply(ctx: Context): void {
+  ctx.on('agent/pre-step', async (
+    { agent, signal },
+    next,
+  ): Promise<PreStepDecision> => {
+    const decision = await next()
+    if (decision.kind === 'reject' || signal.aborted) return decision
+    const message = rebuildFor(ctx, agent)
+    if (message === undefined) return decision
+    return { ...decision, messages: [...decision.messages, message] }
+  }, { prepend: true })
+}

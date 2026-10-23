@@ -1,0 +1,15 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`the state a compaction rebuilds > renders a stable message for the snapshot 1`] = `
+"The conversation was condensed into a checkpoint. The following state was rebuilt from the session log; treat it as established background, not as a new instruction.
+
+## Current todo list
+- [in_progress] ship the prototype
+
+## Latest approved plan
+# Plan
+- done
+
+## Background jobs still running
+- tail the log (bash)"
+`;
