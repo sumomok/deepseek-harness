@@ -102,6 +102,8 @@ Pressure compaction runs at the `agent/pre-step` waterfall before request deriva
 
 The Service Definition exports `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)` for the tool-call/result pairing checks before and after a seq. Both validate current surface membership and reject missing seqs and orphan results; the [package contract](../../packages/compaction/compaction/README.md#tool-pairing-boundaries) defines their cache behavior.
 
+Before a summary commits, a backend dispatches the synchronous `compaction/summary-review` Cordis waterfall with a `SummaryReview`: the framed summary, its shadowed surface seqs and token prices, the routed summarizer's provider and model, and the compacting agent's session and routing options. Listeners accept by calling `next()` and reject by returning false; the default without a listener is acceptance. A rejection is a summary failure: the backend writes exactly one `compaction/end` carrying the error and leaves `compaction/summary` and the surface replacement unwritten. The hook is intentionally synchronous and is not a Session event, so it adds no persisted format.
+
 ## Tool-result pruning outcomes
 
 The optional tool-result pruning service reports each durable content replacement and the aggregate Unicode-code-point reduction. Its public result types live in [`compaction-tool-result-pruner/src/types.ts`](../../packages/compaction/compaction-tool-result-pruner/src/types.ts).
@@ -329,6 +331,31 @@ Recover a failed summary request by synchronously recording a durable change to 
 ```
 
 Types: [Session](session.md) · [SessionSeq](session.md)
+
+Source: [`packages/compaction/compaction/src/index.ts`](../../packages/compaction/compaction/src/index.ts)
+
+<a id="compactionsummary-review--waterfall"></a>
+
+#### `compaction/summary-review` — waterfall
+
+Review a framed summary before its replacement commits. Runs after the shrink check and before `compaction/summary` and the replacement `user/message`; a listener that accepts calls next(), and a listener that rejects returns false without calling it. A rejection closes the transaction like a summary failure: exactly one `compaction/end` carrying the error, no summary event, no replacement, no retry. The review is synchronous: a listener may reject or accept but cannot run an asynchronous model review inside the transaction.
+
+```ts cordis-catalog
+/**
+ * Review a framed summary before its replacement commits. Runs after the
+ * shrink check and before `compaction/summary` and the replacement
+ * `user/message`; a listener that accepts calls next(), and a listener that
+ * rejects returns false without calling it. A rejection closes the
+ * transaction like a summary failure: exactly one `compaction/end`
+ * carrying the error, no summary event, no replacement, no retry. The
+ * review is synchronous: a listener may reject or accept but cannot run
+ * an asynchronous model review inside the transaction.
+ * @param payload - the framed summary, its source span, and the routed summarizer.
+ * @param next - delegate to the next reviewer; true accepts when nobody rejects.
+ * @mode waterfall
+ */
+'compaction/summary-review'(payload: SummaryReview, next: () => boolean): boolean
+```
 
 Source: [`packages/compaction/compaction/src/index.ts`](../../packages/compaction/compaction/src/index.ts)
 <!-- END GENERATED cordis-surface -->

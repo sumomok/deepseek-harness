@@ -14,7 +14,7 @@ import {
   toolPairingBalancedAfter,
   toolPairingBalancedBefore,
 } from '@deepseek-ai/dsh-compaction'
-import type { CompactionResult } from '@deepseek-ai/dsh-compaction'
+import type { CompactionResult, SummaryReview } from '@deepseek-ai/dsh-compaction'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
 import type { Message, UserMessage } from '@deepseek-ai/dsh-llm'
@@ -27,6 +27,7 @@ interface RegionDependencies {
   readonly meter: TokenMeter
   summarize(input: SummarizationInput, agent: Agent, signal?: AbortSignal): Promise<SummaryResult>
   recover(error: unknown, agent: Agent, sourceEventSeqs: readonly SessionSeq[], signal?: AbortSignal): boolean
+  review(review: SummaryReview): boolean
 }
 
 /** One validated inclusive span of current surface positions. */
@@ -77,6 +78,9 @@ interface CompactionEntryState {
  * caller can report the two causes differently.
  */
 class SurfaceChangedError extends Error {}
+
+/** A synchronous `compaction/summary-review` listener refused the framed summary. */
+class SummaryRejectedError extends Error {}
 
 /** Whether the summary may still replace the span it was built from. */
 type StabilityCheck = (
@@ -421,6 +425,24 @@ async function summarizeCompaction(
     throw new Error(
       `summary is not smaller than the shadowed content (${framedSummaryTokenCount} estimated framed tokens >= ${prepared.shadowedRouteTokenCount})`,
     )
+  }
+  const review: SummaryReview = {
+    agent: {
+      session: agent.session,
+      options: {
+        ...agent.options.provider === undefined ? {} : { provider: agent.options.provider },
+        ...agent.options.model === undefined ? {} : { model: agent.options.model },
+      },
+    },
+    summary: checkpointMessage.content,
+    shadowedSeqs: [...prepared.shadowedSeqs],
+    shadowedTokenCount: prepared.shadowedTokenCount,
+    summaryTokens: framedSummaryTokenCount,
+    provider: summaryResult.provider,
+    model: summaryResult.model,
+  }
+  if (!dependencies.review(review)) {
+    throw new SummaryRejectedError('compaction: a summary-review listener rejected the summary')
   }
   return {
     ...prepared,

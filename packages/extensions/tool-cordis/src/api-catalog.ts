@@ -4248,6 +4248,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'payload', description: '.signal - optional compaction cancellation signal.' }, { name: 'next', description: 'delegate to the next recovery listener.' }],
   },
   {
+    name: 'compaction/summary-review',
+    mode: 'waterfall',
+    signature: '\'compaction/summary-review\'(payload: SummaryReview, next: () => boolean): boolean',
+    summary: 'Review a framed summary before its replacement commits.',
+    description: 'Review a framed summary before its replacement commits. Runs after the shrink check and before `compaction/summary` and the replacement `user/message`; a listener that accepts calls next(), and a listener that rejects returns false without calling it. A rejection closes the transaction like a summary failure: exactly one `compaction/end` carrying the error, no summary event, no replacement, no retry. The review is synchronous: a listener may reject or accept but cannot run an asynchronous model review inside the transaction.',
+    parameters: [{ name: 'payload', description: 'the framed summary, its source span, and the routed summarizer.' }, { name: 'next', description: 'delegate to the next reviewer; true accepts when nobody rejects.' }],
+  },
+  {
     name: 'connection/request',
     mode: 'waterfall',
     signature: '\'connection/request\'(request: IncomingMessage, response: ServerResponse, next: () => Promise<void>): Promise<void>',
@@ -8106,6 +8114,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SubprocessTerminalSpawnSpec',
     declaration: 'export interface SubprocessTerminalSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    env?: Record<string, string> | undefined;\n    rows: number;\n    cols: number;\n    terminalType: string;\n    shellActivity?: boolean | undefined;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n}',
+  },
+  {
+    name: 'SummaryReview',
+    declaration: 'export interface SummaryReview {\n    readonly agent: CompactionAgentContext;\n    readonly summary: readonly ContentBlock[];\n    readonly shadowedSeqs: readonly SessionSeq[];\n    readonly shadowedTokenCount: number;\n    readonly summaryTokens: number;\n    readonly provider: string;\n    readonly model: string;\n}',
   },
   {
     name: 'SurfaceEvent',

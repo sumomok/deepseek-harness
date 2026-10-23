@@ -637,7 +637,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     )
   }
 
-  /** Bind the effective token meter and dynamically dispatched summarizer hook. */
+  /** Bind the effective token meter, dynamically dispatched summary hooks, and the review waterfall. */
   private regionDependencies(): Parameters<typeof compactSurfaceRegion>[0] {
     return {
       meter: this.ctx.tokenMeter,
@@ -648,6 +648,7 @@ export class BasicCompactionEngine extends CompactionEngine {
         error,
         ...signal === undefined ? {} : { signal },
       }, () => false),
+      review: review => this.ctx.waterfall('compaction/summary-review', review, () => true),
     }
   }
 }

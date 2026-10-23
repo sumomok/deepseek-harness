@@ -6,13 +6,13 @@ import type { BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
 import { selectCompactableRange } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
 import { frameSummary } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
 import type { SummarizationInput, SummaryResult } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
-import { CompactionId, toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compaction'
+import { CompactionId, ManualCompactionError, toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compaction'
 import {
   resolveCompactSpec,
   resolveConfig,
   resolveTargetPolicy,
 } from '@deepseek-ai/dsh-compaction-basic/src/config.ts'
-import type { CompactionResult } from '@deepseek-ai/dsh-compaction'
+import type { CompactionResult, SummaryReview } from '@deepseek-ai/dsh-compaction'
 import LlmRuntime, { createUserMessage, ToolCallId, CONTEXT_WINDOW_EXCEEDED_CODE, createSystemMessage, createToolResultMessage, LlmAdapter , createMessage } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import type {
@@ -1382,6 +1382,117 @@ async function summarizerHarness(
   const compact = new ExposedCompactionEngine(ctx, config)
   return { ctx, adapter, compact }
 }
+
+describe('summary review hook', () => {
+  function idleAgent(session: Session): Agent {
+    const controller = new AbortController()
+    return {
+      session,
+      options: { provider: MODEL, model: MODEL },
+      status: 'idle',
+      runMaintenance: async <T>(task: (signal: AbortSignal) => Promise<T>): Promise<T> => task(controller.signal),
+    } as Agent
+  }
+
+  it('accepts by default when no review listener is registered', async () => {
+    const compact = service()
+    const session = conversation(2)
+    const nodes = [...session.surface.nodes]
+
+    const result = await compact.compactRegion(nodes[0]!, nodes[2]!, agent(session, MODEL))
+
+    expect(result.shadowedSeqs).toEqual(nodes.slice(0, 3))
+    expect(session.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(true)
+  })
+
+  it('reviews the framed summary with its span and routed summarizer, then accepts', async () => {
+    const ctx = createContext()
+    const compact = service({ auto: false }, ctx)
+    let seen: SummaryReview | undefined
+    ctx.on('compaction/summary-review', (review, next) => {
+      seen = review
+      return next()
+    })
+    const session = conversation(2)
+    const nodes = [...session.surface.nodes]
+
+    await compact.compactRegion(nodes[0]!, nodes[2]!, agent(session, MODEL))
+
+    expect(seen).toBeDefined()
+    expect(seen!.agent.session).toBe(session)
+    expect(seen!.agent.options).toEqual({ provider: MODEL, model: MODEL })
+    expect(seen!.shadowedSeqs).toEqual(nodes.slice(0, 3))
+    expect(seen!.shadowedTokenCount).toBeGreaterThan(0)
+    expect(seen!.summaryTokens).toBeGreaterThan(0)
+    expect(seen!.provider).toBe('summary-provider')
+    expect(seen!.model).toBe('summary-model')
+    const opening = seen!.summary[0]
+    expect(opening?.type).toBe('text')
+    expect(opening?.type === 'text' ? opening.text : '').toContain('<compacted-summary>')
+  })
+
+  it('rejects without a summary event, replacement, or retry', async () => {
+    const ctx = createContext()
+    const compact = service({ auto: false }, ctx)
+    ctx.on('compaction/summary-review', () => false)
+    const session = conversation(2)
+    const nodes = [...session.surface.nodes]
+    const generation = session.surface.replaceGeneration
+    const before = session.snapshotEvents().length
+
+    await expect(compact.compactRegion(nodes[0]!, nodes[2]!, agent(session, MODEL)))
+      .rejects.toThrow('rejected the summary')
+
+    const events = session.snapshotEvents().slice(before)
+    expect(events.filter(event => event.type === 'compaction/start')).toHaveLength(1)
+    expect(events.filter(event => event.type === 'compaction/end')).toHaveLength(1)
+    const end = events.find(event => event.type === 'compaction/end')
+    expect(end?.type).toBe('compaction/end')
+    expect(end?.type === 'compaction/end' ? String(end.data.error) : '')
+      .toContain('rejected the summary')
+    expect(events.some(event => event.type === 'compaction/summary')).toBe(false)
+    expect(session.surface.nodes).toEqual(nodes)
+    expect(session.surface.replaceGeneration).toBe(generation)
+  })
+
+  it('does not consult the review hook when the summary is not smaller', async () => {
+    const ctx = createContext()
+    const compact = service({ auto: false }, ctx)
+    compact.summary = Array.from({ length: 100 }, (_, index) => ({
+      type: 'text',
+      text: `verbose ${index}`,
+    }))
+    let reviewed = 0
+    ctx.on('compaction/summary-review', () => {
+      reviewed += 1
+      return false
+    })
+    const session = conversation(2)
+    const nodes = [...session.surface.nodes]
+
+    await expect(compact.compactRegion(nodes[0]!, nodes[2]!, agent(session, MODEL)))
+      .rejects.toThrow(/summary is not smaller/)
+
+    expect(reviewed).toBe(0)
+    expect(session.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(false)
+  })
+
+  it('maps a rejected manual summary to the summary failure class', async () => {
+    const ctx = createContext()
+    const compact = service({ auto: false }, ctx)
+    ctx.on('compaction/summary-review', () => false)
+    const session = conversation(2)
+    session.append('turn/end', { turn: 3, reason: { kind: 'completed' } })
+    const nodes = [...session.surface.nodes]
+
+    const error: unknown = await compact.compactNow(idleAgent(session), SIGNAL).catch((failure: unknown) => failure)
+
+    expect(error).toBeInstanceOf(ManualCompactionError)
+    expect((error as ManualCompactionError).code).toBe('summary')
+    expect(session.surface.nodes).toEqual(nodes)
+    expect(session.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(false)
+  })
+})
 
 describe('default one-shot summarizer', () => {
   it.each([undefined, '', 'SYSTEM HEAD\n精确前缀\n'])('preserves the routed prefix through region summarization with system %j', async (system) => {

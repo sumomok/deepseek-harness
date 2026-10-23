@@ -8,6 +8,7 @@
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { CompactionResult, ManualCompactionWhileBusy } from './types.ts'
@@ -70,6 +71,29 @@ export interface CompactionAgentContext {
 }
 
 /**
+ * One framed summary awaiting the review that decides whether it replaces its
+ * source span. `summary` is the exact content of the replacement user message,
+ * including the checkpoint framing; `summaryTokens` is its estimated price and
+ * `shadowedTokenCount` the estimated price of the span it would replace.
+ */
+export interface SummaryReview {
+  /** The agent whose session and routed options produced the summary. */
+  readonly agent: CompactionAgentContext
+  /** Framed summary content, exactly as the replacement user message would carry it. */
+  readonly summary: readonly ContentBlock[]
+  /** Selected surface nodes, in surface order, that the summary would shadow. */
+  readonly shadowedSeqs: readonly SessionSeq[]
+  /** Estimated tokens of the shadowed span. */
+  readonly shadowedTokenCount: number
+  /** Estimated tokens of {@link summary}. */
+  readonly summaryTokens: number
+  /** Provider that generated the summary. */
+  readonly provider: string
+  /** Model that generated the summary. */
+  readonly model: string
+}
+
+/**
  * Agent capability required to serialize an explicit idle-session compaction
  * against driver turns. The durable `compaction/start` marker separately excludes
  * other compaction transactions.
@@ -122,6 +146,21 @@ declare module '@deepseek-ai/cordis' {
      * @mode waterfall
      */
     'compaction/summary-error'(payload: { session: Session; sourceEventSeqs: readonly SessionSeq[]; error: unknown; signal?: AbortSignal }, next: () => boolean): boolean
+
+    /**
+     * Review a framed summary before its replacement commits. Runs after the
+     * shrink check and before `compaction/summary` and the replacement
+     * `user/message`; a listener that accepts calls next(), and a listener that
+     * rejects returns false without calling it. A rejection closes the
+     * transaction like a summary failure: exactly one `compaction/end`
+     * carrying the error, no summary event, no replacement, no retry. The
+     * review is synchronous: a listener may reject or accept but cannot run
+     * an asynchronous model review inside the transaction.
+     * @param payload - the framed summary, its source span, and the routed summarizer.
+     * @param next - delegate to the next reviewer; true accepts when nobody rejects.
+     * @mode waterfall
+     */
+    'compaction/summary-review'(payload: SummaryReview, next: () => boolean): boolean
   }
 }
 

@@ -102,6 +102,8 @@ type ManualCompactionErrorCode =
 
 该 Service Definition 导出 `toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`，用于检查 seq 之前与之后的工具调用/结果配对。两者都会验证当前 surface 成员关系，并拒绝缺失的 seq 与遗留结果；[包约定](../../packages/compaction/compaction/README.zh.md#tool-pairing-boundaries)定义其缓存行为。
 
+在摘要提交之前，后端会派发同步的 `compaction/summary-review` Cordis waterfall，载荷为 `SummaryReview`：已框定的摘要、其被遮蔽的 surface seq 与 token 价格、实际使用摘要路由的 provider 与 model，以及执行压缩的 agent 的 session 与路由选项。监听器调用 `next()` 表示接受，返回 false 表示拒绝；没有监听器时默认接受。拒绝属于摘要失败：后端恰好写入一条携带错误的 `compaction/end`，并且不写 `compaction/summary`、不替换 surface。该钩子有意保持同步，也不是 Session 事件，因此不引入新的持久化格式。
+
 ## 工具结果剪枝产出
 
 可选的工具结果剪枝服务会报告每次持久内容替换以及 Unicode code point 的总减少量。其公开结果类型位于 [`compaction-tool-result-pruner/src/types.ts`](../../packages/compaction/compaction-tool-result-pruner/src/types.ts)。
@@ -329,6 +331,31 @@ Recover a failed summary request by synchronously recording a durable change to 
 ```
 
 Types: [Session](session.zh.md) · [SessionSeq](session.zh.md)
+
+Source: [`packages/compaction/compaction/src/index.ts`](../../packages/compaction/compaction/src/index.ts)
+
+<a id="compactionsummary-review--waterfall"></a>
+
+#### `compaction/summary-review` — waterfall
+
+Review a framed summary before its replacement commits. Runs after the shrink check and before `compaction/summary` and the replacement `user/message`; a listener that accepts calls next(), and a listener that rejects returns false without calling it. A rejection closes the transaction like a summary failure: exactly one `compaction/end` carrying the error, no summary event, no replacement, no retry. The review is synchronous: a listener may reject or accept but cannot run an asynchronous model review inside the transaction.
+
+```ts cordis-catalog
+/**
+ * Review a framed summary before its replacement commits. Runs after the
+ * shrink check and before `compaction/summary` and the replacement
+ * `user/message`; a listener that accepts calls next(), and a listener that
+ * rejects returns false without calling it. A rejection closes the
+ * transaction like a summary failure: exactly one `compaction/end`
+ * carrying the error, no summary event, no replacement, no retry. The
+ * review is synchronous: a listener may reject or accept but cannot run
+ * an asynchronous model review inside the transaction.
+ * @param payload - the framed summary, its source span, and the routed summarizer.
+ * @param next - delegate to the next reviewer; true accepts when nobody rejects.
+ * @mode waterfall
+ */
+'compaction/summary-review'(payload: SummaryReview, next: () => boolean): boolean
+```
 
 Source: [`packages/compaction/compaction/src/index.ts`](../../packages/compaction/compaction/src/index.ts)
 <!-- END GENERATED cordis-surface -->

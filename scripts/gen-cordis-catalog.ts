@@ -507,6 +507,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   CompactionResult: 'compaction.md',
   CompactionTrigger: 'compaction.md',
   ManualCompactionWhileBusy: 'compaction.md',
+  SummaryReview: 'compaction.md',
   PruneResult: 'compaction.md',
   FileReadOutcome: 'filesystem.md',
   FsDirEntry: 'filesystem.md',
