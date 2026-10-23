@@ -820,7 +820,7 @@ describe('pressure measurement and retention', () => {
     const compact = service({
       auto: false,
       thresholdRatio: 0.9,
-      retainTokens: 50,
+      retainTokens: 0,
     })
     const session = conversation(2, 'x'.repeat(600))
     expect(await compactIfNeeded(compact, session)).toBeNull()
@@ -886,6 +886,30 @@ describe('pressure measurement and retention', () => {
 
     await expect(compactIfNeeded(compact, conversation(4))).rejects.toBe(stop)
     expect(measure).toHaveBeenCalledTimes(1)
+  })
+
+  it('starts the retained tail at a user turn boundary', async () => {
+    const ctx = createContext(2_000)
+    const compact = service({
+      auto: false,
+      thresholdRatio: 0.5,
+      retainTokens: 100,
+      maxTokens: 1,
+    }, ctx)
+    const session = conversation(6, 'x'.repeat(400))
+
+    const result = await compactIfNeeded(compact, session)
+
+    expect(result).not.toBeNull()
+    const events = session.snapshotEvents()
+    const replacement = events.find(event =>
+      event.type === 'user/message' && event.surfaceOp?.op === 'replace' && event.seq > result!.summarySeq)
+    expect(replacement).toBeDefined()
+    const surface = session.surface.nodes
+    const replacementIndex = surface.indexOf(replacement!.seq)
+    expect(replacementIndex).toBeGreaterThanOrEqual(0)
+    const kept = events.find(event => event.seq === surface[replacementIndex + 1])
+    expect(kept?.type).toBe('user/message')
   })
 
   it('bounds retries when a shrinking checkpoint remains above threshold', async () => {
@@ -1022,7 +1046,6 @@ describe('optional model-free tool-result pruning', () => {
       retainTokens: 50,
     })
     const session = toolConversation()
-
     expect(await compactIfNeeded(compact, session)).not.toBeNull()
     expect(compact.calls).toHaveLength(1)
     expect(summarizedText(compact.calls[0]!.input)).toContain('tool result middle pruned')

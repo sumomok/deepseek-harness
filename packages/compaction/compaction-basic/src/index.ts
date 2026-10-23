@@ -29,6 +29,7 @@ import {
   assertNoActiveCompaction,
   compactSurfaceRegion,
   selectCompactableRange,
+  selectCompactableRangeAtTurnBoundary,
 } from './region.ts'
 import { summarizeWithLlm } from './summarizer.ts'
 import { WaitingCompactions } from './waiting.ts'
@@ -406,25 +407,45 @@ export class BasicCompactionEngine extends CompactionEngine {
     }
     if (occupancy < spec.thresholdTokens) return null
 
+    // A single pressure attempt can continue below the threshold only if the
+    // surface outside the retained tail can cover the gap at all; the 40-token
+    // case has a 44-token compactable surface against a 79-token gap, so no
+    // summary request can help. The check prices the whole compactable surface,
+    // not just the first selected range, because later attempts can consume an
+    // earlier attempt's checkpoint and retained turn.
+    const needed = occupancy - spec.thresholdTokens
+    const reclaimable = Math.max(0, measurement.surfaceTokens - spec.retainTokens)
+    if (reclaimable < needed) {
+      this.ctx.logger.info(
+        'compaction (pressure): skipping; the compactable surface (~%d route tokens) is below '
+        + 'the %d-token pressure gap, so the summary cannot restore the threshold',
+        reclaimable, needed,
+      )
+      return null
+    }
+
     let result: CompactionResult | null = null
+    let stoppedForFloor = false
     for (let attempt = 0; attempt <= spec.compactionRetries; attempt += 1) {
-      const range = selectCompactableRange(agent.session, measurement, spec.retainTokens)
+      const range = selectCompactableRangeAtTurnBoundary(agent.session, measurement, spec.retainTokens)
       if (range === null) {
         /* v8 ignore else -- concrete replacement preserves a compactable checkpoint; subclass hooks cannot mutate it. */
         if (result === null) return null
         /* v8 ignore next -- paired with the defensive post-success branch above. */
         break
       }
-      const reclaimable = this.rangeTokenPrice(measurement, range)
-      const selected = this.rangeNodeCount(measurement, range)
-      const needed = occupancy - spec.thresholdTokens
-      if (reclaimable < needed) {
+      const rangeTokens = this.rangeTokenPrice(measurement, range)
+      // A checkpoint already committed in this call made progress; a remaining
+      // span below the summary envelope's floor can only fail the shrink check,
+      // so stop after the useful attempt instead of spending another request.
+      if (result !== null && rangeTokens < 256) {
         this.ctx.logger.info(
-          'compaction (pressure): skipping %d selected nodes worth ~%d route tokens; '
-          + 'the pressure gap is %d tokens, so the summary cannot restore the threshold',
-          selected, reclaimable, needed,
+          'compaction (pressure): stopping; remaining span is ~%d route tokens, '
+          + 'below the minimum summary envelope',
+          rangeTokens,
         )
-        return result
+        stoppedForFloor = true
+        break
       }
       this.ctx.logger.info(
         'compaction (pressure): route=%s/%s occupancy=%d threshold=%d fixedPrefix=%s '
@@ -444,6 +465,14 @@ export class BasicCompactionEngine extends CompactionEngine {
       if (occupancy < spec.thresholdTokens) return result
     }
 
+    if (stoppedForFloor && result !== null) {
+      this.ctx.logger.info(
+        'compaction (pressure): threshold not reached (%d >= %d) but only a sub-envelope '
+        + 'span remains; keeping the committed checkpoint and the retained turn',
+        occupancy, spec.thresholdTokens,
+      )
+      return result
+    }
     throw new Error(
       `compaction still above threshold after ${spec.compactionRetries + 1} compaction attempts `
       + `(${occupancy} estimated tokens >= threshold ${spec.thresholdTokens})`,
@@ -488,6 +517,23 @@ export class BasicCompactionEngine extends CompactionEngine {
   }
 
   /**
+   * Route-priced total of the selected surface span.
+   * @param measurement - current priced surface.
+   * @param range - selected inclusive positional span.
+   * @returns summed route tokens of the span, or zero when it is not found.
+   */
+  private rangeTokenPrice(
+    measurement: TokenMeasurement,
+    range: { readonly start: SessionSeq; readonly end: SessionSeq },
+  ): number {
+    const nodes = measurement.nodes
+    const start = nodes.findIndex(node => node.seq === range.start)
+    const end = nodes.findIndex(node => node.seq === range.end)
+    if (start < 0 || end < start) return 0
+    return nodes.slice(start, end + 1).reduce((total, node) => total + node.tokens, 0)
+  }
+
+  /**
    * Price the system prompt and tool catalog that no surface compaction can
    * reduce. The breakdown is heuristic and may be absent when no projection
    * registry is mounted; absence leaves the precheck off rather than treating
@@ -506,40 +552,6 @@ export class BasicCompactionEngine extends CompactionEngine {
       tools: breakdown.toolsTokens,
       total: breakdown.systemTokens + breakdown.toolsTokens,
     }
-  }
-
-  /**
-   * Route-priced total of the selected surface span, the same unit the summary
-   * shrink comparison uses.
-   * @param measurement - current priced surface.
-   * @param range - selected inclusive positional span.
-   * @returns summed route tokens of the span, or zero when it is not found.
-   */
-  private rangeTokenPrice(
-    measurement: TokenMeasurement,
-    range: { readonly start: SessionSeq; readonly end: SessionSeq },
-  ): number {
-    const nodes = measurement.nodes
-    const start = nodes.findIndex(node => node.seq === range.start)
-    const end = nodes.findIndex(node => node.seq === range.end)
-    if (start < 0 || end < start) return 0
-    return nodes.slice(start, end + 1).reduce((total, node) => total + node.tokens, 0)
-  }
-
-  /**
-   * Number of surface nodes the selected span covers.
-   * @param measurement - current priced surface.
-   * @param range - selected inclusive positional span.
-   * @returns the inclusive node count, or zero when it is not found.
-   */
-  private rangeNodeCount(
-    measurement: TokenMeasurement,
-    range: { readonly start: SessionSeq; readonly end: SessionSeq },
-  ): number {
-    const nodes = measurement.nodes
-    const start = nodes.findIndex(node => node.seq === range.start)
-    const end = nodes.findIndex(node => node.seq === range.end)
-    return start < 0 || end < start ? 0 : end - start + 1
   }
 
   /**

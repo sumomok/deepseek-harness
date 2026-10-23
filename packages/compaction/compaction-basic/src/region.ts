@@ -161,6 +161,101 @@ export function selectCompactableRange(
 }
 
 /**
+ * Resolve the next range starting at the first non-system surface node while
+ * retaining a priced recent tail that begins at a complete user turn. The
+ * retained tail is widened backwards from the token budget to the first
+ * `user/message` of the turn that owns the budget boundary, so a later
+ * compaction never keeps a turn from its middle. Tool-call/result pairing still
+ * decides the final cut; when no earlier user-turn boundary exists the function
+ * returns `null` rather than falling back to a mid-turn tail.
+ * @param session - session supplying authoritative current surface positions.
+ * @param measurement - unified pressure and surface measurement from the conversation meter.
+ * @param retainTokens - minimum recent tail budget retained verbatim.
+ * @returns the inclusive positional seq range to compact, or `null`.
+ */
+export function selectCompactableRangeAtTurnBoundary(
+  session: Session,
+  measurement: TokenMeasurement,
+  retainTokens: number,
+): { start: SessionSeq; end: SessionSeq } | null {
+  const pricedNodes = measurement.nodes
+  if (pricedNodes.length === 0) return null
+
+  const surfaceNodes = session.surface.nodes
+  if (surfaceNodes.length !== pricedNodes.length
+    || surfaceNodes.some((seq, index) => seq !== pricedNodes[index]?.seq)) {
+    throw new Error('compaction: token-meter surface does not match the current session surface')
+  }
+  // oxlint-disable-next-line typescript/no-non-null-assertion
+  const firstIdx = systemHead(session, surfaceNodes[0]!) === undefined ? 0 : 1
+
+  let accumulated = 0
+  let keepFromIdx = pricedNodes.length
+  for (let index = pricedNodes.length - 1; index >= 0; index -= 1) {
+    // oxlint-disable-next-line typescript/no-non-null-assertion
+    accumulated += pricedNodes[index]!.tokens
+    keepFromIdx = index
+    if (accumulated >= retainTokens) break
+  }
+  if (keepFromIdx <= firstIdx) return null
+
+  const boundaries = userTurnStartSeqs(session)
+  let boundaryIdx = -1
+  for (const boundary of boundaries) {
+    const index = surfaceNodes.indexOf(boundary)
+    if (index > boundaryIdx && index <= keepFromIdx) boundaryIdx = index
+  }
+  // A tool-only history (or a first user turn that is already the head) has no
+  // later complete turn to keep; preserve the token-tail behavior instead of
+  // refusing every compaction in such a session.
+  if (boundaryIdx <= firstIdx) return selectCompactableRange(session, measurement, retainTokens)
+  keepFromIdx = boundaryIdx
+
+  while (keepFromIdx > firstIdx) {
+    // oxlint-disable-next-line typescript/no-non-null-assertion
+    if (toolPairingBalancedBefore(session, surfaceNodes[keepFromIdx]!)) break
+    keepFromIdx -= 1
+  }
+  if (keepFromIdx <= firstIdx) return null
+
+  // oxlint-disable-next-line typescript/no-non-null-assertion
+  const first = surfaceNodes[firstIdx]!
+  // oxlint-disable-next-line typescript/no-non-null-assertion
+  const cutoff = surfaceNodes[keepFromIdx - 1]!
+  return { start: first, end: cutoff }
+}
+
+/**
+ * Surface seqs of the first `user/message` in each turn, in log order. A turn
+ * that produced no user message contributes no boundary; the surface may start
+ * with a system node before the first user message.
+ * @param session - session whose log and current surface are read.
+ * @returns user-message seqs that begin a turn's surface contribution.
+ */
+function userTurnStartSeqs(session: Session): SessionSeq[] {
+  const surface = new Set(session.surface.nodes)
+  const starts: SessionSeq[] = []
+  let inTurn = false
+  let sawUser = false
+  for (const event of session.snapshotEvents()) {
+    if (event.type === 'turn/start') {
+      inTurn = true
+      sawUser = false
+      continue
+    }
+    if (event.type === 'turn/end') {
+      inTurn = false
+      sawUser = false
+      continue
+    }
+    if (!inTurn || sawUser || !surface.has(event.seq) || event.type !== 'user/message') continue
+    starts.push(event.seq)
+    sawUser = true
+  }
+  return starts
+}
+
+/**
  * Run the single compaction transaction over one selected positional span.
  * Selection and validation are read-only. Idle/log validation and
  * `compaction/start` are synchronously adjacent, so the durable opening marker is
