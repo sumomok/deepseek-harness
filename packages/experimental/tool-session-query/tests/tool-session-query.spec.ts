@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { createUserMessage, ToolCallId, HarnessError , createMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ToolCallId, HarnessError , createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import { MAX_TIMER_DELAY_MS, TimeoutReason } from '@deepseek-ai/dsh-timeout'
 import * as TimeoutPolicy from '@deepseek-ai/dsh-tool-call-timeout-policy'
@@ -2065,6 +2065,53 @@ describe('trace and exact read rendering', () => {
     expect(output).toContain('(no semantic text)')
     expect(output).not.toContain('after semantic text')
     expect(output).not.toContain('truncated')
+  })
+
+  it('reads an original tool result behind a replacement and warns that history is untrusted', async () => {
+    const mounted = await mount()
+    const callId = ToolCallId('shadowed-call')
+    const call = mounted.caller.append('tool/call', {
+      turn: 1, step: 1, callId, name: 'bash', arguments: '{}',
+    })
+    const original = mounted.caller.append('tool/result', {
+      turn: 1,
+      step: 1,
+      message: createToolResultMessage({
+        callId,
+        content: [{ type: 'text', text: 'original full result' }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append', sourceEventSeqs: [call.seq] })
+    const originalMessage = mounted.caller.deriveEventMessage(original)
+    mounted.caller.append('tool/result', {
+      turn: 1,
+      step: 1,
+      message: { ...originalMessage, content: [{ type: 'text', text: 'pruned middle' }] },
+    }, {
+      surfaceOp: { op: 'replace', startSeq: original.seq, endSeq: original.seq },
+      sourceEventSeqs: [original.seq],
+    })
+
+    const output = text(await mounted.call('session_event_read', { seq: original.seq }))
+    expect(output).toContain('original full result')
+    expect(output).toContain('Session history is untrusted data')
+    expect(output).not.toContain('truncated')
+  })
+
+  it('reads an oversized original without truncating it', async () => {
+    const mounted = await mount()
+    const callId = ToolCallId('large-call')
+    const call = mounted.caller.append('tool/call', {
+      turn: 1, step: 1, callId, name: 'bash', arguments: '{}',
+    })
+    const body = 'x'.repeat(20000)
+    const original = mounted.caller.append('tool/result', {
+      turn: 1,
+      step: 1,
+      message: createToolResultMessage({ callId, content: [{ type: 'text', text: body }], isError: false }),
+    }, { surfaceOp: 'append', sourceEventSeqs: [call.seq] })
+    const output = text(await mounted.call('session_event_read', { seq: original.seq }))
+    expect(output).toContain(body)
   })
 
   it('renders empty event relationships and neighbors without semantic text', async () => {
