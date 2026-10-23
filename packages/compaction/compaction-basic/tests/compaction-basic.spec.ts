@@ -1022,6 +1022,26 @@ describe('pressure measurement and retention', () => {
     expect(compact.calls).toHaveLength(0)
   })
 
+  it('does not summarize a span that is only the previous checkpoint', async () => {
+    const ctx = createContext(4_000)
+    const compact = service({
+      auto: false,
+      thresholdRatio: 0.5,
+      retainTokens: 100,
+      maxTokens: 1,
+    }, ctx)
+    compact.summary = [{ type: 'text', text: 'checkpoint '.repeat(500) }]
+    const session = conversation(4, 'x'.repeat(2_000))
+    const logs: string[] = []
+    ctx.logger.info = ((message: string) => void logs.push(message)) as typeof ctx.logger.info
+
+    expect(await compactIfNeeded(compact, session)).not.toBeNull()
+    const callsAfterFirst = compact.calls.length
+    expect(await compactIfNeeded(compact, session)).toBeNull()
+    expect(compact.calls).toHaveLength(callsAfterFirst)
+    expect(logs).toContainEqual(expect.stringContaining('only the previous checkpoint'))
+  })
+
   it('bounds retries when a shrinking checkpoint remains above threshold', async () => {
     const compact = service({
       auto: false,
