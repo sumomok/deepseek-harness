@@ -790,6 +790,32 @@ describe('pressure measurement and retention', () => {
     expect(selectCompactableRange(session, priced, user!.tokens + assistant!.tokens)).toBeNull()
   })
 
+  it('skips without a summary request when the selected span cannot cover the pressure gap', async () => {
+    const ctx = createContext(1_000)
+    const compact = service({
+      auto: false,
+      thresholdRatio: 0.5,
+      retainTokens: 250,
+      maxTokens: 1,
+    }, ctx)
+    const session = conversation(4, 'x'.repeat(600))
+    session.append('request/header', {
+      header: {
+        config: { provider: MODEL, model: MODEL },
+        tools: [{ name: 'bulk', description: 't'.repeat(1_500), parameters: { type: 'object' } }],
+      },
+      reason: 'resume',
+    })
+
+    const logs: string[] = []
+    ctx.logger.info = ((message: string) => void logs.push(message)) as typeof ctx.logger.info
+    const result = await compactIfNeeded(compact, session)
+
+    expect(result).toBeNull()
+    expect(compact.calls).toHaveLength(0)
+    expect(logs).toContainEqual(expect.stringContaining('cannot restore the threshold'))
+  })
+
   it('counts the durable routed request envelope without putting it on the surface', async () => {
     const compact = service({
       auto: false,
@@ -830,7 +856,7 @@ describe('pressure measurement and retention', () => {
     expect(measure.mock.calls[0]).toEqual([session])
   })
 
-  it('declines when envelope pressure is high but the surface has no compactable range', async () => {
+  it('fails loud without a summary request when the fixed prefix alone is over threshold', async () => {
     const compact = service(compactConfig)
     const bulkTools = [{ name: 'bulk', description: 'x'.repeat(100_000), parameters: { type: 'object' } }]
     const empty = Session.create(SessionId('empty'))
@@ -839,14 +865,16 @@ describe('pressure measurement and retention', () => {
       header: { config: { provider: MODEL, model: MODEL }, tools: bulkTools },
       reason: 'initial',
     })
-    expect(await compactIfNeeded(compact, empty)).toBeNull()
+    await expect(compactIfNeeded(compact, empty)).rejects.toThrow(/fixed prefix .* already at or above the pressure threshold/)
+    expect(compact.calls).toHaveLength(0)
 
     const retained = conversation(1)
     retained.append('request/header', {
       header: { config: { provider: MODEL, model: MODEL }, tools: bulkTools },
       reason: 'resume',
     })
-    expect(await compactIfNeeded(compact, retained)).toBeNull()
+    await expect(compactIfNeeded(compact, retained)).rejects.toThrow(/fixed prefix .* already at or above the pressure threshold/)
+    expect(compact.calls).toHaveLength(0)
   })
 
   it('uses one unified measurement for each pressure-and-retention decision', async () => {

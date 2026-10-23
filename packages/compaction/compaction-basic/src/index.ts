@@ -384,6 +384,16 @@ export class BasicCompactionEngine extends CompactionEngine {
       reservedCompletionTokens(agent, info.defaultMaxTokens),
       targetKey,
     )
+    const prefix = this.fixedPrefixTokens(agent.session)
+    if (prefix !== undefined && prefix.total >= spec.thresholdTokens) {
+      throw new TargetPressureConfigError(
+        targetKey,
+        `compaction-basic: ${targetKey} fixed prefix (system ${prefix.system} + tools ${prefix.tools} `
+        + `= ${prefix.total} estimated tokens) is already at or above the pressure threshold `
+        + `${spec.thresholdTokens}; compaction cannot reduce it. Configure a larger model window, `
+        + 'a smaller tool catalog, or turn automatic compaction off',
+      )
+    }
     let occupancy = this.occupancyTokens(agent.session, measurement)
     if (occupancy < spec.thresholdTokens) return null
 
@@ -405,7 +415,30 @@ export class BasicCompactionEngine extends CompactionEngine {
         /* v8 ignore next -- paired with the defensive post-success branch above. */
         break
       }
+      const reclaimable = this.rangeTokenPrice(measurement, range)
+      const selected = this.rangeNodeCount(measurement, range)
+      const needed = occupancy - spec.thresholdTokens
+      if (reclaimable < needed) {
+        this.ctx.logger.info(
+          'compaction (pressure): skipping %d selected nodes worth ~%d route tokens; '
+          + 'the pressure gap is %d tokens, so the summary cannot restore the threshold',
+          selected, reclaimable, needed,
+        )
+        return result
+      }
+      this.ctx.logger.info(
+        'compaction (pressure): route=%s/%s occupancy=%d threshold=%d fixedPrefix=%s '
+        + 'reclaimable=%d needed=%d retain=%d',
+        target.provider, target.model, occupancy, spec.thresholdTokens,
+        prefix === undefined ? 'unknown' : String(prefix.total), reclaimable, needed, spec.retainTokens,
+      )
+      const started = performance.now()
       result = await this.compactRegion(range.start, range.end, agent, signal)
+      this.ctx.logger.info(
+        'compaction (pressure): committed %d shadowed nodes (~%d tokens) in %dms',
+        result.shadowedSeqs.length, result.shadowedTokenCount,
+        Math.round(performance.now() - started),
+      )
       measurement = meter.measure(agent.session)
       occupancy = this.occupancyTokens(agent.session, measurement)
       if (occupancy < spec.thresholdTokens) return result
@@ -452,6 +485,61 @@ export class BasicCompactionEngine extends CompactionEngine {
       .snapshot(session, ['contextPressure']).values.contextPressure
     /* v8 ignore next -- a usage-anchored meter implies a folded usage sample, so the projected figure is present here */
     return pressure?.projectedTokens ?? measurement.totalTokens
+  }
+
+  /**
+   * Price the system prompt and tool catalog that no surface compaction can
+   * reduce. The breakdown is heuristic and may be absent when no projection
+   * registry is mounted; absence leaves the precheck off rather than treating
+   * an unknown prefix as zero.
+   * @param session - session whose latest request envelope is measured.
+   * @returns the system and tools prices, or undefined without a breakdown.
+   */
+  private fixedPrefixTokens(
+    session: Session,
+  ): { readonly system: number; readonly tools: number; readonly total: number } | undefined {
+    const breakdown = this.ctx.sessionProjections
+      .snapshot(session, ['contextBreakdown']).values.contextBreakdown
+    if (breakdown === undefined) return undefined
+    return {
+      system: breakdown.systemTokens,
+      tools: breakdown.toolsTokens,
+      total: breakdown.systemTokens + breakdown.toolsTokens,
+    }
+  }
+
+  /**
+   * Route-priced total of the selected surface span, the same unit the summary
+   * shrink comparison uses.
+   * @param measurement - current priced surface.
+   * @param range - selected inclusive positional span.
+   * @returns summed route tokens of the span, or zero when it is not found.
+   */
+  private rangeTokenPrice(
+    measurement: TokenMeasurement,
+    range: { readonly start: SessionSeq; readonly end: SessionSeq },
+  ): number {
+    const nodes = measurement.nodes
+    const start = nodes.findIndex(node => node.seq === range.start)
+    const end = nodes.findIndex(node => node.seq === range.end)
+    if (start < 0 || end < start) return 0
+    return nodes.slice(start, end + 1).reduce((total, node) => total + node.tokens, 0)
+  }
+
+  /**
+   * Number of surface nodes the selected span covers.
+   * @param measurement - current priced surface.
+   * @param range - selected inclusive positional span.
+   * @returns the inclusive node count, or zero when it is not found.
+   */
+  private rangeNodeCount(
+    measurement: TokenMeasurement,
+    range: { readonly start: SessionSeq; readonly end: SessionSeq },
+  ): number {
+    const nodes = measurement.nodes
+    const start = nodes.findIndex(node => node.seq === range.start)
+    const end = nodes.findIndex(node => node.seq === range.end)
+    return start < 0 || end < start ? 0 : end - start + 1
   }
 
   /**
