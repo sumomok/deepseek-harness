@@ -11,6 +11,7 @@ import type {
   ContentBlock, FinishReason, GenerateOptions, Message, RequestMessage, TokenUsage, ToolSchema,
 } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Session } from '@deepseek-ai/dsh-session'
 
 interface SummaryConfig {
   readonly summarizationProvider: string
@@ -106,6 +107,53 @@ export type SummaryResult = {
   }
 )
 
+/** One provider/model route from a durable selection or request header. */
+interface SummarizationTarget {
+  readonly provider: string
+  readonly model: string
+}
+
+/**
+ * Extract a provider/model pair from an event payload without depending on the
+ * session-controller package that owns the `model/selection` event type.
+ * @param value - event payload to inspect.
+ * @returns the route when both fields are non-empty strings.
+ */
+function routedTarget(value: unknown): SummarizationTarget | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const provider: unknown = Reflect.get(value, 'provider')
+  const model: unknown = Reflect.get(value, 'model')
+  if (typeof provider !== 'string' || provider.length === 0) return undefined
+  if (typeof model !== 'string' || model.length === 0) return undefined
+  return { provider, model }
+}
+
+/**
+ * The route selected after the newest durable request header, i.e. the model
+ * the next real request will use. A selection at or before the last header has
+ * already been consumed (or superseded) by that request, so it is not pending.
+ * @param session - session supplying the selection and header log.
+ * @returns the pending selection route, or undefined when none is newer.
+ */
+function pendingSelection(session: Session): SummarizationTarget | undefined {
+  let lastHeaderSeq = -1
+  let selection: SummarizationTarget | undefined
+  let selectionSeq = -1
+  for (const event of session.snapshotEvents()) {
+    if (event.type === 'request/header') {
+      lastHeaderSeq = event.seq
+      continue
+    }
+    if (String(event.type) !== 'model/selection') continue
+    const data: unknown = event.data
+    const route = routedTarget(data)
+    if (route === undefined) continue
+    selection = route
+    selectionSeq = event.seq
+  }
+  return selectionSeq > lastHeaderSeq ? selection : undefined
+}
+
 /**
  * Run the default cache-reusing `ctx.llm.stream()` summarization call: replay
  * the conversation prefix, then append the compaction instruction as the final
@@ -124,17 +172,20 @@ export async function summarizeWithLlm(
   agent: Agent,
   signal?: AbortSignal,
 ): Promise<SummaryResult> {
-  const latest = agent.session.requestHeader()?.config
   const configured = config.summarizationProvider.length === 0
     ? undefined
     : { provider: config.summarizationProvider, model: config.summarizationModel }
+  const selected = pendingSelection(agent.session)
+  const latest = agent.session.requestHeader()?.config
   const agentTarget = agent.options.provider !== undefined
     && agent.options.provider.length > 0
     && agent.options.model !== undefined
     && agent.options.model.length > 0
     ? { provider: agent.options.provider, model: agent.options.model }
     : undefined
-  const target = configured ?? latest ?? agentTarget
+  // Explicit summarizer configuration wins; otherwise the next real request's
+  // pending selection outranks the header the last real request left behind.
+  const target = configured ?? selected ?? latest ?? agentTarget
   if (target === undefined) {
     throw new Error(
       'no provider/model available for summarization: set both BasicCompactionConfig summarization fields, route one request, or set both AgentOptions fields',

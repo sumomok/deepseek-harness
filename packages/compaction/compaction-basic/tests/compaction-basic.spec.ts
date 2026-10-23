@@ -1546,6 +1546,25 @@ describe('summary review hook', () => {
 })
 
 describe('default one-shot summarizer', () => {
+  it('uses a pending model selection instead of the stale request header', async () => {
+    const { adapter, compact } = await summarizerHarness([{ type: 'text', text: 'summary' }], undefined, 'actual')
+    const session = Session.create(SessionId('stale-route'))
+    session.append('request/header', {
+      header: { config: { provider: 'stale', model: 'stale' } },
+      reason: 'initial',
+    })
+    // `model/selection` is owned by the session-controller package; this
+    // focused harness replays its durable payload without mounting that layer.
+    const appendSelection = session.append.bind(session) as (type: string, data: object) => unknown
+    appendSelection('model/selection', { provider: 'actual', model: 'actual' })
+
+    const result = await compact.runSummarize(promptInput('history'), agent(session, 'fallback'))
+
+    expect(adapter.lastOptions).toMatchObject({ provider: 'actual', model: 'actual' })
+    expect(result.provider).toBe('actual')
+    expect(result.model).toBe('actual')
+  })
+
   it.each([undefined, '', 'SYSTEM HEAD\n精确前缀\n'])('preserves the routed prefix through region summarization with system %j', async (system) => {
     const { adapter, compact } = await summarizerHarness([{ type: 'text', text: 'summary' }])
     const session = conversation(3, undefined, system)
