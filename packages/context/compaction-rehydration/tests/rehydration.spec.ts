@@ -140,7 +140,43 @@ function catalogChild(session: Session, childId: string, label: string): void {
   })
 }
 
+/** Append the summary and its surface replacement; return the replacement's seq. */
+function checkpointReplacement(session: Session, id: string, summary: string): number {
+  const compactionId = CompactionId(id)
+  const target = session.surface.nodes.at(-1)
+  if (target === undefined) throw new Error('no surface node to replace')
+  const start = session.append('compaction/start', { compactionId, turn: null })
+  const shadowedRange = { start: SessionSeq(0), end: SessionSeq(0) }
+  const summaryEvent = session.append('compaction/summary', {
+    compactionId,
+    summary: [{ type: 'text', text: summary }],
+    shadowedRange,
+    shadowedSeqs: [SessionSeq(0)],
+    shadowedTokenCount: 12,
+    provider: 'test-provider',
+    model: 'test-model',
+    rawOutput: [{ type: 'text', text: summary }],
+    llmStreamCall: true,
+  })
+  const replacement = session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: summary }],
+    source: { kind: 'compact-checkpoint', compactionId },
+  }), { surfaceOp: { op: 'replace', startSeq: target, endSeq: target }, sourceEventSeqs: [target, start.seq, summaryEvent.seq] })
+  return replacement.seq
+}
+
 function compact(session: Session, id = 'c1', summary = 'condensed history'): void {
+  checkpointReplacement(session, id, summary)
+  session.append('compaction/end', { compactionId: CompactionId(id), turn: null })
+}
+
+/** A checkpoint whose surface replacement committed but whose closing event never did. */
+function compactWithoutEnd(session: Session, id = 'c-missing', summary = 'condensed history'): number {
+  return checkpointReplacement(session, id, summary)
+}
+
+/** A summary that never reached the surface: start and summary only, no replacement, no end. */
+function summaryOnly(session: Session, id = 'c-summary-only', summary = 'never replaced'): void {
   const compactionId = CompactionId(id)
   const shadowedRange = { start: SessionSeq(0), end: SessionSeq(0) }
   session.append('compaction/start', { compactionId, turn: null })
@@ -155,7 +191,6 @@ function compact(session: Session, id = 'c1', summary = 'condensed history'): vo
     rawOutput: [{ type: 'text', text: summary }],
     llmStreamCall: true,
   })
-  session.append('compaction/end', { compactionId, turn: null })
 }
 
 async function fire(ctx: Context, agent: Agent, turn = 1, step = 1): Promise<number> {
@@ -439,5 +474,63 @@ describe('the state a compaction rebuilds', () => {
     expect(text).not.toContain('parent task')
     expect(text).not.toContain('# Parent plan')
     expect(text).not.toContain('parent job')
+  })
+
+  it('rebuilds after a checkpoint replacement whose closing event never committed', async () => {
+    const { ctx, session, agent } = await harness({ todo: true })
+    openTurn(session)
+    writeTodos(session, [{ content: 'survive a crash mid-compaction', status: 'pending' }])
+    const replacementSeq = compactWithoutEnd(session)
+    expect(await fire(ctx, agent)).toBe(1)
+    const text = rebuildTexts(session)[0] ?? ''
+    expect(text).toContain('survive a crash mid-compaction')
+    const event = session.ownEvents().find(candidate => candidate.type === 'user/message'
+      && candidate.data.source.kind === 'compaction-rehydration')
+    if (event?.type !== 'user/message' || event.data.source.kind !== 'compaction-rehydration') throw new Error('no rebuild message')
+    expect(event.data.source.compactionSeq).toBe(replacementSeq)
+    expect(event.data.source.compactionId).toBe('c-missing')
+    expect(await fire(ctx, agent, 1, 2)).toBe(0)
+  })
+
+  it('does not treat a summary without its replacement as a checkpoint', async () => {
+    const { ctx, session, agent } = await harness({ todo: true })
+    openTurn(session)
+    writeTodos(session, [{ content: 'never became visible', status: 'pending' }])
+    summaryOnly(session)
+    expect(await fire(ctx, agent)).toBe(0)
+  })
+
+  it('rebuilds once when resuming after a replacement with no closing event', async () => {
+    const first = await harness({ todo: true })
+    openTurn(first.session)
+    writeTodos(first.session, [{ content: 'resume after a crash', status: 'pending' }])
+    compactWithoutEnd(first.session)
+    const crashed = first.session.ownEvents()
+
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt, { personaPrefix: '' })
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(UserQuestionService)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(Rehydration)
+    await ctx.plugin(ToolTodo, { allowParallelInProgress: true })
+    const resumed = ctx.sessions.create(first.session.id, { seed: crashed })
+    const resumedAgent = sessionAgent(resumed, ctx)
+    expect(await fire(ctx, resumedAgent)).toBe(1)
+    expect(rebuildTexts(resumed)[0]).toContain('resume after a crash')
+
+    const ctxAgain = new Context()
+    await ctxAgain.plugin(SessionStore)
+    await ctxAgain.plugin(SystemPrompt, { personaPrefix: '' })
+    await ctxAgain.plugin(ToolRuntime)
+    await ctxAgain.plugin(UserQuestionService)
+    await ctxAgain.plugin(AgentRegistry)
+    await ctxAgain.plugin(SessionProjectionRegistry)
+    await ctxAgain.plugin(Rehydration)
+    await ctxAgain.plugin(ToolTodo, { allowParallelInProgress: true })
+    const resumedAgain = ctxAgain.sessions.create(first.session.id, { seed: resumed.ownEvents() })
+    expect(await fire(ctxAgain, sessionAgent(resumedAgain, ctxAgain))).toBe(0)
   })
 })

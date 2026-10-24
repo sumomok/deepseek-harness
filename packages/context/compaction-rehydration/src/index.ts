@@ -22,6 +22,7 @@ import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed, ContextSnapshotSection } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
+import { isCompactCheckpointSource } from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-jobs'
@@ -71,7 +72,15 @@ interface DraftSection {
 /** The compaction checkpoint a rebuild message answers. */
 interface Checkpoint {
   readonly id: string
-  readonly endSeq: number
+  /** The closing event's seq, or the replacement's when the close never committed. */
+  readonly evidenceSeq: number
+}
+
+/** One compaction transaction's recoverable facts, gathered from the log. */
+interface CheckpointFacts {
+  summarySeq?: number
+  replacementSeq?: number
+  endSeq?: number
 }
 
 /** Structural view of one projected todo item (tool-todo's `todos` unit). */
@@ -115,20 +124,50 @@ function bound(text: string, limit: number): string {
   return `${text.slice(0, room)}${TRUNCATED_MARKER}`
 }
 
-/** The latest successful checkpoint that summarized history, if any. */
+/**
+ * The latest checkpoint a session can recover from.
+ *
+ * A committed checkpoint is a `compaction/summary` followed by its
+ * `compact-checkpoint` replacement on the surface. The closing
+ * `compaction/end` may be missing when the process died after the surface
+ * replacement committed, and it may carry an error when closing failed; the
+ * replacement is what made the summary model-visible, so either way the
+ * checkpoint is recoverable and later requests must still rebuild from it.
+ * A summary with no replacement never reached the surface and is not a
+ * checkpoint. The evidence seq is the closing event when one exists and the
+ * replacement otherwise.
+ */
 function latestCheckpoint(session: Session): Checkpoint | undefined {
-  const summarized = new Set<string>()
-  let checkpoint: Checkpoint | undefined
+  const facts = new Map<string, CheckpointFacts>()
+  const factsOf = (id: string): CheckpointFacts => {
+    let entry = facts.get(id)
+    if (entry === undefined) {
+      entry = {}
+      facts.set(id, entry)
+    }
+    return entry
+  }
   for (const event of session.ownEvents()) {
     if (event.type === 'compaction/summary') {
-      summarized.add(String(event.data.compactionId))
+      factsOf(String(event.data.compactionId)).summarySeq = event.seq
       continue
     }
-    if (event.type !== 'compaction/end') continue
-    const id = String(event.data.compactionId)
-    if (event.data.error === undefined && summarized.has(id)) checkpoint = { id, endSeq: event.seq }
+    if (event.type === 'compaction/end') {
+      factsOf(String(event.data.compactionId)).endSeq = event.seq
+      continue
+    }
+    if (event.type === 'user/message' && isCompactCheckpointSource(event.data.source)) {
+      const entry = factsOf(String(event.data.source.compactionId))
+      if (entry.replacementSeq === undefined || event.seq > entry.replacementSeq) entry.replacementSeq = event.seq
+    }
   }
-  return checkpoint
+  let latest: Checkpoint | undefined
+  for (const [id, entry] of facts) {
+    if (entry.summarySeq === undefined || entry.replacementSeq === undefined) continue
+    const evidenceSeq = entry.endSeq ?? entry.replacementSeq
+    if (latest === undefined || evidenceSeq > latest.evidenceSeq) latest = { id, evidenceSeq }
+  }
+  return latest
 }
 
 /** Whether a rebuild message for this checkpoint already exists in the log. */
@@ -293,7 +332,7 @@ function rebuildFor(ctx: Context, agent: Agent): ReturnType<typeof createUserMes
       kind: 'compaction-rehydration',
       form: 'snapshot',
       compactionId: checkpoint.id,
-      compactionSeq: checkpoint.endSeq,
+      compactionSeq: checkpoint.evidenceSeq,
       sections,
       digests: sections.map(section => digest(section.text)),
     },
