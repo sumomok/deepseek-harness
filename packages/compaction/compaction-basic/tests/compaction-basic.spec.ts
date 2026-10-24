@@ -4,6 +4,7 @@ import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import type { BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
 import { selectCompactableRange } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
+import { conversationTarget, pressureTarget, summarizationTarget } from '@deepseek-ai/dsh-compaction-basic/src/route.ts'
 import { frameSummary } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
 import type { SummarizationInput, SummaryResult } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
 import { CompactionId, ManualCompactionError, toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compaction'
@@ -94,6 +95,12 @@ function agent(session: Session, model?: string): Agent {
     session,
     options: model === undefined ? {} : { provider: model, model },
   } as Agent
+}
+
+/** Append the durable `model/selection` payload owned by the session-controller package. */
+function appendModelSelection(session: Session, provider: string, model: string): void {
+  const append = session.append.bind(session) as (type: string, data: object) => unknown
+  append('model/selection', { provider, model })
 }
 
 /** Flatten every text fragment the summarizer received across all messages. */
@@ -619,6 +626,97 @@ describe('compact configuration and defaults', () => {
 
 })
 
+describe('shared route resolution', () => {
+  it('uses pending selection, then durable header, then AgentOptions for summaries', () => {
+    const session = Session.create(SessionId('route-priority'))
+    const fallback = agent(session, 'options')
+    session.append('request/header', {
+      header: { config: { provider: 'header', model: 'header' } },
+      reason: 'initial',
+    })
+    expect(pressureTarget(fallback)).toEqual({ provider: 'header', model: 'header' })
+
+    appendModelSelection(session, 'pending', 'pending')
+    expect(pressureTarget(fallback)).toEqual({ provider: 'pending', model: 'pending' })
+    expect(conversationTarget(fallback)).toEqual({ provider: 'pending', model: 'pending' })
+    expect(summarizationTarget({ summarizationProvider: '', summarizationModel: '' }, fallback))
+      .toEqual({ provider: 'pending', model: 'pending' })
+
+    session.append('request/header', {
+      header: { config: { provider: 'newer', model: 'newer' } },
+      reason: 'change',
+    })
+    expect(pressureTarget(fallback)).toEqual({ provider: 'newer', model: 'newer' })
+
+    const headerless = Session.create(SessionId('route-headerless'))
+    expect(pressureTarget(agent(headerless, 'options'))).toBeUndefined()
+    expect(conversationTarget(agent(headerless, 'options')))
+      .toEqual({ provider: 'options', model: 'options' })
+  })
+
+  it('applies the pending selection policy instead of the stale header policy', async () => {
+    const ctx = createContext(1_000)
+    ctx.llm.registerAdapter(['header', 'pending'], new ContextAdapter(1_000))
+    const compact = service({
+      auto: false,
+      thresholdRatio: 0.99,
+      headroomTokens: 0,
+      maxTokens: 1,
+      retainTokens: 1,
+      modelPolicies: [
+        { provider: 'header', model: 'header', thresholdRatio: 0.99, retainTokens: 1 },
+        { provider: 'pending', model: 'pending', thresholdRatio: 0.1, retainTokens: 1 },
+      ],
+    }, ctx)
+    const session = conversation(2)
+    session.append('request/header', {
+      header: { config: { provider: 'header', model: 'header' } },
+      reason: 'resume',
+    })
+    appendModelSelection(session, 'pending', 'pending')
+
+    const result = await compactIfNeeded(compact, session)
+
+    expect(result).not.toBeNull()
+    expect(compact.calls).toHaveLength(1)
+  })
+
+  it('does not seed failures across a newer route change', async () => {
+    const ctx = createContext(1_000)
+    ctx.llm.registerAdapter(['header', 'next'], new ContextAdapter(1_000))
+    const failing = service({
+      auto: false,
+      thresholdRatio: 0.5,
+      retainTokens: 20,
+      maxConsecutiveFailures: 2,
+    }, ctx)
+    failing.error = new Error('Connection error.')
+    const session = conversation(4)
+    session.append('request/header', {
+      header: { config: { provider: 'header', model: 'header' } },
+      reason: 'resume',
+    })
+    await expect(compactIfNeeded(failing, session)).rejects.toThrow('Connection error.')
+    await expect(compactIfNeeded(failing, session)).rejects.toThrow('Connection error.')
+
+    session.append('request/header', {
+      header: { config: { provider: 'next', model: 'next' } },
+      reason: 'change',
+    })
+    const restartedCtx = createContext(1_000)
+    restartedCtx.llm.registerAdapter(['next'], new ContextAdapter(1_000))
+    const restarted = service({
+      auto: false,
+      thresholdRatio: 0.5,
+      retainTokens: 20,
+      maxConsecutiveFailures: 2,
+    }, restartedCtx)
+
+    expect(await compactIfNeeded(restarted, session)).not.toBeNull()
+    expect(restarted.calls).toHaveLength(1)
+  })
+})
+
 describe('pressure measurement and retention', () => {
   const compactConfig: BasicCompactionConfig = {
     auto: false,
@@ -1125,7 +1223,7 @@ describe('pressure measurement and retention', () => {
 })
 
 describe('optional model-free tool-result pruning', () => {
-  const pruneConfig = { thresholdChars: 100, headChars: 20, tailChars: 10 }
+  const pruneConfig = { thresholdChars: 600, headChars: 180, tailChars: 60 }
 
   it('does not prune a below-pressure session opportunistically', async () => {
     const ctx = createContext(10_000)
@@ -1144,6 +1242,62 @@ describe('optional model-free tool-result pruning', () => {
     expect(pruneSession).not.toHaveBeenCalled()
     expect(compact.calls).toHaveLength(0)
     expect(session.surface.replaceGeneration).toBe(0)
+  })
+
+  it('lands a session-address pointer during real overflow pruning', async () => {
+    const ctx = createContext(10_000)
+    void new ToolResultPruner(ctx, pruneConfig)
+    const compact = new TestCompactionEngine(ctx, {
+      headroomTokens: 0,
+      maxTokens: 8192,
+      thresholdRatio: 1,
+      retainTokens: 900,
+    })
+    const session = oversizedToolResult()
+    const originalSeq = session.snapshotEvents().find(event => event.type === 'tool/result')!.seq
+
+    await compactIfNeeded(compact, session, 'context-overflow')
+
+    const replacement = session.snapshotEvents().findLast(event => event.type === 'tool/result')!
+    const content = replacement.data.message.content
+      .map(block => block.type === 'text' ? block.text : '')
+      .join('')
+    expect(replacement.seq).toBeGreaterThan(originalSeq)
+    expect(content).toContain(`seq ${String(originalSeq)}`)
+    expect(content).toContain('session_event_read')
+    expect(session.eventAt(originalSeq)).toMatchObject({
+      type: 'tool/result',
+      data: { message: { content: [{ type: 'text', text: 'X'.repeat(3_000) }] } },
+    })
+  })
+
+  it('calls the recovery-aware pruner entry when the service provides it', async () => {
+    const ctx = createContext(10_000)
+    const prune = new ToolResultPruner(ctx, pruneConfig)
+    const recovery = vi.spyOn(prune, 'pruneSessionWithRecovery')
+    const compact = new TestCompactionEngine(ctx, {
+      headroomTokens: 0,
+      maxTokens: 8192,
+      thresholdRatio: 1,
+      retainTokens: 900,
+    })
+    await compactIfNeeded(compact, oversizedToolResult(), 'context-overflow')
+    expect(recovery).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back to the synchronous entry for an older pruner implementation', async () => {
+    const ctx = createContext(10_000)
+    const sessions: Session[] = []
+    ctx.provide('toolResultPruner', { pruneSession: (session: Session) => { sessions.push(session) } })
+    const compact = new TestCompactionEngine(ctx, {
+      headroomTokens: 0,
+      maxTokens: 8192,
+      thresholdRatio: 1,
+      retainTokens: 900,
+    })
+    const session = oversizedToolResult()
+    await compactIfNeeded(compact, session, 'context-overflow')
+    expect(sessions).toEqual([session])
   })
 
   it('skips LLM summarization when pruning alone clears pressure', async () => {
@@ -2160,9 +2314,9 @@ describe('automatic listener and loader composition', () => {
   it('authorizes overflow retry when pruning alone advances an indivisible surface', async () => {
     const ctx = createContext(10_000)
     void new ToolResultPruner(ctx, {
-      thresholdChars: 100,
-      headChars: 20,
-      tailChars: 10,
+      thresholdChars: 600,
+      headChars: 180,
+      tailChars: 60,
     })
     const compact = new TestCompactionEngine(ctx, {
       headroomTokens: 0,
@@ -2181,9 +2335,9 @@ describe('automatic listener and loader composition', () => {
   it('continues overflow recovery with summarization on the pruned surface', async () => {
     const ctx = createContext(10_000)
     void new ToolResultPruner(ctx, {
-      thresholdChars: 100,
-      headChars: 20,
-      tailChars: 10,
+      thresholdChars: 600,
+      headChars: 180,
+      tailChars: 60,
     })
     const compact = new TestCompactionEngine(ctx, {
       headroomTokens: 0,
@@ -2204,9 +2358,9 @@ describe('automatic listener and loader composition', () => {
     const warnings: string[] = []
     ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
     void new ToolResultPruner(ctx, {
-      thresholdChars: 100,
-      headChars: 20,
-      tailChars: 10,
+      thresholdChars: 600,
+      headChars: 180,
+      tailChars: 60,
     })
     const compact = new TestCompactionEngine(ctx, {
       headroomTokens: 0,
@@ -2229,9 +2383,9 @@ describe('automatic listener and loader composition', () => {
     const ctx = createContext(10_000)
     const controller = new AbortController()
     void new ToolResultPruner(ctx, {
-      thresholdChars: 100,
-      headChars: 20,
-      tailChars: 10,
+      thresholdChars: 600,
+      headChars: 180,
+      tailChars: 60,
     })
     const compact = new TestCompactionEngine(ctx, {
       headroomTokens: 0,

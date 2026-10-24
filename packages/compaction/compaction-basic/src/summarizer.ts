@@ -11,8 +11,8 @@ import type {
   ContentBlock, FinishReason, GenerateOptions, Message, RequestMessage, TokenUsage, ToolSchema,
 } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { Session } from '@deepseek-ai/dsh-session'
 import type { TokenMeter } from '@deepseek-ai/dsh-token-meter'
+import { summarizationTarget } from './route.ts'
 
 interface SummaryConfig {
   readonly summarizationProvider: string
@@ -108,53 +108,6 @@ export type SummaryResult = {
   }
 )
 
-/** One provider/model route from a durable selection or request header. */
-interface SummarizationTarget {
-  readonly provider: string
-  readonly model: string
-}
-
-/**
- * Extract a provider/model pair from an event payload without depending on the
- * session-controller package that owns the `model/selection` event type.
- * @param value - event payload to inspect.
- * @returns the route when both fields are non-empty strings.
- */
-function routedTarget(value: unknown): SummarizationTarget | undefined {
-  if (typeof value !== 'object' || value === null) return undefined
-  const provider: unknown = Reflect.get(value, 'provider')
-  const model: unknown = Reflect.get(value, 'model')
-  if (typeof provider !== 'string' || provider.length === 0) return undefined
-  if (typeof model !== 'string' || model.length === 0) return undefined
-  return { provider, model }
-}
-
-/**
- * The route selected after the newest durable request header, i.e. the model
- * the next real request will use. A selection at or before the last header has
- * already been consumed (or superseded) by that request, so it is not pending.
- * @param session - session supplying the selection and header log.
- * @returns the pending selection route, or undefined when none is newer.
- */
-function pendingSelection(session: Session): SummarizationTarget | undefined {
-  let lastHeaderSeq = -1
-  let selection: SummarizationTarget | undefined
-  let selectionSeq = -1
-  for (const event of session.snapshotEvents()) {
-    if (event.type === 'request/header') {
-      lastHeaderSeq = event.seq
-      continue
-    }
-    if (String(event.type) !== 'model/selection') continue
-    const data: unknown = event.data
-    const route = routedTarget(data)
-    if (route === undefined) continue
-    selection = route
-    selectionSeq = event.seq
-  }
-  return selectionSeq > lastHeaderSeq ? selection : undefined
-}
-
 /**
  * Run the default cache-reusing `ctx.llm.stream()` summarization call: replay
  * the conversation prefix, then append the compaction instruction as the final
@@ -173,20 +126,10 @@ export async function summarizeWithLlm(
   agent: Agent,
   signal?: AbortSignal,
 ): Promise<SummaryResult> {
-  const configured = config.summarizationProvider.length === 0
-    ? undefined
-    : { provider: config.summarizationProvider, model: config.summarizationModel }
-  const selected = pendingSelection(agent.session)
-  const latest = agent.session.requestHeader()?.config
-  const agentTarget = agent.options.provider !== undefined
-    && agent.options.provider.length > 0
-    && agent.options.model !== undefined
-    && agent.options.model.length > 0
-    ? { provider: agent.options.provider, model: agent.options.model }
-    : undefined
-  // Explicit summarizer configuration wins; otherwise the next real request's
-  // pending selection outranks the header the last real request left behind.
-  const target = configured ?? selected ?? latest ?? agentTarget
+  // Explicit summarizer configuration wins; otherwise the shared conversation
+  // route keeps the summary on the same pending selection the next real request
+  // will use.
+  const target = summarizationTarget(config, agent)
   if (target === undefined) {
     throw new Error(
       'no provider/model available for summarization: set both BasicCompactionConfig summarization fields, route one request, or set both AgentOptions fields',
@@ -249,25 +192,21 @@ export function frameSummary(summary: readonly ContentBlock[]): ContentBlock[] {
 const MINIMUM_SUMMARY_SAFETY_RATIO = 0.1
 
 /**
- * The smallest summary request whose fixed cost can still make progress: the
- * compaction instruction plus the checkpoint framing, with a safety margin for
- * provider tokenization differences. A surface span below this floor cannot
- * produce a smaller replacement, so a pressure retry stops instead of spending
- * another guaranteed-failing request.
+ * The smallest replacement envelope that can still shrink a selected span: the
+ * checkpoint framing plus one minimal summary body, with a safety margin for
+ * provider tokenization differences. The compaction instruction is request
+ * overhead and is not part of the replacement, so it does not set this floor.
+ * A span below the floor cannot produce a smaller replacement, so pressure
+ * stops instead of spending a guaranteed-failing request.
  * @param meter - token meter used for the same heuristic pricing as compaction.
- * @returns minimum route-independent summary envelope tokens.
+ * @returns minimum route-independent replacement tokens.
  */
 export function minimumSummaryTokens(meter: TokenMeter): number {
-  const instruction = meter.estimateMessage(createUserMessage({
-    content: [{ type: 'text', text: COMPACTION_INSTRUCTION }],
-    source: { kind: 'user' },
-  }))
   const framing = meter.estimateMessage(createUserMessage({
-    content: frameSummary([]),
+    content: frameSummary([{ type: 'text', text: 'summary' }]),
     source: { kind: 'user' },
   }))
-  const fixed = instruction + framing
-  return fixed + Math.ceil(fixed * MINIMUM_SUMMARY_SAFETY_RATIO)
+  return framing + Math.ceil(framing * MINIMUM_SUMMARY_SAFETY_RATIO)
 }
 
 /** Map a terminal summarization finish to its fail-closed error. */

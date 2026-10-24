@@ -80,7 +80,7 @@ interface CompactionEntryState {
 class SurfaceChangedError extends Error {}
 
 /** A synchronous `compaction/summary-review` listener refused the framed summary. */
-class SummaryRejectedError extends Error {}
+export class SummaryRejectedError extends Error {}
 
 /** Whether the summary may still replace the span it was built from. */
 type StabilityCheck = (

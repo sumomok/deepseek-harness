@@ -19,7 +19,7 @@ import { assertNever } from '@deepseek-ai/dsh-util-values'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 // Type-only: makes the optional sibling service available to `ctx.get()`.
-import type {} from '@deepseek-ai/dsh-compaction-tool-result-pruner'
+import type ToolResultPruner from '@deepseek-ai/dsh-compaction-tool-result-pruner'
 import {
   resolveCompactSpec,
   resolveConfig,
@@ -31,7 +31,9 @@ import {
   compactSurfaceRegion,
   selectCompactableRange,
   selectCompactableRangeAtTurnBoundary,
+  SummaryRejectedError,
 } from './region.ts'
+import { conversationTarget, eventRoute, pressureTarget } from './route.ts'
 import { minimumSummaryTokens, summarizeWithLlm } from './summarizer.ts'
 import { WaitingCompactions } from './waiting.ts'
 import type { WaitingCompaction } from './waiting.ts'
@@ -62,39 +64,23 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** Resolve the exact provider/model durably routed for the latest request. */
-function routedTarget(
-  session: Session,
-): Pick<LlmCallConfig, 'provider' | 'model'> | undefined {
-  const config = session.requestHeader()?.config
-  if (config === undefined || config.provider.length === 0 || config.model.length === 0) {
-    return undefined
-  }
-  return { provider: config.provider, model: config.model }
-}
-
 /**
  * Output tokens the routed request reserves, which the provider charges to the
  * same window as the prompt. The effective envelope's own cap wins; otherwise
  * the adapter's per-request default, which the adapter materializes when that
  * envelope omits one. No declared cap means no reservation.
  */
-function reservedCompletionTokens(agent: Agent, defaultMaxTokens: number | undefined): number {
-  const configured = agent.session.requestHeader()?.config.maxTokens
-  return configured ?? defaultMaxTokens ?? 0
-}
-
-/** Resolve the conversation target used to select an optional policy override. */
-function conversationTarget(
+function reservedCompletionTokens(
   agent: Agent,
-): Pick<LlmCallConfig, 'provider' | 'model'> | undefined {
-  const routed = routedTarget(agent.session)
-  if (routed !== undefined) return routed
-  if (agent.options.provider === undefined || agent.options.provider.length === 0
-    || agent.options.model === undefined || agent.options.model.length === 0) return undefined
-  return { provider: agent.options.provider, model: agent.options.model }
+  target: Pick<LlmCallConfig, 'provider' | 'model'>,
+  defaultMaxTokens: number | undefined,
+): number {
+  const header = agent.session.requestHeader()?.config
+  const current = header?.provider === target.provider && header.model === target.model
+    ? header.maxTokens
+    : undefined
+  return current ?? agent.options.maxTokens ?? defaultMaxTokens ?? 0
 }
-
 const thresholdRatioSchema = z.number()
 const headroomTokensSchema = z.number().step(1).min(0)
 const retainRatioSchema = z.number()
@@ -266,7 +252,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     ) => {
       if (failure.code !== CONTEXT_WINDOW_EXCEEDED_CODE || signal.aborted) return next()
       this.overflowAgents.set(agent.session, agent)
-      const target = routedTarget(agent.session)
+      const target = pressureTarget(agent)
       if (target === undefined) return next()
       const policy = resolveTargetPolicy(this.config, target)
       const retries = this.overflowRetries.get(agent) ?? 0
@@ -308,6 +294,27 @@ export class BasicCompactionEngine extends CompactionEngine {
   }
 
   /**
+   * Land the optional model-free prune pass, preferring the recovery-aware
+   * entry that leaves each replacement addressable. An older pruner that lacks
+   * the async entry keeps its synchronous behavior; a missing pruner is a
+   * no-op.
+   * @param agent - agent whose session is pruned.
+   * @param prune - the resolved optional pruner service.
+   */
+  private async applyToolResultPruning(
+    agent: Agent,
+    prune: ToolResultPruner,
+  ): Promise<void> {
+    const recovery = (prune as { pruneSessionWithRecovery?: (session: Session) => Promise<unknown> })
+      .pruneSessionWithRecovery
+    if (typeof recovery === 'function') {
+      await recovery.call(prune, agent.session)
+      return
+    }
+    prune.pruneSession(agent.session)
+  }
+
+  /**
    * Summarize the replayed conversation region through a direct one-shot
    * `ctx.llm.stream()` call whose prefix reuses the conversation's own system
    * prompt, tools, and messages so the provider's KV cache is not invalidated.
@@ -344,13 +351,13 @@ export class BasicCompactionEngine extends CompactionEngine {
     trigger: CompactionTrigger,
     signal: AbortSignal,
   ): Promise<CompactionResult | null> {
-    const target = routedTarget(agent.session)
+    const target = pressureTarget(agent)
     if (target === undefined) return null
     const policy = resolveTargetPolicy(this.config, target)
     const breakerKey = `${String(agent.session.id)}:${target.provider}/${target.model}`
     let breaker = this.summaryFailures.get(breakerKey)
     if (breaker === undefined) {
-      breaker = this.seedSummaryFailures(agent.session)
+      breaker = this.seedSummaryFailures(agent.session, target)
       if (breaker !== undefined) this.summaryFailures.set(breakerKey, breaker)
     }
     if (policy.maxConsecutiveFailures > 0 && breaker !== undefined
@@ -380,7 +387,7 @@ export class BasicCompactionEngine extends CompactionEngine {
 
     if (trigger === 'context-overflow') {
       if (prune !== undefined) {
-        prune.pruneSession(agent.session)
+        await this.applyToolResultPruning(agent, prune)
         measurement = meter.measure(agent.session)
       }
       const range = selectCompactableRange(agent.session, measurement, 0)
@@ -401,7 +408,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     const spec = this.pressureSpec(
       policy,
       info.context.contextWindow,
-      reservedCompletionTokens(agent, info.defaultMaxTokens),
+      reservedCompletionTokens(agent, target, info.defaultMaxTokens),
       targetKey,
     )
     const prefix = this.fixedPrefixTokens(agent.session)
@@ -420,7 +427,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     // Once pressure qualifies, land the model-free pass before choosing a
     // summary range, then remeasure through the singleton replay fold.
     if (prune !== undefined) {
-      prune.pruneSession(agent.session)
+      await this.applyToolResultPruning(agent, prune)
       measurement = meter.measure(agent.session)
       occupancy = this.occupancyTokens(agent.session, measurement)
     }
@@ -449,10 +456,11 @@ export class BasicCompactionEngine extends CompactionEngine {
     for (let attempt = 0; attempt <= spec.compactionRetries; attempt += 1) {
       const range = selectCompactableRangeAtTurnBoundary(agent.session, measurement, spec.retainTokens)
       if (range === null) {
-        /* v8 ignore else -- concrete replacement preserves a compactable checkpoint; subclass hooks cannot mutate it. */
-        if (result === null) return null
-        /* v8 ignore next -- paired with the defensive post-success branch above. */
-        break
+        this.ctx.logger.info(
+          'compaction (pressure): no selectable span remains that keeps a complete user turn '
+          + 'or a balanced step group; skipping',
+        )
+        return result
       }
       if (this.isOnlyCheckpointRange(agent.session, range)) {
         this.ctx.logger.info(
@@ -463,15 +471,15 @@ export class BasicCompactionEngine extends CompactionEngine {
         break
       }
       const rangeTokens = this.rangeTokenPrice(measurement, range)
-      // A checkpoint already committed in this call made progress; a remaining
-      // span below the summary envelope's floor can only fail the shrink check,
-      // so stop after the useful attempt instead of spending another request.
-      if (result !== null && rangeTokens < minimumSummaryTokens(meter)) {
+      // The selected span itself must be able to pay for the summary envelope;
+      // a first or later span below that floor can only fail the shrink check.
+      if (rangeTokens < minimumSummaryTokens(meter)) {
         this.ctx.logger.info(
-          'compaction (pressure): stopping; remaining span is ~%d route tokens, '
+          'compaction (pressure): skipping; selected span is ~%d route tokens, '
           + 'below the minimum summary envelope',
           rangeTokens,
         )
+        if (result === null) return null
         stoppedForFloor = true
         break
       }
@@ -486,8 +494,10 @@ export class BasicCompactionEngine extends CompactionEngine {
         const committed = await this.compactRegion(range.start, range.end, agent, signal)
         result = committed
       } catch (error: unknown) {
-        const errorClass = classifyCompactionError(error)
-        if (!signal.aborted) {
+        const errorClass = error instanceof SummaryRejectedError
+          ? 'review-rejected'
+          : classifyCompactionError(error)
+        if (!signal.aborted && !(error instanceof SummaryRejectedError)) {
           const previous = this.summaryFailures.get(breakerKey)
           this.summaryFailures.set(breakerKey, { count: (previous?.count ?? 0) + 1, errorClass })
         }
@@ -593,20 +603,30 @@ export class BasicCompactionEngine extends CompactionEngine {
    * @param session - session whose trailing compaction outcomes are read.
    * @returns the seeded failure count and last class, or undefined when clean.
    */
-  private seedSummaryFailures(session: Session): { count: number; errorClass: string } | undefined {
+  private seedSummaryFailures(
+    session: Session,
+    target: { readonly provider: string; readonly model: string },
+  ): { count: number; errorClass: string } | undefined {
     let count = 0
     let errorClass = 'recorded'
+    let sawRoute = false
     const events = session.snapshotEvents()
     for (let index = events.length - 1; index >= 0; index -= 1) {
       const event = events[index]
       if (event === undefined) break
-      if (event.type === 'compaction/summary') break
+      const route = eventRoute(event)
+      if (route !== undefined) {
+        sawRoute = true
+        if (route.provider !== target.provider || route.model !== target.model) return undefined
+        return count === 0 ? undefined : { count, errorClass }
+      }
+      if (event.type === 'compaction/summary') return undefined
       if (event.type !== 'compaction/end') continue
-      if (event.data.error === undefined) break
+      if (event.data.error === undefined) return undefined
       count += 1
       errorClass = classifyCompactionError(event.data.error)
     }
-    return count === 0 ? undefined : { count, errorClass }
+    return sawRoute && count > 0 ? { count, errorClass } : undefined
   }
 
   /**
@@ -768,7 +788,14 @@ export class BasicCompactionEngine extends CompactionEngine {
         const operationSignal = AbortSignal.any([agentSignal, signal])
         try {
           operationSignal.throwIfAborted()
-          return await this.compactManualRange(agent, null, sourceCommandId, operationSignal)
+          const result = await this.compactManualRange(agent, null, sourceCommandId, operationSignal)
+          if (result !== null) {
+            const target = pressureTarget(agent)
+            if (target !== undefined) {
+              this.summaryFailures.delete(`${String(agent.session.id)}:${target.provider}/${target.model}`)
+            }
+          }
+          return result
         } catch (error: unknown) {
           throw manualCancellation(error, agentSignal, operationSignal)
         }
