@@ -18,7 +18,7 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
-import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -86,7 +86,13 @@ async function mount(root: string): Promise<Context> {
 
 /** Two complete turns, then whatever the interruption builds on top. */
 function baseSession(id: SessionId, turns = 2, seedEarly?: (session: Session) => void): Session {
-  const session = Session.create(id)
+  const session = Session.create(id, undefined, {
+    version: SESSION_FORMAT_VERSION,
+    id,
+    createdAt: Date.now(),
+    cwd: '/abs',
+    isSeeded: false,
+  })
   for (let turn = 1; turn <= turns; turn += 1) {
     session.append('turn/start', { turn })
     session.append('user/message', createUserMessage({
@@ -116,7 +122,9 @@ function baseSession(id: SessionId, turns = 2, seedEarly?: (session: Session) =>
 
 /** Persist a validated in-memory log through the real backend seam. */
 async function seed(ctx: Context, session: Session): Promise<void> {
-  const detached = ctx.sessions.prepare(session.id)
+  const detached = ctx.sessions.prepare(session.id, {
+    ...session.header.cwd === undefined ? {} : { meta: { cwd: session.header.cwd } },
+  })
   const handle = await ctx.sessionPersistence.create(detached.header)
   await handle.append(session.snapshotEvents())
   await handle.close()
@@ -301,7 +309,9 @@ function rebuildCount(session: Session): number {
 /** Persist an inclusive prefix of a validated log, then dispose the writer. */
 async function seedPrefix(root: string, id: SessionId, events: readonly { type: string }[], upto: number): Promise<void> {
   const ctx = await mount(root)
-  const detached = ctx.sessions.prepare(id)
+  // Every fixture in this file uses the `/abs` workspace; the header cwd is
+  // not an event, so the seeding prepare must carry it into the stored header.
+  const detached = ctx.sessions.prepare(id, { meta: { cwd: '/abs' } })
   const handle = await ctx.sessionPersistence.create(detached.header)
   await handle.append(events.slice(0, upto + 1) as never)
   await handle.close()
@@ -419,6 +429,11 @@ describe.skipIf(!HAS_LOCK_BINDING)('resume at the three compaction interruption 
       resolve: async (path: string) => ({ key: path }),
       stat: async () => ({ version: 'v1', type: 'file', size: 15 }),
       readText: async () => 'resumed content',
+      contains: (parent: { key?: string }, child: { key?: string }) => {
+        const workspace = parent.key ?? ''
+        const path = child.key ?? ''
+        return path === workspace || path.startsWith(`${workspace}/`)
+      },
     })
     const resumedAgent = second.agents.get(id)!
     expect(await firePreStep(second, resumedAgent)).toBe(1)

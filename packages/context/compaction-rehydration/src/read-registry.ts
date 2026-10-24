@@ -80,6 +80,8 @@ export interface ReadFsLike {
     signal?: AbortSignal,
   ): Promise<{ readonly version: string; readonly size?: number; readonly type: string } | undefined>
   readText(target: object, signal?: AbortSignal): Promise<string>
+  /** Canonical containment test; omitted by minimal backends, which fall back to path comparison. */
+  contains?(parent: object, child: object): boolean
 }
 
 /** Limits the freshness check applies before reading a file. */

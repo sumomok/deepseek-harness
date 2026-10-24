@@ -30,7 +30,8 @@ todo 列表折叠最近一次整表 `todo/write`，而不是读 `todos` 投影�
 - 子代理一节读父会话的 `subagentCatalog` 投影；聚焦测试注册投影桩，覆盖直接子级与跨会话隔离，但没有挂真实 `dsh-subagent`。
 - 后台任务一节折叠 `job/registered` 与 `job/settled`，**不会把任务说成正在运行**：最近一次 `session/end-seed` 之前注册的显示「可能已停止」，之后的显示「尚无结算，可能仍在运行」；进程被杀且从未落结算时保持不确定。
 - 消息上限 4,000 字符，按节截断；很长的计划会丢尾部。
-- `Files` 节最多列 5 个文本读取、2,000 字符：记录的版本仍匹配时只给一行 `already read`；整文件读取且已变化时重述当前内容；只读过窗口、文件缺失/不可读、超过检查上限、或没有文件系统服务时只给指针；凭据类路径整条跳过。
+- `Files` 节最多列 5 个文本读取、2,000 字符，并受两层规则约束：只有 Session 工作目录内的路径可以出现，已知凭据位置整条省略。没有工作目录、读取发生在目录外、或属于凭据类路径时，什么都不注入——包括 unchanged 时的路径名。其余按新鲜度处理：记录的版本仍匹配时只给一行 `already read`；整文件读取且已变化时重述当前内容；只读过窗口、文件缺失/不可读、超过检查上限、或没有文件系统服务时只给指针。
+- 凭据匹配覆盖 `.npmrc`、`.netrc`、`.git-credentials`、`.htpasswd`、`.pgpass`、`.env*`、`id_rsa*`、key/keystore 后缀、`application_default_credentials.json`，以及 `.ssh`/`.aws`/`.gnupg`/`.kube`/`.docker`/`.config/gcloud`/`.config/gh`/`secrets`/`credentials` 位置。它是尽力而为：名字普通的未知密钥无法靠文件名识别，可靠边界是 workspace 加部署的 deny rules。文件系统后端无法报告 containment 时退回规范化路径比较；远程与符号链接后端仍未验证。
 - 读取事实依赖 `read` 工具持久化的 `meta`；没有 `version`/`digest` 的旧日志用一次有界重读核对。被 pruner 剪过的读取会回溯到原始 seq，旧内容永远不会被当作当前内容。
 - checkpoint 是「摘要 **加** 它在 surface 上的 replacement」：`compaction/end` 可能缺失（进程在 replacement 落盘后死掉），也可能带 error（收尾失败）；让摘要对模型可见的是 replacement，所以两种情况都仍然重建。日志里的 `compactionSeq` 有收尾事件时取它，否则取 replacement。只有摘要、没有 replacement 的从未到达 surface，不算 checkpoint，不写重建。
 - 批准识别依赖 plan-mode 的固定结果文案；换文案的构建会退化为不注入计划，不会猜，也不会恢复更早的批准。

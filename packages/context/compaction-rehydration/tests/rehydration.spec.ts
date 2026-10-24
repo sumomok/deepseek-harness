@@ -32,7 +32,13 @@ interface Bench {
   readonly agent: Agent
 }
 
-async function harness(options: { projections?: boolean; todo?: boolean; subagents?: boolean; fs?: ReadFsLike } = {}): Promise<Bench> {
+async function harness(options: {
+  projections?: boolean
+  todo?: boolean
+  subagents?: boolean
+  fs?: ReadFsLike
+  cwd?: string | null
+} = {}): Promise<Bench> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt, { personaPrefix: '' })
@@ -44,7 +50,9 @@ async function harness(options: { projections?: boolean; todo?: boolean; subagen
   if (options.todo === true) await ctx.plugin(ToolTodo, { allowParallelInProgress: true })
   if (options.subagents === true) registerCatalogProjection(ctx)
   if (options.fs !== undefined) ctx.provide('fs', options.fs)
-  const session = ctx.sessions.create()
+  const session = options.cwd === null
+    ? ctx.sessions.create()
+    : ctx.sessions.create(undefined, { meta: { cwd: options.cwd ?? '/abs' } })
   return { ctx, session, agent: sessionAgent(session, ctx) }
 }
 
@@ -166,6 +174,12 @@ class FakeReadFs implements ReadFsLike {
     const file = this.files.get((target as { key?: string }).key ?? '')
     if (file === undefined) throw new Error('missing')
     return file.text
+  }
+
+  contains(parent: object, child: object): boolean {
+    const workspace = (parent as { key?: string }).key ?? ''
+    const path = (child as { key?: string }).key ?? ''
+    return path === workspace || path.startsWith(`${workspace}/`)
   }
 }
 
