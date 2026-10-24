@@ -92,6 +92,16 @@ Replay owner for one service-wide estimator and isolated per-session folds.
 measure(session: Session, requestHeader?: EpochHeader): TokenMeasurement
 
 /**
+ * Whether the current surface contains any `system/message` node, including
+ * an empty system node. The answer is read from the same incremental replay
+ * state as {@link measure}; it never scans the surface and never uses an
+ * earlier measurement after an await.
+ * @param session - session whose current durable tail is synchronized.
+ * @returns true when a system/message is on the current surface.
+ */
+hasSystemMessage(session: Session): boolean
+
+/**
  * Heuristically price one model-visible message (instance face of the pure
  * `estimateMessage` export from `estimate.ts`).
  * @param message - message to price without mutation.

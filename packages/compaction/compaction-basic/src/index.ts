@@ -840,16 +840,8 @@ export class BasicCompactionEngine extends CompactionEngine {
     // case; the zero result is compared exactly like a materialized zero.
     const tools = session.requestHeader()?.tools
     const hasTools = tools !== undefined && tools.length > 0
-    if (!hasTools) {
-      let hasSystem = false
-      for (const seq of session.surface.nodes) {
-        // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
-        if (session.eventAt(seq)?.type === 'system/message') {
-          hasSystem = true
-          break
-        }
-      }
-      if (!hasSystem) return { system: 0, tools: 0, total: 0 }
+    if (!hasTools && !this.ctx.tokenMeter.hasSystemMessage(session)) {
+      return { system: 0, tools: 0, total: 0 }
     }
     const breakdown = this.ctx.sessionProjections
       .snapshot(session, ['contextBreakdown']).values.contextBreakdown

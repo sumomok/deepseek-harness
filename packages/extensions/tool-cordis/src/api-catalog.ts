@@ -3461,6 +3461,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'a detached deeply immutable pressure and surface measurement.',
       },
       {
+        signature: 'hasSystemMessage(session: Session): boolean',
+        description: 'Whether the current surface contains any `system/message` node, including an empty system node. The answer is read from the same incremental replay state as measure; it never scans the surface and never uses an earlier measurement after an await.',
+        parameters: [{ name: 'session', description: 'session whose current durable tail is synchronized.' }],
+        returns: 'true when a system/message is on the current surface.',
+      },
+      {
         signature: 'estimateMessage(message: Message): number',
         description: 'Heuristically price one model-visible message (instance face of the pure `estimateMessage` export from `estimate.ts`).',
         parameters: [{ name: 'message', description: 'message to price without mutation.' }],

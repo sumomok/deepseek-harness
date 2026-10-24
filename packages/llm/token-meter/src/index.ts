@@ -15,6 +15,7 @@ import type {
   Session,
   SessionEvent,
   SessionLogOffset as SessionLogOffsetType,
+  SessionSeq as SessionSeqType,
 } from '@deepseek-ai/dsh-session'
 import {
   canonicalHeader,
@@ -63,6 +64,8 @@ interface ReplayState {
   consumedEvents: SessionLogOffsetType
   header: EpochHeader | undefined
   surface: MeterSurfaceNode[]
+  /** Current-surface system/message seqs, including empty system nodes. */
+  systemSeqs: Set<SessionSeqType>
   stepStart: { turn: number; step: number } | undefined
   anchor: MeasurementAnchor | undefined
 }
@@ -190,6 +193,18 @@ export class TokenMeter extends Service {
     }))
   }
 
+  /**
+   * Whether the current surface contains any `system/message` node, including
+   * an empty system node. The answer is read from the same incremental replay
+   * state as {@link measure}; it never scans the surface and never uses an
+   * earlier measurement after an await.
+   * @param session - session whose current durable tail is synchronized.
+   * @returns true when a system/message is on the current surface.
+   */
+  hasSystemMessage(session: Session): boolean {
+    return this._sync(session).systemSeqs.size > 0
+  }
+
   /** Resolve the routed model's image pricing, when the llm service and route declare one. */
   private _routeImagePricing(header: EpochHeader | undefined): LlmImageRequestPricing | undefined {
     const config = header?.config
@@ -223,6 +238,7 @@ export class TokenMeter extends Service {
         consumedEvents: SessionLogOffset(0),
         header: undefined,
         surface: [],
+        systemSeqs: new Set(),
         stepStart: undefined,
         anchor: undefined,
       }
@@ -323,6 +339,13 @@ export class TokenMeter extends Service {
     state.header = nextHeader
     state.stepStart = nextStepStart
     if (plan !== undefined) {
+      if (plan.target !== 'append') {
+        for (let index = plan.target.startIdx; index <= plan.target.endIdx; index += 1) {
+          const removed = state.surface[index]
+          if (removed !== undefined) state.systemSeqs.delete(removed.seq)
+        }
+      }
+      if (event.type === 'system/message') state.systemSeqs.add(event.seq)
       commitSurfaceTokens(state.surface, plan)
     }
     state.anchor = nextAnchor
