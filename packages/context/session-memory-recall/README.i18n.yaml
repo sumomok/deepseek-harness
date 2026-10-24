@@ -1,0 +1,52 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/context/session-memory-recall/README.md
+/:
+  en: a0f1b67d0003dc4c
+  zh: 188dd507d6a72f83
+/deepseek-ai-dsh-session-memory-recall:
+  en: 0e6a2d8ff392f318
+  zh: dbabb71941cdc3a0
+/deepseek-ai-dsh-session-memory-recall/summary:
+  en: 988069189dc9ab95
+  zh: 1918c37985a704e6
+/deepseek-ai-dsh-session-memory-recall/table-of-contents:
+  en: 3460b3e585e0c020
+  zh: bb83d3d282b286d8
+/deepseek-ai-dsh-session-memory-recall/use-this-package:
+  en: 56959021b64beea2
+  zh: e5ff74a78ea1792f
+/deepseek-ai-dsh-session-memory-recall/use-this-package/what-the-agent-gets:
+  en: ce16f02a801f325b
+  zh: 172b698f5da2973f
+/deepseek-ai-dsh-session-memory-recall/use-this-package/scope-and-exclusions:
+  en: c81acbb7a9c14310
+  zh: d966c379a9a2a8f9
+/deepseek-ai-dsh-session-memory-recall/use-this-package/configuration:
+  en: 22c84755e00cda64
+  zh: 38886047a3b33088
+/deepseek-ai-dsh-session-memory-recall/understand-the-implementation:
+  en: ee4615a04fa6503d
+  zh: ee2c5fb2204a43cf
+/deepseek-ai-dsh-session-memory-recall/understand-the-implementation/trigger-and-cache:
+  en: f1f4a9cfc0ba59ce
+  zh: dcf5b30435e5bed6
+/deepseek-ai-dsh-session-memory-recall/understand-the-implementation/dedup:
+  en: 1b3af6218160ae0d
+  zh: 0cf565453806b859
+/deepseek-ai-dsh-session-memory-recall/understand-the-implementation/failure-and-degradation:
+  en: 91eb6403e9d8c78e
+  zh: 7539aa3d7dd6b6c6
+/deepseek-ai-dsh-session-memory-recall/understand-the-implementation/companion-packages:
+  en: 19056d9994f050c4
+  zh: a252e05730a5d5d6
+/deepseek-ai-dsh-session-memory-recall/model-experience:
+  en: b5eabe9242ff1007
+  zh: 802f0fae1b8ef7f8
+/deepseek-ai-dsh-session-memory-recall/model-experience/token-effect:
+  en: d6680af283444c71
+  zh: 4bee5171ad4f20b8
+/deepseek-ai-dsh-session-memory-recall/known-limitations-and-deferred-work:
+  en: e1a7074183063334
+  zh: 674d98cd59816bae
