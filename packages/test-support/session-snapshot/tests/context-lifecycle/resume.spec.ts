@@ -210,6 +210,12 @@ class SummaryStubEngine extends BasicCompactionEngine {
 async function compactionCycle(id: SessionId): Promise<{ events: readonly { type: string }[]; stage: Record<string, number> }> {
   const ctx = await mount(await tempRoot())
   const session = baseSession(id, 10)
+  // Task state that must survive the crash: a todo list and an open job.
+  session.append('todo/write', { todos: [{ content: 'plan', status: 'in_progress' }, { content: 'build', status: 'pending' }] })
+  session.append('job/registered', {
+    jobId: 'job-open-1', owner: String(id), kind: 'bash', startedAt: 1,
+    toolCall: { callId: 'call-open-1', name: 'bash' },
+  })
   const engineUnderTest = new SummaryStubEngine(ctx, {
     auto: false, headroomTokens: 0, maxTokens: 8192, thresholdRatio: 0.3, retainTokens: 20,
   })
@@ -282,6 +288,9 @@ describe.skipIf(!HAS_LOCK_BINDING)('resume at the three compaction interruption 
     expect(log.filter(event => event.type === 'compaction/summary')).toHaveLength(1)
     expect(log.filter(event => (event as { surfaceOp?: { op?: string } }).surfaceOp?.op === 'replace')).toEqual([])
     expect(log.filter(event => event.type === 'compaction/end')).toEqual([])
+    // Task state stays in the durable log and nothing was injected over it.
+    expect(log.filter(event => event.type === 'todo/write')).toHaveLength(1)
+    expect(log.filter(event => event.type === 'job/registered')).toHaveLength(1)
     const session = second.agents.get(id)!.session
     const lastUser = session.snapshotEvents().filter(event => event.type === 'user/message').at(-1)
     expect((lastUser as { surfaceOp?: unknown } | undefined)?.surfaceOp).not.toEqual(
@@ -305,9 +314,25 @@ describe.skipIf(!HAS_LOCK_BINDING)('resume at the three compaction interruption 
     const replacements = log.filter(event => (event as { surfaceOp?: { op?: string } }).surfaceOp?.op === 'replace')
     expect(replacements).toHaveLength(1)
     expect(log.filter(event => event.type === 'compaction/summary')).toHaveLength(1)
+    // The checkpoint is a surface fact even though `compaction/end` never
+    // landed; task state must not disappear with it.
+    expect(log.filter(event => event.type === 'todo/write')).toHaveLength(1)
+    expect(log.filter(event => event.type === 'job/registered')).toHaveLength(1)
     const session = second.agents.get(id)!.session
     const surfaces = session.surface.nodes
     expect(surfaces.length).toBeGreaterThan(0)
+    const replacement = log.find(event => (event as { surfaceOp?: { op?: string } }).surfaceOp?.op === 'replace') as
+      { surfaceOp?: { startSeq?: number; endSeq?: number } } | undefined
+    const span = replacement?.surfaceOp
+    const taskSeqs = log
+      .map((event, index) => ({ event, seq: (event as { seq?: number }).seq ?? index }))
+      .filter(({ event }) => event.type === 'todo/write' || event.type === 'job/registered')
+      .map(({ seq }) => seq)
+    for (const seq of taskSeqs) {
+      const shadowed = span?.startSeq !== undefined && span.endSeq !== undefined
+        && seq >= span.startSeq && seq <= span.endSeq
+      expect({ seq, shadowed }).toMatchObject({ seq, shadowed: false })
+    }
     await second.fiber.dispose()
   })
 })
