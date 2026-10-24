@@ -82,7 +82,7 @@ describe('todos projection provider', () => {
     expect(projections?.asOfSeq).toBe(session.seq - 1)
   })
 
-  it('clears the standing plan on the next turn/start (turn/end keeps it)', async () => {
+  it('keeps the standing plan across turn boundaries and reopened sessions', async () => {
     const bench = await harness(true)
     const session = bench.session
     seedMessage(session)
@@ -92,9 +92,23 @@ describe('todos projection provider', () => {
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     expect((await bench.tailProjections())?.values.todos).toEqual(list)
     session.append('turn/start', { turn: 2 })
-    const cleared = await bench.tailProjections()
-    expect(cleared?.values.todos).toBeNull()
-    expect(cleared?.asOfSeq).toBe(session.seq - 1)
+    const nextTurn = await bench.tailProjections()
+    expect(nextTurn?.values.todos).toEqual(list)
+    expect(nextTurn?.asOfSeq).toBe(session.seq - 1)
+
+    const reopened = bench.ctx.sessions.create(undefined, { seed: session.snapshotEvents() })
+    expect(bench.ctx.sessionProjections.snapshot(reopened).values.todos).toEqual(list)
+  })
+
+  it('replaces the whole list after a later write in a new turn', async () => {
+    const bench = await harness(true)
+    const session = bench.session
+    seedMessage(session)
+    session.append('turn/start', { turn: 1 })
+    session.append('todo/write', { todos: [{ content: 'first', status: 'completed' }] })
+    session.append('turn/start', { turn: 2 })
+    session.append('todo/write', { todos: [{ content: 'second', status: 'in_progress' }] })
+    expect((await bench.tailProjections())?.values.todos).toEqual([{ content: 'second', status: 'in_progress' }])
   })
 
   it('has no todos key when tool-todo is not composed', async () => {

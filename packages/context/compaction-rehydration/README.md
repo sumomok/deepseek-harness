@@ -11,7 +11,7 @@ English | [中文](README.zh.md)
 
 `dsh-compaction-rehydration` appends one durable message after a successful compaction that restates the task state the checkpoint may have dropped: the current todo list, the last approved plan, background jobs the session registered and never settled, and the direct subagents its catalog holds. Every section is rebuilt from the Session's own log (never a fork-inherited prefix) or a projection folded over it, and the message is written once per checkpoint; a resumed Session sees that the rebuild already happened.
 
-The todo list folds the latest whole-list `todo/write` rather than reading the `todos` projection. The two are different semantics: the durable list survives across turns and reopened sessions (as `dsh-tool-todo` states), while that projection is a standing-plan view that clears when the next turn starts. A compaction at a turn boundary must restore the list, so the log is authoritative here.
+The todo list folds the latest whole-list `todo/write` rather than reading the `todos` projection. The two carry the same standing plan, but folding the log keeps this package independent of projection materialization: the durable list survives turn boundaries and reopened sessions, exactly as `dsh-tool-todo` states, so a compaction at a turn boundary must restore it.
 
 Only the newest `exit_plan_mode` review decides. An approval carries plan-mode's approved sentence; a dismissal — a non-error result — or an answer this build does not recognise leaves the current plan undecided, so no earlier approval is reinstated and no plan is injected. A review with no result yet is still open, and the plan is left out rather than guessed.
 

@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/context/compaction-rehydration/README.md
+/:
+  en: c3507fa646f1d2d2
+  zh: 94804565b5184bab
+/deepseek-ai-dsh-compaction-rehydration:
+  en: 5c691a8534a06f1f
+  zh: 231703fd858b916a
+/deepseek-ai-dsh-compaction-rehydration/summary:
+  en: f046f708613b60bb
+  zh: 05ec90c03ea93eff
+/deepseek-ai-dsh-compaction-rehydration/use-this-package:
+  en: 4309252682f621a4
+  zh: 19f6aec288273861
+/deepseek-ai-dsh-compaction-rehydration/known-limitations-and-deferred-work:
+  en: 571c0ec76b364623
+  zh: 132a054b80e2261d
