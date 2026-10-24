@@ -1400,6 +1400,29 @@ describe('optional model-free tool-result pruning', () => {
     expect(sessions).toEqual([session])
   })
 
+  it('does not call a legacy pruner before a rejected summary commits', async () => {
+    const ctx = createContext(1_000)
+    const pruned: Session[] = []
+    ctx.provide('toolResultPruner', {
+      pruneSession: (session: Session) => { pruned.push(session) },
+    })
+    ctx.on('compaction/summary-review', () => false)
+    const compact = new TestCompactionEngine(ctx, {
+      headroomTokens: 0,
+      maxTokens: 8192,
+      auto: false,
+      thresholdRatio: 0.5,
+      retainTokens: 20,
+    })
+    const session = toolConversation()
+
+    await expect(compactIfNeeded(compact, session)).rejects.toThrow('rejected the summary')
+
+    expect(pruned).toHaveLength(0)
+    expect(session.surface.replaceGeneration).toBe(0)
+    expect(session.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(false)
+  })
+
   it('skips LLM summarization when pruning alone clears pressure', async () => {
     const ctx = createContext(1_000)
     void new ToolResultPruner(ctx, pruneConfig)

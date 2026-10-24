@@ -509,19 +509,20 @@ export class BasicCompactionEngine extends CompactionEngine {
       const policy = resolveTargetPolicy(this.config, target)
       let preview: PrunePreview | undefined
       let previewData: ReturnType<BasicCompactionEngine['previewMeasurement']> | undefined
+      let legacyPrune = false
       if (prune !== undefined) {
         preview = this.previewToolResultPruning(agent, prune)
         if (preview !== undefined) {
           previewData = this.previewMeasurement(measurement, preview)
           measurement = previewData.measurement
         } else {
-          await this.applyToolResultPruning(agent, prune)
-          measurement = meter.measure(agent.session)
+          legacyPrune = true
         }
       }
       const range = selectCompactableRange(agent.session, measurement, 0)
       if (range === null) {
         if (preview !== undefined && prune !== undefined) await this.applyToolResultPreview(agent, prune, preview)
+        else if (legacyPrune && prune !== undefined) await this.applyToolResultPruning(agent, prune)
         return null
       }
       const summaryTarget = policy.summarizationProvider.length === 0
@@ -532,6 +533,7 @@ export class BasicCompactionEngine extends CompactionEngine {
         previewData === undefined ? undefined : { messages: previewData.messages, tokens: previewData.tokens },
         tools)
       if (preview !== undefined && prune !== undefined) await this.applyToolResultPreview(agent, prune, preview)
+      else if (legacyPrune && prune !== undefined) await this.applyToolResultPruning(agent, prune)
       return result
     }
 
@@ -569,6 +571,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     // decisions and is applied only after a summary commits.
     let preview: PrunePreview | undefined
     let previewData: ReturnType<BasicCompactionEngine['previewMeasurement']> | undefined
+    let legacyPrune = false
     if (prune !== undefined) {
       preview = this.previewToolResultPruning(agent, prune)
       if (preview !== undefined) {
@@ -576,9 +579,7 @@ export class BasicCompactionEngine extends CompactionEngine {
         measurement = previewData.measurement
         occupancy = this.previewOccupancy(agent.session, measurement, previewData.savings)
       } else {
-        await this.applyToolResultPruning(agent, prune)
-        measurement = meter.measure(agent.session)
-        occupancy = this.occupancyTokens(agent.session, measurement)
+        legacyPrune = true
       }
     }
     if (occupancy < spec.thresholdTokens) {
@@ -621,6 +622,8 @@ export class BasicCompactionEngine extends CompactionEngine {
         )
         if (!previewApplied && preview !== undefined && prune !== undefined) {
           await this.applyToolResultPreview(agent, prune, preview)
+        } else if (!previewApplied && legacyPrune && prune !== undefined) {
+          await this.applyToolResultPruning(agent, prune)
         }
         return result
       }
@@ -644,6 +647,8 @@ export class BasicCompactionEngine extends CompactionEngine {
         if (result === null) {
           if (preview !== undefined && prune !== undefined) {
             await this.applyToolResultPreview(agent, prune, preview)
+          } else if (legacyPrune && prune !== undefined) {
+            await this.applyToolResultPruning(agent, prune)
           }
           return null
         }
@@ -682,6 +687,9 @@ export class BasicCompactionEngine extends CompactionEngine {
       if (!previewApplied && preview !== undefined && prune !== undefined) {
         await this.applyToolResultPreview(agent, prune, preview)
         previewApplied = true
+      } else if (!previewApplied && legacyPrune && prune !== undefined) {
+        await this.applyToolResultPruning(agent, prune)
+        previewApplied = true
       }
       const committed = result
       const summaryEvent = agent.session.snapshotEvents()
@@ -700,6 +708,9 @@ export class BasicCompactionEngine extends CompactionEngine {
 
     if (!previewApplied && preview !== undefined && prune !== undefined) {
       await this.applyToolResultPreview(agent, prune, preview)
+      previewApplied = true
+    } else if (!previewApplied && legacyPrune && prune !== undefined) {
+      await this.applyToolResultPruning(agent, prune)
       previewApplied = true
     }
     if (stoppedForCheckpoint) return result
