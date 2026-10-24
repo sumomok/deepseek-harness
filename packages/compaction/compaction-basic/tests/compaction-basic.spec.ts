@@ -1114,14 +1114,14 @@ describe('pressure measurement and retention', () => {
     expect(compact.calls).toHaveLength(0)
   })
 
-  it('reuses the pre-decision measurement and re-measures after summarization', async () => {
+  it('uses one unified measurement for each pressure-and-retention decision', async () => {
     const ctx = createContext()
     const compact = service(compactConfig, ctx)
     const measure = vi.spyOn(ctx.tokenMeter, 'measure')
     compact.error = new Error('stop after first decision')
 
     await expect(compactIfNeeded(compact, conversation(4))).rejects.toThrow('stop after first decision')
-    expect(measure).toHaveBeenCalledTimes(2)
+    expect(measure).toHaveBeenCalledTimes(3)
   })
 
   it('starts the retained tail at a user turn boundary', async () => {
