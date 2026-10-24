@@ -15432,6 +15432,9 @@ importers:
       '@deepseek-ai/dsh-compaction':
         specifier: workspace:*
         version: link:../../compaction/compaction
+      '@deepseek-ai/dsh-compaction-rehydration':
+        specifier: workspace:*
+        version: link:../../context/compaction-rehydration
       '@deepseek-ai/dsh-fs':
         specifier: workspace:*
         version: link:../../fs/fs
