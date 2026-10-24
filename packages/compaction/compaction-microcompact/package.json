@@ -1,8 +1,15 @@
 {
   "name": "@deepseek-ai/dsh-compaction-microcompact",
   "description": "Opt-in idle microcompaction that clears old tool results to addressable session sequences",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.2.1-rc.2",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/compaction/compaction-microcompact"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -15,7 +22,6 @@
   },
   "files": [
     "lib/index.js",
-    "lib/types/**/*.js",
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",
