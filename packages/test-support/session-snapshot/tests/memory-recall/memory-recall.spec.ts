@@ -55,8 +55,8 @@ function traceFor(
 ): SessionLineageTrace {
   return {
     target: record(caller),
-    ancestors,
-    descendants,
+    ancestors: [...ancestors],
+    descendants: [...descendants],
     complete: true,
     root: ancestors.at(-1) ?? record(caller),
   }
