@@ -65,11 +65,14 @@ function bench(): Session {
 }
 
 /** Record one read result the way the read tool does: call, then result with meta. */
+/** JSON-compatible read metadata with an index signature, so legacy-field deletion stays typed. */
+type ReadMeta = { [key: string]: string | number | { number: number; text: string }[] }
+
 function recordRead(
   session: Session,
   callId: string,
   path: string,
-  meta: Record<string, unknown>,
+  meta: ReadMeta,
   options: { isError?: boolean } = {},
 ): void {
   const call = ToolCallId(callId)
@@ -92,7 +95,7 @@ function recordRead(
   }, APPEND)
 }
 
-function fullMeta(text: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+function fullMeta(text: string, overrides: ReadMeta = {}): ReadMeta {
   const lines = text.split('\n').map((line, index) => ({ number: index + 1, text: line }))
   return {
     path: '/abs/a.txt',

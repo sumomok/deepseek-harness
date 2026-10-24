@@ -143,7 +143,7 @@ describe('the Files privacy boundary', () => {
   })
 
   it('omits every file when the Session has no working directory', async () => {
-    const text = await sectionFor('/workspace/src/app.ts', { cwd: undefined })
+    const text = await sectionFor('/workspace/src/app.ts', {})
     expect(text).toBeUndefined()
   })
 

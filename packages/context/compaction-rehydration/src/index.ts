@@ -149,6 +149,7 @@ function latestCheckpoint(session: Session): Checkpoint | undefined {
     }
     return entry
   }
+  // oxlint-disable-next-line typescript/no-deprecated -- Deferred migration: needs this Session's history until an async reader exists.
   for (const event of session.ownEvents()) {
     if (event.type === 'compaction/summary') {
       factsOf(String(event.data.compactionId)).summarySeq = event.seq
@@ -177,6 +178,7 @@ function latestCheckpoint(session: Session): Checkpoint | undefined {
 
 /** Whether a rebuild message for this checkpoint already exists in the log. */
 function alreadyRebuilt(session: Session, checkpoint: Checkpoint): boolean {
+  // oxlint-disable-next-line typescript/no-deprecated -- Deferred migration: needs this Session's history until an async reader exists.
   return session.ownEvents().some(event => event.type === 'user/message'
     && event.data.source.kind === 'compaction-rehydration'
     && event.data.source.compactionId === checkpoint.id)
@@ -185,6 +187,7 @@ function alreadyRebuilt(session: Session, checkpoint: Checkpoint): boolean {
 /** The current todo list, from the latest whole-list `todo/write` in the log. */
 function todoSection(session: Session): DraftSection | undefined {
   let todos: readonly TodoLike[] | undefined
+  // oxlint-disable-next-line typescript/no-deprecated -- Deferred migration: needs this Session's history until an async reader exists.
   for (const event of session.ownEvents()) {
     if (event.type === 'todo/write') todos = event.data.todos
   }
@@ -215,6 +218,7 @@ function firstText(blocks: readonly { readonly type: string; readonly text?: str
  * still open, so the plan is left out entirely; nothing is guessed.
  */
 function planSection(session: Session): DraftSection | undefined {
+  // oxlint-disable-next-line typescript/no-deprecated -- Deferred migration: needs this Session's history until an async reader exists.
   const events = session.ownEvents()
   const calls = new Map<string, { readonly seq: number; readonly plan: string }>()
   const results = new Map<string, { readonly isError: boolean; readonly text: string }>()
@@ -260,6 +264,7 @@ function jobSection(session: Session): DraftSection | undefined {
   const registered = new Map<string, UnsettledJob & { readonly seq: number }>()
   const owner = String(session.id)
   let restartSeq = -1
+  // oxlint-disable-next-line typescript/no-deprecated -- Deferred migration: needs this Session's history until an async reader exists.
   for (const event of session.ownEvents()) {
     if (event.type === 'session/end-seed') {
       restartSeq = event.seq
@@ -287,10 +292,10 @@ function subagentSection(ctx: Context, session: Session): DraftSection | undefin
   if (state?.head === undefined) return undefined
   const children = new Map<string, CatalogChild>()
   for (let chunk: CatalogChunk | undefined = state.head; chunk !== undefined; chunk = chunk.previous) {
-    for (const child of chunk.values) children.set(String(child.childId), child)
+    for (const child of chunk.values) children.set(child.childId, child)
   }
   if (children.size === 0) return undefined
-  const labels = [...children.values()].map(child => `- ${child.label ?? String(child.childId)}`)
+  const labels = [...children.values()].map(child => `- ${child.label ?? child.childId}`)
   return { name: 'subagents', heading: 'Direct subagents registered by this session', text: labels.join('\n') }
 }
 

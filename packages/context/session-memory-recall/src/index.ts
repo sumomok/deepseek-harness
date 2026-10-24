@@ -117,8 +117,8 @@ async function withDeadline<T>(
   let cancelTimer: (() => void) | undefined
   const deadline = new Promise<undefined>((resolve) => {
     const handle = setTimer(resolve, timeoutMs)
-    cancelTimer = () => clearTimer(handle)
-    onAbort = () => resolve(undefined)
+    cancelTimer = () => { clearTimer(handle) }
+    onAbort = () => { resolve(undefined) }
     if (signal.aborted) onAbort()
     else signal.addEventListener('abort', onAbort, { once: true })
   })
@@ -186,6 +186,7 @@ function lastRealUserMessage(messages: readonly UserMessage[]): UserMessage | un
 /** Current surface recall hits, for dedup without reading shadowed history. */
 function surfaceRecallKeys(agent: Agent): Set<string> {
   const keys = new Set<string>()
+  // oxlint-disable-next-line typescript/no-deprecated -- Deferred migration: needs this Session's history until an async reader exists.
   const events = new Map(agent.session.snapshotEvents().map(event => [event.seq, event]))
   for (const seq of agent.session.surface.nodes) {
     const event = events.get(seq)

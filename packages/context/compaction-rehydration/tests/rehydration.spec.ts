@@ -7,12 +7,13 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, type Agent, type Inbox } from '@deepseek-ai/dsh-agent'
 import { CompactionId } from '@deepseek-ai/dsh-compaction'
 import { JobId } from '@deepseek-ai/dsh-jobs'
 import { createUserMessage, MessageId, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ToolResultMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -57,16 +58,31 @@ async function harness(options: {
 }
 
 /** A parent-owned catalog projection stub: latest chunked records win per child. */
+interface CatalogChild {
+  readonly childId: string
+  readonly label?: string
+}
+
+interface CatalogChunk {
+  readonly values: readonly CatalogChild[]
+  readonly previous?: CatalogChunk
+}
+
+interface CatalogState {
+  readonly inheritedEventCount?: number
+  readonly head?: CatalogChunk
+}
+
 function registerCatalogProjection(ctx: Context): void {
   ctx.sessionProjections.register({
     key: 'subagentCatalog',
     stateSchema: z.object({ head: z.any().optional() }),
     init: () => ({}),
-    apply: (state: Record<string, unknown>, event) => {
+    apply: (state: CatalogState, event: SessionEvent): CatalogState => {
       if (event.type !== 'subagent/catalog') return state
-      const head = state['head'] as { readonly values: readonly unknown[]; readonly previous?: unknown } | undefined
-      const value = {
-        childId: String(event.data.childId),
+      const head = state.head
+      const value: CatalogChild = {
+        childId: event.data.childId,
         ...'label' in event.data && event.data.label !== undefined ? { label: event.data.label } : {},
       }
       return {
@@ -82,12 +98,18 @@ function registerCatalogProjection(ctx: Context): void {
 
 function childAgent(session: Session, ctx: Context): Agent { return sessionAgent(session, ctx) }
 
+/** An Inbox placeholder: this Agent stub never exercises queue mutations. */
+function unsupportedInbox(): Inbox {
+  const reject = (): never => { throw new Error('this test Agent does not support Inbox mutations') }
+  return { nextTurn: [], nextStep: [], clear: reject, append: reject, prepend: reject, replace: reject, remove: reject, splice: reject }
+}
+
 function sessionAgent(session: Session, ctx: Context): Agent {
   return {
     id: session.id,
     options: {},
     session,
-    inbox: {} as never,
+    inbox: unsupportedInbox(),
     status: 'running',
     ctx,
     send: () => {},
@@ -97,7 +119,7 @@ function sessionAgent(session: Session, ctx: Context): Agent {
     cancel: () => {},
     runMaintenance: task => task(SIGNAL),
     whenIdle: () => Promise.resolve(),
-  } as Agent
+  }
 }
 
 function openTurn(session: Session, turn = 1): void {
@@ -144,7 +166,15 @@ function registerJob(session: Session, jobId: string, label: string, owner = ses
 
 function settleJob(session: Session, jobId: string, label: string): void {
   session.append('job/settled', {
-    jobId: JobId(jobId), owner: session.id, kind: 'bash', label, startedAt: 1, finishedAt: 2, status: 'completed',
+    jobId: JobId(jobId),
+    owner: session.id,
+    kind: 'bash',
+    label,
+    startedAt: 1,
+    finishedAt: 2,
+    status: 'completed',
+    cause: 'producer',
+    producerReported: true,
   })
 }
 
@@ -183,11 +213,21 @@ class FakeReadFs implements ReadFsLike {
   }
 }
 
+/** The tool-private metadata a successful `read` persists. */
+type ToolResultMeta = NonNullable<SessionEvent<'tool/result'>['data']['meta']>
+
+/** The recorded path inside one tool-private metadata payload. */
+function metaPath(meta: ToolResultMeta): string {
+  if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) return ''
+  const path = (meta as { readonly [key: string]: ToolResultMeta })['path']
+  return typeof path === 'string' ? path : ''
+}
+
 /** Record one successful `read` with the metadata the read tool now persists. */
-function recordFileRead(session: Session, callId: string, meta: Record<string, unknown>): void {
+function recordFileRead(session: Session, callId: string, meta: ToolResultMeta): void {
   const call = ToolCallId(callId)
   session.append('tool/call', {
-    turn: 1, step: 1, callId: call, name: 'read', arguments: JSON.stringify({ file_path: meta['path'] }),
+    turn: 1, step: 1, callId: call, name: 'read', arguments: JSON.stringify({ file_path: metaPath(meta) }),
   })
   session.append('tool/result', {
     turn: 1,
@@ -204,7 +244,7 @@ function recordFileRead(session: Session, callId: string, meta: Record<string, u
 }
 
 /** The persisted metadata for one full or windowed read. */
-function readMeta(path: string, text: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+function readMeta(path: string, text: string, overrides: { readonly [key: string]: ToolResultMeta } = {}): ToolResultMeta {
   const lines = text.split('\n').map((line, index) => ({ number: index + 1, text: line }))
   return {
     path,
@@ -320,12 +360,15 @@ async function fire(ctx: Context, agent: Agent, turn = 1, step = 1): Promise<num
 }
 
 function rebuildTexts(session: Session): string[] {
-  return session.ownEvents()
-    .filter(event => event.type === 'user/message' && event.data.source.kind === 'compaction-rehydration')
-    .map((event) => {
-      const block = event.data.content.find(candidate => candidate.type === 'text')
-      return block?.type === 'text' ? block.text : ''
-    })
+  const texts: string[] = []
+  for (const event of session.ownEvents()) {
+    if (event.type !== 'user/message') continue
+    const source = event.data.source
+    if (source.kind !== 'compaction-rehydration' || source.form !== 'snapshot') continue
+    const block = event.data.content.find(candidate => candidate.type === 'text')
+    if (block?.type === 'text') texts.push(block.text)
+  }
+  return texts
 }
 
 describe('the state a compaction rebuilds', () => {
@@ -454,7 +497,7 @@ describe('the state a compaction rebuilds', () => {
     const event = session.snapshotEvents().find(candidate => candidate.type === 'user/message'
       && candidate.data.source.kind === 'compaction-rehydration')
     expect(event?.type).toBe('user/message')
-    if (event?.type !== 'user/message' || event.data.source.kind !== 'compaction-rehydration') throw new Error('no rebuild message')
+    if (event?.type !== 'user/message' || event.data.source.kind !== 'compaction-rehydration' || event.data.source.form !== 'snapshot') throw new Error('no rebuild message')
     const source = event.data.source
     expect(source.form).toBe('snapshot')
     expect(source.compactionId).toBe('c1')
@@ -596,7 +639,7 @@ describe('the state a compaction rebuilds', () => {
     expect(text).toContain('survive a crash mid-compaction')
     const event = session.ownEvents().find(candidate => candidate.type === 'user/message'
       && candidate.data.source.kind === 'compaction-rehydration')
-    if (event?.type !== 'user/message' || event.data.source.kind !== 'compaction-rehydration') throw new Error('no rebuild message')
+    if (event?.type !== 'user/message' || event.data.source.kind !== 'compaction-rehydration' || event.data.source.form !== 'snapshot') throw new Error('no rebuild message')
     expect(event.data.source.compactionSeq).toBe(replacementSeq)
     expect(event.data.source.compactionId).toBe('c-missing')
     expect(await fire(ctx, agent, 1, 2)).toBe(0)
@@ -659,7 +702,7 @@ describe('the state a compaction rebuilds', () => {
     expect(text).toContain('shadowed job')
     const event = session.ownEvents().find(candidate => candidate.type === 'user/message'
       && candidate.data.source.kind === 'compaction-rehydration')
-    if (event?.type !== 'user/message' || event.data.source.kind !== 'compaction-rehydration') throw new Error('no rebuild message')
+    if (event?.type !== 'user/message' || event.data.source.kind !== 'compaction-rehydration' || event.data.source.form !== 'snapshot') throw new Error('no rebuild message')
     expect(event.data.source.compactionId).toBe('c-shadow')
     expect(event.data.source.compactionSeq).toBe(replacementSeq)
 
@@ -778,7 +821,7 @@ describe('the state a compaction rebuilds', () => {
     await fire(ctx, agent)
     const event = session.ownEvents().find(candidate => candidate.type === 'user/message'
       && candidate.data.source.kind === 'compaction-rehydration')
-    if (event?.type !== 'user/message' || event.data.source.kind !== 'compaction-rehydration') throw new Error('no rebuild')
+    if (event?.type !== 'user/message' || event.data.source.kind !== 'compaction-rehydration' || event.data.source.form !== 'snapshot') throw new Error('no rebuild')
     expect(event.data.source.sections.map(section => section.name)).toContain('files')
     expect(event.data.source.digests).toHaveLength(event.data.source.sections.length)
   })

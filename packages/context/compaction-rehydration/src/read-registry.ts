@@ -109,7 +109,11 @@ export type ReadClassification =
 /** Default ceiling for reading a file just to compare freshness. */
 export const MAX_INSPECT_BYTES = 256 * 1024
 
-/** SHA-256 of a read window's line text, the form the tool persists. */
+/**
+ * SHA-256 of a read window's line text, the form the tool persists.
+ * @param lines - returned window lines in order; each line's text is joined by `\n`.
+ * @returns lowercase hexadecimal SHA-256 of the joined text.
+ */
 export function readWindowDigest(lines: readonly { readonly text: string }[]): string {
   return createHash('sha256').update(lines.map(line => line.text).join('\n'), 'utf8').digest('hex')
 }
@@ -199,6 +203,7 @@ export function readRegistry(session: Session): ReadRegistry {
   const calls = new Map<string, { readonly path: string; readonly offset: number; readonly seq: SessionSeq }>()
   const records = new Map<string, ReadRecord>()
   const failures: ReadFailure[] = []
+  // oxlint-disable-next-line typescript/no-deprecated -- Deferred migration: needs this Session's history until an async reader exists.
   for (const event of session.ownEvents()) {
     if (event.type === 'tool/call' && event.data.name === 'read') {
       const parsed = readCallArguments(event.data.arguments)
