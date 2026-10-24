@@ -267,6 +267,52 @@ whileBusy(): ManualCompactionWhileBusy
 
 Source: [`packages/compaction/compaction/src/index.ts`](../../packages/compaction/compaction/src/index.ts)
 
+<a id="ctxmicrocompact--microcompact"></a>
+
+### `ctx.microcompact` — `Microcompact`
+
+Idle microcompaction service.
+
+```ts cordis-catalog
+/**
+ * Heal a crash that left the last `compaction/prune` marker without its
+ * adjacent replacement. It appends an identical-content replacement for a
+ * single-node marker, consuming the armed claim without losing text.
+ * @param session - session whose durable tail may end at an orphan marker.
+ * @returns true when a healing replacement was appended.
+ */
+healOrphanMarker(session: Session): boolean
+
+/**
+ * Plan one idle pass without appending or saving anything.
+ * @param session - session whose durable activity and surface are inspected.
+ * @param scope - agent whose tool visibility decides model readback; omitted checks the global view.
+ * @returns planned replacements and reasons for refusals.
+ */
+async preview(session: Session, scope?: Agent): Promise<MicrocompactPreview>
+
+/**
+ * Apply a preview after it was produced from the current surface. Entries
+ * whose sequence or message changed are skipped; a second apply is a no-op.
+ * @param session - session whose surface is rewritten.
+ * @param preview - plan returned by {@link preview}.
+ * @returns landed entries and the count of stale entries.
+ */
+apply(session: Session, preview: MicrocompactPreview): MicrocompactResult
+
+/**
+ * Run the idle path for one pre-step. Heals an interrupted marker, plans,
+ * and applies at most once per durable idle window.
+ * @param agent - agent whose session is inspected.
+ * @returns the applied result, or an empty result when this window was already attempted.
+ */
+async runIdle(agent: Agent): Promise<MicrocompactResult>
+```
+
+Types: [Agent](core.md) · [Session](session.md)
+
+Source: [`packages/compaction/compaction-microcompact/src/index.ts`](../../packages/compaction/compaction-microcompact/src/index.ts)
+
 <a id="ctxtoolresultpruner--toolresultpruner"></a>
 
 ### `ctx.toolResultPruner` — `ToolResultPruner`

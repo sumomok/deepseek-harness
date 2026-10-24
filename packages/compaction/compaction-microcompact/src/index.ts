@@ -15,18 +15,15 @@ import z from '@deepseek-ai/schemastery'
 import { freezeMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, ToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type JobRegistry from '@deepseek-ai/dsh-jobs'
 import type SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import { originalToolResultSeq, recoveryNotice } from '@deepseek-ai/dsh-compaction'
 import { SessionSeq } from '@deepseek-ai/dsh-session'
-import type SessionStore from '@deepseek-ai/dsh-session'
 import type { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 // Type-only privileges for optional sibling services.
 import type {} from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-token-meter'
-import type ToolRuntime from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-tools'
 import { DEFAULTS, resolveConfig } from './config.ts'
 import type { MicrocompactConfig, ResolvedMicrocompactConfig } from './config.ts'
@@ -157,6 +154,7 @@ export class Microcompact extends Service {
    * @returns true when a healing replacement was appended.
    */
   healOrphanMarker(session: Session): boolean {
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing synchronous history read; migration deferred for this pack.
     const events = session.snapshotEvents()
     let index = events.length - 1
     while (index >= 0 && events[index]?.type === 'session/end-seed') index -= 1
@@ -165,6 +163,7 @@ export class Microcompact extends Service {
     if (last.data.shadowedSeqs.length !== 1) return false
     const seq = last.data.shadowedSeqs[0]
     if (seq === undefined || !session.surface.nodes.includes(seq)) return false
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing synchronous history read; migration deferred for this pack.
     const event = session.eventAt(seq)
     if (event?.type !== 'tool/result') return false
     const message = session.deriveEventMessage(event)
@@ -249,6 +248,7 @@ export class Microcompact extends Service {
         skipped += 1
         continue
       }
+      // oxlint-disable-next-line typescript/no-deprecated -- Existing synchronous history read; migration deferred for this pack.
       const event = session.eventAt(entry.originalSeq)
       if (event?.type !== 'tool/result') {
         skipped += 1
@@ -314,13 +314,14 @@ export class Microcompact extends Service {
   /** Whether a model-facing readback tool is currently visible. */
   private readbackAvailable(scope?: Agent): boolean {
     if (this.config.allowHostOnlyReadback) return true
-    const tools = this.ctx.get('tools') as ToolRuntime | undefined
+    const tools = this.ctx.get('tools')
     return tools?.get('session_event_read', scope) !== undefined
   }
 
   /** Whether a compaction bracket is still open. */
   private hasActiveCompaction(session: Session): boolean {
     let open = false
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing synchronous history read; migration deferred for this pack.
     for (const event of session.snapshotEvents()) {
       if (event.type === 'compaction/start') open = true
       if (event.type === 'compaction/end') open = false
@@ -331,7 +332,7 @@ export class Microcompact extends Service {
   /** Whether this session still owns a running or unsettled job. */
   private hasActiveJob(session: Session): boolean {
     const durable = this.durableActiveJob(session)
-    const jobs = this.ctx.get('jobs') as JobRegistry | undefined
+    const jobs = this.ctx.get('jobs')
     if (jobs === undefined) return durable
     try {
       const live = jobs.list(session.header.id).some(job => job.status === 'running' || job.status === 'stopping')
@@ -346,6 +347,7 @@ export class Microcompact extends Service {
 
   /** Unsettled job registrations in the current lifecycle (after the newest restart boundary). */
   private durableActiveJob(session: Session): boolean {
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing synchronous history read; migration deferred for this pack.
     const events = session.snapshotEvents()
     let boundary = 0
     for (const [index, event] of events.entries()) {
@@ -363,7 +365,7 @@ export class Microcompact extends Service {
   /** Whether a direct child is active or cannot be proven inactive. */
   private async hasActiveSubagent(session: Session): Promise<boolean> {
     const subagents = this.ctx.get('subagent') as SubagentRuntime | undefined
-    const sessions = this.ctx.get('sessions') as SessionStore | undefined
+    const sessions = this.ctx.get('sessions')
     if (subagents !== undefined) {
       let children: ReadonlyArray<{ readonly id: SessionId }>
       try {
@@ -392,6 +394,7 @@ export class Microcompact extends Service {
 
   /** Current-lifecycle catalog entries when no live subagent service is mounted. */
   private durableSubagentEvidence(session: Session): boolean {
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing synchronous history read; migration deferred for this pack.
     const events = session.snapshotEvents()
     let boundary = 0
     for (const [index, event] of events.entries()) {
@@ -402,6 +405,7 @@ export class Microcompact extends Service {
 
   /** Latest durable activity before the current turn, measured against its real user message. */
   private idleInfo(session: Session): IdleInfo | null {
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing synchronous history read; migration deferred for this pack.
     const events = session.snapshotEvents()
     let turnStart = -1
     for (let index = events.length - 1; index >= 0; index -= 1) {
@@ -423,6 +427,7 @@ export class Microcompact extends Service {
 
   /** Select old text results after keep-recent and every exclusion. */
   private candidates(session: Session): Candidate[] {
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing synchronous history read; migration deferred for this pack.
     const events = session.snapshotEvents()
     const calls = new Map<string, string>()
     for (const event of events) {
@@ -430,6 +435,7 @@ export class Microcompact extends Service {
     }
     const completed: Array<{ seq: SessionSeq; message: ToolResultMessage; name: string }> = []
     for (const seq of session.surface.nodes) {
+      // oxlint-disable-next-line typescript/no-deprecated -- Existing synchronous history read; migration deferred for this pack.
       const event = session.eventAt(seq)
       if (event?.type !== 'tool/result') continue
       const message = session.deriveEventMessage(event)
@@ -468,6 +474,7 @@ function isClearNotice(blocks: readonly ContentBlock[]): boolean {
 /** True while a child session has an unmatched turn/start. */
 function hasOpenTurn(session: Session): boolean {
   let open = false
+  // oxlint-disable-next-line typescript/no-deprecated -- Existing synchronous history read; migration deferred for this pack.
   for (const event of session.snapshotEvents()) {
     if (event.type === 'turn/start') open = true
     if (event.type === 'turn/end') open = false

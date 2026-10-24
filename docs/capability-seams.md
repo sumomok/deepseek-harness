@@ -75,6 +75,8 @@ flowchart LR
   svc_compactionPolicy["ctx.compactionPolicy<br/>Live automatic-compaction policy"]
   pkg_compaction_tool_result_pruner["compaction-tool-result-pruner"]
   svc_toolResultPruner["ctx.toolResultPruner<br/>Model-free tool-result pruning"]
+  pkg_compaction_microcompact["compaction-microcompact"]
+  svc_microcompact["ctx.microcompact<br/>Idle tool-result microcompaction"]
   pkg_session["session"]
   svc_sessions["ctx.sessions<br/>In-memory session store"]
   pkg_agent["agent"]
@@ -333,6 +335,7 @@ flowchart LR
   pkg_compaction --> svc_manualCompactionTiming
   pkg_compaction_basic --> svc_compaction
   pkg_compaction_basic --> svc_compactionPolicy
+  pkg_compaction_microcompact --> svc_microcompact
   pkg_compaction_tool_result_pruner --> svc_toolResultPruner
   pkg_computer_use --> svc_computerUse
   pkg_config_editor --> svc_configEditor
@@ -641,6 +644,7 @@ flowchart LR
 | `ctx.tokenMeter` | `core` | [`token-meter`](../packages/llm/token-meter) | - | [`compaction-basic`](../packages/compaction/compaction-basic) | - | Owns isolated per-session replay folds; pressure consumers share immutable revisioned measurements. |
 | `ctx.compactionPolicy` | `seam` | [`compaction-basic`](../packages/compaction/compaction-basic) | - | [`compaction-basic`](../packages/compaction/compaction-basic) | - | Host-plane providers answer the pressure switch and threshold ratio from user settings; the backend reads them per step and falls back to its configuration when unmounted. |
 | `ctx.toolResultPruner` | `core` | [`compaction-tool-result-pruner`](../packages/compaction/compaction-tool-result-pruner) | - | [`compaction-basic`](../packages/compaction/compaction-basic) | - | Rewrites oversized current tool results through replayable single-node surface replacements before summary compaction. |
+| `ctx.microcompact` | `service` | [`compaction-microcompact`](../packages/compaction/compaction-microcompact) | - | - | - | Optional idle pass that clears old text results to session-sequence pointers; no shipped composition mounts it. |
 | `ctx.sessions` | `core` | [`session`](../packages/core/session) | - | [`agent-loop`](../packages/core/agent-loop), [`agent`](../packages/core/agent), [`session-persistence`](../packages/session/session-persistence), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), [`subagent`](../packages/subagent/subagent), [`message-feedback`](../packages/feedback/message-feedback) | - | Owns append-only Session instances and emits the durable session event feed. |
 | `ctx.speechController` | `core` | [`experimental-api-speech-to-text`](../packages/experimental/api-speech-to-text) | - | - | - | Validates bounded browser audio before provider dispatch. |
 | `ctx.sessionController` | `core` | [`api-session-controller`](../packages/api/session-controller) | - | - | - | Owns Session commands, cold reads, durable-event following, live control state, model catalogs, workspace opening, and Agent activation policy. |

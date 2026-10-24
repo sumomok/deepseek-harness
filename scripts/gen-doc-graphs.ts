@@ -280,6 +280,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Rewrites oversized current tool results through replayable single-node surface replacements before summary compaction.',
   },
   {
+    key: 'microcompact',
+    pkg: 'compaction-microcompact',
+    title: 'Idle tool-result microcompaction',
+    mode: 'service',
+    note: 'Optional idle pass that clears old text results to session-sequence pointers; no shipped composition mounts it.',
+  },
+  {
     key: 'sessions',
     pkg: 'session',
     title: 'In-memory session store',

@@ -53,6 +53,8 @@ pass 监听 `agent/pre-step`。它测量当前真实用户消息与此前当前 
 
 孤立的 `compaction/prune` marker 并非无害：它武装的影子价格会被后续未计量的替换触发，context-breakdown fold 会拒绝范围不匹配。测试固定这一反例。规划前，本包会修复“最后一个事件是单节点 marker”的情况：追加一条相同内容的替换来消费 claim，不丢失文本。若 marker 不在末尾或跨多个节点，本包不宣称崩溃安全，恢复责任留给生产者。
 
+`preview()` 返回 `MicrocompactPreview`：候选替换消息、跳过原因、预计净节省与观察到的 idle 秒数。`apply()` 返回 `MicrocompactResult`：已落地条目与过期条目数。这些都是本包拥有的 DTO；不引入新的 Session 事件或存储格式。
+
 ### 活跃 job 与子会话
 
 只要本会话可能还有在途工作，pass 就拒绝执行。它把 live job registry 与当前生命周期的 durable `job/registered`/`job/settled` 事件合并：live 的 `running`/`stopping`、`jobs.list()` 抛错、或最近一次 `session/end-seed` 之后仍有未结算注册，都算 active。重启边界之前的注册不会仅凭自身永久阻塞；只有 live 视图能让它重新变为 active。因此“live list 为空 + 当前生命周期仍有 durable 注册”也是 `active-job` 拒绝。

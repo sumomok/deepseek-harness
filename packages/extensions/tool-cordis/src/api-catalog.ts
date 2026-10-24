@@ -1623,6 +1623,42 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'microcompact',
+    summary: 'Idle microcompaction service.',
+    description: 'Idle microcompaction service.',
+    methods: [
+      {
+        signature: 'readonly config: ResolvedMicrocompactConfig',
+        description: 'Resolved immutable settings.',
+        parameters: [],
+      },
+      {
+        signature: 'healOrphanMarker(session: Session): boolean',
+        description: 'Heal a crash that left the last `compaction/prune` marker without its adjacent replacement. It appends an identical-content replacement for a single-node marker, consuming the armed claim without losing text.',
+        parameters: [{ name: 'session', description: 'session whose durable tail may end at an orphan marker.' }],
+        returns: 'true when a healing replacement was appended.',
+      },
+      {
+        signature: 'async preview(session: Session, scope?: Agent): Promise<MicrocompactPreview>',
+        description: 'Plan one idle pass without appending or saving anything.',
+        parameters: [{ name: 'session', description: 'session whose durable activity and surface are inspected.' }, { name: 'scope', description: 'agent whose tool visibility decides model readback; omitted checks the global view.' }],
+        returns: 'planned replacements and reasons for refusals.',
+      },
+      {
+        signature: 'apply(session: Session, preview: MicrocompactPreview): MicrocompactResult',
+        description: 'Apply a preview after it was produced from the current surface. Entries whose sequence or message changed are skipped; a second apply is a no-op.',
+        parameters: [{ name: 'session', description: 'session whose surface is rewritten.' }, { name: 'preview', description: 'plan returned by {@link preview}.' }],
+        returns: 'landed entries and the count of stale entries.',
+      },
+      {
+        signature: 'async runIdle(agent: Agent): Promise<MicrocompactResult>',
+        description: 'Run the idle path for one pre-step. Heals an interrupted marker, plans, and applies at most once per durable idle window.',
+        parameters: [{ name: 'agent', description: 'agent whose session is inspected.' }],
+        returns: 'the applied result, or an empty result when this window was already attempted.',
+      },
+    ],
+  },
+  {
     key: 'officeToPdf',
     summary: 'A provider lifetime owns all converters, queued calls, and temporary files.',
     description: 'A provider lifetime owns all converters, queued calls, and temporary files.',
@@ -6330,6 +6366,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    model: ModelMessageSource;\n    tool: ToolMessageSource;\n    \'system-prompt\': SystemPromptMessageSource;\n}',
   },
   {
+    name: 'MicrocompactEntry',
+    declaration: 'export interface MicrocompactEntry {\n    readonly originalSeq: SessionSeq;\n    readonly addressSeq: SessionSeq;\n    readonly original: ToolResultMessage;\n    readonly replacement: ToolResultMessage;\n    readonly tokens: number;\n    readonly savings: number;\n}',
+  },
+  {
+    name: 'MicrocompactPreview',
+    declaration: 'export interface MicrocompactPreview {\n    readonly entries: readonly MicrocompactEntry[];\n    readonly skipped: readonly MicrocompactSkip[];\n    readonly reclaimableTokens: number;\n    readonly idleSeconds: number;\n}',
+  },
+  {
+    name: 'MicrocompactResult',
+    declaration: 'export interface MicrocompactResult {\n    readonly cleared: readonly MicrocompactEntry[];\n    readonly skipped: number;\n}',
+  },
+  {
+    name: 'MicrocompactSkip',
+    declaration: 'export interface MicrocompactSkip {\n    readonly seq?: SessionSeq;\n    readonly reason: MicrocompactSkipReason;\n}',
+  },
+  {
+    name: 'MicrocompactSkipReason',
+    declaration: 'export type MicrocompactSkipReason = \'disabled\' | \'no-readback\' | \'active-compaction\' | \'active-job\' | \'active-subagent\' | \'not-idle\' | \'below-count\' | \'below-tokens\' | \'no-candidates\';',
+  },
+  {
     name: 'ModDefinition',
     declaration: 'export interface ModDefinition {\n    readonly name: string;\n    readonly version?: string;\n    readonly root?: string;\n    readonly options?: PluginOptions;\n    readonly register: ModRegister;\n}',
   },
@@ -6972,6 +7028,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ResolvedCredential',
     declaration: 'export interface ResolvedCredential {\n    value: string;\n    source: string;\n}',
+  },
+  {
+    name: 'ResolvedMicrocompactConfig',
+    declaration: 'export interface ResolvedMicrocompactConfig {\n    readonly enabled: boolean;\n    readonly minIdleSeconds: number;\n    readonly keepRecentToolUses: number;\n    readonly minClearableToolUses: number;\n    readonly clearAtLeastTokens: number;\n    readonly maxClearPerRun: number;\n    readonly keepErrors: boolean;\n    readonly allowHostOnlyReadback: boolean;\n    readonly excludeTools: readonly string[];\n}',
   },
   {
     name: 'ResolvedNormalRetryPolicy',

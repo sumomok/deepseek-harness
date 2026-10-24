@@ -53,6 +53,8 @@ Each replacement is immediately preceded by a `compaction/prune` shadow-price ev
 
 An isolated `compaction/prune` marker is not harmless: it arms a shadow price that a following unmetered replacement can trip, and the context-breakdown fold rejects the mismatch. The tests pin that counterexample. Before planning, this package heals a last-event single-node marker by appending an identical-content replacement that consumes the claim without losing text. If a marker is not last or spans multiple nodes, the pass does not claim crash safety and leaves recovery to the producer.
 
+`preview()` returns a `MicrocompactPreview`: candidate replacement messages, skipped reasons, projected net savings, and the observed idle seconds. `apply()` returns a `MicrocompactResult`: the landed entries and the count of stale entries. These are package-owned DTOs; no new Session event or storage format is introduced.
+
 ### Active jobs and child sessions
 
 The pass refuses while this session may still have work in flight. It unions the live job registry with the current lifecycle's durable `job/registered`/`job/settled` events: a live `running`/`stopping` job, a throwing `jobs.list()`, or an unsettled registration after the newest `session/end-seed` is active. A registration before that restart boundary does not block forever by itself; only a live view can make it active again. This also makes an empty live list plus a durable current-lifecycle registration an `active-job` refusal.
