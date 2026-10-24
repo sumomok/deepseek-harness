@@ -189,6 +189,7 @@ export function selectCompactableRangeAtTurnBoundary(
   session: Session,
   measurement: TokenMeasurement,
   retainTokens: number,
+  boundaries?: { readonly userTurnStarts: readonly SessionSeq[]; readonly stepStarts: readonly SessionSeq[] },
 ): { start: SessionSeq; end: SessionSeq } | null {
   const pricedNodes = measurement.nodes
   if (pricedNodes.length === 0) return null
@@ -211,9 +212,9 @@ export function selectCompactableRangeAtTurnBoundary(
   }
   if (keepFromIdx <= firstIdx) return null
 
-  const boundaries = userTurnStartSeqs(session)
+  const userTurnStarts = boundaries?.userTurnStarts ?? userTurnStartSeqs(session)
   let boundaryIdx = -1
-  for (const boundary of boundaries) {
+  for (const boundary of userTurnStarts) {
     const index = surfaceNodes.indexOf(boundary)
     if (index > boundaryIdx && index <= keepFromIdx) boundaryIdx = index
   }
@@ -234,7 +235,7 @@ export function selectCompactableRangeAtTurnBoundary(
   // task still has earlier assistant/tool steps worth compacting: keep the
   // user message and the newest complete step group, and compact steps before
   // that group. Only a turn with no earlier balanced step refuses.
-  const firstBoundary = boundaries[0]
+  const firstBoundary = userTurnStarts[0]
   const userIdx = firstBoundary === undefined ? -1 : surfaceNodes.indexOf(firstBoundary)
   if (userIdx < firstIdx) return selectCompactableRange(session, measurement, retainTokens)
   const startIdx = userIdx + 1
@@ -244,7 +245,7 @@ export function selectCompactableRangeAtTurnBoundary(
   // keeping the user message and that group is the semantic requirement, and
   // every earlier step stays compactable even when the token budget would
   // have kept more.
-  const groupStarts = stepStartSeqs(session)
+  const groupStarts = (boundaries?.stepStarts ?? stepStartSeqs(session))
     .map(seq => surfaceNodes.indexOf(seq))
     .filter(index => index > startIdx)
     .sort((left, right) => right - left)

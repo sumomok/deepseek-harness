@@ -32,10 +32,10 @@ import {
   compactSurfaceRegion,
   selectCompactableRange,
   selectCompactableRangeAtTurnBoundary,
-  SUMMARY_REJECTED_MESSAGE,
   SummaryRejectedError,
 } from './region.ts'
-import { conversationTarget, eventRoute, pressureTarget } from './route.ts'
+import { conversationTarget, pressureTarget } from './route.ts'
+import { classifyCompactionError, scanCompactionSession } from './scan.ts'
 import { minimumSummaryTokens, summarizeWithLlm } from './summarizer.ts'
 import { WaitingCompactions } from './waiting.ts'
 import type { WaitingCompaction } from './waiting.ts'
@@ -472,13 +472,17 @@ export class BasicCompactionEngine extends CompactionEngine {
     trigger: CompactionTrigger,
     signal: AbortSignal,
   ): Promise<CompactionResult | null> {
-    const target = pressureTarget(agent)
+    const scan = scanCompactionSession(agent.session)
+    const target = scan.pending ?? scan.durable
     if (target === undefined) return null
     const policy = resolveTargetPolicy(this.config, target)
     const breakerKey = `${String(agent.session.id)}:${target.provider}/${target.model}`
     let breaker = this.summaryFailures.get(breakerKey)
     if (breaker === undefined) {
-      breaker = this.seedSummaryFailures(agent.session, target)
+      breaker = scan.latestRoute?.provider === target.provider
+        && scan.latestRoute.model === target.model
+        ? scan.seededFailure
+        : undefined
       if (breaker !== undefined) this.summaryFailures.set(breakerKey, breaker)
     }
     if (policy.maxConsecutiveFailures > 0 && breaker !== undefined
@@ -615,7 +619,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     let stoppedForFloor = false
     let stoppedForCheckpoint = false
     for (let attempt = 0; attempt <= spec.compactionRetries; attempt += 1) {
-      const range = selectCompactableRangeAtTurnBoundary(agent.session, measurement, spec.retainTokens)
+      const range = selectCompactableRangeAtTurnBoundary(agent.session, measurement, spec.retainTokens, scan.boundaries)
       if (range === null) {
         this.ctx.logger.info(
           'compaction (pressure): no selectable span remains that keeps a complete user turn '
@@ -694,8 +698,7 @@ export class BasicCompactionEngine extends CompactionEngine {
       }
       const committed = result
       // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
-      const summaryEvent = agent.session.snapshotEvents()
-        .find(event => event.seq === committed.summarySeq)
+      const summaryEvent = agent.session.eventAt(committed.summarySeq)
       const usage = summaryEvent?.type === 'compaction/summary' ? summaryEvent.data.usage : undefined
       this.ctx.logger.info(
         'compaction (pressure): committed %d shadowed nodes (~%d tokens) in %dms; route=%s/%s usage=%s',
@@ -797,42 +800,6 @@ export class BasicCompactionEngine extends CompactionEngine {
   }
 
   /**
-   * Reconstruct consecutive failed summaries from the durable log so a
-   * restarted engine keeps the circuit open. Trailing `compaction/end` events
-   * carrying an error count as failures; a successful summary or an
-   * error-free end stops the scan. The durable event does not name the route,
-   * so the count is attributed to the current routed target.
-   * @param session - session whose trailing compaction outcomes are read.
-   * @returns the seeded failure count and last class, or undefined when clean.
-   */
-  private seedSummaryFailures(
-    session: Session,
-    target: { readonly provider: string; readonly model: string },
-  ): { count: number; errorClass: string } | undefined {
-    let count = 0
-    let errorClass = 'recorded'
-    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
-    const events = session.snapshotEvents()
-    for (let index = events.length - 1; index >= 0; index -= 1) {
-      const event = events[index]
-      if (event === undefined) break
-      const route = eventRoute(event)
-      if (route !== undefined) {
-        if (route.provider !== target.provider || route.model !== target.model) return undefined
-        return count === 0 ? undefined : { count, errorClass }
-      }
-      if (event.type === 'compaction/summary') return undefined
-      if (event.type !== 'compaction/end') continue
-      if (event.data.error === undefined) return undefined
-      const failureClass = classifyCompactionError(event.data.error)
-      if (failureClass === 'review-rejected' || failureClass === 'config') continue
-      count += 1
-      errorClass = failureClass
-    }
-    return undefined
-  }
-
-  /**
    * Whether every node in the selected span is a prior compaction checkpoint;
    * summarizing such a span again would replace a summary with a summary.
    * @param session - session owning the surface.
@@ -847,12 +814,11 @@ export class BasicCompactionEngine extends CompactionEngine {
     const start = surface.indexOf(range.start)
     const end = surface.indexOf(range.end)
     if (start < 0 || end < start) return false
-    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
-    const events = new Map(session.snapshotEvents().map(event => [event.seq, event]))
     for (let index = start; index <= end; index += 1) {
       const seq = surface[index]
       if (seq === undefined) return false
-      const event = events.get(seq)
+      // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
+      const event = session.eventAt(seq)
       if (event?.type !== 'user/message' || !isCompactCheckpointSource(event.data.source)) return false
     }
     return true
@@ -869,6 +835,22 @@ export class BasicCompactionEngine extends CompactionEngine {
   private fixedPrefixTokens(
     session: Session,
   ): { readonly system: number; readonly tools: number; readonly total: number } | undefined {
+    // A session without a request tool catalog or a surface system prompt has
+    // no fixed prefix. Avoid folding the breakdown projection for that common
+    // case; the zero result is compared exactly like a materialized zero.
+    const tools = session.requestHeader()?.tools
+    const hasTools = tools !== undefined && tools.length > 0
+    if (!hasTools) {
+      let hasSystem = false
+      for (const seq of session.surface.nodes) {
+        // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
+        if (session.eventAt(seq)?.type === 'system/message') {
+          hasSystem = true
+          break
+        }
+      }
+      if (!hasSystem) return { system: 0, tools: 0, total: 0 }
+    }
     const breakdown = this.ctx.sessionProjections
       .snapshot(session, ['contextBreakdown']).values.contextBreakdown
     if (breakdown === undefined) return undefined
@@ -1166,25 +1148,4 @@ function manualCancellation(error: unknown, agentSignal: AbortSignal, operationS
  * @param error - failure thrown by the transaction.
  * @returns a small class name for logs and the consecutive-failure ledger.
  */
-/** Stable text of a configuration/capacity failure that must not seed the provider breaker. */
-const CONFIG_FAILURE_PATTERN = new RegExp([
-  'no context capacity for',
-  'configure contextWindow on that adapter model',
-  'leaving no .*budget',
-  'fixed prefix .* already at or above',
-  'retainTokens .*must be less than threshold',
-].join('|'), 'i')
-
-function classifyCompactionError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error)
-  if (/abort/i.test(message)) return 'cancelled'
-  if (message === SUMMARY_REJECTED_MESSAGE) return 'review-rejected'
-  if (/summary is not smaller/i.test(message)) return 'summary-not-smaller'
-  if (/Connection error/i.test(message)) return 'connection'
-  if (/^400:|\b400\b.*schema/i.test(message)) return 'provider-400'
-  if (error instanceof TargetPressureConfigError) return 'config'
-  if (CONFIG_FAILURE_PATTERN.test(message)) return 'config'
-  return 'other'
-}
-
 export default BasicCompactionEngine
