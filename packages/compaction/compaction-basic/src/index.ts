@@ -495,6 +495,9 @@ export class BasicCompactionEngine extends CompactionEngine {
     }
     const meter = this.ctx.tokenMeter
     let measurement = meter.measure(agent.session)
+    // Reuse this exact measurement inside the transaction while the log stays
+    // at the same revision; route headers and surface events are durable.
+    const initialMeasurement = measurement
     switch (trigger) {
       case 'context-overflow':
         break
@@ -536,7 +539,8 @@ export class BasicCompactionEngine extends CompactionEngine {
       const tools = this.summaryTools(agent, summaryTarget)
       const result = await this.compactPressureRegion(range.start, range.end, agent, signal,
         previewData === undefined ? undefined : { messages: previewData.messages, tokens: previewData.tokens },
-        tools)
+        tools,
+        initialMeasurement)
       if (preview !== undefined && prune !== undefined) await this.applyToolResultPreview(agent, prune, preview)
       else if (legacyPrune && prune !== undefined) await this.applyToolResultPruning(agent, prune)
       return result
@@ -670,7 +674,8 @@ export class BasicCompactionEngine extends CompactionEngine {
       try {
         const committed = await this.compactPressureRegion(range.start, range.end, agent, signal,
           previewData === undefined ? undefined : { messages: previewData.messages, tokens: previewData.tokens },
-          summaryTools)
+          summaryTools,
+          initialMeasurement)
         result = committed
       } catch (error: unknown) {
         const errorClass = error instanceof SummaryRejectedError
@@ -968,6 +973,7 @@ export class BasicCompactionEngine extends CompactionEngine {
    * @param signal - cancellation signal.
    * @param preview - read-only pruned messages/prices.
    * @param tools - tools for the summary route, or null to omit.
+   * @param measurement - measurement already taken at the same log revision.
    * @returns the committed compaction result.
    */
   private compactPressureRegion(
@@ -980,6 +986,7 @@ export class BasicCompactionEngine extends CompactionEngine {
       readonly tokens: ReadonlyMap<SessionSeq, { readonly tokens: number; readonly heuristicTokens: number }>
     },
     tools?: readonly ToolSchema[] | null,
+    measurement?: TokenMeasurement,
   ): Promise<CompactionResult> {
     return compactSurfaceRegion(
       this.regionDependencies(),
@@ -993,6 +1000,7 @@ export class BasicCompactionEngine extends CompactionEngine {
         manual: false,
         ...preview === undefined ? {} : { preview },
         ...tools === undefined ? {} : { tools },
+        ...measurement === undefined ? {} : { measurement },
       },
       signal,
     )

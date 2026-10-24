@@ -71,6 +71,8 @@ interface CompactionTransactionOptions {
   readonly sourceCommandId?: CommandId
   /** Whether failures are classified as {@link ManualCompactionError} for a manual caller. */
   readonly manual: boolean
+  /** Measurement already taken for the same log revision, if the caller has one. */
+  readonly measurement?: TokenMeasurement
 }
 
 interface CompactionEntryState {
@@ -384,7 +386,7 @@ export async function compactSurfaceRegion(
   let stage: TransactionFailure['stage'] = 'summary'
 
   try {
-    const prepared = prepareCompaction(dependencies, session, selection, options.preview, options.tools)
+    const prepared = prepareCompaction(dependencies, session, selection, options.preview, options.tools, options.measurement)
     const summarized = await summarizeCompaction(
       dependencies,
       prepared,
@@ -531,8 +533,14 @@ function prepareCompaction(
   selection: SurfaceSelection,
   preview?: CompactionTransactionOptions['preview'],
   tools?: readonly ToolSchema[] | null,
+  provided?: TokenMeasurement,
 ): PreparedCompaction {
-  const measurement = dependencies.meter.measure(session)
+  const surfaceNodes = session.surface.nodes
+  const measurement = provided !== undefined
+    && provided.nodes.length === surfaceNodes.length
+    && provided.nodes.every((node, index) => node.seq === surfaceNodes[index])
+    ? provided
+    : dependencies.meter.measure(session)
   const selectedNodes = measurement.nodes.slice(selection.startIdx, selection.endIdx + 1)
     .map((node) => {
       const priced = preview?.tokens.get(node.seq)
@@ -579,7 +587,7 @@ async function summarizeCompaction(
       assertStable(dependencies, agent.session, prepared)
       if (!dependencies.recover(error, agent, prepared.shadowedSeqs, signal)) throw error
       prepared = prepareCompaction(dependencies, agent.session,
-        validateSurfaceRegion(agent.session, prepared.start, prepared.end), preview, tools)
+        validateSurfaceRegion(agent.session, prepared.start, prepared.end), preview, tools, prepared.measurement)
     }
   }
   const checkpointMessage = createUserMessage({
