@@ -63,7 +63,7 @@ kind: "package-reference"
 
 带恢复信息的替换会在保留的尾部之后追加一段简短 notice。默认路径下 notice 指向本会话中原事件的 `{sessionId, seq}`，不会写出第二份；结果本身已带 spill-policy notice 时，修剪器原样复用。只有显式选择 `address: 'spill'` 时才保存完整文本，并按会话与原始 seq 去重。
 
-`previewSessionPrune()` 返回确定的替换消息与预计节省，不 append、不保存。需要新写 spill 文件的候选会标记为 `spill-deferred`，不进入预览：不会把占位 locator 或占位文本放进摘要输入。`applyPrunePreview()` 在调用方的压缩提交成功后运行，跳过已被摘要 shadow 或原内容已变化的 seq，且可重复调用。
+`previewSessionPrune()` 返回确定的替换消息与预计节省，不 append、不保存。它只考虑纯文本结果：含图片等富内容的结果保持原文，因为路由的 token 计价可能与启发式估算不同。需要新写 spill 文件的候选会标记为 `spill-deferred`，不进入预览：不会把占位 locator 或占位文本放进摘要输入。`applyPrunePreview()` 在调用方的压缩提交成功后运行，跳过已被摘要 shadow 或原内容已变化的 seq，且可重复调用。
 
 无法生成地址、或 notice 放不下字符预算时，结果保持原样，而不是在没有回查途径时静默剪掉中间。同步 `pruneSession()` 仍是旧的、无地址入口；使用它的组合保持旧行为。
 

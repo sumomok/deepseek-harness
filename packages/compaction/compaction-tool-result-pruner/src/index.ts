@@ -301,6 +301,12 @@ export class ToolResultPruner extends Service {
     for (const { seq, event } of this.candidates(session)) {
       const original = session.deriveEventMessage(event) as ToolResultMessage
       if (this.pruneContent(original.content) === null) continue
+      if (!original.content.every(block => block.type === 'text')) {
+        // Virtual token pricing uses the heuristic estimator; rich blocks can
+        // price differently on the route. Keep them out of a preview summary.
+        skipped.push({ originalSeq: seq, reason: 'non-text' })
+        continue
+      }
       const preview = previewRecoveryAddress(session, seq, {
         ...options,
         ...store === undefined ? {} : { spillStore: store },

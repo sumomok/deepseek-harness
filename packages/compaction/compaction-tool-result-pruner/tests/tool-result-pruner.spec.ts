@@ -496,6 +496,30 @@ describe('ToolResultPruner recovery addresses', () => {
     expect(again.notOnSurface).toBe(1)
   })
 
+  it('keeps a non-text result out of preview instead of pricing it heuristically', async () => {
+    const session = Session.create(SessionId('recovery-preview-non-text'))
+    const image: ContentBlock = {
+      type: 'image',
+      attachment: {
+        attachmentId: `sha256:${'f'.repeat(64)}` as never,
+        mediaType: 'image/png',
+        bytes: 1,
+        width: 1,
+        height: 1,
+      },
+    }
+    const originalSeq = appendToolStep(session, 1, 'shot', [
+      { type: 'text', text: 'screenshot '.repeat(300) },
+      image,
+    ])
+    const before = session.snapshotEvents().length
+    const preview = await service(RECOVERY).previewSessionPrune(session)
+    expect(preview.entries).toHaveLength(0)
+    expect(preview.skipped).toEqual([{ originalSeq, reason: 'non-text' }])
+    expect(session.snapshotEvents()).toHaveLength(before)
+    expect(session.surface.nodes).toContain(originalSeq)
+  })
+
   it('marks a deferred spill candidate as not previewable and writes nothing', async () => {
     const session = Session.create(SessionId('recovery-preview-deferred'))
     const originalSeq = appendToolStep(session, 1, 'big', [{ type: 'text', text: 'd'.repeat(2000) }])

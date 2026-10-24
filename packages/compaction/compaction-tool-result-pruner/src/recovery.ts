@@ -333,7 +333,7 @@ export interface PrunePreviewSkip {
   /** Candidate sequence. */
   readonly originalSeq: SessionSeq
   /** Why no replacement is previewed. */
-  readonly reason: 'notice-too-large' | 'no-address' | 'spill-deferred'
+  readonly reason: 'notice-too-large' | 'no-address' | 'spill-deferred' | 'non-text'
 }
 
 /** Read-only outcome of planning one pruning pass. */
