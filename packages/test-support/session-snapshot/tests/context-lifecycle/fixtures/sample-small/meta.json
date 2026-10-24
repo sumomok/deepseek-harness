@@ -1,0 +1,21 @@
+{
+  "name": "sample-small",
+  "source": "current DSH session (read-only copy)",
+  "events": 515,
+  "bytes": 154280,
+  "maxLineBytes": 1574,
+  "toolCalls": 79,
+  "toolResults": 79,
+  "compactions": 0,
+  "redactions": 42642,
+  "redactedBytes": {
+    "text": 382854,
+    "path": 731019,
+    "provider": 2072,
+    "model": 3420,
+    "arguments": 6348,
+    "error": 392,
+    "summary": 944
+  },
+  "range": "all"
+}

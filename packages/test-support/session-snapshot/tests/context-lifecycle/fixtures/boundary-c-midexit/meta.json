@@ -1,0 +1,20 @@
+{
+  "name": "boundary-c-midexit",
+  "source": "current DSH session (read-only copy)",
+  "events": 7,
+  "bytes": 728,
+  "maxLineBytes": 250,
+  "toolCalls": 0,
+  "toolResults": 0,
+  "compactions": 1,
+  "redactions": 2,
+  "redactedBytes": {
+    "text": 1222
+  },
+  "range": "all",
+  "authoredTail": [
+    "session/end-seed",
+    "turn 6 (turn/start..turn/end)"
+  ],
+  "note": "truncated at an open compaction/start; the tail is authored to model a restart"
+}

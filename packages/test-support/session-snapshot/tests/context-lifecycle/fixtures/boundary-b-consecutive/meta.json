@@ -1,0 +1,19 @@
+{
+  "name": "boundary-b-consecutive",
+  "source": "current DSH session (read-only copy)",
+  "events": 24,
+  "bytes": 7143,
+  "maxLineBytes": 1588,
+  "toolCalls": 1,
+  "toolResults": 1,
+  "compactions": 5,
+  "redactions": 268,
+  "redactedBytes": {
+    "text": 44594,
+    "path": 36831,
+    "provider": 44,
+    "model": 76,
+    "error": 95
+  },
+  "range": "all"
+}
