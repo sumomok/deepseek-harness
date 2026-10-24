@@ -10,13 +10,8 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { Microcompact } from '../../../../compaction/compaction-microcompact/src/index.ts'
+import type { SummarizationInput } from '../../../../compaction/compaction-basic/src/summarizer.ts'
 
-/**
- * The summarizer input as this suite records it. `BasicCompactionEngine` types
- * this parameter but exports no public path for it, so the suite keeps the
- * structural shape it actually relies on.
- */
-type SummarizationInput = { readonly messages: readonly unknown[] }
 
 const MODEL = 'test-model'
 const SIGNAL = new AbortController().signal
