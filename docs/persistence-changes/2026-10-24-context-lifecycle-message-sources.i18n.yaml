@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-10-24-context-lifecycle-message-sources.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-10-24-context-lifecycle-message-sources.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-10-24-context-lifecycle-message-sources:
+  en: 39c3374caa0f5487
+  zh: 00f6437811cef9a4
+/2026-10-24-context-lifecycle-message-sources/summary:
+  en: 424b06822dd4f955
+  zh: 01e3020b425ab789
+/2026-10-24-context-lifecycle-message-sources/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-10-24-context-lifecycle-message-sources/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-10-24-context-lifecycle-message-sources/compatibility:
+  en: e55b8855dc974420
+  zh: 8e13458ac7a4a941
+/2026-10-24-context-lifecycle-message-sources/verification:
+  en: b99dc93782c4d38a
+  zh: aa2b672fb3c6b26d
+/2026-10-24-context-lifecycle-message-sources/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269
