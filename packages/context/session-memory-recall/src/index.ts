@@ -21,8 +21,7 @@ import type {
   SessionLineageTrace,
   SessionSearchHit,
 } from '@deepseek-ai/dsh-session-query'
-import { Config, resolveConfig } from './config.ts'
-import type { Config as ConfigType, ResolvedConfig } from './config.ts'
+import { Config, resolveConfig, type ResolvedConfig } from './config.ts'
 
 export { Config }
 export type { Config as ConfigOptions, ResolvedConfig } from './config.ts'
@@ -347,7 +346,7 @@ async function recallTurn(
  * @param ctx - host context owning the optional session-query service.
  * @param config - user configuration; disabled by default.
  */
-export function apply(ctx: Context, config: ConfigType): void {
+export function apply(ctx: Context, config: Config): void {
   const resolved = resolveConfig(config)
   if (!resolved.enabled) return
   const cache = new WeakMap<Session, TurnCache>()

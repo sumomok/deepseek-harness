@@ -805,6 +805,39 @@ export interface ModelCompactPolicyConfig extends CompactionPolicyConfig {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-compaction-basic -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-compaction-microcompact -->
+<a id="deepseek-aidsh-compaction-microcompact"></a>
+
+## `@deepseek-ai/dsh-compaction-microcompact`
+
+- `inject`: `tokenMeter`
+- `source`: [`packages/compaction/compaction-microcompact/src/config.ts:10`](../packages/compaction/compaction-microcompact/src/config.ts)
+
+```ts config-catalog
+/** Deployment-tunable idle-microcompaction settings. */
+export interface MicrocompactConfig {
+  /** Enable the idle pass; plugins are inert until a composition opts in. */
+  enabled?: boolean
+  /** Minimum durable inactivity before the next pre-step may clear results. */
+  minIdleSeconds?: number
+  /** Newest completed tool uses always kept verbatim. */
+  keepRecentToolUses?: number
+  /** Clearable results required after exclusions (not including keep-recent). */
+  minClearableToolUses?: number
+  /** Estimated tokens the selected results must still carry. */
+  clearAtLeastTokens?: number
+  /** Upper bound on results cleared by one idle pass. */
+  maxClearPerRun?: number
+  /** Keep every errored tool result verbatim. */
+  keepErrors?: boolean
+  /** Permit clearing without a model-facing `session_event_read` tool. */
+  allowHostOnlyReadback?: boolean
+  /** Tool names never considered. */
+  excludeTools?: string[]
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-compaction-microcompact -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-compaction-tool-result-pruner -->
 <a id="deepseek-aidsh-compaction-tool-result-pruner"></a>
 
@@ -2906,6 +2939,34 @@ export interface Config {
 export type SessionLogCompressionLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-session-log-export -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-session-memory-recall -->
+<a id="deepseek-aidsh-session-memory-recall"></a>
+
+## `@deepseek-ai/dsh-session-memory-recall`
+
+- `source`: [`packages/context/session-memory-recall/src/config.ts:22`](../packages/context/session-memory-recall/src/config.ts)
+
+```ts config-catalog
+/** User-facing configuration for automatic prior-Session recall. */
+export interface Config {
+  /** Enable automatic recall. Defaults to false so mounting is inert. */
+  enabled?: boolean
+  /** UTF-8 byte cap for the injected message. Defaults to 4096. */
+  maxBytes?: number
+  /** Maximum recalled Session excerpts, 1-5. Defaults to 3. */
+  maxHits?: number
+  /** Search deadline in milliseconds; 0 disables searching. Defaults to 200. */
+  timeoutMs?: number
+  /** Minimum trimmed user-query length. Defaults to 3. */
+  minQueryChars?: number
+  /** Include subagent-origin Sessions. Defaults to false. */
+  includeSubagents?: boolean
+  /** Include parent/child/fork lineage Sessions. Defaults to false. */
+  includeLineage?: boolean
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-session-memory-recall -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-session-persistence-jsonl -->
 <a id="deepseek-aidsh-session-persistence-jsonl"></a>

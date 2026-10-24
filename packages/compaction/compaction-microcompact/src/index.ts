@@ -418,3 +418,5 @@ function hasOpenTurn(session: Session): boolean {
 function empty(reason: MicrocompactSkipReason): MicrocompactPreview {
   return { entries: [], skipped: [{ reason }], reclaimableTokens: 0, idleSeconds: 0 }
 }
+
+export default Microcompact
