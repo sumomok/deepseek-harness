@@ -274,6 +274,7 @@ function userTurnStartSeqs(session: Session): SessionSeq[] {
   const starts: SessionSeq[] = []
   let inTurn = false
   let sawUser = false
+  // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
   for (const event of session.snapshotEvents()) {
     if (event.type === 'turn/start') {
       inTurn = true
@@ -304,6 +305,7 @@ function stepStartSeqs(session: Session): SessionSeq[] {
   const surface = new Set(session.surface.nodes)
   const starts: SessionSeq[] = []
   let pending = false
+  // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
   for (const event of session.snapshotEvents()) {
     if (event.type === 'step/start') {
       pending = true

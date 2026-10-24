@@ -45,12 +45,14 @@ export function pendingSelection(session: Session): RoutedTarget | undefined {
   let lastHeaderSeq = -1
   let selection: RoutedTarget | undefined
   let selectionSeq = -1
+  // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
   for (const event of session.snapshotEvents()) {
     if (event.type === 'request/header') {
       lastHeaderSeq = event.seq
       continue
     }
-    if (String(event.type) !== 'model/selection') continue
+    const eventType: string = event.type
+    if (eventType !== 'model/selection') continue
     const data: unknown = event.data
     const route = payloadRoute(data)
     if (route === undefined) continue
@@ -67,7 +69,8 @@ export function pendingSelection(session: Session): RoutedTarget | undefined {
  */
 export function eventRoute(event: SessionEvent): RoutedTarget | undefined {
   if (event.type === 'request/header') return payloadRoute(event.data.header.config)
-  if (String(event.type) !== 'model/selection') return undefined
+  const eventType: string = event.type
+  if (eventType !== 'model/selection') return undefined
   const data: unknown = event.data
   return payloadRoute(data)
 }

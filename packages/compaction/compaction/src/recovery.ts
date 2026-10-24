@@ -80,11 +80,15 @@ export function originalToolResultSeq(session: Session, seq: SessionSeq): Sessio
   for (let depth = 0; depth < 32; depth += 1) {
     if (visited.has(current)) return undefined
     visited.add(current)
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
     const event = session.eventAt(current)
     if (event?.type !== 'tool/result') return undefined
     const replacement = event.surfaceOp
     if (typeof replacement !== 'object') return current
-    const cited = event.sourceEventSeqs?.find(source => session.eventAt(source)?.type === 'tool/result')
+    const cited = event.sourceEventSeqs?.find((source) => {
+      // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
+      return session.eventAt(source)?.type === 'tool/result'
+    })
     if (cited === undefined) return current
     current = cited
   }

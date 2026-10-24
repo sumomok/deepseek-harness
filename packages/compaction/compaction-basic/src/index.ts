@@ -693,6 +693,7 @@ export class BasicCompactionEngine extends CompactionEngine {
         previewApplied = true
       }
       const committed = result
+      // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
       const summaryEvent = agent.session.snapshotEvents()
         .find(event => event.seq === committed.summarySeq)
       const usage = summaryEvent?.type === 'compaction/summary' ? summaryEvent.data.usage : undefined
@@ -810,14 +811,13 @@ export class BasicCompactionEngine extends CompactionEngine {
   ): { count: number; errorClass: string } | undefined {
     let count = 0
     let errorClass = 'recorded'
-    let sawRoute = false
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
     const events = session.snapshotEvents()
     for (let index = events.length - 1; index >= 0; index -= 1) {
       const event = events[index]
       if (event === undefined) break
       const route = eventRoute(event)
       if (route !== undefined) {
-        sawRoute = true
         if (route.provider !== target.provider || route.model !== target.model) return undefined
         return count === 0 ? undefined : { count, errorClass }
       }
@@ -829,7 +829,7 @@ export class BasicCompactionEngine extends CompactionEngine {
       count += 1
       errorClass = failureClass
     }
-    return sawRoute && count > 0 ? { count, errorClass } : undefined
+    return undefined
   }
 
   /**
@@ -847,6 +847,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     const start = surface.indexOf(range.start)
     const end = surface.indexOf(range.end)
     if (start < 0 || end < start) return false
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
     const events = new Map(session.snapshotEvents().map(event => [event.seq, event]))
     for (let index = start; index <= end; index += 1) {
       const seq = surface[index]
@@ -1125,7 +1126,7 @@ export class BasicCompactionEngine extends CompactionEngine {
       },
       signal,
     )
-    if (result !== null) this.clearSessionSummaryFailures(agent.session)
+    this.clearSessionSummaryFailures(agent.session)
     return result
   }
 

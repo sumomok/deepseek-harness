@@ -2147,6 +2147,7 @@ describe('trace and exact read rendering', () => {
       }),
     }, { surfaceOp: 'append', sourceEventSeqs: [call.seq] })
     const originalMessage = mounted.caller.deriveEventMessage(original)
+    if (originalMessage?.role !== 'tool') throw new Error('expected a tool result message')
     mounted.caller.append('tool/result', {
       turn: 1,
       step: 1,

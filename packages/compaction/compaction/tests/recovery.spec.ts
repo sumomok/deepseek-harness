@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest'
 import { originalToolResultSeq, recoveryNotice } from '@deepseek-ai/dsh-compaction'
 import type { RecoveryAddress } from '@deepseek-ai/dsh-compaction'
 import { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
 function resultSession(): { readonly session: Session; readonly originalSeq: SessionSeq } {
   const session = Session.create(SessionId('recovery-helper'))
@@ -63,8 +62,8 @@ describe('originalToolResultSeq', () => {
     const { session, originalSeq } = resultSession()
     const source = session.eventAt(originalSeq)
     if (source?.type !== 'tool/result') throw new Error('expected a tool result')
-    const first = structuredClone(source) as SessionEvent<'tool/result'>
-    const second = structuredClone(source) as SessionEvent<'tool/result'>
+    const first = structuredClone(source)
+    const second = structuredClone(source)
     Object.assign(first, {
       seq: SessionSeq(1),
       surfaceOp: { op: 'replace', startSeq: SessionSeq(2), endSeq: SessionSeq(2) },
@@ -76,7 +75,7 @@ describe('originalToolResultSeq', () => {
       sourceEventSeqs: [SessionSeq(1)],
     })
     const cyclic = Object.create(Session.prototype) as Session
-    cyclic.eventAt = ((seq: SessionSeq) => seq === 1 ? first : seq === 2 ? second : undefined) as Session['eventAt']
+    cyclic.eventAt = (seq: SessionSeq) => seq === 1 ? first : seq === 2 ? second : undefined
     expect(originalToolResultSeq(cyclic, SessionSeq(1))).toBeUndefined()
   })
 })

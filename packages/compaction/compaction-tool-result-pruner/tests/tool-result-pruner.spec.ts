@@ -54,7 +54,7 @@ function appendToolStep(
   content: ContentBlock[],
   extra: Record<string, unknown> = {},
   name = 'bash',
-): number {
+): SessionSeq {
   const callId = ToolCallId(call)
   session.append('turn/start', {
     turn,
@@ -314,7 +314,9 @@ describe('ToolResultPruner recovery addresses', () => {
   function textAt(session: Session, seq: number): string {
     const event = session.eventAt(SessionSeq(seq))
     if (event?.type !== 'tool/result') throw new Error(`seq ${seq} is not a tool/result`)
-    return session.deriveEventMessage(event).content
+    const message = session.deriveEventMessage(event)
+    if (message === null) throw new Error(`seq ${seq} has no derived message`)
+    return message.content
       .map(block => block.type === 'text' ? block.text : '')
       .join('')
   }
@@ -476,7 +478,7 @@ describe('ToolResultPruner recovery addresses', () => {
     const pruner = service(RECOVERY)
     const before = session.snapshotEvents().length
 
-    const preview = await pruner.previewSessionPrune(session)
+    const preview = pruner.previewSessionPrune(session)
     expect(session.snapshotEvents()).toHaveLength(before)
     expect(preview.entries).toHaveLength(1)
     expect(preview.entries[0]!.original.id).toBe(original.id)
@@ -513,7 +515,7 @@ describe('ToolResultPruner recovery addresses', () => {
       image,
     ])
     const before = session.snapshotEvents().length
-    const preview = await service(RECOVERY).previewSessionPrune(session)
+    const preview = service(RECOVERY).previewSessionPrune(session)
     expect(preview.entries).toHaveLength(0)
     expect(preview.skipped).toEqual([{ originalSeq, reason: 'non-text' }])
     expect(session.snapshotEvents()).toHaveLength(before)
@@ -525,7 +527,7 @@ describe('ToolResultPruner recovery addresses', () => {
     const originalSeq = appendToolStep(session, 1, 'big', [{ type: 'text', text: 'd'.repeat(2000) }])
     const store = new FakeSpillStore()
     const before = session.snapshotEvents().length
-    const preview = await service(RECOVERY).previewSessionPrune(session, { address: 'spill', spillStore: store })
+    const preview = service(RECOVERY).previewSessionPrune(session, { address: 'spill', spillStore: store })
     expect(preview.entries).toHaveLength(0)
     expect(preview.skipped).toEqual([{ originalSeq, reason: 'spill-deferred' }])
     expect(store.saves).toHaveLength(0)
@@ -536,7 +538,7 @@ describe('ToolResultPruner recovery addresses', () => {
     const session = Session.create(SessionId('recovery-preview-shadowed'))
     const originalSeq = appendToolStep(session, 1, 'big', [{ type: 'text', text: 'm'.repeat(2000) }])
     const pruner = service(RECOVERY)
-    const preview = await pruner.previewSessionPrune(session)
+    const preview = pruner.previewSessionPrune(session)
     expect(preview.entries).toHaveLength(1)
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'summary' }],

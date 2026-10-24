@@ -26,6 +26,7 @@ import type {
   TokenUsage,
 } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import { agentEvents, type Agent, type RequestErrorAction } from '@deepseek-ai/dsh-agent'
@@ -106,6 +107,12 @@ function manualAgent(session: Session): Agent {
     status: 'idle',
     runMaintenance: async <T>(task: (signal: AbortSignal) => Promise<T>): Promise<T> => task(controller.signal),
   } as Agent
+}
+
+/** True for a surface replacement event without narrowing the shared union in each test. */
+function isReplaceSurfaceOp(event: SessionEvent): boolean {
+  const op = event.surfaceOp
+  return op !== undefined && typeof op === 'object' && op.op === 'replace'
 }
 
 /** Append the durable `model/selection` payload owned by the session-controller package. */
@@ -779,7 +786,7 @@ describe('summary tools follow the route', () => {
   it('omits stale header tools from compactNow after a pending selection', async () => {
     const ctx = createContext(1_000)
     const store = new SessionStore(ctx)
-    vi.spyOn(store, 'flush').mockResolvedValue(undefined)
+    vi.spyOn(store, 'flush').mockResolvedValue(true)
     const adapter = new ScriptedAdapter([{ type: 'text', text: 'summary' }], undefined, 1_000)
     ctx.llm.registerAdapter(['header', 'pending'], adapter)
     const compact = new ExposedCompactionEngine(ctx, {
@@ -1132,7 +1139,7 @@ describe('pressure measurement and retention', () => {
     expect(result).not.toBeNull()
     const events = session.snapshotEvents()
     const replacement = events.find(event =>
-      event.type === 'user/message' && event.surfaceOp?.op === 'replace' && event.seq > result!.summarySeq)
+      event.type === 'user/message' && isReplaceSurfaceOp(event) && event.seq > result!.summarySeq)
     expect(replacement).toBeDefined()
     const surface = session.surface.nodes
     const replacementIndex = surface.indexOf(replacement!.seq)
@@ -1142,7 +1149,8 @@ describe('pressure measurement and retention', () => {
   })
 
   it('opens a session-and-route circuit after consecutive failures', async () => {
-    const compact = service({ ...compactConfig, maxConsecutiveFailures: 2 })
+    const ctx = createContext()
+    const compact = service({ ...compactConfig, maxConsecutiveFailures: 2 }, ctx)
     compact.error = new Error('Connection error.')
     const session = conversation(4)
 
@@ -1151,7 +1159,7 @@ describe('pressure measurement and retention', () => {
     expect(compact.calls).toHaveLength(2)
 
     const logs: string[] = []
-    compact.ctx.logger.info = ((message: string) => void logs.push(message)) as typeof compact.ctx.logger.info
+    ctx.logger.info = ((message: string) => void logs.push(message)) as typeof ctx.logger.info
     expect(await compactIfNeeded(compact, session)).toBeNull()
     expect(compact.calls).toHaveLength(2)
     expect(logs).toContainEqual(expect.stringContaining('circuit open'))
@@ -1174,7 +1182,7 @@ describe('pressure measurement and retention', () => {
     expect(session.surface.nodes[0]).toBe(userSeq)
     const events = session.snapshotEvents()
     const replacement = events.find(event =>
-      event.type === 'user/message' && event.surfaceOp?.op === 'replace')
+      event.type === 'user/message' && isReplaceSurfaceOp(event))
     expect(replacement).toBeDefined()
     expect(session.surface.nodes[1]).toBe(replacement!.seq)
     const firstKept = events.find(event => event.seq === session.surface.nodes[2])
@@ -1253,7 +1261,7 @@ describe('pressure measurement and retention', () => {
   it('manual success clears every in-process breaker for the session', async () => {
     const ctx = createContext(1_000)
     const store = new SessionStore(ctx)
-    vi.spyOn(store, 'flush').mockResolvedValue(undefined)
+    vi.spyOn(store, 'flush').mockResolvedValue(true)
     const compact = service({
       auto: false,
       thresholdRatio: 0.5,
