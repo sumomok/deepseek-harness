@@ -1,4 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createMessage, createToolResultMessage, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -136,6 +137,105 @@ describe('idle microcompact preview and apply', () => {
     expect(second.cleared).toHaveLength(0)
     expect(second.skipped).toBe(20)
     expect(session.snapshotEvents().filter(event => event.type === 'compaction/prune')).toHaveLength(20)
+  })
+
+  it('counts net estimated savings, not the original token total', async () => {
+    const session = busySession(25)
+    const probe = await context({ ...BASE, clearAtLeastTokens: 0 }).compact.preview(session)
+    const net = probe.entries.reduce((total, entry) => total + entry.savings, 0)
+    expect(net).toBeGreaterThan(0)
+    const exact = await context({ ...BASE, clearAtLeastTokens: net }).compact.preview(session)
+    expect(exact.entries).toHaveLength(20)
+    const above = await context({ ...BASE, clearAtLeastTokens: net + 1 }).compact.preview(session)
+    expect(above.entries).toHaveLength(0)
+    expect(above.skipped).toEqual([{ reason: 'below-tokens' }])
+  })
+
+  it('keeps the newest N unique tool uses even when one call has multiple results', async () => {
+    vi.setSystemTime(1_000)
+    const session = Session.create(SessionId('unique-calls'))
+    appendToolStep(session, 1, [])
+    vi.setSystemTime(1_000 + 3_900_000)
+    session.append('turn/start', { turn: 2 })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'continue' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    session.append('step/start', { turn: 2, step: 1 })
+    const add = (call: string, count: number): void => {
+      const callId = ToolCallId(call)
+      session.append('assistant/message', {
+        stream: [], turn: 2, step: 1,
+        message: createMessage({
+          role: 'assistant',
+          content: [{ type: 'tool-call', id: callId, name: 'bash', arguments: '{}' }],
+          source: { kind: 'model', ...{ provider: MODEL, model: MODEL } },
+        }),
+      }, { surfaceOp: 'append' })
+      session.append('tool/call', { turn: 2, step: 1, callId, name: 'bash', arguments: '{}' })
+      for (let index = 0; index < count; index += 1) {
+        session.append('tool/result', {
+          turn: 2,
+          step: 1,
+          message: createToolResultMessage({
+            callId,
+            content: [{ type: 'text', text: `${call} result ${String(index)} `.repeat(100) }],
+            isError: false,
+          }),
+        }, { surfaceOp: 'append' })
+      }
+    }
+    add('old', 2)
+    add('middle', 1)
+    add('newest', 1)
+    const { compact } = context({ ...BASE, keepRecentToolUses: 3, minClearableToolUses: 1 })
+    const preview = await compact.preview(session)
+    expect(preview.entries).toHaveLength(0)
+    expect(preview.skipped).toEqual([{ reason: 'below-count' }])
+  })
+
+  it('checks the readback tool in the agent scope', async () => {
+    const session = busySession(25)
+    const { compact, ctx } = context({ ...BASE, allowHostOnlyReadback: false })
+    const restricted = { session, options: {} } as Agent
+    const unrestricted = { session, options: {} } as Agent
+    ctx.provide('tools', {
+      get: (_name: string, scope?: Agent) => scope === restricted ? undefined : { name: 'session_event_read' },
+    })
+    expect((await compact.preview(session, restricted)).skipped).toEqual([{ reason: 'no-readback' }])
+    expect((await compact.preview(session, unrestricted)).entries).toHaveLength(20)
+  })
+
+  it('does not heal a marker while an active job is unresolved', async () => {
+    const session = busySession(25)
+    const target = session.surface.nodes.at(-1)!
+    const event = session.eventAt(target)
+    if (event?.type !== 'tool/result') throw new Error('expected a tool result')
+    session.append('compaction/prune', {
+      shadowedRange: { start: target, end: target },
+      shadowedSeqs: [target],
+      shadowedTokenCount: 1,
+    })
+    session.append('job/registered', {
+      jobId: 'job-active' as never,
+      owner: session.header.id,
+      kind: 'bash',
+      label: 'active',
+      startedAt: 1_000,
+    })
+    const { compact } = context(BASE)
+    const before = session.surface.nodes.length
+    await compact.runIdle({ session, options: {} } as Agent)
+    expect(session.surface.nodes).toHaveLength(before)
+    expect(session.snapshotEvents().at(-1)?.type).toBe('job/registered')
+  })
+
+  it('marks an idle window attempted even when preview throws', async () => {
+    const session = busySession(25)
+    const { compact } = context(BASE)
+    const preview = vi.spyOn(compact, 'preview').mockRejectedValue(new Error('preview failed'))
+    await expect(compact.runIdle({ session, options: {} } as Agent)).rejects.toThrow('preview failed')
+    await compact.runIdle({ session, options: {} } as Agent)
+    expect(preview).toHaveBeenCalledTimes(1)
   })
 
   it('refuses below the post-exclusion count and below the token threshold', async () => {

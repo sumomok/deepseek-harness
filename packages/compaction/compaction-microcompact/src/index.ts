@@ -68,6 +68,8 @@ export interface MicrocompactEntry {
   readonly replacement: ToolResultMessage
   /** Estimated tokens of the original message. */
   readonly tokens: number
+  /** Net estimated tokens removed (original minus replacement). */
+  readonly savings: number
 }
 
 /** Read-only idle-pass plan. */
@@ -129,6 +131,8 @@ export class Microcompact extends Service {
   constructor(ctx: Context, config: MicrocompactConfig = {}) {
     super(ctx, 'microcompact')
     this.config = resolveConfig(config)
+    // The idle pass is cheap and model-free; prepending guarantees it runs
+    // before pressure compaction regardless of composition row order.
     ctx.on('agent/pre-step', async ({ agent, signal }, next) => {
       if (!this.config.enabled || signal.aborted) return next()
       try {
@@ -138,7 +142,7 @@ export class Microcompact extends Service {
         ctx.logger.warn(`idle microcompact failed: ${message}; continuing the turn`)
       }
       return next()
-    })
+    }, { prepend: true })
   }
 
   /**
@@ -150,7 +154,9 @@ export class Microcompact extends Service {
    */
   healOrphanMarker(session: Session): boolean {
     const events = session.snapshotEvents()
-    const last = events.at(-1)
+    let index = events.length - 1
+    while (index >= 0 && events[index]?.type === 'session/end-seed') index -= 1
+    const last = events[index]
     if (last?.type !== 'compaction/prune') return false
     if (last.data.shadowedSeqs.length !== 1) return false
     const seq = last.data.shadowedSeqs[0]
@@ -175,9 +181,9 @@ export class Microcompact extends Service {
    * @param session - session whose durable activity and surface are inspected.
    * @returns planned replacements and reasons for refusals.
    */
-  async preview(session: Session): Promise<MicrocompactPreview> {
+  async preview(session: Session, scope?: Agent): Promise<MicrocompactPreview> {
     if (!this.config.enabled) return empty('disabled')
-    if (!this.readbackAvailable()) return empty('no-readback')
+    if (!this.readbackAvailable(scope)) return empty('no-readback')
     if (this.hasActiveCompaction(session)) return empty('active-compaction')
     if (await this.hasActiveJob(session)) return empty('active-job')
     if (await this.hasActiveSubagent(session)) return empty('active-subagent')
@@ -201,15 +207,18 @@ export class Microcompact extends Service {
         ...candidate.message,
         content: [{ type: 'text', text: notice }],
       })
+      const tokens = this.ctx.tokenMeter.estimateMessage(candidate.message)
+      const savings = Math.max(0, tokens - this.ctx.tokenMeter.estimateMessage(replacement))
       entries.push({
         originalSeq: candidate.seq,
         addressSeq: candidate.addressSeq,
         original: candidate.message,
         replacement,
-        tokens: this.ctx.tokenMeter.estimateMessage(candidate.message),
+        tokens,
+        savings,
       })
     }
-    const reclaimableTokens = entries.reduce((total, entry) => total + entry.tokens, 0)
+    const reclaimableTokens = entries.reduce((total, entry) => total + entry.savings, 0)
     if (reclaimableTokens < this.config.clearAtLeastTokens) {
       return { ...empty('below-tokens'), idleSeconds: Math.round(idle.idleMs / 1000) }
     }
@@ -278,7 +287,10 @@ export class Microcompact extends Service {
   async runIdle(agent: Agent): Promise<MicrocompactResult> {
     if (!this.config.enabled) return { cleared: [], skipped: 0 }
     const session = agent.session
-    if (!this.readbackAvailable() || this.hasActiveCompaction(session)) return { cleared: [], skipped: 0 }
+    if (!this.readbackAvailable(agent) || this.hasActiveCompaction(session)) return { cleared: [], skipped: 0 }
+    if (await this.hasActiveJob(session) || await this.hasActiveSubagent(session)) {
+      return { cleared: [], skipped: 0 }
+    }
     if (this.healOrphanMarker(session)) {
       this.ctx.logger.info('idle microcompact: healed an interrupted compaction/prune marker')
     }
@@ -286,16 +298,20 @@ export class Microcompact extends Service {
     if (idle === null) return { cleared: [], skipped: 0 }
     const key = `${String(idle.previousActivitySeq)}:${String(idle.currentUserSeq)}`
     if (this.attemptedIdle.get(session) === key) return { cleared: [], skipped: 0 }
-    const preview = await this.preview(session)
-    this.attemptedIdle.set(session, key)
+    let preview: MicrocompactPreview
+    try {
+      preview = await this.preview(session, agent)
+    } finally {
+      this.attemptedIdle.set(session, key)
+    }
     if (preview.entries.length === 0) return { cleared: [], skipped: 0 }
     return this.apply(session, preview)
   }
 
   /** Whether a model-facing readback tool is currently visible. */
-  private readbackAvailable(): boolean {
+  private readbackAvailable(scope?: Agent): boolean {
     if (this.config.allowHostOnlyReadback) return true
-    return this.ctx.get('tools')?.get('session_event_read') !== undefined
+    return this.ctx.get('tools')?.get('session_event_read', scope) !== undefined
   }
 
   /** Whether a compaction bracket is still open. */
@@ -382,7 +398,11 @@ export class Microcompact extends Service {
       completed.push({ seq, message, name })
     }
     const recent = new Set<string>()
-    for (const item of completed.slice(-this.config.keepRecentToolUses)) recent.add(String(item.message.source.callId))
+    for (let index = completed.length - 1; index >= 0 && recent.size < this.config.keepRecentToolUses; index -= 1) {
+      const item = completed[index]
+      if (item === undefined) break
+      recent.add(String(item.message.source.callId))
+    }
     return completed
       .filter(item => !recent.has(String(item.message.source.callId)))
       .filter(item => !this.config.excludeTools.includes(item.name))
