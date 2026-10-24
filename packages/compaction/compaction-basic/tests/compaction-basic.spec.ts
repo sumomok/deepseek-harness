@@ -681,6 +681,22 @@ describe('shared route resolution', () => {
     expect(compact.calls).toHaveLength(1)
   })
 
+  it('does not seed a durable summary-review rejection after resume', async () => {
+    const rejectingCtx = createContext(1_000)
+    const rejecting = service({ auto: false, thresholdRatio: 0.5, retainTokens: 180 }, rejectingCtx)
+    rejectingCtx.on('compaction/summary-review', () => false)
+    const session = conversation(4)
+
+    await expect(compactIfNeeded(rejecting, session)).rejects.toThrow('rejected the summary')
+    expect(session.snapshotEvents().findLast(event => event.type === 'compaction/end')?.data.error)
+      .toContain('rejected the summary')
+
+    const resumed = service({ auto: false, thresholdRatio: 0.5, retainTokens: 180 }, createContext(1_000))
+
+    expect(await compactIfNeeded(resumed, session)).not.toBeNull()
+    expect(resumed.calls).toHaveLength(1)
+  })
+
   it('does not seed failures across a newer route change', async () => {
     const ctx = createContext(1_000)
     ctx.llm.registerAdapter(['header', 'next'], new ContextAdapter(1_000))

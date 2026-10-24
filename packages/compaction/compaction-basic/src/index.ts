@@ -31,6 +31,7 @@ import {
   compactSurfaceRegion,
   selectCompactableRange,
   selectCompactableRangeAtTurnBoundary,
+  SUMMARY_REJECTED_MESSAGE,
   SummaryRejectedError,
 } from './region.ts'
 import { conversationTarget, eventRoute, pressureTarget } from './route.ts'
@@ -623,8 +624,10 @@ export class BasicCompactionEngine extends CompactionEngine {
       if (event.type === 'compaction/summary') return undefined
       if (event.type !== 'compaction/end') continue
       if (event.data.error === undefined) return undefined
+      const failureClass = classifyCompactionError(event.data.error)
+      if (failureClass === 'review-rejected') continue
       count += 1
-      errorClass = classifyCompactionError(event.data.error)
+      errorClass = failureClass
     }
     return sawRoute && count > 0 ? { count, errorClass } : undefined
   }
@@ -904,6 +907,7 @@ function manualCancellation(error: unknown, agentSignal: AbortSignal, operationS
 function classifyCompactionError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
   if (/abort/i.test(message)) return 'cancelled'
+  if (message === SUMMARY_REJECTED_MESSAGE) return 'review-rejected'
   if (/summary is not smaller/i.test(message)) return 'summary-not-smaller'
   if (/Connection error/i.test(message)) return 'connection'
   if (/^400:|\b400\b.*schema/i.test(message)) return 'provider-400'

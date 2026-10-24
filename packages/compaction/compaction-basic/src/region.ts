@@ -79,6 +79,9 @@ interface CompactionEntryState {
  */
 class SurfaceChangedError extends Error {}
 
+/** Stable message a durable summary-review rejection carries. */
+export const SUMMARY_REJECTED_MESSAGE = 'compaction: a summary-review listener rejected the summary'
+
 /** A synchronous `compaction/summary-review` listener refused the framed summary. */
 export class SummaryRejectedError extends Error {}
 
@@ -588,7 +591,7 @@ async function summarizeCompaction(
     model: summaryResult.model,
   }
   if (!dependencies.review(review)) {
-    throw new SummaryRejectedError('compaction: a summary-review listener rejected the summary')
+    throw new SummaryRejectedError(SUMMARY_REJECTED_MESSAGE)
   }
   return {
     ...prepared,
