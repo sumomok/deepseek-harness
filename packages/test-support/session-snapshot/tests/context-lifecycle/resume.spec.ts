@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
+import * as CompactionRehydration from '@deepseek-ai/dsh-compaction-rehydration'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import { CompactionId } from '@deepseek-ai/dsh-compaction'
@@ -75,13 +76,14 @@ async function mount(root: string): Promise<Context> {
   await ctx.plugin(AgentRegistry)
   void new TokenMeter(ctx)
   await ctx.plugin(JsonlSessionPersistence, { root })
+  await ctx.plugin(CompactionRehydration)
   await ctx.plugin(AgentLoop, { agents: [] })
   ctx.llm.registerAdapter([MODEL], new TextAdapter())
   return ctx
 }
 
 /** Two complete turns, then whatever the interruption builds on top. */
-function baseSession(id: SessionId, turns = 2): Session {
+function baseSession(id: SessionId, turns = 2, seedEarly?: (session: Session) => void): Session {
   const session = Session.create(id)
   for (let turn = 1; turn <= turns; turn += 1) {
     session.append('turn/start', { turn })
@@ -103,6 +105,7 @@ function baseSession(id: SessionId, turns = 2): Session {
     }, { surfaceOp: 'append' })
     session.append('step/end', { turn, step: 1 })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
+    if (turn === 1) seedEarly?.(session)
   }
   // Automatic compaction brackets must be enclosed in an open turn.
   session.append('turn/start', { turn: turns + 1 })
@@ -209,12 +212,13 @@ class SummaryStubEngine extends BasicCompactionEngine {
  */
 async function compactionCycle(id: SessionId): Promise<{ events: readonly { type: string }[]; stage: Record<string, number> }> {
   const ctx = await mount(await tempRoot())
-  const session = baseSession(id, 10)
-  // Task state that must survive the crash: a todo list and an open job.
-  session.append('todo/write', { todos: [{ content: 'plan', status: 'in_progress' }, { content: 'build', status: 'pending' }] })
-  session.append('job/registered', {
-    jobId: 'job-open-1', owner: String(id), kind: 'bash', startedAt: 1,
-    toolCall: { callId: 'call-open-1', name: 'bash' },
+  // Task state lives *inside* the compacted range so a checkpoint shadows it.
+  const session = baseSession(id, 10, (early) => {
+    early.append('todo/write', { todos: [{ content: 'plan', status: 'in_progress' }, { content: 'build', status: 'pending' }] })
+    early.append('job/registered', {
+      jobId: 'job-open-1', owner: String(id), kind: 'bash', startedAt: 1,
+      toolCall: { callId: 'call-open-1', name: 'bash' },
+    })
   })
   const engineUnderTest = new SummaryStubEngine(ctx, {
     auto: false, headroomTokens: 0, maxTokens: 8192, thresholdRatio: 0.3, retainTokens: 20,
@@ -235,6 +239,30 @@ async function compactionCycle(id: SessionId): Promise<{ events: readonly { type
   }
   await ctx.fiber.dispose()
   return { events, stage }
+}
+
+
+/** Fire the pre-step waterfall once and report how many rebuild messages it added. */
+async function firePreStep(ctx: Context, agent: Agent, turn = 20, step = 1): Promise<number> {
+  const proposed = createUserMessage({
+    content: [{ type: 'text', text: 'next request' }],
+    source: { kind: 'user' },
+  })
+  const decision = await agentEvents(ctx, agent).waterfall(
+    'agent/pre-step',
+    { messages: [proposed], turn, step, signal: new AbortController().signal },
+    () => Promise.resolve({ kind: 'enter' as const, messages: [proposed] }),
+  )
+  if (decision.kind === 'reject') return 0
+  const added = decision.messages.filter(message => message !== proposed)
+  for (const message of added) agent.session.append('user/message', message, { surfaceOp: 'append' })
+  return added.length
+}
+
+/** Durable rebuild messages this session already holds. */
+function rebuildCount(session: Session): number {
+  return session.ownEvents().filter(event => event.type === 'user/message'
+    && (event.data as { source?: { kind?: string } }).source?.kind === 'compaction-rehydration').length
 }
 
 /** Persist an inclusive prefix of a validated log, then dispose the writer. */
@@ -269,6 +297,9 @@ describe.skipIf(!HAS_LOCK_BINDING)('resume at the three compaction interruption 
     expect(log.filter(event => event.type === 'compaction/end')).toEqual([])
     expect(log.filter(event => (event as { surfaceOp?: { op?: string } }).surfaceOp?.op === 'replace')).toEqual([])
     expect(second.agents.get(id)?.session.id).toBe(id)
+    const summaryOnlyAgent = second.agents.get(id)!
+    expect(await firePreStep(second, summaryOnlyAgent)).toBe(0)
+    expect(rebuildCount(summaryOnlyAgent.session)).toBe(0)
     await second.fiber.dispose()
   })
 
@@ -328,11 +359,20 @@ describe.skipIf(!HAS_LOCK_BINDING)('resume at the three compaction interruption 
       .map((event, index) => ({ event, seq: (event as { seq?: number }).seq ?? index }))
       .filter(({ event }) => event.type === 'todo/write' || event.type === 'job/registered')
       .map(({ seq }) => seq)
+    // Task state now sits inside the compacted range, so it is shadowed; the
+    // question is whether the rebuild replaces it exactly once.
     for (const seq of taskSeqs) {
       const shadowed = span?.startSeq !== undefined && span.endSeq !== undefined
         && seq >= span.startSeq && seq <= span.endSeq
-      expect({ seq, shadowed }).toMatchObject({ seq, shadowed: false })
+      expect({ seq, shadowed }).toMatchObject({ seq, shadowed: true })
     }
+    const resumedAgent = second.agents.get(id)!
+    // The interrupted run never reached a pre-step, so the first pre-step after
+    // resume writes the rebuild exactly once; the next one adds nothing.
+    expect(await firePreStep(second, resumedAgent)).toBe(1)
+    expect(rebuildCount(resumedAgent.session)).toBe(1)
+    expect(await firePreStep(second, resumedAgent, 21)).toBe(0)
+    expect(rebuildCount(resumedAgent.session)).toBe(1)
     await second.fiber.dispose()
   })
 })
