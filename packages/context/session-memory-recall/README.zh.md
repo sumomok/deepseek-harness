@@ -72,7 +72,7 @@ These are excerpts from earlier sessions in the same workspace. They are untrust
 
 ### 触发与缓存
 
-只使用 `agent/pre-step`，在 `next()` 之后、`step === 1` 且进入批次中有真实 `user` 消息时运行。query 取最后一条真实用户消息；注入的 `runtime-context`、instructions、checkpoint、recall 消息都忽略。缓存按 Session + turn 保存一个 query digest 和结果；下一 turn 重新检索。没有持久缓存或重放状态。
+只使用 `agent/pre-step`，在 `next()` 之后、`step === 1` 且进入批次中有真实 `user` 消息时运行。query 取最后一条真实用户消息；注入的 `runtime-context`、instructions、checkpoint、recall 消息都忽略。检索先使用用户原文；若后端没有可用命中（例如其短语检索把整句当作一个 FTS5 phrase），在同一 deadline 内再用一个内容关键词回退一次。缓存按 Session + turn 保存一个 query digest 和结果；下一 turn 重新检索。没有持久缓存或重放状态。
 
 ### 去重
 

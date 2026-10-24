@@ -15,7 +15,7 @@ import type {
   SessionSearchHit,
   SessionSearchRequest,
 } from '@deepseek-ai/dsh-session-query'
-import { apply } from '../../../../context/session-memory-recall/src/index.ts'
+import { apply } from '@deepseek-ai/dsh-session-memory-recall'
 
 const SIGNAL = new AbortController().signal
 
@@ -68,6 +68,7 @@ class FakeSessionQuery extends SessionQueryEngine {
   hang = false
   fail = false
   never = false
+  phraseOnly = false
 
   constructor(
     ctx: Context,
@@ -83,6 +84,7 @@ class FakeSessionQuery extends SessionQueryEngine {
   ): Promise<{ items: readonly SessionSearchHit[] }> {
     this.searchCalls += 1
     if (this.fail) throw new Error('search backend unavailable')
+    if (this.phraseOnly && _request.query.includes(' ')) return { items: [] }
     if (this.never) await new Promise<void>(() => {})
     if (this.hang) {
       await new Promise<void>((_resolve, reject) => {
@@ -340,6 +342,23 @@ describe('session memory recall', () => {
     new FakeSessionQuery(resumedCtx, [hit(prior, 2, 'inherited')], traceFor(fork))
     apply(resumedCtx, { enabled: true })
     expect(await runPreStep(resumedCtx, session)).toHaveLength(1)
+  })
+
+  it('falls back to a content keyword when the backend matches only literal phrases', async () => {
+    const caller = header('caller', '/work/project')
+    const session = Session.create(caller.id, [], caller)
+    const ctx = new Context()
+    const query = new FakeSessionQuery(ctx, [
+      hit(header('prior', '/work/project'), 6, 'The focused suite uses pnpm.'),
+    ], traceFor(caller))
+    query.phraseOnly = true
+    apply(ctx, { enabled: true })
+
+    const messages = await runPreStep(ctx, session)
+    const recall = messages.find(message => message.source.kind === 'memory-recall')
+
+    expect(recall).toBeDefined()
+    expect(query.searchCalls).toBe(2)
   })
 
   it('does not block or throw when the backend is unavailable or times out', async () => {

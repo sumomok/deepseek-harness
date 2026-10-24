@@ -72,7 +72,7 @@ The caller's `SessionHeader.cwd` must exist and the target Session must have exa
 
 ### Trigger and cache
 
-Only `agent/pre-step` is used, after `next()` and only at `step === 1` with a real `user` message in the entering batch. The last real user message is the query; injected `runtime-context`, instruction, checkpoint, and recall messages are ignored. A per-Session, per-turn cache stores one query digest and result; a later turn re-queries. There is no persistent cache and no replay state.
+Only `agent/pre-step` is used, after `next()` and only at `step === 1` with a real `user` message in the entering batch. The last real user message is the query; injected `runtime-context`, instruction, checkpoint, and recall messages are ignored. The search tries the user text first; if the backend returns no usable hit (for example its literal-phrase search quotes the whole request as one phrase), one content-keyword fallback runs inside the same deadline. A per-Session, per-turn cache stores one query digest and result; a later turn re-queries. There is no persistent cache and no replay state.
 
 ### Dedup
 

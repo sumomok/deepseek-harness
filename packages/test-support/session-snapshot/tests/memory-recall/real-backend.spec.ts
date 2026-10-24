@@ -5,9 +5,9 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId, SessionSeq, SessionStore } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import SessionProjectionRegistry from '../../../../session/session-projection/src/index.ts'
-import SqliteSessionQueryEngine from '../../../../session-query/session-query-sqlite/src/index.ts'
-import { apply } from '../../../../context/session-memory-recall/src/index.ts'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import SqliteSessionQueryEngine from '@deepseek-ai/dsh-session-query-sqlite'
+import { apply } from '@deepseek-ai/dsh-session-memory-recall'
 
 const SIGNAL = new AbortController().signal
 
@@ -54,7 +54,7 @@ async function runPreStep(ctx: Context, session: ReturnType<SessionStore['create
 it('recalls a same-cwd prior Session and excludes a different workspace', async () => {
   await withSqliteContext(async (ctx) => {
     ctx.sessions.create(SessionId('prior'), {
-      seed: [userEvent('How do we run the focused tests? Use pnpm exec vitest for the focused compaction suite.')],
+      seed: [userEvent('Use pnpm exec vitest for the focused compaction suite.')],
       meta: { cwd: '/work/project', createdAt: 1 },
     })
     ctx.sessions.create(SessionId('other'), {
@@ -71,7 +71,7 @@ it('recalls a same-cwd prior Session and excludes a different workspace', async 
 
     expect(recall).toBeDefined()
     const text = recall?.content[0]?.type === 'text' ? recall.content[0].text : ''
-    expect(text).toContain('How do we run the focused tests? Use pnpm exec vitest for the focused compaction suite.')
+    expect(text).toContain('Use pnpm exec vitest for the focused compaction suite.')
     expect(text).not.toContain('another workspace')
     expect(recall?.source.kind === 'memory-recall' && recall.source.hits)
       .toEqual([expect.objectContaining({ sessionId: SessionId('prior') })])

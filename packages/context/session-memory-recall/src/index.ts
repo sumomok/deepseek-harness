@@ -140,6 +140,28 @@ function digest(value: string): string {
   return createHash('sha256').update(value).digest('hex')
 }
 
+/** Common English function words that make poor standalone history queries. */
+const QUERY_STOP_WORDS = new Set([
+  'the', 'and', 'for', 'how', 'what', 'when', 'where', 'why', 'does', 'did',
+  'with', 'this', 'that', 'these', 'those', 'from', 'into', 'about', 'are',
+  'was', 'were', 'been', 'being', 'have', 'has', 'had', 'can', 'could', 'should',
+  'would', 'will', 'shall', 'may', 'might', 'must', 'you', 'your', 'our', 'its',
+  'they', 'them', 'their', 'there', 'here', 'use', 'using', 'run', 'runs',
+])
+
+/**
+ * Fallback query for backends that quote the whole request as one phrase.
+ * Uses the longest content token from the current user message.
+ * @param query - trimmed current user text.
+ * @returns one literal token, or undefined when none is useful.
+ */
+function keywordQuery(query: string): string | undefined {
+  const tokens = query.toLowerCase().match(/[\p{L}\p{N}_]{3,}/gu) ?? []
+  const candidates = tokens.filter(token => !QUERY_STOP_WORDS.has(token))
+  candidates.sort((left, right) => right.length - left.length)
+  return candidates[0]
+}
+
 /** True for a message that entered as an automatic recall already. */
 function isRecallMessage(message: UserMessage): message is UserMessage & { source: MemoryRecallSource } {
   return message.source.kind === 'memory-recall'
@@ -285,27 +307,34 @@ async function recallTurn(
       const trace = await sessionQuery.traceSession(agent.session.id, signal)
       excluded = lineageIds(trace)
     }
-    const page = await sessionQuery.searchSessions({
-      query,
-      sessionFilters: [{ kind: 'cwd', values: [cwd] }],
-      limit: Math.min(20, config.maxHits + 8),
-    }, { signal })
-    const candidates: RecallCandidate[] = []
-    for (const hit of page.items) {
-      if (!allowedHit(hit, agent.session.header, excluded, config)) continue
-      const excerpt = hit.bestMatch.snippet.trim()
-      if (excerpt.length === 0) continue
-      candidates.push({
-        hit: {
-          sessionId: hit.header.id,
-          seq: hit.bestMatch.seq,
-          digest: digest(`${String(hit.header.id)}:${String(hit.bestMatch.seq)}:${excerpt}`),
-        },
-        excerpt,
-      })
-      if (candidates.length >= config.maxHits) break
+    const search = async (text: string): Promise<RecallCandidate[]> => {
+      const page = await sessionQuery.searchSessions({
+        query: text,
+        sessionFilters: [{ kind: 'cwd', values: [cwd] }],
+        limit: Math.min(20, config.maxHits + 8),
+      }, { signal })
+      const candidates: RecallCandidate[] = []
+      for (const hit of page.items) {
+        if (!allowedHit(hit, agent.session.header, excluded, config)) continue
+        const excerpt = hit.bestMatch.snippet.trim()
+        if (excerpt.length === 0) continue
+        candidates.push({
+          hit: {
+            sessionId: hit.header.id,
+            seq: hit.bestMatch.seq,
+            digest: digest(`${String(hit.header.id)}:${String(hit.bestMatch.seq)}:${excerpt}`),
+          },
+          excerpt,
+        })
+        if (candidates.length >= config.maxHits) break
+      }
+      return candidates
     }
-    return candidates
+    const phraseMatches = await search(query)
+    if (phraseMatches.length > 0) return phraseMatches
+    const keyword = keywordQuery(query)
+    if (keyword === undefined || keyword === query) return []
+    return await search(keyword)
   })()
 
   return withDeadline(operation, config.timeoutMs, signal, (error: unknown) => {
