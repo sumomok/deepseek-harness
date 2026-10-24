@@ -13,7 +13,7 @@ English | [中文](README.zh.md)
 
 The todo list folds the latest whole-list `todo/write` rather than reading the `todos` projection. The two are different semantics: the durable list survives across turns and reopened sessions (as `dsh-tool-todo` states), while that projection is a standing-plan view that clears when the next turn starts. A compaction at a turn boundary must restore the list, so the log is authoritative here.
 
-Plan approval comes from the review's durable result: plan-mode renders one canonical sentence for an approval and another for a dismissal, and a dismissal is a non-error result. When a result carries neither sentence (a template another build wrote), the replayable `plan/mode` turn-off decides only where it is unambiguous; otherwise the plan is left out rather than guessed.
+Only the newest `exit_plan_mode` review decides. An approval carries plan-mode's approved sentence; a dismissal — a non-error result — or an answer this build does not recognise leaves the current plan undecided, so no earlier approval is reinstated and no plan is injected. A review with no result yet is still open, and the plan is left out rather than guessed.
 
 This package is a prototype: it is opt-in, not mounted by any shipped composition, and it treats an absent projection as a missing section rather than a failure. It adds one message source kind and no Session event types.
 
@@ -31,4 +31,4 @@ Mount it beside `dsh-agent`. The todo list, the plan, and unsettled jobs need no
 - The jobs section folds `job/registered` and `job/settled` and never reports a job as running: a registration before the latest `session/end-seed` reads "may have stopped", and one after it reads "no settlement logged yet; it may still be running". A killed process that never logged a settlement stays uncertain.
 - The message is capped at 4,000 characters and truncates by section; a very long plan loses its tail.
 - A real surface replacement whose `compaction/end` never committed (a crash mid-compaction) is not treated as a checkpoint, so no rebuild is written for it; this awaits the crash fixtures' outcome.
-- Approval recognition depends on plan-mode's canonical result sentences; a rewording build degrades to the `plan/mode` fallback or to omitting the plan, never to a guessed approval.
+- Approval recognition depends on plan-mode's canonical result sentences; a rewording build degrades to omitting the plan, never to a guessed approval or a reinstated older plan.

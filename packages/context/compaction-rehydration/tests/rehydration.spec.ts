@@ -378,16 +378,14 @@ describe('the state a compaction rebuilds', () => {
     expect(text).not.toContain('foreign helper')
   })
 
-  it('keeps an earlier approval when a later review is dismissed', async () => {
+  it('leaves the plan out after a dismissed review, even when an earlier one was approved', async () => {
     const { ctx, session, agent } = await harness()
     openTurn(session)
     callPlan(session, '# First plan', 'plan-a', 'approved')
     callPlan(session, '# Second plan', 'plan-b', 'dismissed')
     compact(session)
-    await fire(ctx, agent)
-    const text = rebuildTexts(session)[0] ?? ''
-    expect(text).toContain('# First plan')
-    expect(text).not.toContain('# Second plan')
+    expect(await fire(ctx, agent)).toBe(0)
+    expect(rebuildTexts(session)[0]).toBeUndefined()
   })
 
   it('takes the newest plan when two reviews both approve', async () => {
@@ -410,20 +408,12 @@ describe('the state a compaction rebuilds', () => {
     expect(await fire(ctx, agent)).toBe(0)
   })
 
-  it('falls back to plan mode only for an unrecognised review answer', async () => {
-    const approved = await harness()
-    openTurn(approved.session)
-    callPlan(approved.session, '# Unrecognised answer', 'plan-f', 'unknown')
-    approved.session.append('plan/mode', { active: false })
-    compact(approved.session)
-    await fire(approved.ctx, approved.agent)
-    expect(rebuildTexts(approved.session)[0]).toContain('# Unrecognised answer')
-
-    const unknown = await harness()
-    openTurn(unknown.session)
-    callPlan(unknown.session, '# No mode change', 'plan-g', 'unknown')
-    compact(unknown.session)
-    expect(await fire(unknown.ctx, unknown.agent)).toBe(0)
+  it('omits a plan whose review answer it does not recognise', async () => {
+    const { ctx, session, agent } = await harness()
+    openTurn(session)
+    callPlan(session, '# Unrecognised answer', 'plan-f', 'unknown')
+    compact(session)
+    expect(await fire(ctx, agent)).toBe(0)
   })
 
   it('does not revive a parent session\'s state in a fork', async () => {

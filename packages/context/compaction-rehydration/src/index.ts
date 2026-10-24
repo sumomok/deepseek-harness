@@ -23,7 +23,6 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed, ContextSnapshotSection } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-compaction'
-import type {} from '@deepseek-ai/dsh-plan-mode'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-subagent'
@@ -163,56 +162,39 @@ function firstText(blocks: readonly { readonly type: string; readonly text?: str
 }
 
 /**
- * The latest plan a user approved through `exit_plan_mode`.
+ * The plan a session currently holds, from the latest `exit_plan_mode` review.
  *
- * Approval is the review's own answer, so it comes from the durable result:
- * plan-mode renders one canonical sentence for an approval and another for a
- * dismissal, and a dismissal is a non-error result. When a result carries
- * neither sentence (a template another build wrote), the replayable
- * `plan/mode` state decides only where it is unambiguous: the call requires
- * plan mode to be active, and an approval is followed by `plan/mode` turning
- * inactive. Anything else leaves the plan out rather than guessing.
+ * Only the newest review decides: an approval carries plan-mode's approved
+ * sentence, and a dismissal — a non-error result — leaves the current plan
+ * undecided rather than reinstating an earlier approval. An answer this build
+ * does not recognise is treated the same way. A review with no result yet is
+ * still open, so the plan is left out entirely; nothing is guessed.
  */
 function planSection(session: Session): DraftSection | undefined {
-  interface PlanCall {
-    readonly seq: number
-    readonly plan: string
-  }
   const events = session.ownEvents()
-  const calls = new Map<string, PlanCall>()
-  const results = new Map<string, { readonly seq: number; readonly isError: boolean; readonly text: string }>()
-  const modes: { readonly seq: number; readonly active: boolean }[] = []
+  const calls = new Map<string, { readonly seq: number; readonly plan: string }>()
+  const results = new Map<string, { readonly isError: boolean; readonly text: string }>()
   for (const event of events) {
     if (event.type === 'tool/call' && event.data.name === 'exit_plan_mode') {
       const plan = planArgument(event.data.arguments)
       if (plan !== undefined) calls.set(String(event.data.callId), { seq: event.seq, plan })
       continue
     }
-    if (event.type === 'tool/result') {
-      results.set(String(event.data.message.toolCallId), {
-        seq: event.seq,
-        isError: event.data.message.isError === true,
-        text: firstText(event.data.message.content),
-      })
-      continue
-    }
-    if (event.type === 'plan/mode') modes.push({ seq: event.seq, active: event.data.active })
+    if (event.type !== 'tool/result') continue
+    results.set(String(event.data.message.toolCallId), {
+      isError: event.data.message.isError === true,
+      text: firstText(event.data.message.content),
+    })
   }
-  let latest: PlanCall | undefined
+  let latest: { readonly callId: string; readonly seq: number; readonly plan: string } | undefined
   for (const [callId, call] of calls) {
-    const result = results.get(callId)
-    if (result === undefined || result.isError) continue
-    let approved: boolean | undefined
-    if (result.text.includes(APPROVED_PLAN_RESULT)) approved = true
-    else if (result.text.includes(DISMISSED_PLAN_RESULT)) approved = false
-    else {
-      const nextMode = modes.find(mode => mode.seq > result.seq)
-      approved = nextMode === undefined ? undefined : nextMode.active === false
-    }
-    if (approved !== true) continue
-    if (latest === undefined || call.seq > latest.seq) latest = call
+    if (latest === undefined || call.seq > latest.seq) latest = { callId, ...call }
   }
   if (latest === undefined) return undefined
+  const result = results.get(latest.callId)
+  if (result === undefined || result.isError) return undefined
+  if (result.text.includes(DISMISSED_PLAN_RESULT)) return undefined
+  if (!result.text.includes(APPROVED_PLAN_RESULT)) return undefined
   return { name: 'plan', heading: 'Latest approved plan', text: latest.plan }
 }
 

@@ -7460,9 +7460,6 @@ importers:
       '@deepseek-ai/dsh-jobs':
         specifier: workspace:*
         version: link:../../jobs/jobs
-      '@deepseek-ai/dsh-plan-mode':
-        specifier: workspace:*
-        version: link:../../plan/plan-mode
       '@deepseek-ai/dsh-session-projection':
         specifier: workspace:*
         version: link:../../session/session-projection
