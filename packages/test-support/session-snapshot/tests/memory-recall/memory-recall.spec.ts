@@ -85,10 +85,12 @@ class FakeSessionQuery extends SessionQueryEngine {
     this.searchCalls += 1
     if (this.fail) throw new Error('search backend unavailable')
     if (this.phraseOnly && _request.query.includes(' ')) return { items: [] }
-    if (this.never) await new Promise<void>(() => {})
+    if (this.never) await new Promise<void>(() => { /* never settles on purpose */ })
     if (this.hang) {
       await new Promise<void>((_resolve, reject) => {
-        exec?.signal?.addEventListener('abort', () => reject(new Error('search aborted')), { once: true })
+        exec?.signal?.addEventListener('abort', () => {
+          reject(new Error('search aborted'))
+        }, { once: true })
       })
     }
     return { items: this.hits }
@@ -259,7 +261,7 @@ describe('session memory recall', () => {
     const first = await runPreStep(ctx, session)
     const recall = first.find(message => message.source.kind === 'memory-recall')
     expect(recall).toBeDefined()
-    const digestValue = digest(`prior:4:${'cached guidance'}`)
+    const digestValue = digest('prior:4:cached guidance')
     session.append('user/message', createUserMessage({
       content: recall?.content ?? [],
       source: {

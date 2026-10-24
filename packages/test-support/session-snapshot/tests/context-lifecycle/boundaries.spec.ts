@@ -25,9 +25,19 @@ function lines(name: string): string[] {
 function callsOf(events: readonly FixtureEvent[]): Set<string> {
   const ids = new Set<string>()
   for (const event of events) {
-    if (event.type === 'tool/call') ids.add(String(event.data?.['callId']))
+    const callId = asString(event.data?.['callId'])
+    if (event.type === 'tool/call' && callId !== undefined) ids.add(callId)
   }
   return ids
+}
+
+/**
+ * Read one string field of an untrusted JSON record.
+ * @param value - candidate taken from a parsed fixture row
+ * @returns the value when it is a string, else undefined
+ */
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined
 }
 
 function resultsOf(events: readonly FixtureEvent[]): Set<string> {
@@ -35,7 +45,8 @@ function resultsOf(events: readonly FixtureEvent[]): Set<string> {
   for (const event of events) {
     if (event.type !== 'tool/result') continue
     const message = event.data?.['message'] as Record<string, unknown> | undefined
-    if (message?.['toolCallId'] !== undefined) ids.add(String(message['toolCallId']))
+    const id = asString(message?.['toolCallId'])
+    if (id !== undefined) ids.add(id)
   }
   return ids
 }
@@ -44,7 +55,7 @@ function compactionBrackets(events: readonly FixtureEvent[]): { id: string; star
   const open = new Map<string, { id: string; start: number; end?: number; failed: boolean }>()
   const ordered: { id: string; start: number; end?: number; failed: boolean }[] = []
   events.forEach((event, index) => {
-    const id = String(event.data?.['compactionId'] ?? '')
+    const id = asString(event.data?.['compactionId']) ?? ''
     if (event.type === 'compaction/start') {
       const bracket = { id, start: index, failed: false }
       open.set(id, bracket)

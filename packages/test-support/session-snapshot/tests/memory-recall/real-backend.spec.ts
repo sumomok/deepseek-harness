@@ -8,6 +8,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SqliteSessionQueryEngine from '@deepseek-ai/dsh-session-query-sqlite'
 import { apply } from '@deepseek-ai/dsh-session-memory-recall'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 
 const SIGNAL = new AbortController().signal
 
@@ -42,7 +43,7 @@ async function runPreStep(ctx: Context, session: ReturnType<SessionStore['create
     source: { kind: 'user' },
   })
   const decision = await ctx.waterfall('agent/pre-step', {
-    agent: { session, options: {} } as never,
+    agent: { session, options: {} } as Agent,
     messages: [user],
     turn: 1,
     step: 1,

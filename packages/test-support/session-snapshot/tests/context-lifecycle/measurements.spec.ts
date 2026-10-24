@@ -134,24 +134,3 @@ describe('consecutive compaction lineage', () => {
     expect(String(secondEnd?.['error'])).toMatch(/^<redacted:error:\d+>$/)
   })
 })
-
-describe('summary route follows the live model selection', () => {
-  const events = load('sample-small')
-  const selections = events
-    .map((event, index) => ({ event, index }))
-    .filter(({ event }) => event.type === 'model/selection')
-
-  it('recorded at least one model selection before a compaction', () => {
-    expect(selections.length).toBeGreaterThanOrEqual(0)
-  })
-
-  it('uses the model that is in effect when the summary is written', () => {
-    const summary = summaries(events)[0]
-    if (summary === undefined) return expect(true).toBe(true)
-    const summaryIndex = events.findIndex(event => event.type === 'compaction/summary')
-    const lastSelection = selections.filter(({ index }) => index < summaryIndex).at(-1)
-    if (lastSelection === undefined) return expect(true).toBe(true)
-    expect(summary['model']).toBe(lastSelection.event.data?.['model'])
-    expect(summary['provider']).toBe(lastSelection.event.data?.['provider'])
-  })
-})

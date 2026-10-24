@@ -330,10 +330,12 @@ export function assertSanitized(
     }
     const event = JSON.parse(line) as { type?: string; data?: Record<string, unknown> }
     unredactedContent += countUnredacted(event)
-    if (event.type === 'tool/call') calls.add(String(event.data?.['callId']))
+    const callId = asString(event.data?.['callId'])
+    if (event.type === 'tool/call' && callId !== undefined) calls.add(callId)
     if (event.type === 'tool/result') {
       const message = event.data?.['message'] as Record<string, unknown> | undefined
-      if (message?.['toolCallId'] !== undefined) results.add(String(message['toolCallId']))
+      const resultId = asString(message?.['toolCallId'])
+      if (resultId !== undefined) results.add(resultId)
     }
   }
   const orphanCalls = [...calls].filter(id => !results.has(id)).length
@@ -370,6 +372,15 @@ function walk(node: unknown, visit: (value: string) => void): void {
   if (node === null || typeof node !== 'object') return
   if (Array.isArray(node)) { for (const entry of node) walk(entry, visit); return }
   for (const value of Object.values(node as Record<string, unknown>)) walk(value, visit)
+}
+
+/**
+ * Read one string field of an untrusted JSON record.
+ * @param value - candidate taken from a parsed row
+ * @returns the value when it is a string, else undefined
+ */
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined
 }
 
 function countUnredacted(node: unknown, key = ''): number {

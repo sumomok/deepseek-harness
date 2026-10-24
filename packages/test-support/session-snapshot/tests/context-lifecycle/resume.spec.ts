@@ -21,6 +21,7 @@ import {
 import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import SessionStore, { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -222,7 +223,7 @@ class SummaryStubEngine extends BasicCompactionEngine {
  * at a chosen stage. Seeding a prefix of a valid log keeps every event shape
  * authoritative rather than hand-writing a `compaction/summary` payload.
  */
-async function compactionCycle(id: SessionId): Promise<{ events: readonly { type: string }[]; stage: Record<string, number> }> {
+async function compactionCycle(id: SessionId): Promise<{ events: readonly SessionEvent[]; stage: Record<string, number> }> {
   const ctx = await mount(await tempRoot())
   // Task state lives *inside* the compacted range so a checkpoint shadows it.
   const session = baseSession(id, 10, (early) => {
@@ -267,7 +268,7 @@ async function compactionCycle(id: SessionId): Promise<{ events: readonly { type
     auto: false, headroomTokens: 0, maxTokens: 8192, thresholdRatio: 0.3, retainTokens: 20,
   })
   await engineUnderTest.compactIfNeeded(
-    { session, options: { provider: MODEL, model: MODEL } } as never,
+    { session, options: { provider: MODEL, model: MODEL } } as Agent,
     'pressure',
     new AbortController().signal,
   )
@@ -309,13 +310,13 @@ function rebuildCount(session: Session): number {
 }
 
 /** Persist an inclusive prefix of a validated log, then dispose the writer. */
-async function seedPrefix(root: string, id: SessionId, events: readonly { type: string }[], upto: number): Promise<void> {
+async function seedPrefix(root: string, id: SessionId, events: readonly SessionEvent[], upto: number): Promise<void> {
   const ctx = await mount(root)
   // Every fixture in this file uses the `/abs` workspace; the header cwd is
   // not an event, so the seeding prepare must carry it into the stored header.
   const detached = ctx.sessions.prepare(id, { meta: { cwd: '/abs' } })
   const handle = await ctx.sessionPersistence.create(detached.header)
-  await handle.append(events.slice(0, upto + 1) as never)
+  await handle.append(events.slice(0, upto + 1))
   await handle.close()
   await ctx.fiber.dispose()
 }
