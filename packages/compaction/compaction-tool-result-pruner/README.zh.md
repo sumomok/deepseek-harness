@@ -98,7 +98,7 @@ kind: "package-reference"
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：`ToolResultPruner` 服务、`pruneSession` / `previewSessionPrune` / `applyPrunePreview` / `pruneContent` / `measureContent` |
-| [`src/recovery.ts`](src/recovery.ts) | `{sessionId, seq}` / spill 地址解析、preview 与 apply DTO、替换链追踪 |
+| [`src/recovery.ts`](src/recovery.ts) | 修剪器专用的 spill 地址解析与 preview/apply DTO；通用 seq 追踪与 `recoveryNotice` 从 `dsh-compaction` 重导出 |
 | [`src/config.ts`](src/config.ts) | `PRUNE_MARKER`、默认值、码点计数、预算验证 |
 | [`src/types.ts`](src/types.ts) | `ToolResultPruneConfig`、`ResolvedConfig`、`PrunedEntry`、`PruneResult` |
 

@@ -105,6 +105,10 @@ type ManualCompactionErrorCode =
 
 在摘要提交之前，后端会派发同步的 `compaction/summary-review` Cordis waterfall，载荷为 `SummaryReview`：已框定的摘要、其被遮蔽的 surface seq 与 token 价格、实际使用摘要路由的 provider 与 model，以及执行压缩的 agent 的 session 与路由选项。监听器调用 `next()` 表示接受，返回 false 表示拒绝；没有监听器时默认接受。拒绝属于摘要失败：后端恰好写入一条携带错误的 `compaction/end`，并且不写 `compaction/summary`、不替换 surface。该钩子有意保持同步，也不是 Session 事件，因此不引入新的持久化格式。
 
+## 表层恢复 helper
+
+该 Service Definition 还导出通用的表层恢复词汇，供遮蔽工具结果但保留原文可读性的消费方使用：`originalToolResultSeq(session, seq)`、`RecoveryAddress`/`RecoverySpillRef` 与 `recoveryNotice(address)`。默认地址是原事件的 `{ sessionId, seq }`；已有 spill notice 原样复用；spill ref 是可选的泛型类型，因此本包不导入 spill 后端、不解析 notice。seq 追踪沿 `surfaceOp: replace` 的引用跨连续替换与无关事件前进，并带 visited 集合与深度上限。工具结果修剪器重导出同一组 helper。见[包约定](../../packages/compaction/compaction/README.zh.md#surface-recovery-addresses)。
+
 ## 工具结果剪枝产出
 
 可选的工具结果剪枝服务会报告每次持久内容替换以及 Unicode code point 的总减少量。其公开结果类型位于 [`compaction-tool-result-pruner/src/types.ts`](../../packages/compaction/compaction-tool-result-pruner/src/types.ts)。
@@ -298,6 +302,41 @@ pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null
  * earlier in the pass remain durable.
  */
 pruneSession(session: Session): PruneResult
+
+/**
+ * Recovery-aware pruning: each replacement carries an address for its
+ * complete original. The default session address writes nothing. An existing
+ * spill notice is reused exactly. Only `address: 'spill'` with no notice
+ * saves complete text, once per session and original sequence.
+ * @param session - session whose current surface is rewritten.
+ * @param options - address preference and optional spill store.
+ * @returns replacements with their addresses, plus skipped replacements.
+ */
+async pruneSessionWithRecovery( session: Session, options: ToolResultRecoveryOptions = {}, ): Promise<RecoveryPruneResult>
+
+/**
+ * Plan a pruning pass without changing the session or saving a spill file.
+ * The caller may run summary review first and apply the preview only after
+ * its compaction transaction commits. A spill address with no recorded
+ * notice is reported as deferred; preview invents no locator.
+ * @param session - session whose current surface is measured.
+ * @param options - address preference and optional spill store.
+ * @returns candidate replacements, skipped candidates, and projected savings.
+ */
+previewSessionPrune( session: Session, options: ToolResultRecoveryOptions = {}, ): PrunePreview
+
+/**
+ * Apply a preview after the caller's summary/replacement has committed.
+ * Entries whose sequence is no longer on the surface, or whose message no
+ * longer matches the preview, are skipped; applying the same preview twice
+ * is idempotent. A spill save happens only here, and a save failure falls
+ * back to the session address or skips the entry.
+ * @param session - session whose current surface is rewritten.
+ * @param preview - read-only plan produced by {@link previewSessionPrune}.
+ * @param options - address preference and optional spill store.
+ * @returns landed replacements and counts of skipped preview entries.
+ */
+async applyPrunePreview( session: Session, preview: PrunePreview, options: ToolResultRecoveryOptions = {}, ): Promise<PruneApplyResult>
 ```
 
 Types: [ContentBlock](llm-streaming.zh.md) · [Session](session.zh.md)

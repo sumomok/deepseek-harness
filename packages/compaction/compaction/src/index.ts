@@ -17,6 +17,8 @@ import type { CompactionCheckpointSource } from './checkpoint.ts'
 export type { CompactionResult, ManualCompactionWhileBusy } from './types.ts'
 export { CompactionId } from './brand.ts'
 export { toolPairingBalancedAfter, toolPairingBalancedBefore } from './tool-pairing.ts'
+export { originalToolResultSeq, recoveryNotice } from './recovery.ts'
+export type { RecoveryAddress, RecoverySpillRef } from './recovery.ts'
 // The checkpoint source constructor and predicate are declared on the cordis-free
 // `./checkpoint` leaf so client and wire programs can name them without this
 // root's Context merge; the root stays the host-side entry point for both.

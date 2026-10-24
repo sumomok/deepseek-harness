@@ -92,6 +92,10 @@ Expected manual failures throw `ManualCompactionError` with a stable `code` from
 
 The Service Definition exports `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)` for snapping and validating compaction edges. A safe edge has no unanswered assistant tool call crossing it. Each helper validates that the event sequence is in the current surface and answers from balances cached per cut in surface order, so repeated checks read no events; a replace generation rebuilds the cache, and missing seqs or an orphan `tool/result` reject as corrupt surface state.
 
+### Surface recovery addresses
+
+The Service Definition exports `originalToolResultSeq(session, seq)`, `RecoveryAddress`, and `recoveryNotice(address)` for consumers that shadow a tool result but keep its original readable. The address is either the original event's `{ sessionId, seq }`, an already-recorded spill notice, or an explicit `unavailable` result. Sequence tracing follows `surfaceOp: replace` citations across consecutive replacements and unrelated events, with a visited set and depth cap. This leaf is deliberately generic: it parses no spill notice and imports no spill backend; notice recognition stays with the pruner/spill policy. The pruner re-exports the same helpers so existing consumers keep one import path.
+
 ### The surface contract
 
 `SurfaceEventType` is a closed union — `user/message`, `assistant/message`, and `tool/result` require `surfaceOp`, and other events forbid it, so a `compaction/*` event cannot appear on the surface. A successful backend run instead brackets the operation in the log: it appends `compaction/start` (log-only) to acquire the lock, summarizes the range, appends the log-only `compaction/summary` record, replaces the selected span with one `user/message` carrying the summary — the only surface mutation — and appends `compaction/end` (log-only) to release the lock.
@@ -105,6 +109,7 @@ The replacement sits inside the lock bracket, so a crash between `compaction/sta
 | [`src/index.ts`](src/index.ts) | Plugin entry: abstract `CompactionEngine`, `CompactionTrigger`, `ManualCompactionError`, `ctx.compaction` merge |
 | [`src/types.ts`](src/types.ts) | `CompactionResult` and the declaration-merged `compaction/*` session events |
 | [`src/tool-pairing.ts`](src/tool-pairing.ts) | Per-session cut-balance cache behind the two boundary helpers |
+| [`src/recovery.ts`](src/recovery.ts) | Generic `{sessionId, seq}` / spill-notice recovery addresses and replacement-chain tracing |
 | [`src/checkpoint.ts`](src/checkpoint.ts) | Cordis-free checkpoint source constructor and predicate (`./checkpoint` leaf) |
 | [`src/brand.ts`](src/brand.ts) | `CompactionId` branded identity |
 

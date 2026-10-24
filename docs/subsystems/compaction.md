@@ -105,6 +105,10 @@ The Service Definition exports `toolPairingBalancedBefore(session, seq)` and `to
 
 Before a summary commits, a backend dispatches the synchronous `compaction/summary-review` Cordis waterfall with a `SummaryReview`: the framed summary, its shadowed surface seqs and token prices, the routed summarizer's provider and model, and the compacting agent's session and routing options. Listeners accept by calling `next()` and reject by returning false; the default without a listener is acceptance. A rejection is a summary failure: the backend writes exactly one `compaction/end` carrying the error and leaves `compaction/summary` and the surface replacement unwritten. The hook is intentionally synchronous and is not a Session event, so it adds no persisted format.
 
+## Surface recovery helpers
+
+The Service Definition also exports the generic surface-recovery vocabulary used by consumers that shadow a tool result but keep the original readable: `originalToolResultSeq(session, seq)`, `RecoveryAddress`/`RecoverySpillRef`, and `recoveryNotice(address)`. The default address is the original event's `{ sessionId, seq }`; an existing spill notice is reused verbatim; a spill reference is optional and typed generically, so this package imports no spill backend and parses no notice. Sequence tracing follows `surfaceOp: replace` citations across consecutive replacements and unrelated events with a visited set and depth cap. The tool-result pruner re-exports the same helpers. See the [package contract](../../packages/compaction/compaction/README.md#surface-recovery-addresses).
+
 ## Tool-result pruning outcomes
 
 The optional tool-result pruning service reports each durable content replacement and the aggregate Unicode-code-point reduction. Its public result types live in [`compaction-tool-result-pruner/src/types.ts`](../../packages/compaction/compaction-tool-result-pruner/src/types.ts).
@@ -298,6 +302,41 @@ pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null
  * earlier in the pass remain durable.
  */
 pruneSession(session: Session): PruneResult
+
+/**
+ * Recovery-aware pruning: each replacement carries an address for its
+ * complete original. The default session address writes nothing. An existing
+ * spill notice is reused exactly. Only `address: 'spill'` with no notice
+ * saves complete text, once per session and original sequence.
+ * @param session - session whose current surface is rewritten.
+ * @param options - address preference and optional spill store.
+ * @returns replacements with their addresses, plus skipped replacements.
+ */
+async pruneSessionWithRecovery( session: Session, options: ToolResultRecoveryOptions = {}, ): Promise<RecoveryPruneResult>
+
+/**
+ * Plan a pruning pass without changing the session or saving a spill file.
+ * The caller may run summary review first and apply the preview only after
+ * its compaction transaction commits. A spill address with no recorded
+ * notice is reported as deferred; preview invents no locator.
+ * @param session - session whose current surface is measured.
+ * @param options - address preference and optional spill store.
+ * @returns candidate replacements, skipped candidates, and projected savings.
+ */
+previewSessionPrune( session: Session, options: ToolResultRecoveryOptions = {}, ): PrunePreview
+
+/**
+ * Apply a preview after the caller's summary/replacement has committed.
+ * Entries whose sequence is no longer on the surface, or whose message no
+ * longer matches the preview, are skipped; applying the same preview twice
+ * is idempotent. A spill save happens only here, and a save failure falls
+ * back to the session address or skips the entry.
+ * @param session - session whose current surface is rewritten.
+ * @param preview - read-only plan produced by {@link previewSessionPrune}.
+ * @param options - address preference and optional spill store.
+ * @returns landed replacements and counts of skipped preview entries.
+ */
+async applyPrunePreview( session: Session, preview: PrunePreview, options: ToolResultRecoveryOptions = {}, ): Promise<PruneApplyResult>
 ```
 
 Types: [ContentBlock](llm-streaming.md) · [Session](session.md)

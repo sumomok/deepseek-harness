@@ -17,6 +17,9 @@
 /compaction/the-service:
   en: 7dfc6948e7070d22
   zh: 1c3399d515b97f10
+/compaction/surface-recovery-helpers:
+  en: ae2c6534f64aa742
+  zh: 0309f5e94ce63689
 /compaction/tool-result-pruning-outcomes:
   en: 27091b0a3d454575
   zh: e22431e27e1349f2

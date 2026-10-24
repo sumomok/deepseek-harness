@@ -3461,6 +3461,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'landed replacements and aggregate Unicode-code-point savings.',
         throws: ['when the session rejects a replacement; replacements committed earlier in the pass remain durable.'],
       },
+      {
+        signature: 'async pruneSessionWithRecovery( session: Session, options: ToolResultRecoveryOptions = {}, ): Promise<RecoveryPruneResult>',
+        description: 'Recovery-aware pruning: each replacement carries an address for its complete original. The default session address writes nothing. An existing spill notice is reused exactly. Only `address: \'spill\'` with no notice saves complete text, once per session and original sequence.',
+        parameters: [{ name: 'session', description: 'session whose current surface is rewritten.' }, { name: 'options', description: 'address preference and optional spill store.' }],
+        returns: 'replacements with their addresses, plus skipped replacements.',
+      },
+      {
+        signature: 'previewSessionPrune( session: Session, options: ToolResultRecoveryOptions = {}, ): PrunePreview',
+        description: 'Plan a pruning pass without changing the session or saving a spill file. The caller may run summary review first and apply the preview only after its compaction transaction commits. A spill address with no recorded notice is reported as deferred; preview invents no locator.',
+        parameters: [{ name: 'session', description: 'session whose current surface is measured.' }, { name: 'options', description: 'address preference and optional spill store.' }],
+        returns: 'candidate replacements, skipped candidates, and projected savings.',
+      },
+      {
+        signature: 'async applyPrunePreview( session: Session, preview: PrunePreview, options: ToolResultRecoveryOptions = {}, ): Promise<PruneApplyResult>',
+        description: 'Apply a preview after the caller\'s summary/replacement has committed. Entries whose sequence is no longer on the surface, or whose message no longer matches the preview, are skipped; applying the same preview twice is idempotent. A spill save happens only here, and a save failure falls back to the session address or skips the entry.',
+        parameters: [{ name: 'session', description: 'session whose current surface is rewritten.' }, { name: 'preview', description: 'read-only plan produced by {@link previewSessionPrune}.' }, { name: 'options', description: 'address preference and optional spill store.' }],
+        returns: 'landed replacements and counts of skipped preview entries.',
+      },
     ],
   },
   {
@@ -6604,6 +6622,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type PreToolDecision = {\n    kind: \'allow\';\n} | {\n    kind: \'deny\';\n    reason: string;\n    info?: ToolErrorInfo;\n} | {\n    kind: \'cancel\';\n} | {\n    kind: \'ask\';\n    reason?: string;\n    displayReason?: {\n        readonly en: string;\n        readonly [locale: string]: string;\n    };\n};',
   },
   {
+    name: 'PreviewRecoveryAddress',
+    declaration: 'export type PreviewRecoveryAddress = {\n    readonly kind: \'session\';\n    readonly sessionId: SessionId;\n    readonly seq: SessionSeq;\n} | {\n    readonly kind: \'spill-existing\';\n    readonly notice: string;\n} | {\n    readonly kind: \'spill-deferred\';\n} | {\n    readonly kind: \'unavailable\';\n    readonly reason: \'not-a-tool-result\' | \'original-missing\' | \'non-text-content\';\n};',
+  },
+  {
     name: 'Principal',
     declaration: 'export type Principal = PrincipalMap[keyof PrincipalMap];',
   },
@@ -6708,8 +6730,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ProviderRequestId = Branded<\'ProviderRequestId\'>;',
   },
   {
+    name: 'PruneApplyResult',
+    declaration: 'export interface PruneApplyResult extends RecoveryPruneResult {\n    readonly notOnSurface: number;\n    readonly changed: number;\n}',
+  },
+  {
     name: 'PrunedEntry',
     declaration: 'export interface PrunedEntry {\n    readonly originalSeq: SessionSeq;\n    readonly replacementSeq: SessionSeq;\n    readonly callId: ToolCallId;\n    readonly charsBefore: number;\n    readonly charsAfter: number;\n}',
+  },
+  {
+    name: 'PrunePreview',
+    declaration: 'export interface PrunePreview {\n    readonly entries: readonly PrunePreviewEntry[];\n    readonly skipped: readonly PrunePreviewSkip[];\n    readonly reclaimableChars: number;\n    readonly reclaimableTokens: number;\n}',
+  },
+  {
+    name: 'PrunePreviewEntry',
+    declaration: 'export interface PrunePreviewEntry {\n    readonly originalSeq: SessionSeq;\n    readonly message: ToolResultMessage;\n    readonly original: ToolResultMessage;\n    readonly charsBefore: number;\n    readonly projectedCharsAfter: number;\n    readonly tokensBefore: number;\n    readonly projectedTokensAfter: number;\n    readonly address: PreviewRecoveryAddress;\n    readonly notice?: string;\n}',
+  },
+  {
+    name: 'PrunePreviewSkip',
+    declaration: 'export interface PrunePreviewSkip {\n    readonly originalSeq: SessionSeq;\n    readonly reason: \'notice-too-large\' | \'no-address\' | \'spill-deferred\' | \'non-text\';\n}',
   },
   {
     name: 'PruneResult',
@@ -6778,6 +6816,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ReasoningEffortId',
     declaration: 'export type ReasoningEffortId = Branded<\'ReasoningEffortId\'>;',
+  },
+  {
+    name: 'RecoveredPrunedEntry',
+    declaration: 'export interface RecoveredPrunedEntry extends PrunedEntry {\n    readonly recovery: RecoveryAddress;\n}',
+  },
+  {
+    name: 'RecoveryPruneResult',
+    declaration: 'export interface RecoveryPruneResult extends PruneResult {\n    readonly pruned: readonly RecoveredPrunedEntry[];\n    readonly noticeDropped: number;\n    readonly noAddress: number;\n}',
+  },
+  {
+    name: 'RecoverySpillStore',
+    declaration: 'export interface RecoverySpillStore {\n    saveText(request: {\n        readonly owner: {\n            readonly sessionId: SessionId;\n        };\n        readonly source: {\n            readonly kind: \'tool\';\n            readonly toolName: string;\n            readonly callId: ToolCallId;\n            readonly label: \'result\' | \'dispatch\';\n        };\n        readonly suggestedName: string;\n        readonly content: string;\n    }): Promise<RecoverySpillRef>;\n}',
   },
   {
     name: 'RecurringScheduleRecord',
@@ -8446,6 +8496,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ToolResultMessage',
     declaration: 'export interface ToolResultMessage extends MessageBase {\n    readonly role: \'tool\';\n    readonly source: ToolMessageSource;\n    readonly toolCallId: ToolCallId;\n    readonly isError?: boolean;\n}',
+  },
+  {
+    name: 'ToolResultRecoveryOptions',
+    declaration: 'export interface ToolResultRecoveryOptions {\n    readonly address?: \'session\' | \'spill\';\n    readonly spillStore?: RecoverySpillStore;\n}',
   },
   {
     name: 'ToolResultView',

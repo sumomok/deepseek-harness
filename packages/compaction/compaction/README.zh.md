@@ -92,6 +92,10 @@ kind: "package-reference"
 
 该 Service Definition 导出 `toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`，用于对齐和验证压缩边界。安全边界不会被尚未回答的 assistant 工具调用跨越。每个 helper 都会验证给定事件 seq 位于当前表层，并根据按表层顺序缓存的各切分点配对状态返回结果，因此重复检查不读取事件；replace generation 会重建缓存，缺失 seq 或孤立的 `tool/result` 会被视为表层状态损坏并遭拒绝。
 
+### 表层恢复地址
+
+该 Service Definition 导出 `originalToolResultSeq(session, seq)`、`RecoveryAddress` 与 `recoveryNotice(address)`，供遮蔽工具结果但保留其原文可读性的消费方使用。地址要么是原事件的 `{ sessionId, seq }`，要么是已记录的 spill notice，要么是显式的 `unavailable` 结果。seq 追踪沿 `surfaceOp: replace` 的引用跨连续替换与无关事件前进，并带 visited 集合与深度上限。这个叶子有意保持通用：不解析 spill notice，也不导入 spill 后端；notice 识别仍留在 pruner/spill policy。pruner 重导出同一组 helper，现有消费方保持单一导入路径。
+
 ### 表层约定
 
 `SurfaceEventType` 是封闭联合——`user/message`、`assistant/message` 与 `tool/result` 必须携带 `surfaceOp`，其他事件禁止携带该字段，因此 `compaction/*` 事件不能出现在表层上。成功的后端运行改为在日志中包围整个操作：先追加 `compaction/start`（仅日志）获取锁，摘要该范围，追加仅日志的 `compaction/summary` 记录，用一条承载摘要的 `user/message` 替换所选范围——这是唯一的表层变更——最后追加 `compaction/end`（仅日志）释放锁。
@@ -105,6 +109,7 @@ kind: "package-reference"
 | [`src/index.ts`](src/index.ts) | 插件入口：抽象 `CompactionEngine`、`CompactionTrigger`、`ManualCompactionError`、`ctx.compaction` 合并 |
 | [`src/types.ts`](src/types.ts) | `CompactionResult` 与声明合并的 `compaction/*` 会话事件 |
 | [`src/tool-pairing.ts`](src/tool-pairing.ts) | 两个边界 helper 背后的每会话切分点平衡缓存 |
+| [`src/recovery.ts`](src/recovery.ts) | 通用 `{sessionId, seq}` / spill notice 恢复地址与替换链追踪 |
 | [`src/checkpoint.ts`](src/checkpoint.ts) | 无 Cordis 依赖的检查点来源构造函数与谓词（`./checkpoint` 叶子） |
 | [`src/brand.ts`](src/brand.ts) | `CompactionId` 品牌化标识 |
 

@@ -98,7 +98,7 @@ Pruning measures `text` blocks by Unicode code point (non-text blocks cost zero)
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `ToolResultPruner` service, `pruneSession` / `previewSessionPrune` / `applyPrunePreview` / `pruneContent` / `measureContent` |
-| [`src/recovery.ts`](src/recovery.ts) | `{sessionId, seq}` / spill address resolution, preview and apply DTOs, replacement-chain tracing |
+| [`src/recovery.ts`](src/recovery.ts) | Pruner-specific spill address resolution and preview/apply DTOs; generic sequence tracing and `recoveryNotice` are re-exported from `dsh-compaction` |
 | [`src/config.ts`](src/config.ts) | `PRUNE_MARKER`, defaults, code-point counting, budget validation |
 | [`src/types.ts`](src/types.ts) | `ToolResultPruneConfig`, `ResolvedConfig`, `PrunedEntry`, `PruneResult` |
 
