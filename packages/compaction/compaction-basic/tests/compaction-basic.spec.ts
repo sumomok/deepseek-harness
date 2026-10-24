@@ -733,6 +733,39 @@ describe('shared route resolution', () => {
   })
 })
 
+describe('summary tools follow the route', () => {
+  it('omits stale header tools on a pending route and keeps them on a matching route', async () => {
+    const ctx = createContext(1_000)
+    const adapter = new ScriptedAdapter([{ type: 'text', text: 'summary' }], undefined, 1_000)
+    ctx.llm.registerAdapter(['header', 'pending'], adapter)
+    const compact = new ExposedCompactionEngine(ctx, {
+      auto: false,
+      thresholdRatio: 0.5,
+      headroomTokens: 0,
+      maxTokens: 1,
+      retainTokens: 1,
+    })
+    const tools = [{ name: 'recursive', description: 'x', parameters: { type: 'object', properties: { actions: { type: 'array', items: { type: 'object' } } } } }]
+    const stale = conversation(2, 'x'.repeat(600))
+    stale.append('request/header', {
+      header: { config: { provider: 'header', model: 'header' }, tools },
+      reason: 'resume',
+    })
+    appendModelSelection(stale, 'pending', 'pending')
+
+    await compact.compactIfNeeded(agent(stale, 'fallback'), 'pressure', SIGNAL)
+    expect(adapter.lastOptions?.tools).toBeUndefined()
+
+    const matching = conversation(2, 'x'.repeat(600))
+    matching.append('request/header', {
+      header: { config: { provider: 'pending', model: 'pending' }, tools },
+      reason: 'resume',
+    })
+    await compact.compactIfNeeded(agent(matching, 'fallback'), 'pressure', SIGNAL)
+    expect(adapter.lastOptions?.tools).toEqual(tools)
+  })
+})
+
 describe('pressure measurement and retention', () => {
   const compactConfig: BasicCompactionConfig = {
     auto: false,
@@ -1039,11 +1072,10 @@ describe('pressure measurement and retention', () => {
     const ctx = createContext()
     const compact = service(compactConfig, ctx)
     const measure = vi.spyOn(ctx.tokenMeter, 'measure')
-    const stop = new Error('stop after first decision')
-    vi.spyOn(compact, 'compactRegion').mockRejectedValueOnce(stop)
+    compact.error = new Error('stop after first decision')
 
-    await expect(compactIfNeeded(compact, conversation(4))).rejects.toBe(stop)
-    expect(measure).toHaveBeenCalledTimes(1)
+    await expect(compactIfNeeded(compact, conversation(4))).rejects.toThrow('stop after first decision')
+    expect(measure).toHaveBeenCalledTimes(3)
   })
 
   it('starts the retained tail at a user turn boundary', async () => {
@@ -1287,10 +1319,35 @@ describe('optional model-free tool-result pruning', () => {
     })
   })
 
-  it('calls the recovery-aware pruner entry when the service provides it', async () => {
+  it('leaves every previewed result untouched when summary review rejects', async () => {
+    const ctx = createContext(1_000)
+    const prune = new ToolResultPruner(ctx, pruneConfig)
+    const apply = vi.spyOn(prune, 'applyPrunePreview')
+    ctx.on('compaction/summary-review', () => false)
+    const compact = new TestCompactionEngine(ctx, {
+      headroomTokens: 0,
+      maxTokens: 8192,
+      auto: false,
+      thresholdRatio: 0.5,
+      retainTokens: 20,
+    })
+    const session = toolConversation()
+    const generation = session.surface.replaceGeneration
+    const results = session.snapshotEvents().filter(event => event.type === 'tool/result').length
+
+    await expect(compactIfNeeded(compact, session)).rejects.toThrow('rejected the summary')
+
+    expect(apply).not.toHaveBeenCalled()
+    expect(session.surface.replaceGeneration).toBe(generation)
+    expect(session.snapshotEvents().filter(event => event.type === 'tool/result')).toHaveLength(results)
+    expect(session.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(false)
+  })
+
+  it('previews and applies the pruner plan when the service provides it', async () => {
     const ctx = createContext(10_000)
     const prune = new ToolResultPruner(ctx, pruneConfig)
-    const recovery = vi.spyOn(prune, 'pruneSessionWithRecovery')
+    const preview = vi.spyOn(prune, 'previewSessionPrune')
+    const apply = vi.spyOn(prune, 'applyPrunePreview')
     const compact = new TestCompactionEngine(ctx, {
       headroomTokens: 0,
       maxTokens: 8192,
@@ -1298,7 +1355,34 @@ describe('optional model-free tool-result pruning', () => {
       retainTokens: 900,
     })
     await compactIfNeeded(compact, oversizedToolResult(), 'context-overflow')
-    expect(recovery).toHaveBeenCalledTimes(1)
+    expect(preview).toHaveBeenCalledTimes(1)
+    expect(apply).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps every skipped preview on both pressure and overflow paths', async () => {
+    const ctx = createContext(10_000)
+    const prune = new ToolResultPruner(ctx, pruneConfig)
+    const preview = vi.spyOn(prune, 'previewSessionPrune').mockReturnValue({
+      entries: [],
+      skipped: [{ originalSeq: SessionSeq(1), reason: 'spill-deferred' }],
+      reclaimableChars: 0,
+      reclaimableTokens: 0,
+    })
+    const eager = vi.spyOn(prune, 'pruneSession')
+    const apply = vi.spyOn(prune, 'applyPrunePreview')
+    const compact = new TestCompactionEngine(ctx, {
+      headroomTokens: 0,
+      maxTokens: 8192,
+      thresholdRatio: 1,
+      retainTokens: 900,
+    })
+
+    await compactIfNeeded(compact, oversizedToolResult(), 'context-overflow')
+    await compactIfNeeded(compact, oversizedToolResult(), 'pressure')
+
+    expect(preview).toHaveBeenCalled()
+    expect(eager).not.toHaveBeenCalled()
+    expect(apply).not.toHaveBeenCalled()
   })
 
   it('falls back to the synchronous entry for an older pruner implementation', async () => {
@@ -1680,8 +1764,13 @@ class ScriptedAdapter extends LlmAdapter {
   constructor(
     private readonly blocks: readonly ContentBlock[],
     private readonly finish: (StreamChunk & { type: 'finish' })['reason'] = { kind: 'stop' },
+    private readonly contextWindow = 100_000,
   ) {
     super()
+  }
+
+  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    return Promise.resolve({ provider, id: model, name: model, context: { contextWindow: this.contextWindow } })
   }
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -2369,7 +2458,7 @@ describe('automatic listener and loader composition', () => {
     expect(summarizedText(compact.calls[0]!.input)).toContain('tool result middle pruned')
   })
 
-  it('retries from a durable prune when later overflow summarization throws', async () => {
+  it('does not prune when overflow summarization throws before commit', async () => {
     const ctx = createContext(10_000)
     const warnings: string[] = []
     ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
@@ -2387,15 +2476,14 @@ describe('automatic listener and loader composition', () => {
     compact.error = new Error('summary unavailable after prune')
     const session = oversizedToolResult(3_000, true)
 
-    expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(true)
-    expect(session.surface.replaceGeneration).toBe(1)
-    expect(session.snapshotEvents().filter(event => event.type === 'tool/result')).toHaveLength(2)
+    expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(false)
+    expect(session.surface.replaceGeneration).toBe(0)
+    expect(session.snapshotEvents().filter(event => event.type === 'tool/result')).toHaveLength(1)
     expect(session.snapshotEvents().findLast(event => event.type === 'compaction/end')?.data)
       .toMatchObject({ error: 'summary unavailable after prune' })
-    expect(warnings).toContainEqual(expect.stringContaining('retrying from the replacement surface'))
   })
 
-  it('lets cancellation win when summary throws after a durable prune', async () => {
+  it('does not prune when cancellation wins during overflow summarization', async () => {
     const ctx = createContext(10_000)
     const controller = new AbortController()
     void new ToolResultPruner(ctx, {
@@ -2414,7 +2502,7 @@ describe('automatic listener and loader composition', () => {
     const session = oversizedToolResult(3_000, true)
 
     expect(await recover(ctx, agent(session, MODEL), overflow(), controller.signal)).toBe(false)
-    expect(session.surface.replaceGeneration).toBe(1)
+    expect(session.surface.replaceGeneration).toBe(0)
   })
 
   it('preserves the newest whole tool-call/result pair during forced overflow compaction', async () => {

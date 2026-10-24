@@ -14,12 +14,13 @@ import type { Session, SessionSeq } from '@deepseek-ai/dsh-session'
 // Type-only: the `ctx.sessionProjections` Context merge behind the declared injection.
 import type {} from '@deepseek-ai/dsh-session-projection'
 import { CONTEXT_WINDOW_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
-import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
+import type { LlmCallConfig, Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 // Type-only: makes the optional sibling service available to `ctx.get()`.
 import type ToolResultPruner from '@deepseek-ai/dsh-compaction-tool-result-pruner'
+import type { PrunePreview } from '@deepseek-ai/dsh-compaction-tool-result-pruner'
 import {
   resolveCompactSpec,
   resolveConfig,
@@ -295,6 +296,124 @@ export class BasicCompactionEngine extends CompactionEngine {
   }
 
   /**
+   * Plan the optional prune pass without touching the session. A pruner
+   * without the preview entry returns undefined so the caller keeps the older
+   * eager-prune fallback.
+   * @param agent - agent whose session is previewed.
+   * @param prune - the resolved optional pruner service.
+   * @returns the read-only plan, or undefined for an older pruner.
+   */
+  private previewToolResultPruning(agent: Agent, prune: ToolResultPruner): PrunePreview | undefined {
+    const previewer = (prune as {
+      previewSessionPrune?: (session: Session) => PrunePreview
+    }).previewSessionPrune
+    return typeof previewer === 'function' ? previewer.call(prune, agent.session) : undefined
+  }
+
+  /**
+   * Apply a preview only after the summary transaction commits. A failure here
+   * leaves the committed summary in place and is reported without rewriting it.
+   * @param agent - agent whose session is pruned.
+   * @param prune - the resolved optional pruner service.
+   * @param preview - plan produced before summarization.
+   */
+  private async applyToolResultPreview(
+    agent: Agent,
+    prune: ToolResultPruner,
+    preview: PrunePreview,
+  ): Promise<void> {
+    if (preview.entries.length === 0) return
+    const apply = (prune as {
+      applyPrunePreview?: (session: Session, plan: PrunePreview) => Promise<unknown>
+    }).applyPrunePreview
+    if (typeof apply !== 'function') return
+    try {
+      await apply.call(prune, agent.session, preview)
+    } catch (error: unknown) {
+      this.ctx.logger.warn(
+        'compaction: summary committed but tool-result preview apply failed: %s',
+        error instanceof Error ? error.message : String(error),
+      )
+    }
+  }
+
+  /**
+   * Price a surface as if the preview had landed, without appending anything.
+   * @param measurement - live measurement to adjust.
+   * @param preview - read-only prune plan.
+   * @returns the virtual measurement and its replacement messages/prices.
+   */
+  private previewMeasurement(
+    measurement: TokenMeasurement,
+    preview: PrunePreview,
+  ): {
+    measurement: TokenMeasurement
+    messages: ReadonlyMap<SessionSeq, Message>
+    tokens: ReadonlyMap<SessionSeq, { tokens: number; heuristicTokens: number }>
+    savings: number
+  } {
+    const bySeq = new Map(preview.entries.map(entry => [entry.originalSeq, entry]))
+    let savings = 0
+    const messages = new Map<SessionSeq, Message>()
+    const tokens = new Map<SessionSeq, { tokens: number; heuristicTokens: number }>()
+    const nodes = measurement.nodes.map((node) => {
+      const entry = bySeq.get(node.seq)
+      if (entry === undefined) return node
+      const delta = entry.projectedTokensAfter - entry.tokensBefore
+      savings += -delta
+      messages.set(node.seq, entry.message)
+      const priced = {
+        tokens: Math.max(0, node.tokens + delta),
+        heuristicTokens: Math.max(0, node.heuristicTokens + delta),
+      }
+      tokens.set(node.seq, priced)
+      return { ...node, ...priced }
+    })
+    return {
+      measurement: {
+        ...measurement,
+        nodes,
+        surfaceTokens: Math.max(0, measurement.surfaceTokens - savings),
+        totalTokens: Math.max(0, measurement.totalTokens - savings),
+      },
+      messages,
+      tokens,
+      savings,
+    }
+  }
+
+  /**
+   * Occupancy after a virtual preview, anchored the same way as the live path.
+   * @param session - session whose projection is read.
+   * @param measurement - live or virtual measurement.
+   * @param savings - preview token savings.
+   * @returns projected occupancy after the preview.
+   */
+  private previewOccupancy(session: Session, measurement: TokenMeasurement, savings: number): number {
+    if (measurement.baseline.kind !== 'usage') return measurement.totalTokens
+    return Math.max(0, this.occupancyTokens(session, measurement) - savings)
+  }
+
+  /**
+   * Tools the summary request may carry for its route. A route different from
+   * the durable header omits the header's tool schemas instead of replaying a
+   * schema the new provider may reject.
+   * @param agent - agent owning the durable header.
+   * @param target - summary route.
+   * @returns header tools for a matching route, null to omit, undefined to inherit.
+   */
+  private summaryTools(
+    agent: Agent,
+    target: { readonly provider: string; readonly model: string },
+  ): readonly ToolSchema[] | null | undefined {
+    const header = agent.session.requestHeader()
+    if (header === undefined) return undefined
+    return header.config.provider === target.provider && header.config.model === target.model
+      ? undefined
+      : null
+  }
+
+  /**
    * Land the optional model-free prune pass, preferring the recovery-aware
    * entry that leaves each replacement addressable. An older pruner that lacks
    * the async entry keeps its synchronous behavior; a missing pruner is a
@@ -387,13 +506,33 @@ export class BasicCompactionEngine extends CompactionEngine {
     const prune = this.ctx.get('toolResultPruner')
 
     if (trigger === 'context-overflow') {
+      const policy = resolveTargetPolicy(this.config, target)
+      let preview: PrunePreview | undefined
+      let previewData: ReturnType<BasicCompactionEngine['previewMeasurement']> | undefined
       if (prune !== undefined) {
-        await this.applyToolResultPruning(agent, prune)
-        measurement = meter.measure(agent.session)
+        preview = this.previewToolResultPruning(agent, prune)
+        if (preview !== undefined) {
+          previewData = this.previewMeasurement(measurement, preview)
+          measurement = previewData.measurement
+        } else {
+          await this.applyToolResultPruning(agent, prune)
+          measurement = meter.measure(agent.session)
+        }
       }
       const range = selectCompactableRange(agent.session, measurement, 0)
-      if (range === null) return null
-      return this.compactRegion(range.start, range.end, agent, signal)
+      if (range === null) {
+        if (preview !== undefined && prune !== undefined) await this.applyToolResultPreview(agent, prune, preview)
+        return null
+      }
+      const summaryTarget = policy.summarizationProvider.length === 0
+        ? target
+        : { provider: policy.summarizationProvider, model: policy.summarizationModel }
+      const tools = this.summaryTools(agent, summaryTarget)
+      const result = await this.compactPressureRegion(range.start, range.end, agent, signal,
+        previewData === undefined ? undefined : { messages: previewData.messages, tokens: previewData.tokens },
+        tools)
+      if (preview !== undefined && prune !== undefined) await this.applyToolResultPreview(agent, prune, preview)
+      return result
     }
 
     const info = await this.ctx.llm.resolveModelInfo(target.provider, target.model, signal)
@@ -425,14 +564,27 @@ export class BasicCompactionEngine extends CompactionEngine {
     let occupancy = this.occupancyTokens(agent.session, measurement)
     if (occupancy < spec.thresholdTokens) return null
 
-    // Once pressure qualifies, land the model-free pass before choosing a
-    // summary range, then remeasure through the singleton replay fold.
+    // Preview the model-free pass before choosing a range. The preview is
+    // read-only: it becomes a virtual measurement for the trigger/retention
+    // decisions and is applied only after a summary commits.
+    let preview: PrunePreview | undefined
+    let previewData: ReturnType<BasicCompactionEngine['previewMeasurement']> | undefined
     if (prune !== undefined) {
-      await this.applyToolResultPruning(agent, prune)
-      measurement = meter.measure(agent.session)
-      occupancy = this.occupancyTokens(agent.session, measurement)
+      preview = this.previewToolResultPruning(agent, prune)
+      if (preview !== undefined) {
+        previewData = this.previewMeasurement(measurement, preview)
+        measurement = previewData.measurement
+        occupancy = this.previewOccupancy(agent.session, measurement, previewData.savings)
+      } else {
+        await this.applyToolResultPruning(agent, prune)
+        measurement = meter.measure(agent.session)
+        occupancy = this.occupancyTokens(agent.session, measurement)
+      }
     }
-    if (occupancy < spec.thresholdTokens) return null
+    if (occupancy < spec.thresholdTokens) {
+      if (preview !== undefined && prune !== undefined) await this.applyToolResultPreview(agent, prune, preview)
+      return null
+    }
 
     // A single pressure attempt can continue below the threshold only if the
     // surface outside the retained tail can cover the gap at all; the 40-token
@@ -448,9 +600,15 @@ export class BasicCompactionEngine extends CompactionEngine {
         + 'the %d-token pressure gap, so the summary cannot restore the threshold',
         reclaimable, needed,
       )
+      if (preview !== undefined && prune !== undefined) await this.applyToolResultPreview(agent, prune, preview)
       return null
     }
 
+    const summaryTarget = policy.summarizationProvider.length === 0
+      ? target
+      : { provider: policy.summarizationProvider, model: policy.summarizationModel }
+    const summaryTools = this.summaryTools(agent, summaryTarget)
+    let previewApplied = false
     let result: CompactionResult | null = null
     let stoppedForFloor = false
     let stoppedForCheckpoint = false
@@ -461,6 +619,9 @@ export class BasicCompactionEngine extends CompactionEngine {
           'compaction (pressure): no selectable span remains that keeps a complete user turn '
           + 'or a balanced step group; skipping',
         )
+        if (!previewApplied && preview !== undefined && prune !== undefined) {
+          await this.applyToolResultPreview(agent, prune, preview)
+        }
         return result
       }
       if (this.isOnlyCheckpointRange(agent.session, range)) {
@@ -480,7 +641,12 @@ export class BasicCompactionEngine extends CompactionEngine {
           + 'below the minimum summary envelope',
           rangeTokens,
         )
-        if (result === null) return null
+        if (result === null) {
+          if (preview !== undefined && prune !== undefined) {
+            await this.applyToolResultPreview(agent, prune, preview)
+          }
+          return null
+        }
         stoppedForFloor = true
         break
       }
@@ -492,7 +658,9 @@ export class BasicCompactionEngine extends CompactionEngine {
       )
       const started = performance.now()
       try {
-        const committed = await this.compactRegion(range.start, range.end, agent, signal)
+        const committed = await this.compactPressureRegion(range.start, range.end, agent, signal,
+          previewData === undefined ? undefined : { messages: previewData.messages, tokens: previewData.tokens },
+          summaryTools)
         result = committed
       } catch (error: unknown) {
         const errorClass = error instanceof SummaryRejectedError
@@ -511,6 +679,10 @@ export class BasicCompactionEngine extends CompactionEngine {
         throw error
       }
       this.summaryFailures.delete(breakerKey)
+      if (!previewApplied && preview !== undefined && prune !== undefined) {
+        await this.applyToolResultPreview(agent, prune, preview)
+        previewApplied = true
+      }
       const committed = result
       const summaryEvent = agent.session.snapshotEvents()
         .find(event => event.seq === committed.summarySeq)
@@ -526,6 +698,10 @@ export class BasicCompactionEngine extends CompactionEngine {
       if (occupancy < spec.thresholdTokens) return result
     }
 
+    if (!previewApplied && preview !== undefined && prune !== undefined) {
+      await this.applyToolResultPreview(agent, prune, preview)
+      previewApplied = true
+    }
     if (stoppedForCheckpoint) return result
     if (stoppedForFloor && result !== null) {
       this.ctx.logger.info(
@@ -747,6 +923,46 @@ export class BasicCompactionEngine extends CompactionEngine {
       end,
       agent,
       { owner: 'current-turn', stability: 'whole-surface', manual: false },
+      signal,
+    )
+  }
+
+  /**
+   * Run one pressure/overflow transaction with a read-only prune preview and
+   * the summary tools chosen for its route. Preview application happens in the
+   * caller only after this promise commits.
+   * @param start - first selected surface seq.
+   * @param end - last selected surface seq.
+   * @param agent - agent whose session is compacted.
+   * @param signal - cancellation signal.
+   * @param preview - read-only pruned messages/prices.
+   * @param tools - tools for the summary route, or null to omit.
+   * @returns the committed compaction result.
+   */
+  private compactPressureRegion(
+    start: SessionSeq,
+    end: SessionSeq,
+    agent: Agent,
+    signal: AbortSignal,
+    preview?: {
+      readonly messages: ReadonlyMap<SessionSeq, Message>
+      readonly tokens: ReadonlyMap<SessionSeq, { readonly tokens: number; readonly heuristicTokens: number }>
+    },
+    tools?: readonly ToolSchema[] | null,
+  ): Promise<CompactionResult> {
+    return compactSurfaceRegion(
+      this.regionDependencies(),
+      agent.session,
+      start,
+      end,
+      agent,
+      {
+        owner: 'current-turn',
+        stability: 'whole-surface',
+        manual: false,
+        ...preview === undefined ? {} : { preview },
+        ...tools === undefined ? {} : { tools },
+      },
       signal,
     )
   }

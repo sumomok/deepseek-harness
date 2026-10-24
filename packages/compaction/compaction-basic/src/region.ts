@@ -17,7 +17,7 @@ import {
 import type { CompactionResult, SummaryReview } from '@deepseek-ai/dsh-compaction'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
-import type { Message, UserMessage } from '@deepseek-ai/dsh-llm'
+import type { Message, ToolSchema, UserMessage } from '@deepseek-ai/dsh-llm'
 import type { TokenMeasurement, TokenMeter } from '@deepseek-ai/dsh-token-meter'
 import { SessionSeq, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -56,6 +56,13 @@ type SummarizedCompaction = PreparedCompaction & SummaryResult & {
 interface CompactionTransactionOptions {
   /** `current-turn` derives a numbered owner; `null` writes a standalone bracket. */
   readonly owner: 'current-turn' | null
+  /** Read-only pruned messages and prices the summary should see instead of the live events. */
+  readonly preview?: {
+    readonly messages: ReadonlyMap<SessionSeq, Message>
+    readonly tokens: ReadonlyMap<SessionSeq, { readonly tokens: number; readonly heuristicTokens: number }>
+  }
+  /** Tools the summary request should carry; null omits the header's tools. */
+  readonly tools?: readonly ToolSchema[] | null
   /** Surface relationship that must survive asynchronous summarization. */
   readonly stability: 'whole-surface' | 'selected-span'
   /** Optional durability checkpoint after a successfully closed bracket. */
@@ -374,7 +381,7 @@ export async function compactSurfaceRegion(
   let stage: TransactionFailure['stage'] = 'summary'
 
   try {
-    const prepared = prepareCompaction(dependencies, session, selection)
+    const prepared = prepareCompaction(dependencies, session, selection, options.preview, options.tools)
     const summarized = await summarizeCompaction(
       dependencies,
       prepared,
@@ -382,6 +389,8 @@ export async function compactSurfaceRegion(
       compactionId,
       options.sourceCommandId,
       assertStable,
+      options.preview,
+      options.tools,
       signal,
     )
     if (options.owner === null) signal?.throwIfAborted()
@@ -517,9 +526,15 @@ function prepareCompaction(
   dependencies: RegionDependencies,
   session: Session,
   selection: SurfaceSelection,
+  preview?: CompactionTransactionOptions['preview'],
+  tools?: readonly ToolSchema[] | null,
 ): PreparedCompaction {
   const measurement = dependencies.meter.measure(session)
   const selectedNodes = measurement.nodes.slice(selection.startIdx, selection.endIdx + 1)
+    .map((node) => {
+      const priced = preview?.tokens.get(node.seq)
+      return priced === undefined ? node : { ...node, ...priced }
+    })
   if (selectedNodes.length !== selection.shadowedSeqs.length
     || selectedNodes.some((node, index) => node.seq !== selection.shadowedSeqs[index])) {
     throw new SurfaceChangedError('compaction: selected surface changed before summarization began')
@@ -534,7 +549,7 @@ function prepareCompaction(
     // route-priced `tokens` instead.
     shadowedTokenCount: selectedNodes.reduce((total, node) => total + node.heuristicTokens, 0),
     shadowedRouteTokenCount: selectedNodes.reduce((total, node) => total + node.tokens, 0),
-    input: buildSummarizationInput(session, selection.shadowedSeqs),
+    input: buildSummarizationInput(session, selection.shadowedSeqs, preview?.messages, tools),
   }
 }
 
@@ -546,6 +561,8 @@ async function summarizeCompaction(
   compactionId: CompactionResult['compactionId'],
   sourceCommandId: CommandId | undefined,
   assertStable: StabilityCheck,
+  preview?: CompactionTransactionOptions['preview'],
+  tools?: readonly ToolSchema[] | null,
   signal?: AbortSignal,
 ): Promise<SummarizedCompaction> {
   let summaryResult: SummaryResult
@@ -559,7 +576,7 @@ async function summarizeCompaction(
       assertStable(dependencies, agent.session, prepared)
       if (!dependencies.recover(error, agent, prepared.shadowedSeqs, signal)) throw error
       prepared = prepareCompaction(dependencies, agent.session,
-        validateSurfaceRegion(agent.session, prepared.start, prepared.end))
+        validateSurfaceRegion(agent.session, prepared.start, prepared.end), preview, tools)
     }
   }
   const checkpointMessage = createUserMessage({
@@ -717,6 +734,8 @@ function completeCompaction(
 function buildSummarizationInput(
   session: Session,
   shadowedSeqs: readonly SessionSeq[],
+  preview?: ReadonlyMap<SessionSeq, Message>,
+  tools?: readonly ToolSchema[] | null,
 ): SummarizationInput {
   const header = session.requestHeader()
   // shadowedSeqs are current surface seqs, so the surface has a node 0.
@@ -727,10 +746,11 @@ function buildSummarizationInput(
     // shadowedSeqs are current surface seqs, so each is a valid log index.
     // Existing Session history read; migration deferred.
     // oxlint-disable-next-line typescript/no-non-null-assertion, typescript/no-deprecated
-    .map(seq => session.deriveEventMessage(session.eventAt(seq)!))
+    .map(seq => preview?.get(seq) ?? session.deriveEventMessage(session.eventAt(seq)!))
     .filter((message): message is Message => message !== null)
+  const requestTools = tools === null ? undefined : tools ?? header?.tools
   return {
-    ...header?.tools === undefined ? {} : { tools: header.tools },
+    ...requestTools === undefined ? {} : { tools: requestTools },
     messages: system === null ? regionMessages : [system, ...regionMessages],
   }
 }
