@@ -38,6 +38,12 @@ Each replacement is immediately preceded by a `compaction/prune` shadow-price ev
 
 An isolated `compaction/prune` marker is not harmless: it arms a shadow price that a following unmetered replacement can trip, and the context-breakdown fold rejects the mismatch. The tests pin that counterexample. Before planning, this package heals a last-event single-node marker by appending an identical-content replacement that consumes the claim without losing text. If a marker is not last or spans multiple nodes, the pass does not claim crash safety and leaves recovery to the producer.
 
+### Active jobs and child sessions
+
+The pass refuses while this session may still have work in flight. It unions the live job registry with the current lifecycle's durable `job/registered`/`job/settled` events: a live `running`/`stopping` job, a throwing `jobs.list()`, or an unsettled registration after the newest `session/end-seed` is active. A registration before that restart boundary does not block forever by itself; only a live view can make it active again. This also makes an empty live list plus a durable current-lifecycle registration an `active-job` refusal.
+
+For direct children, the pass asks the live catalog and resolves each child's Session. A child whose Session is not loaded is unknown, not finished, and refuses the pass. A loaded child with an open turn also refuses it; a loaded child with no open turn does not. When the live subagent or session service is absent, durable `subagent/catalog` evidence in the current lifecycle is treated as unknown and refuses the pass; with no such evidence there is nothing to protect.
+
 ### Configuration
 
 All fields are validated at load; unknown keys fail.

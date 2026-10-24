@@ -324,38 +324,76 @@ export class Microcompact extends Service {
     return open
   }
 
-  /** Whether this session still owns a running job. */
+  /** Whether this session still owns a running or unsettled job. */
   private async hasActiveJob(session: Session): Promise<boolean> {
+    const durable = this.durableActiveJob(session)
     const jobs = this.ctx.get('jobs')
-    if (jobs !== undefined) {
-      try {
-        return jobs.list(session.header.id).some(job => job.status === 'running' || job.status === 'stopping')
-      } catch {
-        return true
-      }
+    if (jobs === undefined) return durable
+    try {
+      const live = jobs.list(session.header.id).some(job => job.status === 'running' || job.status === 'stopping')
+      // A live list can be empty after a restart while the current lifecycle's
+      // durable registration still has no settlement. Trust the union, not the
+      // live view alone.
+      return live || durable
+    } catch {
+      return true
+    }
+  }
+
+  /** Unsettled job registrations in the current lifecycle (after the newest restart boundary). */
+  private durableActiveJob(session: Session): boolean {
+    const events = session.snapshotEvents()
+    let boundary = 0
+    for (const [index, event] of events.entries()) {
+      if (event.type === 'session/end-seed') boundary = index + 1
     }
     const active = new Set<string>()
-    for (const event of session.snapshotEvents()) {
-      if (event.type === 'job/registered') active.add(event.data.jobId)
-      if (event.type === 'job/settled') active.delete(event.data.jobId)
+    for (let index = boundary; index < events.length; index += 1) {
+      const event = events[index]
+      if (event?.type === 'job/registered') active.add(event.data.jobId)
+      if (event?.type === 'job/settled') active.delete(event.data.jobId)
     }
     return active.size > 0
   }
 
-  /** Whether any direct child session is in an open turn. */
+  /** Whether a direct child is active or cannot be proven inactive. */
   private async hasActiveSubagent(session: Session): Promise<boolean> {
     const subagents = this.ctx.get('subagent')
     const sessions = this.ctx.get('sessions')
-    if (subagents === undefined || sessions === undefined) return false
-    try {
-      const children = await subagents.listChildren(session.header.id)
-      return children.some((child: { readonly id: SessionId }) => {
-        const childSession = sessions.get(child.id)
-        return childSession !== undefined && hasOpenTurn(childSession)
-      })
-    } catch {
-      return true
+    if (subagents !== undefined) {
+      let children: ReadonlyArray<{ readonly id: SessionId }>
+      try {
+        children = await subagents.listChildren(session.header.id)
+      } catch {
+        return true
+      }
+      if (children.length === 0) return false
+      if (sessions === undefined) return true
+      try {
+        for (const child of children) {
+          const childSession = sessions.get(child.id)
+          // A catalog child whose Session is not loaded is unknown, not finished.
+          if (childSession === undefined) return true
+          if (hasOpenTurn(childSession)) return true
+        }
+        return false
+      } catch {
+        return true
+      }
     }
+    // No live catalog service: durable catalog evidence makes the child state
+    // unknown, so refuse to clear rather than guessing it inactive.
+    return this.durableSubagentEvidence(session)
+  }
+
+  /** Current-lifecycle catalog entries when no live subagent service is mounted. */
+  private durableSubagentEvidence(session: Session): boolean {
+    const events = session.snapshotEvents()
+    let boundary = 0
+    for (const [index, event] of events.entries()) {
+      if (event.type === 'session/end-seed') boundary = index + 1
+    }
+    return events.slice(boundary).some(event => event.type === 'subagent/catalog')
   }
 
   /** Latest durable activity before the current turn, measured against its real user message. */

@@ -305,6 +305,87 @@ describe('idle microcompact preview and apply', () => {
     expect((await compact.preview(session)).skipped).toEqual([{ reason: 'active-subagent' }])
   })
 
+  it('treats an empty live list plus a current-lifecycle registration as active', async () => {
+    const session = busySession(25)
+    session.append('job/registered', {
+      jobId: 'job-durable' as never,
+      owner: session.header.id,
+      kind: 'bash',
+      label: 'registered',
+      startedAt: 1_000,
+    })
+    const { compact, ctx } = context(BASE)
+    ctx.provide('jobs', { list: () => [] })
+    const beforeEvents = session.snapshotEvents().length
+    const beforeSurface = [...session.surface.nodes]
+    const preview = await compact.preview(session)
+    expect(preview.skipped).toEqual([{ reason: 'active-job' }])
+    expect(compact.apply(session, preview)).toEqual({ cleared: [], skipped: 0 })
+    expect(session.snapshotEvents()).toHaveLength(beforeEvents)
+    expect(session.surface.nodes).toEqual(beforeSurface)
+  })
+
+  it('treats a live running job and a throwing live list as active', async () => {
+    const running = busySession(25)
+    const one = context(BASE)
+    one.ctx.provide('jobs', { list: () => [{ status: 'running' }] })
+    expect((await one.compact.preview(running)).skipped).toEqual([{ reason: 'active-job' }])
+
+    const throwing = busySession(25)
+    const two = context(BASE)
+    two.ctx.provide('jobs', { list: () => { throw new Error('registry unavailable') } })
+    expect((await two.compact.preview(throwing)).skipped).toEqual([{ reason: 'active-job' }])
+  })
+
+  it('does not let a pre-restart registration block forever, but a post-restart one does', async () => {
+    const old = busySession(25)
+    old.append('job/registered', {
+      jobId: 'job-old' as never, owner: old.header.id, kind: 'bash', label: 'old', startedAt: 1_000,
+    })
+    old.append('session/end-seed', {})
+    const empty = context(BASE)
+    empty.ctx.provide('jobs', { list: () => [] })
+    expect((await empty.compact.preview(old)).entries).toHaveLength(20)
+
+    const current = busySession(25)
+    current.append('session/end-seed', {})
+    current.append('job/registered', {
+      jobId: 'job-current' as never, owner: current.header.id, kind: 'bash', label: 'current', startedAt: 1_000,
+    })
+    expect((await empty.compact.preview(current)).skipped).toEqual([{ reason: 'active-job' }])
+  })
+
+  it('treats a not-loaded child as unknown, but a loaded closed child as inactive', async () => {
+    const session = busySession(25)
+    const unknown = context(BASE)
+    unknown.ctx.provide('subagent', { listChildren: async () => [{ id: SessionId('child-missing') }] })
+    unknown.ctx.provide('sessions', { get: () => undefined })
+    expect((await unknown.compact.preview(session)).skipped).toEqual([{ reason: 'active-subagent' }])
+
+    const child = Session.create(SessionId('child-closed'))
+    child.append('turn/start', { turn: 1 })
+    child.append('turn/end', { turn: 1 })
+    const control = context(BASE)
+    control.ctx.provide('subagent', { listChildren: async () => [{ id: child.header.id }] })
+    control.ctx.provide('sessions', { get: () => child })
+    expect((await control.compact.preview(session)).entries).toHaveLength(20)
+  })
+
+  it('uses durable catalog evidence when no subagent service is mounted', async () => {
+    const session = busySession(25)
+    session.append('subagent/catalog', {
+      version: 1,
+      childId: SessionId('catalog-child'),
+      childCreatedAt: 1_000,
+      mode: 'unknown',
+    })
+    const { compact } = context(BASE)
+    expect((await compact.preview(session)).skipped).toEqual([{ reason: 'active-subagent' }])
+
+    const clean = busySession(25)
+    expect((await compact.preview(clean)).entries).toHaveLength(20)
+  })
+
   it('skips while a job is registered and unsettled', async () => {
     const session = busySession(25)
     session.append('job/registered', {

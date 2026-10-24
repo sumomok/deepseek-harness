@@ -38,6 +38,12 @@ pass 监听 `agent/pre-step`。它测量当前真实用户消息与此前当前 
 
 孤立的 `compaction/prune` marker 并非无害：它武装的影子价格会被后续未计量的替换触发，context-breakdown fold 会拒绝范围不匹配。测试固定这一反例。规划前，本包会修复“最后一个事件是单节点 marker”的情况：追加一条相同内容的替换来消费 claim，不丢失文本。若 marker 不在末尾或跨多个节点，本包不宣称崩溃安全，恢复责任留给生产者。
 
+### 活跃 job 与子会话
+
+只要本会话可能还有在途工作，pass 就拒绝执行。它把 live job registry 与当前生命周期的 durable `job/registered`/`job/settled` 事件合并：live 的 `running`/`stopping`、`jobs.list()` 抛错、或最近一次 `session/end-seed` 之后仍有未结算注册，都算 active。重启边界之前的注册不会仅凭自身永久阻塞；只有 live 视图能让它重新变为 active。因此“live list 为空 + 当前生命周期仍有 durable 注册”也是 `active-job` 拒绝。
+
+对直接子会话，pass 查询 live catalog 并解析每个 child 的 Session。child 的 Session 未加载属于未知，不是已结束，直接拒绝 pass。已加载 child 若仍有 open turn 也拒绝；无 open turn 则不拒绝。live subagent/session 服务缺失时，当前生命周期的 durable `subagent/catalog` 证据视为未知并拒绝；没有这类证据时就没有需要保护的对象。
+
 ### 配置
 
 所有字段在加载时校验；未知 key 直接失败。
