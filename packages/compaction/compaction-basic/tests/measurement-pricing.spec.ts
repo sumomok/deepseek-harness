@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
@@ -35,7 +35,7 @@ class Engine extends BasicCompactionEngine {
 
   override async summarize(_input: SummarizationInput, _agent: Agent, _signal?: AbortSignal): Promise<SummaryResult> {
     this.calls += 1
-    if (this.calls === 1 && this.failFirst === true) throw new Error('transient summary failure')
+    if (this.calls === 1 && this.failFirst) throw new Error('transient summary failure')
     return {
       summary: [{ type: 'text', text: 'short checkpoint' }],
       provider: 'summary-provider',
@@ -102,7 +102,8 @@ function fakeAgent(session: Session): Agent {
 describe('measurement is retaken when pricing changes across awaits', () => {
   it('re-measures after resolveModelInfo changes image pricing', async () => {
     const adapter = new PricingAdapter()
-    const { session, compact } = mount(adapter)
+    const { ctx, session, compact } = mount(adapter)
+    const measure = vi.spyOn(ctx.tokenMeter, 'measure')
     const originalResolve = adapter.resolveModel.bind(adapter)
     adapter.resolveModel = async (provider: string, model: string) => {
       // The engine's pre-decision measurement is already taken; the adapter
@@ -115,22 +116,25 @@ describe('measurement is retaken when pricing changes across awaits', () => {
 
     expect(result).not.toBeNull()
     expect(compact.calls).toBe(1)
+    expect(measure).toHaveBeenCalledTimes(4)
     expect(session.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(true)
   })
 
   it('re-measures in recovery after a summary-error listener changes pricing', async () => {
     const adapter = new PricingAdapter()
     const { ctx, session, compact } = mount(adapter)
+    const measure = vi.spyOn(ctx.tokenMeter, 'measure')
     compact.failFirst = true
-    ctx.on('compaction/summary-error', (() => {
+    ctx.on('compaction/summary-error', () => {
       adapter.price = 301
       return true
-    }) as never)
+    })
 
     const result = await compact.compactIfNeeded(fakeAgent(session), 'pressure', new AbortController().signal)
 
     expect(result).not.toBeNull()
     expect(compact.calls).toBe(2)
+    expect(measure).toHaveBeenCalledTimes(6)
     expect(session.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(true)
   })
 })
