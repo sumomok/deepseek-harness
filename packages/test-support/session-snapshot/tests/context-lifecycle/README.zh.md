@@ -6,7 +6,7 @@
 
 ## 文件
 
-| 路径 | 身份 | 规模 | 覆盖 |
+| 路径 | 来源 | 规模 | 覆盖 |
 |---|---|---|---|
 | `fixtures/sample-small/` | derived | 154 KB / 515 事件 | 真实会话第 1 轮：压缩失败、工具调用、配对 |
 | `fixtures/control-healthy/` | derived | 97 KB / 315 事件 | turn 15–17：一次**成功**压缩、零失败 |

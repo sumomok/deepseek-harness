@@ -6,7 +6,7 @@ Five corpora plus one fixture generator, used by the focused acceptance of B1/B3
 
 ## Files
 
-| Path | Provenance | Size | Covers |
+| Path | Source | Size | Covers |
 |---|---|---|---|
 | `fixtures/sample-small/` | derived | 154 KB / 515 events | First turn of the real session: compaction failure, tool calls, pairing |
 | `fixtures/control-healthy/` | derived | 97 KB / 315 events | Turns 15–17: one **successful** compaction, zero failures |

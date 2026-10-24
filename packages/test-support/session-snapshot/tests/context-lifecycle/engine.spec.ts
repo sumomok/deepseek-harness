@@ -21,8 +21,8 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
  * Engine-driven measurements for the context-lifecycle redesign.
  *
  * Every assertion here describes an observable behavior of the real
- * `BasicCompactionEngine`; nothing mocks the code under test. All cases are
- * green against `d88044e906`: the B2 target behaviors this file once marked
+ * `BasicCompactionEngine`; nothing mocks the code under test. Every case passes
+ * on the current implementation: the target behaviors this file once marked
  * `it.fails` now hold, so they are asserted directly.
  */
 
@@ -281,8 +281,8 @@ describe('stale route', () => {
 })
 
 describe('failure circuit survives a restart', () => {
-  // `dfd11b79b4`: a fresh engine folds trailing `compaction/end` errors from the
-  // durable log on its first check, so a restarted process keeps backing off.
+  // A fresh engine folds trailing `compaction/end` errors from the durable log
+  // on its first check, so a restarted process keeps backing off.
   it('seeds the circuit from trailing compaction/end errors', async () => {
     const session = conversation(4, 'body '.repeat(40).trim())
     session.append('compaction/end', { compactionId: CompactionId('failed-1'), turn: 2, error: 'Connection error.' })

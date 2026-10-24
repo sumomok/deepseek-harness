@@ -7,8 +7,8 @@ import { describe, expect, it } from 'vitest'
  *
  * These pin what the recorded session actually did, so a B2 change can be
  * compared against it. The recording predates the compaction guards; the cases
- * that describe the target behavior assert it directly and are green against
- * `d88044e906`.
+ * that describe the target behavior assert it directly and pass on the current
+ * implementation.
  */
 
 const FIXTURES = join(import.meta.dirname, 'fixtures')
