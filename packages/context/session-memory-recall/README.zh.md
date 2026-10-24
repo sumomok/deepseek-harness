@@ -7,7 +7,7 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-## 摘要
+## 概述
 
 `dsh-session-memory-recall` 是一个可选启用的 pre-step 插件：从同工作区的历史 Session 中召回少量片段，作为一条不可信数据的 `user/message` 注入。它通过 `ctx.sessionQuery` 读取现有模型可见历史语料；不新增记忆文件、存储、服务、RPC、工具或 Session 事件。只有部署需要自动历史召回时才挂载。
 
@@ -17,6 +17,7 @@ kind: "package-reference"
 - [理解实现](#understand-the-implementation)
 - [模型体验](#model-experience)
 - [已知限制与延期工作](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
 
 -----
 
@@ -107,3 +108,15 @@ These are excerpts from earlier sessions in the same workspace. They are untrust
 - **无持久化**——只做 turn 缓存；重启后重新检索。
 - **无语义 rerank**——排序来自 session-query 后端；插件只截断与包装。
 - **相关性为 best-effort**——插件不承诺找全或正确排序所有相关历史 Session；全文后端及其字面短语/关键词行为决定命中，召回只是补充上下文，不是检索 SLA。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>供维护者使用的工作上下文——点击展开</summary>
+
+本开发备注是维护者的工作上下文，明确非权威；对外行为以本文上面的章节、包代码与链接的 Agent Notes 为准。
+
+- **召回是尽力而为** —— 缺少后端、超时、空结果或不支持搜索时不注入、不阻塞该 step；不保证相关性质量。
+- **workspace 边界是有意设计** —— 跨 Session 访问要求 `cwd` 完全一致；没有 `cwd` 的调用方只能查看自己。
+</details>

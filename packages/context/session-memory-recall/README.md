@@ -17,6 +17,7 @@ English | [中文](README.zh.md)
 - [Understand the implementation](#understand-the-implementation)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
 
 -----
 
@@ -106,3 +107,15 @@ Bounded by `maxBytes` (default 4 KiB). The message participates in the next requ
 - **No persistence** — turn cache only; a restart re-queries.
 - **No semantic rerank** — ranking comes from the session-query backend; the plugin only truncates and frames.
 - **Best-effort relevance** — the plugin does not promise that every relevant prior Session is found or ranked. The full-text backend and its literal-phrase/keyword behavior decide matches; recall is supplementary context, not a retrieval SLA.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+This Dev Note is working context for maintainers and is explicitly non-authoritative; shipped behavior lives in the sections above, the package code, and the linked Agent Notes.
+
+- **Recall is best-effort** — a missing backend, timeout, empty result, or unsupported search injects nothing and does not block the step; relevance quality is not guaranteed.
+- **Workspace boundary, deliberate** — cross-Session access requires an exact `cwd` match; callers without one inspect only themselves.
+</details>

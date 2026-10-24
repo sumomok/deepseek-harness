@@ -2,12 +2,18 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/compaction/compaction-microcompact/README.md
+/:
+  en: e06050f0dfd6aff1
+  zh: ffe1afcc0bb53610
 /deepseek-ai-dsh-compaction-microcompact:
   en: df49a767c9e05a5b
   zh: dd6e1c554d59c8c6
 /deepseek-ai-dsh-compaction-microcompact/summary:
   en: e005f10bc9ff4486
   zh: dedededf27c36c3a
+/deepseek-ai-dsh-compaction-microcompact/table-of-contents:
+  en: 4e53164159b5ce41
+  zh: 89582dc0294d0776
 /deepseek-ai-dsh-compaction-microcompact/use-this-package:
   en: bcb723d0e0b57610
   zh: b3d422e6657cc76e
@@ -21,11 +27,14 @@
   en: ae76db47e2a8c3ac
   zh: a4bbc798e5e037e8
 /deepseek-ai-dsh-compaction-microcompact/use-this-package/configuration:
-  en: 4735def8214f47af
-  zh: 37157acea76b494c
+  en: 12635a4679529fd5
+  zh: 9a0f106c8200fdb1
 /deepseek-ai-dsh-compaction-microcompact/model-experience:
-  en: bf6a8d20852179c9
-  zh: ba9265a36adf7f40
-/deepseek-ai-dsh-compaction-microcompact/known-limitations:
-  en: b0af75abf2319a26
-  zh: 270daa3a07ca3e0a
+  en: 1b9539378b50dd21
+  zh: adaa75eff16066cb
+/deepseek-ai-dsh-compaction-microcompact/known-limitations-and-deferred-work:
+  en: 82a0dd1e6efaf02a
+  zh: b40feba628d5bc18
+/deepseek-ai-dsh-compaction-microcompact/known-limitations-and-deferred-work/dev-note:
+  en: d25e93eb6f265f47
+  zh: e7591382c2df936f

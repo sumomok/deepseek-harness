@@ -7,7 +7,7 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-## 摘要
+## 概述
 
 `dsh-compaction-rehydration` 在一次成功压缩后追加一条持久消息，重述 checkpoint 可能丢掉的任务状态：当前 todo 列表、最后一次获批的计划、本会话读过的文件、注册且未结算的后台任务，以及父会话目录里的直接子代理。每一节都从本会话**自有**日志（不含 fork 继承的前缀）或在其上折叠的投影重建；每个 checkpoint 只写一次，重启后的会话能看到重建已经发生过。
 
@@ -17,6 +17,15 @@ todo 列表折叠最近一次整表 `todo/write`，而不是读 `todos` 投影�
 
 本包是原型：opt-in，不被任何发行组合挂载；投影缺席时只当作缺一节，不报错。它只新增一个消息来源 kind，不新增 Session 事件类型。
 
+## 目录
+
+- [使用本包](#use-this-package)
+- [已知限制与延期工作](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
+
+-----
+
+<a id="use-this-package"></a>
 ## 使用本包
 
 挂在 `dsh-agent` 旁即可。todo、plan 与未结算 job 不需要别的服务；`Files` 节使用可选的 `ctx.fs` 服务，没有该服务时整节省略；要包含子代理一节，再挂 `dsh-session-projection`。
@@ -25,7 +34,8 @@ todo 列表折叠最近一次整表 `todo/write`，而不是读 `todos` 投影�
 - name: '@deepseek-ai/dsh-compaction-rehydration'
 ```
 
-## 已知限制
+<a id="known-limitations-and-deferred-work"></a>
+## 已知限制与延期工作
 
 - 子代理一节读父会话的 `subagentCatalog` 投影；聚焦测试注册投影桩，覆盖直接子级与跨会话隔离，但没有挂真实 `dsh-subagent`。
 - 后台任务一节折叠 `job/registered` 与 `job/settled`，**不会把任务说成正在运行**：最近一次 `session/end-seed` 之前注册的显示「可能已停止」，之后的显示「尚无结算，可能仍在运行」；进程被杀且从未落结算时保持不确定。
@@ -35,3 +45,15 @@ todo 列表折叠最近一次整表 `todo/write`，而不是读 `todos` 投影�
 - 读取事实依赖 `read` 工具持久化的 `meta`；没有 `version`/`digest` 的旧日志用一次有界重读核对。被 pruner 剪过的读取会回溯到原始 seq，旧内容永远不会被当作当前内容。
 - checkpoint 是「摘要 **加** 它在 surface 上的 replacement」：`compaction/end` 可能缺失（进程在 replacement 落盘后死掉），也可能带 error（收尾失败）；让摘要对模型可见的是 replacement，所以两种情况都仍然重建。日志里的 `compactionSeq` 有收尾事件时取它，否则取 replacement。只有摘要、没有 replacement 的从未到达 surface，不算 checkpoint，不写重建。
 - 批准识别依赖 plan-mode 的固定结果文案；换文案的构建会退化为不注入计划，不会猜，也不会恢复更早的批准。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>供维护者使用的工作上下文——点击展开</summary>
+
+本开发备注是维护者的工作上下文，明确非权威；对外行为以本文上面的章节、包代码与链接的 Agent Notes 为准。
+
+- **Files 恢复边界是有意设计** —— 仅重述工作目录内、且不在已知凭据位置的文件；未知密钥依赖 workspace 与部署的 deny rules，而不是本包的文件名清单。
+- **missing-end 恢复已接受** —— 摘要加上它的 surface replacement 即为 checkpoint 证据；即使 `compaction/end` 从未提交也仍重建，收尾事件只作为日志里的 `compactionSeq` 优先值。
+</details>

@@ -1,3 +1,8 @@
+---
+description: "Opt-in idle microcompaction that replaces old tool results with a session-log pointer after a long durable quiet period."
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-compaction-microcompact
 
 English | [中文](README.zh.md)
@@ -8,6 +13,16 @@ Opt-in idle microcompaction for old tool results. After a long gap in durable se
 
 The mechanism is independent of pressure compaction and of the oversized-result spill preview: it never responds to context pressure or overflow, never summarizes, and never keeps head/tail text. Mount it only in compositions that also expose the model-facing `session_event_read` tool (or explicitly accept host-only readback).
 
+## Table of Contents
+
+- [Use this package](#use-this-package)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
+
+-----
+
+<a id="use-this-package"></a>
 ## Use this package
 
 The plugin is inert until `enabled: true`. A minimal composition mounts the token meter, this pass, and the readback tool:
@@ -60,14 +75,28 @@ All fields are validated at load; unknown keys fail.
 | `allowHostOnlyReadback` | `false` | Permit pointers without a model-facing readback tool. |
 | `excludeTools` | `[]` | Tool names never cleared. |
 
+<a id="model-experience"></a>
 ## Model Experience
 
 After an idle pass, the model sees the address notice in place of the old text. It can call `session_event_read` on the named sequence to read the complete original; that tool prefixes its own fixed untrusted-history warning. The model loses the old result if it chooses not to read it, and no automatic rehydration occurs.
 
-## Known Limitations
+<a id="known-limitations-and-deferred-work"></a>
+## Known Limitations and Deferred Work
 
 - **Desktop readback only by default** — `session_event_read` is mounted by the desktop composition. Base, web, and headless compositions skip the pass unless `allowHostOnlyReadback` is explicitly enabled, and then the model cannot resolve the pointer.
 - **Pure text only** — image-bearing and rich results are skipped because their route token price can differ from the heuristic estimator.
 - **No manual command** — this v0 is automatic only.
 - **No new storage or events** — addresses reuse the session log and the existing spill notice; spill notice parsing remains in the pruner/spill policy.
 - **Conservative skips** — active compaction, an unsettled job, an active direct child turn, an unpaired result, or a missing readback path all skip the pass.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+This Dev Note is working context for maintainers and is explicitly non-authoritative; shipped behavior lives in the sections above, the package code, and the linked Agent Notes.
+
+- **Readback dependency, deliberate** — the pass clears results only when the model can resolve the pointer through `session_event_read`; a host-only deployment must opt in with `allowHostOnlyReadback` and accepts that the model cannot read the original.
+- **Idle defaults, tunable** — `minIdleSeconds` and the selection thresholds are deployment starting points, not corpus-derived recommendations; tune them per workload.
+</details>

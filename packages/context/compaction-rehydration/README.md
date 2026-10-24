@@ -17,6 +17,15 @@ Only the newest `exit_plan_mode` review decides. An approval carries plan-mode's
 
 This package is a prototype: it is opt-in, not mounted by any shipped composition, and it treats an absent projection as a missing section rather than a failure. It adds one message source kind and no Session event types.
 
+## Table of Contents
+
+- [Use this package](#use-this-package)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
+
+-----
+
+<a id="use-this-package"></a>
 ## Use this package
 
 Mount it beside `dsh-agent`. The todo list, the plan, and unsettled jobs need no other service; the `Files` section uses the optional `ctx.fs` service and is left out when the deployment has none; mount `dsh-session-projection` to include the subagent section.
@@ -35,3 +44,15 @@ Mount it beside `dsh-agent`. The todo list, the plan, and unsettled jobs need no
 - Read facts depend on the `read` tool's persisted `meta`; logs written before `version`/`digest` existed are checked with one bounded re-read. A pruned read result is resolved to its original sequence, and its old content is never treated as the current content.
 - A checkpoint is the summary **and** its surface replacement. The closing `compaction/end` may be missing (the process died after the surface replacement committed) or carry an error (closing failed); the replacement is what made the summary model-visible, so the rebuild still runs in both cases. The logged `compactionSeq` is the closing event when one exists and the replacement otherwise. A summary with no replacement never reached the surface and is not a checkpoint, so no rebuild is written for it.
 - Approval recognition depends on plan-mode's canonical result sentences; a rewording build degrades to omitting the plan, never to a guessed approval or a reinstated older plan.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+This Dev Note is working context for maintainers and is explicitly non-authoritative; shipped behavior lives in the sections above, the package code, and the linked Agent Notes.
+
+- **Files restoration boundary, deliberate** — only reads inside the Session working directory and outside known credential locations are restated; unknown secrets rely on the workspace plus the deployment's deny rules, not on this package's filename list.
+- **Missing-end recovery, accepted** — a summary plus its surface replacement is the checkpoint evidence even when `compaction/end` never committed; the closing event is preferred only as the logged `compactionSeq`.
+</details>
