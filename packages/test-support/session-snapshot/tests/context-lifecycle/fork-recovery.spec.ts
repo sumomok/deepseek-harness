@@ -85,10 +85,14 @@ describe('fork inherited address readback', () => {
     const read = async (sessionId: SessionId, seq: number) => ctx.tools.execute({
       name: 'session_event_read', arguments: { session_id: sessionId, seq }, callId: ToolCallId('read'), signal: new AbortController().signal, agent: agent(child),
     })
+    const readEvent = vi.spyOn(ctx.sessionQuery, 'readEvent')
     const parentRead = await read(parent.id, noticeSeq)
+    expect(readEvent.mock.calls.at(-1)?.[0].sessionId).toBe(parent.id)
     const parentText = parentRead.content.map(block => block.type === 'text' ? block.text : '').join('\n')
     console.log('PARENT_READ', parentText.slice(0, 200))
     expect(parentText).toContain('inherited readable')
+    expect(parentText).toContain('untrusted data')
+    expect(parentText).not.toContain('title unavailable')
     const childRead = await read(child.id, noticeSeq)
     const childText = childRead.content.map(block => block.type === 'text' ? block.text : '').join('\n')
     console.log('CHILD_READ', childText.slice(0, 200))
@@ -132,13 +136,58 @@ describe('fork authorization boundary', () => {
     })
     expect(orphanRead.isError).not.toBe(true)
     expect(orphanRead.content.map(block => block.type === 'text' ? block.text : '').join('\n')).toContain('inherited readable')
+    const readGone = vi.spyOn(second.sessionQuery, 'readEvent')
     const parentGone = await second.tools.execute({
       name: 'session_event_read', arguments: { session_id: parent.id, seq: noticeSeq }, callId: ToolCallId('read-parent-gone'),
       signal: new AbortController().signal, agent: agent(orphan),
     })
-    expect(parentGone.isError).toBe(true)
-    expect(parentGone.content.map(block => block.type === 'text' ? block.text : '').join('\n'))
-      .toMatch(/outside the caller workspace|unauthorized/i)
+    expect(readGone.mock.calls.at(-1)?.[0].sessionId).toBe(orphan.id)
+    const parentGoneText = parentGone.content.map(block => block.type === 'text' ? block.text : '').join('\n')
+    expect(parentGone.isError).not.toBe(true)
+    expect(parentGoneText).toContain('inherited readable')
+    expect(parentGoneText).toContain('untrusted data')
+    expect(parentGoneText).toContain('parent title unavailable')
+
+    const errorCode = (result: Awaited<ReturnType<typeof ctx.tools.execute>>): unknown =>
+      (result.error as { info?: { code?: string } } | undefined)?.info?.code
+
+    // Non-parent, cross-cwd, over-boundary, and cwd-less callers stay rejected.
+    const nonParent = second.sessions.create(SessionId('non-parent'), { meta: { createdAt: 1, cwd: '/other' } })
+    const nonParentRead = await second.tools.execute({
+      name: 'session_event_read', arguments: { session_id: nonParent.id, seq: 0 }, callId: ToolCallId('read-non-parent'),
+      signal: new AbortController().signal, agent: agent(orphan),
+    })
+    expect(nonParentRead.isError).toBe(true)
+    expect(errorCode(nonParentRead)).toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
+
+    const over = await second.tools.execute({
+      name: 'session_event_read', arguments: { session_id: parent.id, seq: orphan.inheritedEventCount }, callId: ToolCallId('read-over'),
+      signal: new AbortController().signal, agent: agent(orphan),
+    })
+    expect(over.isError).toBe(true)
+    expect(errorCode(over)).toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
+
+    const cross = ctx.sessions.create(SessionId('cross-cwd-child'), {
+      seed: child.snapshotEvents(), inheritedEventCount: child.inheritedEventCount,
+      meta: { createdAt: 1, cwd: '/other', parentSession: parent.id, isSeeded: true },
+    })
+    const crossRead = await ctx.tools.execute({
+      name: 'session_event_read', arguments: { session_id: parent.id, seq: noticeSeq }, callId: ToolCallId('read-cross'),
+      signal: new AbortController().signal, agent: agent(cross),
+    })
+    expect(crossRead.isError).toBe(true)
+    expect(errorCode(crossRead)).toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
+
+    const noCwd = second.sessions.create(SessionId('no-cwd-child'), {
+      seed: child.snapshotEvents(), inheritedEventCount: child.inheritedEventCount,
+      meta: { createdAt: 1, parentSession: parent.id, isSeeded: true },
+    })
+    const noCwdRead = await second.tools.execute({
+      name: 'session_event_read', arguments: { session_id: parent.id, seq: noticeSeq }, callId: ToolCallId('read-no-cwd'),
+      signal: new AbortController().signal, agent: agent(noCwd),
+    })
+    expect(noCwdRead.isError).toBe(true)
+    expect(errorCode(noCwdRead)).toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
     await second.fiber.dispose()
     await ctx.fiber.dispose()
   })

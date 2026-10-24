@@ -228,16 +228,31 @@ async function executeEventRead(
   if (args.after !== undefined) toolInput.assertNonNegativeSafeInteger('after', args.after)
   const caller = workspaceAccess.callerOf(exec, ctx)
   const sessionId = workspaceAccess.targetId(args, caller)
-  await workspaceAccess.authorizeTarget(ctx, caller, sessionId, exec.signal)
+  let readSessionId = sessionId
+  let inheritedFallback = false
+  try {
+    await workspaceAccess.authorizeTarget(ctx, caller, sessionId, exec.signal)
+  } catch (error: unknown) {
+    const fallback = await workspaceAccess.inheritedParentReadTarget(
+      ctx, caller, sessionId, Number(seq), error, exec.signal,
+    )
+    if (fallback === undefined) throw error
+    readSessionId = fallback
+    inheritedFallback = true
+  }
   const window = await serviceBoundary.call(ctx, exec.signal, 'event read', () =>
     ctx.sessionQuery.readEvent({
-      sessionId,
+      sessionId: readSessionId,
       seq,
       ...args.before === undefined ? {} : { before: args.before },
       ...args.after === undefined ? {} : { after: args.after },
     }, exec.signal))
-  workspaceAccess.assertObservedTargetAuthorized(caller, sessionId, window.session)
-  const title = await workspaceAccess.readTitle(ctx, caller, sessionId, exec.signal)
+  workspaceAccess.assertObservedTargetAuthorized(caller, readSessionId, window.session)
+  // The parent title cannot be resolved through this fallback; keep the read
+  // usable and degrade only the title line.
+  const title = inheritedFallback
+    ? { text: 'parent title unavailable' }
+    : await workspaceAccess.readTitle(ctx, caller, sessionId, exec.signal)
   return presentation.formatEventRead(sessionId, title, window)
 }
 
