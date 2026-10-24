@@ -23,6 +23,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed, ContextSnapshotSection } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-compaction'
+import type {} from '@deepseek-ai/dsh-plan-mode'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-subagent'
@@ -119,7 +120,7 @@ function bound(text: string, limit: number): string {
 function latestCheckpoint(session: Session): Checkpoint | undefined {
   const summarized = new Set<string>()
   let checkpoint: Checkpoint | undefined
-  for (const event of session.snapshotEvents()) {
+  for (const event of session.ownEvents()) {
     if (event.type === 'compaction/summary') {
       summarized.add(String(event.data.compactionId))
       continue
@@ -133,7 +134,7 @@ function latestCheckpoint(session: Session): Checkpoint | undefined {
 
 /** Whether a rebuild message for this checkpoint already exists in the log. */
 function alreadyRebuilt(session: Session, checkpoint: Checkpoint): boolean {
-  return session.snapshotEvents().some(event => event.type === 'user/message'
+  return session.ownEvents().some(event => event.type === 'user/message'
     && event.data.source.kind === 'compaction-rehydration'
     && event.data.source.compactionId === checkpoint.id)
 }
@@ -141,7 +142,7 @@ function alreadyRebuilt(session: Session, checkpoint: Checkpoint): boolean {
 /** The current todo list, from the latest whole-list `todo/write` in the log. */
 function todoSection(session: Session): DraftSection | undefined {
   let todos: readonly TodoLike[] | undefined
-  for (const event of session.snapshotEvents()) {
+  for (const event of session.ownEvents()) {
     if (event.type === 'todo/write') todos = event.data.todos
   }
   if (todos === undefined || todos.length === 0) return undefined
@@ -149,23 +150,66 @@ function todoSection(session: Session): DraftSection | undefined {
   return { name: 'todos', heading: 'Current todo list', text: lines.join('\n') }
 }
 
-/** The latest plan a user approved through `exit_plan_mode`, from its logged arguments. */
+/** The plan-approved sentence plan-mode renders for an approved review. */
+const APPROVED_PLAN_RESULT = 'Plan approved — plan mode exited'
+
+/** The plan-dismissed sentence plan-mode renders when the review does not approve. */
+const DISMISSED_PLAN_RESULT = 'The user dismissed the plan review'
+
+/** The first text block of one message, or the empty string. */
+function firstText(blocks: readonly { readonly type: string; readonly text?: string }[]): string {
+  const block = blocks.find(candidate => candidate.type === 'text')
+  return block?.text ?? ''
+}
+
+/**
+ * The latest plan a user approved through `exit_plan_mode`.
+ *
+ * Approval is the review's own answer, so it comes from the durable result:
+ * plan-mode renders one canonical sentence for an approval and another for a
+ * dismissal, and a dismissal is a non-error result. When a result carries
+ * neither sentence (a template another build wrote), the replayable
+ * `plan/mode` state decides only where it is unambiguous: the call requires
+ * plan mode to be active, and an approval is followed by `plan/mode` turning
+ * inactive. Anything else leaves the plan out rather than guessing.
+ */
 function planSection(session: Session): DraftSection | undefined {
-  const calls = new Map<string, { readonly plan: string; readonly seq: number }>()
-  const answered = new Map<string, boolean>()
-  for (const event of session.snapshotEvents()) {
+  interface PlanCall {
+    readonly seq: number
+    readonly plan: string
+  }
+  const events = session.ownEvents()
+  const calls = new Map<string, PlanCall>()
+  const results = new Map<string, { readonly seq: number; readonly isError: boolean; readonly text: string }>()
+  const modes: { readonly seq: number; readonly active: boolean }[] = []
+  for (const event of events) {
     if (event.type === 'tool/call' && event.data.name === 'exit_plan_mode') {
       const plan = planArgument(event.data.arguments)
-      if (plan !== undefined) calls.set(String(event.data.callId), { plan, seq: event.seq })
+      if (plan !== undefined) calls.set(String(event.data.callId), { seq: event.seq, plan })
       continue
     }
-    if (event.type !== 'tool/result') continue
-    const callId = String(event.data.message.toolCallId)
-    answered.set(callId, event.data.message.isError !== true)
+    if (event.type === 'tool/result') {
+      results.set(String(event.data.message.toolCallId), {
+        seq: event.seq,
+        isError: event.data.message.isError === true,
+        text: firstText(event.data.message.content),
+      })
+      continue
+    }
+    if (event.type === 'plan/mode') modes.push({ seq: event.seq, active: event.data.active })
   }
-  let latest: { readonly plan: string; readonly seq: number } | undefined
+  let latest: PlanCall | undefined
   for (const [callId, call] of calls) {
-    if (answered.get(callId) !== true) continue
+    const result = results.get(callId)
+    if (result === undefined || result.isError) continue
+    let approved: boolean | undefined
+    if (result.text.includes(APPROVED_PLAN_RESULT)) approved = true
+    else if (result.text.includes(DISMISSED_PLAN_RESULT)) approved = false
+    else {
+      const nextMode = modes.find(mode => mode.seq > result.seq)
+      approved = nextMode === undefined ? undefined : nextMode.active === false
+    }
+    if (approved !== true) continue
     if (latest === undefined || call.seq > latest.seq) latest = call
   }
   if (latest === undefined) return undefined
@@ -190,7 +234,7 @@ function jobSection(session: Session): DraftSection | undefined {
   const registered = new Map<string, UnsettledJob & { readonly seq: number }>()
   const owner = String(session.id)
   let restartSeq = -1
-  for (const event of session.snapshotEvents()) {
+  for (const event of session.ownEvents()) {
     if (event.type === 'session/end-seed') {
       restartSeq = event.seq
       continue

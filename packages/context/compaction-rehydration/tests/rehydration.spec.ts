@@ -99,18 +99,25 @@ function writeTodos(session: Session, todos: readonly TodoItem[]): void {
   session.append('todo/write', { todos: [...todos] })
 }
 
-function callPlan(session: Session, plan: string, callId: string, isError: boolean): void {
+function callPlan(session: Session, plan: string, callId: string, outcome: 'approved' | 'dismissed' | 'failed' | 'unknown'): void {
   const call = ToolCallId(callId)
   session.append('tool/call', {
     turn: 1, step: 1, callId: call, name: 'exit_plan_mode', arguments: JSON.stringify({ plan }),
   })
+  const text = outcome === 'approved'
+    ? 'Plan approved — plan mode exited; carry out the plan starting with your next step.'
+    : outcome === 'dismissed'
+      ? 'The user dismissed the plan review to reply in their own words; plan mode remains active.'
+      : outcome === 'failed'
+        ? 'rejected'
+        : 'plan review answered in another build'
   const message: ToolResultMessage = {
     id: MessageId(`result-${callId}`),
     role: 'tool',
     source: { kind: 'tool', callId: call },
     toolCallId: call,
-    content: [{ type: 'text', text: isError ? 'rejected' : 'approved' }],
-    ...isError ? { isError: true } : {},
+    content: [{ type: 'text', text }],
+    ...outcome === 'failed' ? { isError: true } : {},
   }
   session.append('tool/result', { turn: 1, step: 1, message }, { surfaceOp: 'append' })
 }
@@ -168,7 +175,7 @@ async function fire(ctx: Context, agent: Agent, turn = 1, step = 1): Promise<num
 }
 
 function rebuildTexts(session: Session): string[] {
-  return session.snapshotEvents()
+  return session.ownEvents()
     .filter(event => event.type === 'user/message' && event.data.source.kind === 'compaction-rehydration')
     .map((event) => {
       const block = event.data.content.find(candidate => candidate.type === 'text')
@@ -198,7 +205,7 @@ describe('the state a compaction rebuilds', () => {
   it('restates the plan a user approved and drops a dismissed one', async () => {
     const approved = await harness()
     openTurn(approved.session)
-    callPlan(approved.session, '# Plan\n- build the thing', 'plan-1', false)
+    callPlan(approved.session, '# Plan\n- build the thing', 'plan-1', 'approved')
     compact(approved.session)
     await fire(approved.ctx, approved.agent)
     expect(rebuildTexts(approved.session)[0]).toContain('Latest approved plan')
@@ -206,7 +213,7 @@ describe('the state a compaction rebuilds', () => {
 
     const dismissed = await harness()
     openTurn(dismissed.session)
-    callPlan(dismissed.session, '# Rejected plan', 'plan-2', true)
+    callPlan(dismissed.session, '# Rejected plan', 'plan-2', 'dismissed')
     compact(dismissed.session)
     expect(await fire(dismissed.ctx, dismissed.agent)).toBe(0)
   })
@@ -254,7 +261,7 @@ describe('the state a compaction rebuilds', () => {
   it('bounds the message and truncates a long section', async () => {
     const { ctx, session, agent } = await harness()
     openTurn(session)
-    callPlan(session, `# Huge plan\n${'x'.repeat(6000)}`, 'plan-3', false)
+    callPlan(session, `# Huge plan\n${'x'.repeat(6000)}`, 'plan-3', 'approved')
     compact(session)
     await fire(ctx, agent)
     const text = rebuildTexts(session)[0] ?? ''
@@ -272,7 +279,7 @@ describe('the state a compaction rebuilds', () => {
   it('rebuilds the log-derived sections when projections are not mounted', async () => {
     const { ctx, session, agent } = await harness({ projections: false })
     openTurn(session)
-    callPlan(session, '# Plan\n- keep going', 'plan-4', false)
+    callPlan(session, '# Plan\n- keep going', 'plan-4', 'approved')
     writeTodos(session, [{ content: 'not projected', status: 'pending' }])
     compact(session)
     await fire(ctx, agent)
@@ -286,7 +293,7 @@ describe('the state a compaction rebuilds', () => {
     const { ctx, session, agent } = await harness({ todo: true })
     openTurn(session)
     writeTodos(session, [{ content: 'ship the prototype', status: 'in_progress' }])
-    callPlan(session, '# Plan\n- done', 'plan-5', false)
+    callPlan(session, '# Plan\n- done', 'plan-5', 'approved')
     registerJob(session, 'bash-9', 'tail the log')
     compact(session)
     await fire(ctx, agent)
@@ -369,5 +376,78 @@ describe('the state a compaction rebuilds', () => {
     expect(text).toContain('reviewer')
     expect(text).toContain('prober')
     expect(text).not.toContain('foreign helper')
+  })
+
+  it('keeps an earlier approval when a later review is dismissed', async () => {
+    const { ctx, session, agent } = await harness()
+    openTurn(session)
+    callPlan(session, '# First plan', 'plan-a', 'approved')
+    callPlan(session, '# Second plan', 'plan-b', 'dismissed')
+    compact(session)
+    await fire(ctx, agent)
+    const text = rebuildTexts(session)[0] ?? ''
+    expect(text).toContain('# First plan')
+    expect(text).not.toContain('# Second plan')
+  })
+
+  it('takes the newest plan when two reviews both approve', async () => {
+    const { ctx, session, agent } = await harness()
+    openTurn(session)
+    callPlan(session, '# Older plan', 'plan-c', 'approved')
+    callPlan(session, '# Newer plan', 'plan-d', 'approved')
+    compact(session)
+    await fire(ctx, agent)
+    const text = rebuildTexts(session)[0] ?? ''
+    expect(text).toContain('# Newer plan')
+    expect(text).not.toContain('# Older plan')
+  })
+
+  it('drops a plan whose review was dismissed without an error', async () => {
+    const { ctx, session, agent } = await harness()
+    openTurn(session)
+    callPlan(session, '# Dismissed plan', 'plan-e', 'dismissed')
+    compact(session)
+    expect(await fire(ctx, agent)).toBe(0)
+  })
+
+  it('falls back to plan mode only for an unrecognised review answer', async () => {
+    const approved = await harness()
+    openTurn(approved.session)
+    callPlan(approved.session, '# Unrecognised answer', 'plan-f', 'unknown')
+    approved.session.append('plan/mode', { active: false })
+    compact(approved.session)
+    await fire(approved.ctx, approved.agent)
+    expect(rebuildTexts(approved.session)[0]).toContain('# Unrecognised answer')
+
+    const unknown = await harness()
+    openTurn(unknown.session)
+    callPlan(unknown.session, '# No mode change', 'plan-g', 'unknown')
+    compact(unknown.session)
+    expect(await fire(unknown.ctx, unknown.agent)).toBe(0)
+  })
+
+  it('does not revive a parent session\'s state in a fork', async () => {
+    const { ctx, session, agent } = await harness({ todo: true })
+    openTurn(session)
+    writeTodos(session, [{ content: 'parent task', status: 'pending' }])
+    callPlan(session, '# Parent plan', 'plan-h', 'approved')
+    registerJob(session, 'bash-parent', 'parent job')
+    compact(session)
+    expect(await fire(ctx, agent)).toBe(1)
+
+    const child = ctx.sessions.fork(session)
+    const childAgent = sessionAgent(child, ctx)
+    expect(await fire(ctx, childAgent)).toBe(0)
+    expect(rebuildTexts(child)).toHaveLength(0)
+
+    openTurn(child, 1)
+    writeTodos(child, [{ content: 'child task', status: 'pending' }])
+    compact(child, 'c-child')
+    expect(await fire(ctx, childAgent)).toBe(1)
+    const text = rebuildTexts(child)[0] ?? ''
+    expect(text).toContain('child task')
+    expect(text).not.toContain('parent task')
+    expect(text).not.toContain('# Parent plan')
+    expect(text).not.toContain('parent job')
   })
 })

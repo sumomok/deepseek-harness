@@ -37,6 +37,9 @@
     },
     {
       "path": "../../todo/tool-todo"
+    },
+    {
+      "path": "../../plan/plan-mode"
     }
   ]
 }
