@@ -21,6 +21,8 @@ import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import type { TodoItem } from '@deepseek-ai/dsh-tool-todo'
 import * as Rehydration from '../src/index.ts'
+import { readWindowDigest } from '../src/read-registry.ts'
+import type { ReadFsLike } from '../src/read-registry.ts'
 
 const SIGNAL = new AbortController().signal
 
@@ -30,7 +32,7 @@ interface Bench {
   readonly agent: Agent
 }
 
-async function harness(options: { projections?: boolean; todo?: boolean; subagents?: boolean } = {}): Promise<Bench> {
+async function harness(options: { projections?: boolean; todo?: boolean; subagents?: boolean; fs?: ReadFsLike } = {}): Promise<Bench> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt, { personaPrefix: '' })
@@ -41,6 +43,7 @@ async function harness(options: { projections?: boolean; todo?: boolean; subagen
   await ctx.plugin(Rehydration)
   if (options.todo === true) await ctx.plugin(ToolTodo, { allowParallelInProgress: true })
   if (options.subagents === true) registerCatalogProjection(ctx)
+  if (options.fs !== undefined) ctx.provide('fs', options.fs)
   const session = ctx.sessions.create()
   return { ctx, session, agent: sessionAgent(session, ctx) }
 }
@@ -139,6 +142,65 @@ function catalogChild(session: Session, childId: string, label: string): void {
   session.append('subagent/catalog', {
     version: 1, childId: SessionId(childId), childCreatedAt: 1, mode: 'continuable', label,
   })
+}
+
+/** Minimal filesystem service the Files section reads through in these tests. */
+class FakeReadFs implements ReadFsLike {
+  readonly files = new Map<string, { text: string; version: string; size?: number; type?: string }>()
+
+  add(path: string, file: { text: string; version: string; size?: number; type?: string }): void {
+    this.files.set(path, file)
+  }
+
+  async resolve(path: string): Promise<object> { return { key: path } }
+
+  async stat(target: object): Promise<{ version: string; size?: number; type: string } | undefined> {
+    const file = this.files.get((target as { key?: string }).key ?? '')
+    if (file === undefined) return undefined
+    return { version: file.version, type: file.type ?? 'file', ...file.size === undefined ? {} : { size: file.size } }
+  }
+
+  async readText(target: object): Promise<string> {
+    const file = this.files.get((target as { key?: string }).key ?? '')
+    if (file === undefined) throw new Error('missing')
+    return file.text
+  }
+}
+
+/** Record one successful `read` with the metadata the read tool now persists. */
+function recordFileRead(session: Session, callId: string, meta: Record<string, unknown>): void {
+  const call = ToolCallId(callId)
+  session.append('tool/call', {
+    turn: 1, step: 1, callId: call, name: 'read', arguments: JSON.stringify({ file_path: meta['path'] }),
+  })
+  session.append('tool/result', {
+    turn: 1,
+    step: 1,
+    message: {
+      id: MessageId(`read-${callId}`),
+      role: 'tool',
+      source: { kind: 'tool', callId: call },
+      toolCallId: call,
+      content: [{ type: 'text', text: 'read result' }],
+    },
+    meta,
+  }, { surfaceOp: 'append' })
+}
+
+/** The persisted metadata for one full or windowed read. */
+function readMeta(path: string, text: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const lines = text.split('\n').map((line, index) => ({ number: index + 1, text: line }))
+  return {
+    path,
+    offset: 1,
+    lines,
+    totalLines: lines.length,
+    version: 'v1',
+    size: text.length,
+    read: 'full',
+    digest: readWindowDigest(lines),
+    ...overrides,
+  }
 }
 
 /** Append the summary and its surface replacement; return the replacement's seq. */
@@ -587,5 +649,121 @@ describe('the state a compaction rebuilds', () => {
 
     expect(await fire(ctx, agent, 1, 2)).toBe(0)
     expect(rebuildTexts(session)).toHaveLength(1)
+  })
+
+  it('restates an unchanged read as already read without repeating its content', async () => {
+    const fs = new FakeReadFs()
+    fs.add('/abs/a.txt', { text: 'one\ntwo', version: 'v1' })
+    const { ctx, session, agent } = await harness({ fs })
+    openTurn(session)
+    recordFileRead(session, 'read-1', readMeta('/abs/a.txt', 'one\ntwo'))
+    compact(session)
+    await fire(ctx, agent)
+    const text = rebuildTexts(session)[0] ?? ''
+    expect(text).toContain('Files read earlier')
+    expect(text).toContain('`/abs/a.txt` — unchanged since your read at seq 3')
+    expect(text).not.toContain('```text')
+  })
+
+  it('restates a changed full read as current content', async () => {
+    const fs = new FakeReadFs()
+    fs.add('/abs/a.txt', { text: 'new content', version: 'v2' })
+    const { ctx, session, agent } = await harness({ fs })
+    openTurn(session)
+    recordFileRead(session, 'read-1', readMeta('/abs/a.txt', 'old content'))
+    compact(session)
+    await fire(ctx, agent)
+    const text = rebuildTexts(session)[0] ?? ''
+    expect(text).toContain('### `/abs/a.txt`')
+    expect(text).toContain('new content')
+    expect(text).not.toContain('old content')
+  })
+
+  it('points at a window, a missing file, and an oversized file instead of restating them', async () => {
+    const fs = new FakeReadFs()
+    fs.add('/abs/window.txt', { text: 'one\ntwo', version: 'v1' })
+    const { ctx, session, agent } = await harness({ fs })
+    openTurn(session)
+    recordFileRead(session, 'read-window', readMeta('/abs/window.txt', 'one\ntwo', { offset: 2, read: 'window' }))
+    recordFileRead(session, 'read-missing', readMeta('/abs/missing.txt', 'gone'))
+    fs.add('/abs/big.txt', { text: 'x', version: 'v2', size: 999_999 })
+    recordFileRead(session, 'read-big', readMeta('/abs/big.txt', 'x'))
+    compact(session)
+    await fire(ctx, agent)
+    const text = rebuildTexts(session)[0] ?? ''
+    expect(text).toContain('`/abs/window.txt` — only a window was read earlier')
+    expect(text).toContain('`/abs/missing.txt` — not found now')
+    expect(text).toContain('`/abs/big.txt` — too large to restate here')
+    expect(text).not.toContain('```text')
+  })
+
+  it('skips credential-like paths entirely', async () => {
+    const fs = new FakeReadFs()
+    fs.add('/home/user/.ssh/id_rsa', { text: 'secret', version: 'v1' })
+    const { ctx, session, agent } = await harness({ fs })
+    openTurn(session)
+    recordFileRead(session, 'read-secret', readMeta('/home/user/.ssh/id_rsa', 'secret'))
+    compact(session)
+    expect(await fire(ctx, agent)).toBe(0)
+    expect(rebuildTexts(session)).toHaveLength(0)
+  })
+
+  it('lists at most five files and keeps the shared message bound', async () => {
+    const fs = new FakeReadFs()
+    const { ctx, session, agent } = await harness({ fs })
+    openTurn(session)
+    for (let index = 0; index < 6; index += 1) {
+      const path = `/abs/file-${String(index)}.txt`
+      fs.add(path, { text: `content ${String(index)}`, version: 'v1' })
+      recordFileRead(session, `read-${String(index)}`, readMeta(path, `content ${String(index)}`))
+    }
+    compact(session)
+    await fire(ctx, agent)
+    const text = rebuildTexts(session)[0] ?? ''
+    expect(text).toContain('/abs/file-5.txt')
+    expect(text).toContain('/abs/file-1.txt')
+    expect(text).not.toContain('/abs/file-0.txt')
+    expect(text.length).toBeLessThanOrEqual(4000)
+  })
+
+  it('follows a pruned read replacement to its original sequence', async () => {
+    const fs = new FakeReadFs()
+    fs.add('/abs/a.txt', { text: 'kept', version: 'v1' })
+    const { ctx, session, agent } = await harness({ fs })
+    openTurn(session)
+    recordFileRead(session, 'read-1', readMeta('/abs/a.txt', 'kept'))
+    const original = session.ownEvents().findLast(event => event.type === 'tool/result')!
+    if (original.type !== 'tool/result') throw new Error('no result')
+    session.append('tool/result', {
+      turn: original.data.turn,
+      step: original.data.step,
+      message: {
+        ...original.data.message,
+        content: [{ type: 'text', text: '[... pruned ...]' }],
+      },
+      ...original.data.meta === undefined ? {} : { meta: original.data.meta },
+    }, {
+      surfaceOp: { op: 'replace', startSeq: original.seq, endSeq: original.seq },
+      sourceEventSeqs: [original.seq],
+    })
+    compact(session)
+    await fire(ctx, agent)
+    const text = rebuildTexts(session)[0] ?? ''
+    expect(text).toContain('`/abs/a.txt` — unchanged since your read at seq 3')
+  })
+
+  it('records the files section and its digest on the message source', async () => {
+    const fs = new FakeReadFs()
+    fs.add('/abs/a.txt', { text: 'one', version: 'v1' })
+    const { ctx, session, agent } = await harness({ fs })
+    openTurn(session)
+    recordFileRead(session, 'read-1', readMeta('/abs/a.txt', 'one'))
+    compact(session)
+    await fire(ctx, agent)
+    const event = session.ownEvents().find(candidate => candidate.type === 'user/message'
+      && candidate.data.source.kind === 'compaction-rehydration')
+    if (event?.type !== 'user/message' || event.data.source.kind !== 'compaction-rehydration') throw new Error('no rebuild')
+    expect(event.data.source.sections.map(section => section.name)).toContain('files')
+    expect(event.data.source.digests).toHaveLength(event.data.source.sections.length)
   })
 })

@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-compaction-rehydration` appends one durable message after a successful compaction that restates the task state the checkpoint may have dropped: the current todo list, the last approved plan, background jobs the session registered and never settled, and the direct subagents its catalog holds. Every section is rebuilt from the Session's own log (never a fork-inherited prefix) or a projection folded over it, and the message is written once per checkpoint; a resumed Session sees that the rebuild already happened.
+`dsh-compaction-rehydration` appends one durable message after a successful compaction that restates the task state the checkpoint may have dropped: the current todo list, the last approved plan, the files the session read, background jobs the session registered and never settled, and the direct subagents its catalog holds. Every section is rebuilt from the Session's own log (never a fork-inherited prefix) or a projection folded over it, and the message is written once per checkpoint; a resumed Session sees that the rebuild already happened.
 
 The todo list folds the latest whole-list `todo/write` rather than reading the `todos` projection. The two carry the same standing plan, but folding the log keeps this package independent of projection materialization: the durable list survives turn boundaries and reopened sessions, exactly as `dsh-tool-todo` states, so a compaction at a turn boundary must restore it.
 
@@ -19,7 +19,7 @@ This package is a prototype: it is opt-in, not mounted by any shipped compositio
 
 ## Use this package
 
-Mount it beside `dsh-agent`. The todo list, the plan, and unsettled jobs need no other service; mount `dsh-session-projection` to include the subagent section.
+Mount it beside `dsh-agent`. The todo list, the plan, and unsettled jobs need no other service; the `Files` section uses the optional `ctx.fs` service and is left out when the deployment has none; mount `dsh-session-projection` to include the subagent section.
 
 ```yaml
 - name: '@deepseek-ai/dsh-compaction-rehydration'
@@ -30,5 +30,7 @@ Mount it beside `dsh-agent`. The todo list, the plan, and unsettled jobs need no
 - The subagent section reads the parent-owned `subagentCatalog` projection. Focused tests register a catalog projection stub and cover direct children plus cross-session isolation; the real `dsh-subagent` plugin is not mounted in those tests.
 - The jobs section folds `job/registered` and `job/settled` and never reports a job as running: a registration before the latest `session/end-seed` reads "may have stopped", and one after it reads "no settlement logged yet; it may still be running". A killed process that never logged a settlement stays uncertain.
 - The message is capped at 4,000 characters and truncates by section; a very long plan loses its tail.
+- The `Files` section lists at most five text reads and 2,000 characters. A read whose recorded version still matches becomes one `already read` line; a changed whole-file read is restated as current content; a recorded window, a missing or unreadable file, a file over the inspection ceiling, or a file without a filesystem service becomes a pointer instead. Credential-like paths are skipped entirely.
+- Read facts depend on the `read` tool's persisted `meta`; logs written before `version`/`digest` existed are checked with one bounded re-read. A pruned read result is resolved to its original sequence, and its old content is never treated as the current content.
 - A checkpoint is the summary **and** its surface replacement. The closing `compaction/end` may be missing (the process died after the surface replacement committed) or carry an error (closing failed); the replacement is what made the summary model-visible, so the rebuild still runs in both cases. The logged `compactionSeq` is the closing event when one exists and the replacement otherwise. A summary with no replacement never reached the surface and is not a checkpoint, so no rebuild is written for it.
 - Approval recognition depends on plan-mode's canonical result sentences; a rewording build degrades to omitting the plan, never to a guessed approval or a reinstated older plan.

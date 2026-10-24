@@ -3,11 +3,11 @@
  *
  * A compaction replaces part of the model-visible history with a summary. The
  * durable log still holds the facts the summary may have dropped: the current
- * todo list, the last approved plan, unsettled background jobs, and the direct
- * subagents a parent registered. This plugin reads those facts after a
- * successful compaction and appends one durable user message that restates
- * them, so the next request continues from the state rather than the summary's
- * recollection of it.
+ * todo list, the last approved plan, the files the session read, unsettled
+ * background jobs, and the direct subagents a parent registered. This plugin
+ * reads those facts after a successful compaction and appends one durable user
+ * message that restates them, so the next request continues from the state
+ * rather than the summary's recollection of it.
  *
  * The rebuilt message is written once per compaction and is itself a logged
  * `user/message`, so a resumed Session sees that the rebuild already happened
@@ -23,6 +23,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed, ContextSnapshotSection } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { isCompactCheckpointSource } from '@deepseek-ai/dsh-compaction'
+import { fileSection } from './file-section.ts'
 import type {} from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-jobs'
@@ -56,6 +57,7 @@ const MAX_TOTAL_CHARS = 4000
 const SECTION_LIMITS = {
   todos: 1200,
   plan: 2000,
+  files: 2000,
   jobs: 500,
   subagents: 300,
 } as const
@@ -314,14 +316,16 @@ function render(sections: readonly DraftSection[]): { readonly text: string; rea
 }
 
 /** Build the rebuild message for the latest checkpoint, or `undefined` when none is owed. */
-function rebuildFor(ctx: Context, agent: Agent): ReturnType<typeof createUserMessage> | undefined {
+async function rebuildFor(ctx: Context, agent: Agent): Promise<ReturnType<typeof createUserMessage> | undefined> {
   const session = agent.session
   const checkpoint = latestCheckpoint(session)
   if (checkpoint === undefined) return undefined
   if (alreadyRebuilt(session, checkpoint)) return undefined
+  const files = await fileSection(session, ctx)
   const drafts = [
     todoSection(session),
     planSection(session),
+    files,
     jobSection(session),
     subagentSection(ctx, session),
   ].filter((section): section is DraftSection => section !== undefined)
@@ -354,7 +358,7 @@ export function apply(ctx: Context): void {
   ): Promise<PreStepDecision> => {
     const decision = await next()
     if (decision.kind === 'reject' || signal.aborted) return decision
-    const message = rebuildFor(ctx, agent)
+    const message = await rebuildFor(ctx, agent)
     if (message === undefined) return decision
     return { ...decision, messages: [...decision.messages, message] }
   }, { prepend: true })
