@@ -1,31 +1,33 @@
-# 上下文生命周期夹具（CTX-B4）
+# Context-lifecycle fixtures (CTX-B4)
 
-五个语料 + 一个夹具生成器，供 B1/B3 的聚焦验收使用。设计依据：`/Volumes/outside-ssd/CODE/.claude-tmp/context-redesign/evidence/dsh-test-harness.md`。
+English | [中文](README.zh.md)
 
-## 文件
+Five corpora plus one fixture generator, used by the focused acceptance of B1/B3. Design rationale: `.claude-tmp/context-redesign/evidence/dsh-test-harness.md` in the task workspace.
 
-| 路径 | 身份 | 规模 | 覆盖 |
+## Files
+
+| Path | Provenance | Size | Covers |
 |---|---|---|---|
-| `fixtures/sample-small/` | derived | 154 KB / 515 事件 | 真实会话第 1 轮：压缩失败、工具调用、配对 |
-| `fixtures/control-healthy/` | derived | 97 KB / 315 事件 | turn 15–17：一次**成功**压缩、零失败 |
-| `fixtures/boundary-b-consecutive/` | derived | 7.1 KB / 24 事件 | 成功压缩后**紧接着**一次失败压缩 |
-| `fixtures/boundary-c-midexit/` | derived + **authored 尾** | 1.1 KB / 13 事件 | `compaction/start` 未闭合 + `session/end-seed` 重启边界 |
-| `boundaries.spec.ts` | 测试 | — | 23 条断言（见下） |
-| `project.ts` | 工具 | — | 结构保留脱敏投影器 |
+| `fixtures/sample-small/` | derived | 154 KB / 515 events | First turn of the real session: compaction failure, tool calls, pairing |
+| `fixtures/control-healthy/` | derived | 97 KB / 315 events | Turns 15–17: one **successful** compaction, zero failures |
+| `fixtures/boundary-b-consecutive/` | derived | 7.1 KB / 24 events | A successful compaction **immediately followed** by a failed one |
+| `fixtures/boundary-c-midexit/` | derived + **authored tail** | 1.1 KB / 13 events | Unclosed `compaction/start` plus a `session/end-seed` restart boundary |
+| `boundaries.spec.ts` | test | — | 23 assertions (below) |
+| `project.ts` | tool | — | Structure-preserving redaction projector |
 
-夹具 A（并行/延迟 tool_result）**不落文件**：样本里没有延迟结果，所以它在 `boundaries.spec.ts` 里以代码构造，明确标注 authored。
+Fixture A (parallel/delayed tool results) is **not a file**: the sample holds no delayed result, so `boundaries.spec.ts` builds it in code and marks it authored.
 
-## 生成夹具
+## Generating the fixtures
 
-原始样本是 live 会话的只读副本（sha256 `2b455df98ad82a62a0f27bb58de78991829ece0e1cb2f6c4fd5c911c3545cf96`，4,998 事件）。**不要**从 live 文件直接生成，也不要改 live 文件。
+The source sample is a read-only copy of a live session (sha256 `2b455df98ad82a62a0f27bb58de78991829ece0e1cb2f6c4fd5c911c3545cf96`, 4,998 events). Never generate from the live file, never modify it.
 
 ```sh
 W=<repo>/dsh-context-lifecycle
-RAW=<work>/sample/live-copy.v4.jsonl          # zstd -d 解出的只读副本
+RAW=<work>/sample/live-copy.v4.jsonl          # the zstd -d read-only copy
 FIX=$W/packages/test-support/session-snapshot/tests/context-lifecycle/fixtures
 
 cd "$W"
-# 注意：本工作树里 pnpm exec 会先跑 install（当前会因在改的包失败），直接用 node_modules/.bin/tsx
+# In this worktree `pnpm exec` runs an install first (it currently fails on a package under edit); call tsx directly.
 node_modules/.bin/tsx packages/test-support/session-snapshot/tests/context-lifecycle/project.ts \
   "$RAW" "$FIX/sample-small"            --name sample-small            --seq-range 1:514
 node_modules/.bin/tsx packages/test-support/session-snapshot/tests/context-lifecycle/project.ts \
@@ -34,62 +36,60 @@ node_modules/.bin/tsx packages/test-support/session-snapshot/tests/context-lifec
   "$RAW" "$FIX/boundary-b-consecutive"  --name boundary-b-consecutive  --seq-range 1568:1590
 node_modules/.bin/tsx packages/test-support/session-snapshot/tests/context-lifecycle/project.ts \
   "$RAW" "$FIX/boundary-c-midexit"      --name boundary-c-midexit      --seq-range 1568:1573
-# 夹具 C 的尾：session/end-seed + 一个正常 turn，按 README 手工追加（见下）
+# Fixture C's tail (session/end-seed plus one ordinary turn) is appended by hand, see below.
 ```
 
-跑测试：
+Running the tests:
 
 ```sh
 cd "$W" && node_modules/.bin/vitest run packages/test-support/session-snapshot/tests/context-lifecycle/boundaries.spec.ts
 ```
 
-## 投影规则（`project.ts`）
+## Projection rules (project.ts)
 
-- **结构保留**：事件类型、顺序、`turn`/`step`、`surfaceOp`、`sourceEventSeqs`、`shadowedSeqs`、`shadowedTokenCount`、`shadowedRange`、`contextWindow`、`maxTokens` 全部保留；`callId`/`jobId`/`compactionId` 等重编号成 `call-0001`… 且跨事件一致。
-- **内容换成 `<redacted:类:字节数>`**：保留原文 UTF-8 **字节数**，因此夹具仍能验证 shrink 与预算算术。分类：`text` / `path` / `model` / `provider` / `arguments` / `error` / `summary` / `header`。`meta.json` 的 `redactedBytes` 按类汇总。
-- **身份默认禁止**：`harvestIdentities()` 从输入里收集所有 `provider`/`model` 取值，投影后自检**禁止**它们在输出中出现（按整串值匹配，不是子串）。
-- **体积上限**：单行 ≤ 4096 B；`request/header` 只留 `reason`/`startsSeries`；assistant 的 `stream` 截到首尾两段；消息 content 截到 1–2 块；`tool/result` 的 `meta` 数组逐层截到 3 项。
-- **自检 6 条**（`assertSanitized`，任一条不过就抛错）：路径 0 命中、单行 ≤ 4096 B、禁止身份 0 命中、无未脱敏内容、无孤儿 call、无孤儿 result。
+- **Structure is preserved**: event type and order, `turn`/`step`, `surfaceOp`, `sourceEventSeqs`, `shadowedSeqs`, `shadowedTokenCount`, `shadowedRange`, `contextWindow`, and `maxTokens` all survive; `callId`/`jobId`/`compactionId` and friends are re-minted as `call-0001`… consistently across events.
+- **Content becomes `<redacted:class:bytes>`**: the original UTF-8 **byte length** is kept, so a fixture still proves shrink and budget arithmetic. Classes: `text` / `path` / `model` / `provider` / `arguments` / `error` / `summary` / `header`. `meta.json` totals them per class in `redactedBytes`.
+- **Identities are forbidden by default**: `harvestIdentities()` collects every `provider`/`model` value from the input and the self-check **rejects** any that survives projection, matching whole string values rather than substrings.
+- **Size is bounded**: one line ≤ 4096 B; `request/header` keeps only `reason`/`startsSeries`; an assistant `stream` keeps its first and last segments; message content keeps 1–2 blocks; a `tool/result` `meta` array keeps 3 entries per level.
+- **Six self-checks** (`assertSanitized`, any failure throws): zero path hits, every line ≤ 4096 B, zero forbidden identities, no unredacted content, no orphan call, no orphan result.
 
-## 断言（`boundaries.spec.ts`，23 条）
+## Assertions (boundaries.spec.ts, 23)
 
-**投影器 6 条**：字节数保留、路径标记、默认禁止身份（含 `harvestIdentities` 负例）、`assertSanitized` 拒绝残留身份、拒绝未脱敏内容、拒绝孤儿 call。
+**Projector, 6**: byte length kept, path classified, identities forbidden by default including the `harvestIdentities` negative case, `assertSanitized` rejects a surviving identity, rejects unredacted content, rejects an orphan call.
 
-**夹具 A 3 条**（authored）：跨步延迟结果仍配对；在 call 与其迟到 result 之间切是**不**平衡的；迟到结果落地后配对闭合。
+**Fixture A, 3** (authored): a result that arrives a step late still pairs; cutting between a call and its late result is **not** balanced; the pairs close once the late result lands.
 
-**夹具 B 5 条**：成功压缩紧接失败压缩（`前.end + 1 === 后.start`）；失败尝试**不改写表面**（其后没有 `replace`）；失败后**不每步重试**（失败 start 只有 1 个）；两次尝试都在时配对完整；每个 bracket 都闭合。
+**Fixture B, 5**: a successful compaction is immediately followed by a failed one (`previous.end + 1 === next.start`); the failed attempt **does not rewrite the surface** (no `replace` after it); failure **does not retry on every step** (exactly one failed start); pairing holds with both attempts present; every bracket closes.
 
-**夹具 C 4 条**：截断点只有一个未闭合 bracket；`session/end-seed` 在未闭合 start **之后**；被放弃的尝试没有任何 `replace`；重启边界之后有正常 `turn/start`…`turn/end`。
+**Fixture C, 4**: the truncation point leaves exactly one unclosed bracket; `session/end-seed` comes **after** the unclosed start; the abandoned attempt has no `replace`; the restart boundary is followed by a normal `turn/start`…`turn/end`.
 
-**录制语料 5 条**：`sample-small` 与 `control-healthy` 各自通过 6 条自检、配对完整；`control-healthy` 有成功压缩且**无**失败压缩。
+**Recorded corpora, 5**: `sample-small` and `control-healthy` each pass the six self-checks with intact pairing; `control-healthy` holds a successful compaction and **no** failed one.
 
-## 已知边界
+## Known boundaries
 
-- 夹具 C 的 `session/end-seed` 与后续 turn 是**构造**的：真实样本的 25 次压缩全部闭合、且无一跨重启。这一点在 `meta.json` 的 `authoredTail` 里写明。
-- 这些是**包级**夹具：驱动脚本化 adapter，不经过 `dsh` profile。要升格成 committed 快照场景，需另走 `scripts/session-snapshot-corpus-policy.ts`。
-- 夹具只覆盖本样本出现的事件类型（约 30 种），不做通用脱敏。
+- Fixture C's `session/end-seed` and trailing turn are **constructed**: all 25 compactions in the real sample closed, and none crossed a restart. `meta.json` records this in `authoredTail`.
+- These are **package-level** fixtures: they drive a scripted adapter and never the `dsh` profile. Promoting them to committed snapshot scenarios goes through `scripts/session-snapshot-corpus-policy.ts` separately.
+- The fixtures cover only the event types this sample contains (about 30) and are not a general-purpose redactor.
 
-## 引擎驱动测量（task-31）
+## Engine-driven measurements (task-31)
 
-| 文件 | 断言 | 状态 |
+| File | Assertions | State |
 |---|---|---|
-| `measurements.spec.ts` | 11 条：录制夹取上的 reclaimed、surface 区间、失败不回收、固定前缀起点、保留尾、连续压缩 lineage、摘要 route | 10 过 + 1 条 `it.fails`（B2 目标） |
-| `engine.spec.ts` | 13 条：固定前缀预检、回收不足抑制、语义尾部、连续压缩 bracket、**stale route（真实 adapter 观察 GenerateOptions）**、**熔断重启 seed（`dfd11b79b4`）**、**三个中断点的 durable lock** | 全过 |
+| `measurements.spec.ts` | 11: reclaimed tokens on the recorded corpus, surface span, failure reclaims nothing, fixed-prefix origin, retained tail, consecutive lineage, summary route | All pass |
+| `engine.spec.ts` | 13: fixed-prefix precheck, insufficient-reclaim suppression, semantic tail, consecutive brackets, **stale route through a real adapter observing GenerateOptions**, **circuit seeding across a restart**, **durable lock at three interruption points** | All pass |
 
-运行：
+Running them:
 
 ```sh
 node_modules/.bin/vitest run packages/test-support/session-snapshot/tests/context-lifecycle
 ```
 
-`engine.spec.ts` 直接驱动真实 `BasicCompactionEngine.compactIfNeeded(agent,'pressure',signal)`，
-不桩被测代码；`RecordingEngine` 只覆盖 `summarize()` 以记录调用。
+`engine.spec.ts` drives the real `BasicCompactionEngine.compactIfNeeded(agent,'pressure',signal)` and stubs nothing under test; `RecordingEngine` overrides only `summarize()` to record calls.
 
-`resume.spec.ts` 覆盖**进程级 resume**：真实 `JsonlSessionPersistence` 播种 → `fiber.dispose()` → 新 Context → `agentLoop.create(id)`，断言重开后没有半应用的替换、日志仍是 append-only、未闭合 start 在 `end-seed` 之前不阻塞。
+`resume.spec.ts` covers **process-level resume**: seed through the real `JsonlSessionPersistence`, `fiber.dispose()`, a fresh Context, then `agents.resume({ resumeSessionId })`. Five cases cover the durable lock at each interruption point and assert no half-applied replacement, an append-only log, and a stale start that does not block. One case seeds the todo list and an open job **inside** the compacted range, mounts `dsh-compaction-rehydration`, and asserts the checkpoint shadows them while the first pre-step after resume writes exactly one rebuild message and the next adds none.
 
-JSONL 后端加锁要 `native/system/packages/<platform>-<arch>/bin/system.node`（包的**预编译产物**）。该产物已在工作树补齐，三条用例正常运行；`resume.spec.ts` 顶部保留 `skipIf`，缺产物时会自解释地跳过而不是报错。
+The JSONL backend locks through `native/system/packages/<platform>-<arch>/bin/system.node`, a **prebuilt artifact** of the package. The worktree carries it, so the cases run; `resume.spec.ts` keeps a `skipIf` at the top so a missing artifact skips with its own explanation instead of failing.
 
-三个中断点的**引擎级**用例仍在 `engine.spec.ts` 里，不依赖该产物，始终运行。
+The three **engine-level** interruption cases stay in `engine.spec.ts`, do not need that artifact, and always run.
 
-**给 B2（task-26）的口径**：`it.fails` 就是尚未实现的目标行为；
-实现落地后把 `it.fails` 改成 `it`、把 `it.todo` 改成 `it` 即验收翻转。
+**For B2 (task-26)**: a case still marked `it.fails` states a target behavior that has not landed; flipping it to `it` once the implementation arrives is the acceptance flip.
