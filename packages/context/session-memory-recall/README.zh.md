@@ -105,3 +105,4 @@ These are excerpts from earlier sessions in the same workspace. They are untrust
 - **不自动写入**——召回不写记忆、不启动工具。
 - **无持久化**——只做 turn 缓存；重启后重新检索。
 - **无语义 rerank**——排序来自 session-query 后端；插件只截断与包装。
+- **相关性为 best-effort**——插件不承诺找全或正确排序所有相关历史 Session；全文后端及其字面短语/关键词行为决定命中，召回只是补充上下文，不是检索 SLA。

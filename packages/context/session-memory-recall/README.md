@@ -105,3 +105,4 @@ Bounded by `maxBytes` (default 4 KiB). The message participates in the next requ
 - **No automatic write** — recall never writes memory or starts tools.
 - **No persistence** — turn cache only; a restart re-queries.
 - **No semantic rerank** — ranking comes from the session-query backend; the plugin only truncates and frames.
+- **Best-effort relevance** — the plugin does not promise that every relevant prior Session is found or ranked. The full-text backend and its literal-phrase/keyword behavior decide matches; recall is supplementary context, not a retrieval SLA.
