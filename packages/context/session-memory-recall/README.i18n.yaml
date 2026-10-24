@@ -42,14 +42,23 @@
   en: 19056d9994f050c4
   zh: a252e05730a5d5d6
 /deepseek-ai-dsh-session-memory-recall/model-experience:
-  en: b5eabe9242ff1007
-  zh: 802f0fae1b8ef7f8
-/deepseek-ai-dsh-session-memory-recall/model-experience/token-effect:
-  en: d6680af283444c71
-  zh: 4bee5171ad4f20b8
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-session-memory-recall/model-experience/recalled-prior-session-excerpt:
+  en: d9dfd9e798185323
+  zh: 6acf95a05ecd5212
+/deepseek-ai-dsh-session-memory-recall/model-experience/recalled-prior-session-excerpt/what-the-model-sees:
+  en: de5d4bb2d937fbdc
+  zh: d9bc29aa0437484e
+/deepseek-ai-dsh-session-memory-recall/model-experience/recalled-prior-session-excerpt/token-effect:
+  en: a764a018cc892fd7
+  zh: 29f0b6bff3cacbe5
+/deepseek-ai-dsh-session-memory-recall/model-experience/recalled-prior-session-excerpt/kv-cache-effect:
+  en: 96f076992863f7fb
+  zh: 60f86f2993075476
 /deepseek-ai-dsh-session-memory-recall/known-limitations-and-deferred-work:
-  en: 977457fadb875348
-  zh: 21b3a49c74eaf682
+  en: f539df7d2c0f6ce7
+  zh: f4b457d4662ee213
 /deepseek-ai-dsh-session-memory-recall/known-limitations-and-deferred-work/dev-note:
   en: 192dd76a129bc9d1
   zh: 549eae27943e9848

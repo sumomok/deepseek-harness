@@ -78,10 +78,23 @@ pass 监听 `agent/pre-step`。它测量当前真实用户消息与此前当前 
 <a id="model-experience"></a>
 ## 模型体验
 
-idle pass 后，模型在旧文本位置看到地址 notice。它可以对指定 seq 调用 `session_event_read` 读取完整原文；该工具会加自己的固定不可信历史警告。模型如果选择不读就会失去旧结果，不会自动回灌。
+### 已清空工具结果指针
+
+#### 模型看到什么
+
+较早的已完成文本工具结果会被一条指针 notice 就地替换：它给出 session 与原始 seq，并提示模型使用 `session_event_read`；原文不再出现在请求中。
+
+#### Token 影响
+
+这条短 notice 取代结果原来的文本；本 pass 不发起模型请求、不保存新内容，节省量即被移除文本减去 notice。
+
+#### KV Cache 影响
+
+替换改变了被清空结果所在位置的历史，因此从该位置到被替换范围的缓存复用失效；更早的前缀与之后未变的消息保持原有缓存行为。
+
+## 已知限制与延期工作
 
 <a id="known-limitations-and-deferred-work"></a>
-## 已知限制与延期工作
 
 - **默认只有桌面回读**——`session_event_read` 由桌面组合挂载。Base、web、headless 组合会跳过本 pass，除非显式开启 `allowHostOnlyReadback`，此时模型无法解析指针。
 - **仅纯文本**——含图片/富块的结果跳过，因为其 route token 价可能与 heuristic 估算不同。

@@ -78,10 +78,23 @@ All fields are validated at load; unknown keys fail.
 <a id="model-experience"></a>
 ## Model Experience
 
-After an idle pass, the model sees the address notice in place of the old text. It can call `session_event_read` on the named sequence to read the complete original; that tool prefixes its own fixed untrusted-history warning. The model loses the old result if it chooses not to read it, and no automatic rehydration occurs.
+### Cleared tool result pointer
+
+#### What the model sees
+
+An old completed text tool result is replaced in place by one pointer notice naming the session and original sequence and telling the model to use `session_event_read`; the original text no longer appears in the request.
+
+#### Token effect
+
+The short notice replaces the result's former text; the pass makes no model request and stores no new content, so the saving is the removed text minus the notice.
+
+#### KV Cache effect
+
+The replacement changes history at the cleared result's position, so cached reuse is invalidated from that position through the replaced range; earlier prefix and later unchanged messages keep their existing cache behavior.
+
+## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
-## Known Limitations and Deferred Work
 
 - **Desktop readback only by default** — `session_event_read` is mounted by the desktop composition. Base, web, and headless compositions skip the pass unless `allowHostOnlyReadback` is explicitly enabled, and then the model cannot resolve the pointer.
 - **Pure text only** — image-bearing and rich results are skipped because their route token price can differ from the heuristic estimator.

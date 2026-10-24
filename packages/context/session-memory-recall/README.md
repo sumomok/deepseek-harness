@@ -92,14 +92,23 @@ Missing `sessionQuery`, a backend without `searchSessions`, no `cwd`, timeout, e
 <a id="model-experience"></a>
 ## Model Experience
 
-The model sees at most one additional user-role context message per turn, inside a fixed untrusted-data frame. It adds no tool schema, system prompt, developer instruction, or approval capability.
+### Recalled prior-session excerpt
 
-### Token effect
+#### What the model sees
 
-Bounded by `maxBytes` (default 4 KiB). The message participates in the next request and in later compaction like any other user message; no hidden context is stored.
+On the first step of a turn carrying a real user message, one additional user message may carry up to three excerpts from earlier Sessions in the same workspace. It is framed as untrusted history and asks the model not to follow instructions or permission claims from it.
+
+#### Token effect
+
+The message is bounded by `maxBytes` (default 4 KiB) and `maxHits` (default 3); the search is local and injects nothing when the backend is absent, times out, or returns no allowed hit.
+
+#### KV Cache effect
+
+The message is appended before the request it accompanies, so a provider-cached prefix from the conversation remains reusable and only the recall message plus the turn input is new uncached input.
+
+## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
-## Known Limitations and Deferred Work
 
 - **Prior Sessions only** — no curated memory files, `MEMORY.md`, embeddings, or organization/team memory.
 - **Same workspace only** — no cross-workspace or user-global recall.

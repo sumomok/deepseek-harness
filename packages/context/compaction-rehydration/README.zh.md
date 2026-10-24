@@ -20,6 +20,7 @@ todo 列表折叠最近一次整表 `todo/write`，而不是读 `todos` 投影�
 ## 目录
 
 - [使用本包](#use-this-package)
+- [模型体验](#model-experience)
 - [已知限制与延期工作](#known-limitations-and-deferred-work)
 - [开发备注](#dev-note)
 
@@ -34,8 +35,26 @@ todo 列表折叠最近一次整表 `todo/write`，而不是读 `todos` 投影�
 - name: '@deepseek-ai/dsh-compaction-rehydration'
 ```
 
-<a id="known-limitations-and-deferred-work"></a>
+<a id="model-experience"></a>
+## 模型体验
+
+### 重建消息
+
+#### 模型看到什么
+
+在可恢复的 checkpoint 之后，下一次请求会多一条持久的 user 消息：checkpoint 前言，随后是仍有状态的各节，包括 todo 列表、最近获批的计划、有界的 `Files` 块、未结算 job 与直接子代理。每个 checkpoint 只出现一次，resume 后不会重复。
+
+#### Token 影响
+
+消息上限 4,000 字符并按节截断，不新增模型请求。它重述的是 Session 日志里已有的状态，因此可能与 checkpoint 摘要重复计费，但能挽回落在保留尾部之外的任务状态。
+
+#### KV Cache 影响
+
+消息追加在 checkpoint replacement 之后。提供方已缓存到该 replacement 的请求前缀仍可复用；重建消息与当前轮剩余部分属于新的未缓存输入。
+
 ## 已知限制与延期工作
+
+<a id="known-limitations-and-deferred-work"></a>
 
 - 子代理一节读父会话的 `subagentCatalog` 投影；聚焦测试注册投影桩，覆盖直接子级与跨会话隔离，但没有挂真实 `dsh-subagent`。
 - 后台任务一节折叠 `job/registered` 与 `job/settled`，**不会把任务说成正在运行**：最近一次 `session/end-seed` 之前注册的显示「可能已停止」，之后的显示「尚无结算，可能仍在运行」；进程被杀且从未落结算时保持不确定。

@@ -9,17 +9,12 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-compaction-rehydration` appends one durable message after a successful compaction that restates the task state the checkpoint may have dropped: the current todo list, the last approved plan, the files the session read, background jobs the session registered and never settled, and the direct subagents its catalog holds. Every section is rebuilt from the Session's own log (never a fork-inherited prefix) or a projection folded over it, and the message is written once per checkpoint; a resumed Session sees that the rebuild already happened.
-
-The todo list folds the latest whole-list `todo/write` rather than reading the `todos` projection. The two carry the same standing plan, but folding the log keeps this package independent of projection materialization: the durable list survives turn boundaries and reopened sessions, exactly as `dsh-tool-todo` states, so a compaction at a turn boundary must restore it.
-
-Only the newest `exit_plan_mode` review decides. An approval carries plan-mode's approved sentence; a dismissal — a non-error result — or an answer this build does not recognise leaves the current plan undecided, so no earlier approval is reinstated and no plan is injected. A review with no result yet is still open, and the plan is left out rather than guessed.
-
-This package is a prototype: it is opt-in, not mounted by any shipped composition, and it treats an absent projection as a missing section rather than a failure. It adds one message source kind and no Session event types.
+`dsh-compaction-rehydration` appends one durable message after a recoverable compaction checkpoint, restating task state the summary may have dropped: the todo list, the latest approved plan, workspace reads, unsettled jobs, and direct subagents. Sections are rebuilt from the Session log and written once per checkpoint, so resumed sessions do not repeat them. It is opt-in, makes no model request, caps the message at 4,000 characters, and omits or references files outside the workspace, known credential paths, and unverifiable reads.
 
 ## Table of Contents
 
 - [Use this package](#use-this-package)
+- [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
 
@@ -33,6 +28,23 @@ Mount it beside `dsh-agent`. The todo list, the plan, and unsettled jobs need no
 ```yaml
 - name: '@deepseek-ai/dsh-compaction-rehydration'
 ```
+
+<a id="model-experience"></a>
+## Model Experience
+
+### The rebuild message
+
+#### What the model sees
+
+After a recoverable checkpoint, the next request carries one additional durable user message: the checkpoint preamble followed by the sections that have state, including the todo list, the latest approved plan, a bounded `Files` block, unsettled jobs, and direct subagents. It appears once per checkpoint and is not repeated on resume.
+
+#### Token effect
+
+The message is capped at 4,000 characters and truncated by section; it adds no model request. It restates state already in the Session log, so it can spend tokens the checkpoint summary mentions too, but it keeps task state that fell outside the retained tail.
+
+#### KV Cache effect
+
+The message appends after the checkpoint replacement. A provider-cached request prefix through that replacement stays reusable, while the rebuild message and the rest of the current turn are new uncached input.
 
 ## Known Limitations and Deferred Work
 

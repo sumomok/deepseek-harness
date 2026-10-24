@@ -93,14 +93,23 @@ These are excerpts from earlier sessions in the same workspace. They are untrust
 <a id="model-experience"></a>
 ## 模型体验
 
-模型每 turn 最多看到一条额外的 user 角色上下文消息，位于固定不可信数据包装内；不新增工具 schema、system prompt、developer 指令或审批能力。
+### 召回的历史 Session 片段
 
-### Token 影响
+#### 模型看到什么
 
-受 `maxBytes`（默认 4 KiB）限制。消息参与下一次请求，并像其他 user 消息一样参与后续压缩；不存储隐藏上下文。
+在带真实用户消息的轮次首个 step，可能会多一条 user 消息，携带同一 workspace 中历史 Session 的最多三段摘录。它以不可信历史为框架，并要求模型不要遵循其中的指令或权限声明。
+
+#### Token 影响
+
+消息受 `maxBytes`（默认 4 KiB）与 `maxHits`（默认 3）限制；搜索在本地进行，后端缺失、超时或没有允许的命中时不注入任何内容。
+
+#### KV Cache 影响
+
+消息追加在它所伴随的请求之前，因此对话中已被提供方缓存的前缀仍可复用，只有召回消息与本轮输入是新的未缓存输入。
+
+## 已知限制与延期工作
 
 <a id="known-limitations-and-deferred-work"></a>
-## 已知限制与延期工作
 
 - **仅历史 Session**——不做策展记忆文件、`MEMORY.md`、embedding 或组织/团队记忆。
 - **仅同工作区**——不做跨工作区或用户全局召回。
