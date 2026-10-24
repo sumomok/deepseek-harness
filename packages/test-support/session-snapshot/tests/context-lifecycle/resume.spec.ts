@@ -71,6 +71,15 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
 })
 
+/**
+ * Whether a surface operation is a replacement, without asserting its shape.
+ * @param value - any `surfaceOp` taken from a session event
+ * @returns true when the value is an object whose `op` is `replace`
+ */
+function isReplaceSurfaceOp(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && 'op' in value && value.op === 'replace'
+}
+
 async function mount(root: string): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
@@ -165,10 +174,7 @@ describe.skipIf(!HAS_LOCK_BINDING)('resume after an interrupted compaction', () 
 
     // The abandoned attempt left no summary and no replacement message.
     expect(log.filter(event => event.type === 'compaction/summary')).toEqual([])
-    const replacements = log.filter((event) => {
-      const op = (event as { surfaceOp?: { op?: string } }).surfaceOp
-      return op?.op === 'replace'
-    })
+    const replacements = log.filter(event => 'surfaceOp' in event && isReplaceSurfaceOp(event.surfaceOp))
     expect(replacements).toEqual([])
     // The resumed agent owns the same durable session.
     expect(handle.agent.session.id).toBe(id)
@@ -278,7 +284,7 @@ async function compactionCycle(id: SessionId): Promise<{ events: readonly Sessio
     start: find(event => event.type === 'compaction/start'),
     summary: find(event => event.type === 'compaction/summary'),
     replacement: find(event => event.type === 'user/message'
-      && (event as unknown as { surfaceOp?: { op?: string } }).surfaceOp?.op === 'replace'),
+      && 'surfaceOp' in event && isReplaceSurfaceOp(event.surfaceOp)),
     end: find(event => event.type === 'compaction/end'),
   }
   await ctx.fiber.dispose()
@@ -341,7 +347,7 @@ describe.skipIf(!HAS_LOCK_BINDING)('resume at the three compaction interruption 
 
     expect(log.filter(event => event.type === 'compaction/summary')).toEqual([])
     expect(log.filter(event => event.type === 'compaction/end')).toEqual([])
-    expect(log.filter(event => (event as { surfaceOp?: { op?: string } }).surfaceOp?.op === 'replace')).toEqual([])
+    expect(log.filter(event => 'surfaceOp' in event && isReplaceSurfaceOp(event.surfaceOp))).toEqual([])
     expect(second.agents.get(id)?.session.id).toBe(id)
     const summaryOnlyAgent = second.agents.get(id)!
     expect(await firePreStep(second, summaryOnlyAgent)).toBe(0)
@@ -363,7 +369,7 @@ describe.skipIf(!HAS_LOCK_BINDING)('resume at the three compaction interruption 
     // The summary is durable evidence, but it never reached the surface: no
     // replacement and no close, so history stays the pre-compaction history.
     expect(log.filter(event => event.type === 'compaction/summary')).toHaveLength(1)
-    expect(log.filter(event => (event as { surfaceOp?: { op?: string } }).surfaceOp?.op === 'replace')).toEqual([])
+    expect(log.filter(event => 'surfaceOp' in event && isReplaceSurfaceOp(event.surfaceOp))).toEqual([])
     expect(log.filter(event => event.type === 'compaction/end')).toEqual([])
     // Task state stays in the durable log and nothing was injected over it.
     expect(log.filter(event => event.type === 'todo/write')).toHaveLength(1)

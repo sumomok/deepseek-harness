@@ -232,10 +232,30 @@ export function projectEvent(raw: Record<string, unknown>, minter: Minter, tally
     return { type, data: { reason: data?.['reason'], startsSeries: data?.['startsSeries'], header } }
   }
   const data = capPayload(type, projectValue(raw['data'] ?? {}, '', minter, tally) as Record<string, unknown>)
-  const event: Record<string, unknown> = { type, data }
-  if ('surfaceOp' in raw) event['surfaceOp'] = projectSurfaceOp(raw['surfaceOp'])
-  if ('sourceEventSeqs' in raw) event['sourceEventSeqs'] = raw['sourceEventSeqs']
-  return event as unknown as ProjectedEvent
+  const sourceEventSeqs = sourceEventSeqsOf(raw)
+  return {
+    type,
+    data,
+    ...'surfaceOp' in raw ? { surfaceOp: projectSurfaceOp(raw['surfaceOp']) } : {},
+    ...sourceEventSeqs === undefined ? {} : { sourceEventSeqs },
+  }
+}
+
+/**
+ * Read a raw `sourceEventSeqs` as event numbers.
+ * @param raw - parsed fixture row
+ * @returns the validated numbers, or undefined when the row carries none
+ */
+function sourceEventSeqsOf(raw: Record<string, unknown>): readonly number[] | undefined {
+  if (!Object.hasOwn(raw, 'sourceEventSeqs')) return undefined
+  const value = raw['sourceEventSeqs']
+  if (!Array.isArray(value)) throw new Error('projectEvent: sourceEventSeqs must be an array')
+  return value.map((entry: unknown) => {
+    if (typeof entry !== 'number' || !Number.isInteger(entry)) {
+      throw new Error(`projectEvent: sourceEventSeqs must hold integers, saw ${typeof entry}`)
+    }
+    return entry
+  })
 }
 
 /**
