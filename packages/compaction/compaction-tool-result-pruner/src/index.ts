@@ -7,6 +7,7 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { freezeMessage } from '@deepseek-ai/dsh-llm'
+import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionSeq, ToolResultMessage } from '@deepseek-ai/dsh-session'
 // Type-only: the `compaction/*` SessionEventMap merges (the shadow-price event).
@@ -14,8 +15,12 @@ import type {} from '@deepseek-ai/dsh-compaction'
 // Type-only: the `ctx.tokenMeter` Context merge for the declared injection.
 import type {} from '@deepseek-ai/dsh-token-meter'
 import { codePointLength, DEFAULTS, PRUNE_MARKER, resolveConfig } from './config.ts'
-import { resolveRecoveryAddress, splitSpillNotice } from './recovery.ts'
+import { previewRecoveryAddress, recoveryNotice, resolveRecoveryAddress, splitSpillNotice } from './recovery.ts'
 import type {
+  PruneApplyResult,
+  PrunePreview,
+  PrunePreviewEntry,
+  PrunePreviewSkip,
   RecoveredPrunedEntry,
   RecoveryPruneResult,
   RecoverySpillRef,
@@ -38,6 +43,11 @@ export type {
 } from './types.ts'
 export { originalToolResultSeq, recoveryNotice, splitSpillNotice } from './recovery.ts'
 export type {
+  PruneApplyResult,
+  PrunePreview,
+  PrunePreviewEntry,
+  PrunePreviewSkip,
+  PreviewRecoveryAddress,
   RecoveredPrunedEntry,
   RecoveryAddress,
   RecoveryPruneResult,
@@ -227,7 +237,8 @@ export class ToolResultPruner extends Service {
     const candidates = this.candidates(session)
     const store = options.spillStore ?? this.recoveryStore()
     const pruned: RecoveredPrunedEntry[] = []
-    let skipped = 0
+    let noticeDropped = 0
+    let noAddress = 0
     let charsRemoved = 0
     for (const { seq, event } of candidates) {
       const original = session.deriveEventMessage(event) as ToolResultMessage
@@ -239,11 +250,17 @@ export class ToolResultPruner extends Service {
         ...options,
         ...store === undefined ? {} : { spillStore: store },
       }, this.savedResults, noticeBudget)
-      const content = resolution.notice === ''
-        ? this.pruneContent(original.content)
-        : this.pruneContentWithNotice(original.content, resolution.notice)
+      if (resolution.notice === '') {
+        // No address means no recovery. Keep the original rather than landing
+        // an address-free prune the model cannot read back.
+        noAddress += 1
+        continue
+      }
+      const content = this.pruneContentWithNotice(original.content, resolution.notice)
       if (content === null) {
-        skipped += 1
+        // A notice that cannot fit must not silently degrade to an address-free
+        // prune: keep the original result in place instead.
+        noticeDropped += 1
         continue
       }
       const charsBefore = this.measureContent(original.content)
@@ -259,7 +276,154 @@ export class ToolResultPruner extends Service {
       })
       charsRemoved += charsBefore - charsAfter
     }
-    return { pruned, charsRemoved, skipped }
+    return { pruned, charsRemoved, noticeDropped, noAddress }
+  }
+
+  /**
+   * Plan a pruning pass without changing the session or saving a spill file.
+   * The caller may run summary review first and apply the preview only after
+   * its compaction transaction commits. A spill address with no recorded
+   * notice is reported as deferred; preview invents no locator.
+   * @param session - session whose current surface is measured.
+   * @param options - address preference and optional spill store.
+   * @returns candidate replacements, skipped candidates, and projected savings.
+   */
+  previewSessionPrune(
+    session: Session,
+    options: ToolResultRecoveryOptions = {},
+  ): PrunePreview {
+    const store = options.spillStore ?? this.recoveryStore()
+    const entries: PrunePreviewEntry[] = []
+    const skipped: PrunePreviewSkip[] = []
+    let reclaimableChars = 0
+    let reclaimableTokens = 0
+    const noticeBudget = this.config.thresholdChars - codePointLength(PRUNE_MARKER) - 2
+    for (const { seq, event } of this.candidates(session)) {
+      const original = session.deriveEventMessage(event) as ToolResultMessage
+      if (this.pruneContent(original.content) === null) continue
+      const preview = previewRecoveryAddress(session, seq, {
+        ...options,
+        ...store === undefined ? {} : { spillStore: store },
+      }, noticeBudget)
+      if (preview.address.kind === 'unavailable') {
+        skipped.push({ originalSeq: seq, reason: 'no-address' })
+        continue
+      }
+      if (preview.address.kind === 'spill-deferred') {
+        // A spill save could produce different notice text than any preview
+        // could know, so this candidate is not previewable. The caller may use
+        // the default session address instead; no placeholder enters a summary.
+        skipped.push({ originalSeq: seq, reason: 'spill-deferred' })
+        continue
+      }
+      const notice = preview.address.kind === 'spill-existing'
+        ? preview.notice
+        : recoveryNotice({
+          kind: 'session',
+          sessionId: preview.address.sessionId,
+          seq: preview.address.seq,
+        })
+      if (notice === undefined) {
+        skipped.push({ originalSeq: seq, reason: 'no-address' })
+        continue
+      }
+      const content = this.pruneContentWithNotice(original.content, notice)
+      if (content === null) {
+        skipped.push({ originalSeq: seq, reason: 'notice-too-large' })
+        continue
+      }
+      const replacement = freezeMessage<ToolResultMessage>({ ...original, content })
+      const charsBefore = this.measureContent(original.content)
+      const projectedCharsAfter = this.measureContent(content)
+      const tokensBefore = this.ctx.tokenMeter.estimateMessage(original)
+      const projectedTokensAfter = this.ctx.tokenMeter.estimateMessage(replacement)
+      entries.push({
+        originalSeq: seq,
+        message: replacement,
+        original,
+        charsBefore,
+        projectedCharsAfter,
+        tokensBefore,
+        projectedTokensAfter,
+        address: preview.address,
+        ...preview.notice === undefined ? {} : { notice: preview.notice },
+      })
+      reclaimableChars += charsBefore - projectedCharsAfter
+      reclaimableTokens += tokensBefore - projectedTokensAfter
+    }
+    return { entries, skipped, reclaimableChars, reclaimableTokens }
+  }
+
+  /**
+   * Apply a preview after the caller's summary/replacement has committed.
+   * Entries whose sequence is no longer on the surface, or whose message no
+   * longer matches the preview, are skipped; applying the same preview twice
+   * is idempotent. A spill save happens only here, and a save failure falls
+   * back to the session address or skips the entry.
+   * @param session - session whose current surface is rewritten.
+   * @param preview - read-only plan produced by {@link previewSessionPrune}.
+   * @param options - address preference and optional spill store.
+   * @returns landed replacements and counts of skipped preview entries.
+   */
+  async applyPrunePreview(
+    session: Session,
+    preview: PrunePreview,
+    options: ToolResultRecoveryOptions = {},
+  ): Promise<PruneApplyResult> {
+    const store = options.spillStore ?? this.recoveryStore()
+    const pruned: RecoveredPrunedEntry[] = []
+    let charsRemoved = 0
+    let noticeDropped = 0
+    let noAddress = 0
+    let notOnSurface = 0
+    let changed = 0
+    const noticeBudget = this.config.thresholdChars - codePointLength(PRUNE_MARKER) - 2
+    for (const entry of preview.entries) {
+      if (!session.surface.nodes.includes(entry.originalSeq)) {
+        notOnSurface += 1
+        continue
+      }
+      // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
+      const event = session.eventAt(entry.originalSeq)
+      if (event?.type !== 'tool/result') {
+        notOnSurface += 1
+        continue
+      }
+      const original = session.deriveEventMessage(event) as ToolResultMessage
+      if (original.id !== entry.original.id
+        || original.source.callId !== entry.original.source.callId
+        || original.isError !== entry.original.isError
+        || !deepEqualJson(original.content, entry.original.content)) {
+        changed += 1
+        continue
+      }
+      const resolution = await resolveRecoveryAddress(session, entry.originalSeq, {
+        ...options,
+        ...store === undefined ? {} : { spillStore: store },
+      }, this.savedResults, noticeBudget)
+      if (resolution.notice === '') {
+        noAddress += 1
+        continue
+      }
+      const content = this.pruneContentWithNotice(original.content, resolution.notice)
+      if (content === null) {
+        noticeDropped += 1
+        continue
+      }
+      const charsBefore = this.measureContent(original.content)
+      const charsAfter = this.measureContent(content)
+      const replacement = this.replace(session, entry.originalSeq, event, original, content)
+      pruned.push({
+        originalSeq: entry.originalSeq,
+        replacementSeq: replacement.seq,
+        callId: original.source.callId,
+        charsBefore,
+        charsAfter,
+        recovery: resolution.address,
+      })
+      charsRemoved += charsBefore - charsAfter
+    }
+    return { pruned, charsRemoved, noticeDropped, noAddress, notOnSurface, changed }
   }
 
   /** Snapshot the current surface's tool-result nodes in surface order. */

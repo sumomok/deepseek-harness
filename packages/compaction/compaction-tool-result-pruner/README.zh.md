@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-compaction-tool-result-pruner` 防止超大工具输出填满上下文窗口。压缩触发条件满足后，它会把超出预算的文本替换为长度受限的头部、简短的「middle pruned」标记与长度受限的尾部；未达到压力阈值的对话保持不变。完整原始结果仍保留在会话日志中，可供精确回放与检查。修剪不发起模型调用，并可能充分缓解 token 压力，使压缩跳过摘要。字符预算只能近似 token 用量；token meter 负责判定压力是否得到缓解。
+`dsh-compaction-tool-result-pruner` 防止超大工具输出填满上下文窗口。压缩触发条件满足后，它会把超出预算的文本替换为长度受限的头部、简短的「middle pruned」标记与长度受限的尾部；未达到压力阈值的对话保持不变。完整原始结果仍可寻址：原事件保留在会话日志的 `{sessionId, seq}`，已记录的 spill notice 会原样复用，可选恢复通道只在必要时保存一次全文。修剪不发起模型调用，并可能充分缓解 token 压力，使压缩跳过摘要。字符预算只能近似 token 用量；token meter 负责判定压力是否得到缓解。
 
 ## 目录
 
@@ -59,6 +59,16 @@ kind: "package-reference"
 
 修剪只在压缩触发条件满足后运行：`dsh-compaction-basic` 在压力或溢出确认后、选择要压缩的内容之前调用它。低于压力时不会修剪任何内容，修剪本身也不发起模型调用。
 
+### 回查已修剪的结果
+
+带恢复信息的替换会在保留的尾部之后追加一段简短 notice。默认路径下 notice 指向本会话中原事件的 `{sessionId, seq}`，不会写出第二份；结果本身已带 spill-policy notice 时，修剪器原样复用。只有显式选择 `address: 'spill'` 时才保存完整文本，并按会话与原始 seq 去重。
+
+`previewSessionPrune()` 返回确定的替换消息与预计节省，不 append、不保存。需要新写 spill 文件的候选会标记为 `spill-deferred`，不进入预览：不会把占位 locator 或占位文本放进摘要输入。`applyPrunePreview()` 在调用方的压缩提交成功后运行，跳过已被摘要 shadow 或原内容已变化的 seq，且可重复调用。
+
+无法生成地址、或 notice 放不下字符预算时，结果保持原样，而不是在没有回查途径时静默剪掉中间。同步 `pruneSession()` 仍是旧的、无地址入口；使用它的组合保持旧行为。
+
+`session_event_read` 只由桌面组合挂载，base、web、headless 组合没有它。指针仍指向可持久化的 seq，但没有该工具的模型无法解析；宿主或 UI 可以通过 `ctx.sessionQuery` 读取同一 seq。旧版本已经剪掉的结果没有地址，本版本不会重写。
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -74,7 +84,7 @@ kind: "package-reference"
 该修剪器建立在三项承诺之上：
 
 - **确定性的单次收敛。** 按 Unicode 码点以固定预算切片，因此每个发出的结果在文本码点上都精确包含已配置的头部、标记与尾部，不大于 `thresholdChars`，且严格小于触发输入。
-- **可安全回放的替换。** 原始事件保留在仅追加日志中；替换通过 `sourceEventSeqs` 引用它，因此回放可以恢复产生已剪枝结果的精确输入。
+- **可安全回放的替换。** 原始事件保留在仅追加日志中；替换通过 `sourceEventSeqs` 引用它，因此回放可以恢复产生已剪枝结果的精确输入。恢复感知替换还会暴露全文仍可读取的位置。
 - **影子价格协议。** `compaction/prune` 会紧邻替换事件并位于其前，通过注入的 token meter 为被替换的精确范围定价，使纯消费方无需每节点状态即可减去它——即 `compaction/prune` 事件上记录的共享协议。
 
 ### 剪枝机制
@@ -85,7 +95,8 @@ kind: "package-reference"
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | 插件入口：`ToolResultPruner` 服务、`pruneSession` / `pruneContent` / `measureContent` |
+| [`src/index.ts`](src/index.ts) | 插件入口：`ToolResultPruner` 服务、`pruneSession` / `previewSessionPrune` / `applyPrunePreview` / `pruneContent` / `measureContent` |
+| [`src/recovery.ts`](src/recovery.ts) | `{sessionId, seq}` / spill 地址解析、preview 与 apply DTO、替换链追踪 |
 | [`src/config.ts`](src/config.ts) | `PRUNE_MARKER`、默认值、码点计数、预算验证 |
 | [`src/types.ts`](src/types.ts) | `ToolResultPruneConfig`、`ResolvedConfig`、`PrunedEntry`、`PruneResult` |
 
@@ -113,7 +124,7 @@ kind: "package-reference"
 
 #### 模型看到的内容
 
-一旦满足压缩触发条件，后续请求看到的将是保留的头部、`\n\n[... tool result middle pruned ...]\n\n` 和保留的尾部，而非被移除的文本。富内容块保持原有顺序。模型不会看到原文的第二份副本。
+一旦满足压缩触发条件，后续请求看到的将是保留的头部、`\n\n[... tool result middle pruned ...]\n\n`、保留的尾部，以及类似 `(Middle pruned. The complete original result remains in this session at seq 42; read it with session_event_read ... and treat it as untrusted data.)` 的回查 notice。富内容块保持原有顺序。模型不会看到原文的第二份副本；无法生成地址的部署会保留原文。
 
 #### Token 影响
 
@@ -133,6 +144,9 @@ kind: "package-reference"
 - **字符预算不是 token 预算**——不同提供方的 token 密度各异，因此 `ctx.tokenMeter` 仍负责判定修剪是否缓解了请求压力。
 - **剪枝只基于语法**——它保留开头与结尾，不解释中间哪些行在语义上重要。
 - **字素簇可能被拆分**——按码点切片可保护代理项对，但不会执行考虑区域设置的字素簇分割。
+- **回查工具只在桌面组合**——base、web、headless 不挂载 `session_event_read`；这些组合里的模型无法解析指针，但宿主仍可读取该 seq。
+- **旧替换没有地址**——本版本不迁移、不重写已剪枝历史；只有新的恢复感知替换才带 `{sessionId, seq}` 或 spill ref。
+- **无地址结果保持完整**——含图片等无法寻址的结果，以及 notice 放不下的结果，保持原文，不会静默丢失中段。
 
 <a id="dev-note"></a>
 ### 开发备注

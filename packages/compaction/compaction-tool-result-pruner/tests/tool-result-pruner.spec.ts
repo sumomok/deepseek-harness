@@ -445,12 +445,95 @@ describe('ToolResultPruner recovery addresses', () => {
     expect(result.pruned[0]!.recovery).toMatchObject({ kind: 'session', seq: originalSeq })
   })
 
+  it('keeps an image-bearing result unchanged when no address can be produced', async () => {
+    const session = Session.create(SessionId('recovery-image-unavailable'))
+    const image: ContentBlock = {
+      type: 'image',
+      attachment: {
+        attachmentId: `sha256:${'e'.repeat(64)}` as never,
+        mediaType: 'image/png',
+        bytes: 1,
+        width: 1,
+        height: 1,
+      },
+    }
+    const originalSeq = appendToolStep(session, 1, 'shot', [
+      { type: 'text', text: 'screenshot '.repeat(300) },
+      image,
+    ])
+    const store = new FakeSpillStore()
+    const result = await service(RECOVERY).pruneSessionWithRecovery(session, { address: 'spill', spillStore: store })
+    expect(result.pruned).toHaveLength(0)
+    expect(result.noAddress).toBe(1)
+    expect(store.saves).toHaveLength(0)
+    expect(session.surface.nodes).toContain(originalSeq)
+  })
+
+  it('previews a concrete replacement message, then applies it once', async () => {
+    const session = Session.create(SessionId('recovery-preview-apply'))
+    const originalSeq = appendToolStep(session, 1, 'big', [{ type: 'text', text: 'p'.repeat(2000) }])
+    const original = session.deriveEventMessage(session.eventAt(originalSeq)!) as ToolResultMessage
+    const pruner = service(RECOVERY)
+    const before = session.snapshotEvents().length
+
+    const preview = await pruner.previewSessionPrune(session)
+    expect(session.snapshotEvents()).toHaveLength(before)
+    expect(preview.entries).toHaveLength(1)
+    expect(preview.entries[0]!.original.id).toBe(original.id)
+    expect(preview.entries[0]!.message.id).toBe(original.id)
+    expect(preview.entries[0]!.message.content.map(block => block.type === 'text' ? block.text : '').join(''))
+      .toContain(`seq ${String(originalSeq)}`)
+    expect(preview.entries[0]!.address.kind).toBe('session')
+    expect(preview.reclaimableChars).toBeGreaterThan(0)
+    expect(preview.reclaimableTokens).toBeGreaterThan(0)
+
+    const applied = await pruner.applyPrunePreview(session, preview)
+    expect(applied.pruned).toHaveLength(1)
+    expect(textAt(session, applied.pruned[0]!.replacementSeq)).toContain(`seq ${String(originalSeq)}`)
+
+    const again = await pruner.applyPrunePreview(session, preview)
+    expect(again.pruned).toHaveLength(0)
+    expect(again.notOnSurface).toBe(1)
+  })
+
+  it('marks a deferred spill candidate as not previewable and writes nothing', async () => {
+    const session = Session.create(SessionId('recovery-preview-deferred'))
+    const originalSeq = appendToolStep(session, 1, 'big', [{ type: 'text', text: 'd'.repeat(2000) }])
+    const store = new FakeSpillStore()
+    const before = session.snapshotEvents().length
+    const preview = await service(RECOVERY).previewSessionPrune(session, { address: 'spill', spillStore: store })
+    expect(preview.entries).toHaveLength(0)
+    expect(preview.skipped).toEqual([{ originalSeq, reason: 'spill-deferred' }])
+    expect(store.saves).toHaveLength(0)
+    expect(session.snapshotEvents()).toHaveLength(before)
+  })
+
+  it('skips preview entries whose seq a summary replacement shadowed', async () => {
+    const session = Session.create(SessionId('recovery-preview-shadowed'))
+    const originalSeq = appendToolStep(session, 1, 'big', [{ type: 'text', text: 'm'.repeat(2000) }])
+    const pruner = service(RECOVERY)
+    const preview = await pruner.previewSessionPrune(session)
+    expect(preview.entries).toHaveLength(1)
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'summary' }],
+      source: { kind: 'test' },
+    }), {
+      surfaceOp: { op: 'replace', startSeq: originalSeq, endSeq: originalSeq },
+      sourceEventSeqs: [originalSeq],
+    })
+    const applied = await pruner.applyPrunePreview(session, preview)
+    expect(applied.pruned).toHaveLength(0)
+    expect(applied.notOnSurface).toBe(1)
+    expect(session.snapshotEvents().filter(event => event.type === 'compaction/prune')).toHaveLength(0)
+  })
+
   it('leaves the result untouched when its recovery notice cannot fit the budget', async () => {
     const session = Session.create(SessionId('recovery-notice-too-large'))
     const originalSeq = appendToolStep(session, 1, 'big', [{ type: 'text', text: 'w'.repeat(2000) }])
     const result = await service(SMALL).pruneSessionWithRecovery(session)
     expect(result.pruned).toHaveLength(0)
-    expect(result.skipped).toBe(1)
+    expect(result.noticeDropped).toBe(1)
+    expect(result.noAddress).toBe(0)
     expect(session.surface.nodes).toContain(originalSeq)
     expect(textAt(session, originalSeq)).toBe('w'.repeat(2000))
   })
@@ -470,7 +553,8 @@ describe('ToolResultPruner recovery addresses', () => {
     const store = new FakeSpillStore()
     const result = await service(SMALL).pruneSessionWithRecovery(session, { address: 'spill', spillStore: store })
     expect(result.pruned).toHaveLength(0)
-    expect(result.skipped).toBe(1)
+    expect(result.noticeDropped).toBe(1)
+    expect(result.noAddress).toBe(0)
     expect(store.saves).toHaveLength(0)
     expect(session.surface.nodes).toContain(originalSeq)
   })

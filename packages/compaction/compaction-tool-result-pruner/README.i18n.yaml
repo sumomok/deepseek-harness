@@ -9,8 +9,8 @@
   en: d1e83d1d335479f8
   zh: 747c5b2af42365a3
 /deepseek-ai-dsh-compaction-tool-result-pruner/summary:
-  en: a711510ce8293003
-  zh: 0150d10c05bc2e59
+  en: b1232ace46d76fc0
+  zh: 694f021585be9ebb
 /deepseek-ai-dsh-compaction-tool-result-pruner/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
@@ -27,20 +27,23 @@
   en: 9a357040ff261f6e
   zh: 7434bb64ca9bd094
 /deepseek-ai-dsh-compaction-tool-result-pruner/use-this-package/when-trimming-runs:
-  en: d72e0074faebe148
-  zh: dfb484a385a7ebbf
+  en: 8ecf35480de2a589
+  zh: fca63a5adbc5414b
+/deepseek-ai-dsh-compaction-tool-result-pruner/use-this-package/recovering-a-pruned-result:
+  en: fd5a2a46c6eeb827
+  zh: aa5ce9153f88186d
 /deepseek-ai-dsh-compaction-tool-result-pruner/understand-the-implementation:
   en: 57aaa53880042873
   zh: 667f54624411c37d
 /deepseek-ai-dsh-compaction-tool-result-pruner/understand-the-implementation/design-philosophy:
-  en: 5adff8207c6294e0
-  zh: ccba42d804989abb
+  en: 1919529f784a00d6
+  zh: 85b1d9f8ae2fe956
 /deepseek-ai-dsh-compaction-tool-result-pruner/understand-the-implementation/pruning-mechanics:
   en: 9813749e4f016897
   zh: f2b2b5d6e5e8977a
 /deepseek-ai-dsh-compaction-tool-result-pruner/understand-the-implementation/source-map:
-  en: 4544e91902960a0e
-  zh: 0b07cb7e3d96267b
+  en: 0b7219a88dce6e0c
+  zh: d81f78601b4c83ce
 /deepseek-ai-dsh-compaction-tool-result-pruner/further-exploration:
   en: 3253e154e7610bbd
   zh: ba28c7411fd5c8bb
@@ -51,8 +54,8 @@
   en: 0b0dfb7ec1bf906f
   zh: 68f70bde796751cd
 /deepseek-ai-dsh-compaction-tool-result-pruner/model-experience/pruned-tool-result/what-the-model-sees:
-  en: 8514b5a6586bd65d
-  zh: 2a0648bea6cb81b6
+  en: ac71ae89304a66bd
+  zh: 8aa24015837f26e3
 /deepseek-ai-dsh-compaction-tool-result-pruner/model-experience/pruned-tool-result/token-effect:
   en: 1b11d405468e8d5d
   zh: 06dc9aef281c776d
@@ -60,8 +63,8 @@
   en: aac7de507412ba39
   zh: bdd8f391ad9c9a81
 /deepseek-ai-dsh-compaction-tool-result-pruner/known-limitations-and-deferred-work:
-  en: 2a7be98dc032e9bc
-  zh: d6710b1130722d12
+  en: 8065532afa765a94
+  zh: e63653ed9d64cfd7
 /deepseek-ai-dsh-compaction-tool-result-pruner/known-limitations-and-deferred-work/dev-note:
   en: 19120c19286532da
   zh: 49187f1e83b31007

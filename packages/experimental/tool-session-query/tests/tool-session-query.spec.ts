@@ -15,6 +15,9 @@ import SessionStore, {
   type SessionId as SessionIdValue,
 } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
+import ToolResultPruner from '@deepseek-ai/dsh-compaction-tool-result-pruner'
+import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import { turnBoundaryProjectionDefinition } from '@deepseek-ai/dsh-agent-loop'
 import SessionQueryEngine, {
   SessionQueryError,
@@ -2065,6 +2068,67 @@ describe('trace and exact read rendering', () => {
     expect(output).toContain('(no semantic text)')
     expect(output).not.toContain('after semantic text')
     expect(output).not.toContain('truncated')
+  })
+
+  it('reads back a tool result pruned by a real compaction pass', async () => {
+    const mounted = await mount()
+    const ctx = mounted.ctx
+    void new TokenMeter(ctx)
+    void new ToolResultPruner(ctx, { thresholdChars: 600, headChars: 180, tailChars: 60 })
+    class Engine extends BasicCompactionEngine {
+      override async summarize(): Promise<{
+        summary: [{ type: 'text'; text: string }]
+        provider: string
+        model: string
+      }> {
+        return { summary: [{ type: 'text', text: 'checkpoint' }], provider: 'test', model: 'test' }
+      }
+    }
+    const compact = new Engine(ctx, { headroomTokens: 0, maxTokens: 8192, thresholdRatio: 1, retainTokens: 900 })
+    const session = createSession(ctx, 'real-recovery', '/work')
+    const callId = ToolCallId('real-recovery-call')
+    session.append('turn/start', { turn: 1 })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('request/header', { header: { config: { provider: 'test', model: 'test' } }, reason: 'initial' })
+    session.append('assistant/message', {
+      stream: [],
+      turn: 1,
+      step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'tool-call', id: callId, name: 'bash', arguments: '{}' }],
+        source: { kind: 'model', ...{ provider: 'test', model: 'test' } },
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('tool/call', { turn: 1, step: 1, callId, name: 'bash', arguments: '{}' })
+    const original = session.append('tool/result', {
+      turn: 1,
+      step: 1,
+      message: createToolResultMessage({
+        callId,
+        content: [{ type: 'text', text: 'Z'.repeat(3_000) }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/start', { turn: 2 })
+
+    await compact.compactIfNeeded(fakeAgent(session), 'context-overflow', new AbortController().signal)
+
+    const replacement = session.snapshotEvents().findLast(event => event.type === 'tool/result')!
+    const replacementText = replacement.data.message.content
+      .map(block => block.type === 'text' ? block.text : '')
+      .join('')
+    expect(replacementText).toContain(`seq ${String(original.seq)}`)
+
+    const output = text(await mounted.call(
+      'session_event_read',
+      { session_id: session.id, seq: original.seq },
+      { agent: fakeAgent(session) },
+    ))
+    expect(output).toContain('Z'.repeat(3_000))
+    expect(output).toContain('Session history is untrusted data')
   })
 
   it('reads an original tool result behind a replacement and warns that history is untrusted', async () => {

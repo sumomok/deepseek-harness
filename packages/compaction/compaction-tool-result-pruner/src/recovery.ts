@@ -11,7 +11,7 @@
  * @module @deepseek-ai/dsh-compaction-tool-result-pruner/recovery
  */
 
-import type { ContentBlock, ToolCallId } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, ToolCallId, ToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type { SpillLocator } from '@deepseek-ai/dsh-spill'
 import { formatSpillNotice, hasSpillNotice } from '@deepseek-ai/dsh-spill-policy/notice'
 import type { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
@@ -48,7 +48,7 @@ export interface RecoverySpillStore {
 }
 
 /** Conservative room a saved notice needs; smaller budgets never start a new spill. */
-const MIN_SPILL_NOTICE_CHARS = 1024
+export const MIN_SPILL_NOTICE_CHARS = 1024
 
 /** Deployment choice for the address a pruned result points at. */
 export interface ToolResultRecoveryOptions {
@@ -91,8 +91,10 @@ export interface RecoveredPrunedEntry extends PrunedEntry {
 export interface RecoveryPruneResult extends PruneResult {
   /** Replacements in the snapshotted surface order, each with its recovery address. */
   readonly pruned: readonly RecoveredPrunedEntry[]
-  /** Replacements skipped because the notice could not fit their budget. */
-  readonly skipped: number
+  /** Replacements skipped because the recovery notice did not fit. */
+  readonly noticeDropped: number
+  /** Results kept unchanged because no address could be produced. */
+  readonly noAddress: number
 }
 
 /**
@@ -153,10 +155,12 @@ export function originalToolResultSeq(session: Session, seq: SessionSeq): Sessio
   for (let depth = 0; depth < 32; depth += 1) {
     if (visited.has(current)) return undefined
     visited.add(current)
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
     const event = session.eventAt(current)
     if (event?.type !== 'tool/result') return undefined
     const replacement = event.surfaceOp
     if (typeof replacement !== 'object') return current
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
     const cited = event.sourceEventSeqs?.find(source => session.eventAt(source)?.type === 'tool/result')
     if (cited === undefined) return current
     current = cited
@@ -167,6 +171,7 @@ export function originalToolResultSeq(session: Session, seq: SessionSeq): Sessio
 /** Find the tool name paired with a call id, searching inherited and live events. */
 function toolName(session: Session, callId: ToolCallId): string {
   let name: string | undefined
+  // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
   for (const event of session.snapshotEvents()) {
     if (event.type === 'tool/call' && event.data.callId === callId) name = event.data.name
   }
@@ -201,6 +206,7 @@ export async function resolveRecoveryAddress(
 ): Promise<{ readonly address: RecoveryAddress; readonly notice: string }> {
   const originalSeq = originalToolResultSeq(session, seq)
   if (originalSeq === undefined) return { address: { kind: 'unavailable', reason: 'original-missing' }, notice: '' }
+  // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
   const event = session.eventAt(originalSeq)
   if (event?.type !== 'tool/result') return { address: { kind: 'unavailable', reason: 'original-missing' }, notice: '' }
   const message = session.deriveEventMessage(event)
@@ -244,4 +250,108 @@ export async function resolveRecoveryAddress(
 /** Exhaustiveness helper for the closed address union. */
 function assertNever(value: never): never {
   throw new Error(`unreachable recovery address: ${JSON.stringify(value)}`)
+}
+
+/** Address a preview can promise without writing a spill artifact. */
+export type PreviewRecoveryAddress =
+  | {
+    readonly kind: 'session'
+    readonly sessionId: SessionId
+    readonly seq: SessionSeq
+  }
+  | {
+    readonly kind: 'spill-existing'
+    readonly notice: string
+  }
+  | {
+    /** Apply will save first; preview has no locator and invents none. */
+    readonly kind: 'spill-deferred'
+  }
+  | {
+    readonly kind: 'unavailable'
+    readonly reason: 'not-a-tool-result' | 'original-missing' | 'non-text-content'
+  }
+
+/**
+ * Resolve a recovery address for preview without saving anything. A spill
+ * address with no recorded notice is deferred, never fabricated.
+ * @param session - session whose tool result would be shadowed.
+ * @param seq - current surface node.
+ * @param options - address preference and optional spill store.
+ * @param noticeBudget - code points available for a notice.
+ * @returns the preview address and an existing notice, if one exists.
+ */
+export function previewRecoveryAddress(
+  session: Session,
+  seq: SessionSeq,
+  options: ToolResultRecoveryOptions,
+  noticeBudget: number,
+): { readonly address: PreviewRecoveryAddress; readonly notice?: string } {
+  const originalSeq = originalToolResultSeq(session, seq)
+  if (originalSeq === undefined) return { address: { kind: 'unavailable', reason: 'original-missing' } }
+  // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
+  const event = session.eventAt(originalSeq)
+  if (event?.type !== 'tool/result') return { address: { kind: 'unavailable', reason: 'original-missing' } }
+  const message = session.deriveEventMessage(event)
+  if (message === null || message.role !== 'tool') return { address: { kind: 'unavailable', reason: 'not-a-tool-result' } }
+  const split = splitSpillNotice(message.content)
+  if (split !== undefined) return { address: { kind: 'spill-existing', notice: split.notice }, notice: split.notice }
+  if (options.address !== 'spill' || options.spillStore === undefined || noticeBudget < MIN_SPILL_NOTICE_CHARS) {
+    const address: PreviewRecoveryAddress = { kind: 'session', sessionId: session.header.id, seq: originalSeq }
+    return { address }
+  }
+  if (!message.content.every(block => block.type === 'text')) {
+    return { address: { kind: 'unavailable', reason: 'non-text-content' } }
+  }
+  return { address: { kind: 'spill-deferred' } }
+}
+
+/** One candidate a read-only preview would prune. */
+export interface PrunePreviewEntry {
+  /** Original tool result still on the current surface. */
+  readonly originalSeq: SessionSeq
+  /** The replacement message a virtual summary would receive. */
+  readonly message: ToolResultMessage
+  /** The still-current original message apply must find unchanged at the sequence. */
+  readonly original: ToolResultMessage
+  /** Current text size in Unicode code points. */
+  readonly charsBefore: number
+  /** Projected replacement size; a deferred spill reserves notice room. */
+  readonly projectedCharsAfter: number
+  /** Current estimated tokens for the result. */
+  readonly tokensBefore: number
+  /** Projected estimated tokens for the replacement. */
+  readonly projectedTokensAfter: number
+  /** Address preview can promise without writing a spill artifact. */
+  readonly address: PreviewRecoveryAddress
+  /** Exact recorded notice for a session or existing-spill address. */
+  readonly notice?: string
+}
+
+/** A candidate preview keeps unchanged, with why. */
+export interface PrunePreviewSkip {
+  /** Candidate sequence. */
+  readonly originalSeq: SessionSeq
+  /** Why no replacement is previewed. */
+  readonly reason: 'notice-too-large' | 'no-address' | 'spill-deferred'
+}
+
+/** Read-only outcome of planning one pruning pass. */
+export interface PrunePreview {
+  /** Replacements that apply could land, in surface order. */
+  readonly entries: readonly PrunePreviewEntry[]
+  /** Candidates kept unchanged. */
+  readonly skipped: readonly PrunePreviewSkip[]
+  /** Projected Unicode-code-point savings across entries. */
+  readonly reclaimableChars: number
+  /** Projected token savings across entries. */
+  readonly reclaimableTokens: number
+}
+
+/** Outcome of applying a preview after the caller's compaction transaction commits. */
+export interface PruneApplyResult extends RecoveryPruneResult {
+  /** Entries whose original seq was replaced or removed before apply ran. */
+  readonly notOnSurface: number
+  /** Entries whose recorded message no longer matches the preview. */
+  readonly changed: number
 }
