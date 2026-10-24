@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { createMessage, createSystemMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createSystemMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionSeq } from '@deepseek-ai/dsh-session'
 import SessionStore from '@deepseek-ai/dsh-session'
@@ -21,7 +21,7 @@ function systemNode(session: Session, text: string): SessionSeq {
 }
 function emptySystemNode(session: Session): SessionSeq {
   return session.append('system/message', {
-    turn: 1, step: 1, message: createMessage({ role: 'system', content: [] }),
+    turn: 1, step: 1, message: createSystemMessage(''),
   }, { surfaceOp: 'append' }).seq
 }
 function userNode(session: Session, text = 'user'): void {

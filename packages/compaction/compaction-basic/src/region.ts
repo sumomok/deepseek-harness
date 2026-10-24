@@ -183,6 +183,7 @@ export function selectCompactableRange(
  * @param session - session supplying authoritative current surface positions.
  * @param measurement - unified pressure and surface measurement from the conversation meter.
  * @param retainTokens - minimum recent tail budget retained verbatim.
+ * @param boundaries - user-turn and step-start seqs precomputed from the same current surface; omitted scans the durable log.
  * @returns the inclusive positional seq range to compact, or `null`.
  */
 export function selectCompactableRangeAtTurnBoundary(
