@@ -297,8 +297,9 @@ export class BasicCompactionEngine extends CompactionEngine {
 
   /**
    * Plan the optional prune pass without touching the session. A pruner
-   * without the preview entry returns undefined so the caller keeps the older
-   * eager-prune fallback.
+   * without the preview entry returns undefined; the caller then summarizes
+   * first and runs the legacy prune after the commit, accepting one extra
+   * summary when pruning alone would have cleared pressure.
    * @param agent - agent whose session is previewed.
    * @param prune - the resolved optional pruner service.
    * @returns the read-only plan, or undefined for an older pruner.
@@ -671,7 +672,7 @@ export class BasicCompactionEngine extends CompactionEngine {
         const errorClass = error instanceof SummaryRejectedError
           ? 'review-rejected'
           : classifyCompactionError(error)
-        if (!signal.aborted && !(error instanceof SummaryRejectedError)) {
+        if (!signal.aborted && !(error instanceof SummaryRejectedError) && errorClass !== 'config') {
           const previous = this.summaryFailures.get(breakerKey)
           this.summaryFailures.set(breakerKey, { count: (previous?.count ?? 0) + 1, errorClass })
         }
@@ -783,6 +784,18 @@ export class BasicCompactionEngine extends CompactionEngine {
   }
 
   /**
+   * Clear every in-process breaker entry for one Session. Manual success is
+   * authoritative input to the live process, not just for its current route.
+   * @param session - Session whose route entries are removed.
+   */
+  private clearSessionSummaryFailures(session: Session): void {
+    const prefix = `${String(session.id)}:`
+    for (const key of [...this.summaryFailures.keys()]) {
+      if (key.startsWith(prefix)) this.summaryFailures.delete(key)
+    }
+  }
+
+  /**
    * Reconstruct consecutive failed summaries from the durable log so a
    * restarted engine keeps the circuit open. Trailing `compaction/end` events
    * carrying an error count as failures; a successful summary or an
@@ -812,7 +825,7 @@ export class BasicCompactionEngine extends CompactionEngine {
       if (event.type !== 'compaction/end') continue
       if (event.data.error === undefined) return undefined
       const failureClass = classifyCompactionError(event.data.error)
-      if (failureClass === 'review-rejected') continue
+      if (failureClass === 'review-rejected' || failureClass === 'config') continue
       count += 1
       errorClass = failureClass
     }
@@ -1042,14 +1055,7 @@ export class BasicCompactionEngine extends CompactionEngine {
         const operationSignal = AbortSignal.any([agentSignal, signal])
         try {
           operationSignal.throwIfAborted()
-          const result = await this.compactManualRange(agent, null, sourceCommandId, operationSignal)
-          if (result !== null) {
-            const target = pressureTarget(agent)
-            if (target !== undefined) {
-              this.summaryFailures.delete(`${String(agent.session.id)}:${target.provider}/${target.model}`)
-            }
-          }
-          return result
+          return await this.compactManualRange(agent, null, sourceCommandId, operationSignal)
         } catch (error: unknown) {
           throw manualCancellation(error, agentSignal, operationSignal)
         }
@@ -1101,7 +1107,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     )
     if (range === null) return null
     const manualTools = this.manualSummaryTools(agent)
-    return compactSurfaceRegion(
+    const result = await compactSurfaceRegion(
       this.regionDependencies(),
       agent.session,
       range.start,
@@ -1119,6 +1125,8 @@ export class BasicCompactionEngine extends CompactionEngine {
       },
       signal,
     )
+    if (result !== null) this.clearSessionSummaryFailures(agent.session)
+    return result
   }
 
   /** Bind the effective token meter, dynamically dispatched summary hooks, and the review waterfall. */
@@ -1157,6 +1165,15 @@ function manualCancellation(error: unknown, agentSignal: AbortSignal, operationS
  * @param error - failure thrown by the transaction.
  * @returns a small class name for logs and the consecutive-failure ledger.
  */
+/** Stable text of a configuration/capacity failure that must not seed the provider breaker. */
+const CONFIG_FAILURE_PATTERN = new RegExp([
+  'no context capacity for',
+  'configure contextWindow on that adapter model',
+  'leaving no .*budget',
+  'fixed prefix .* already at or above',
+  'retainTokens .*must be less than threshold',
+].join('|'), 'i')
+
 function classifyCompactionError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
   if (/abort/i.test(message)) return 'cancelled'
@@ -1165,6 +1182,7 @@ function classifyCompactionError(error: unknown): string {
   if (/Connection error/i.test(message)) return 'connection'
   if (/^400:|\b400\b.*schema/i.test(message)) return 'provider-400'
   if (error instanceof TargetPressureConfigError) return 'config'
+  if (CONFIG_FAILURE_PATTERN.test(message)) return 'config'
   return 'other'
 }
 

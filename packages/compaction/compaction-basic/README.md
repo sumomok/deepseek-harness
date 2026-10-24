@@ -108,6 +108,8 @@ With `dsh-command-compact` mounted, type `/compact` in a chat UI to condense imm
 
 Mount `dsh-compaction-tool-result-pruner` before this package to trim oversized tool results as part of condensation. Trimming makes no model call and can remove the need to summarize at all: when the trimmed conversation fits within the threshold, condensation skips the summary. Trimming only runs after a condensation trigger qualifies — a below-pressure conversation is never touched.
 
+A pruner that implements `previewSessionPrune`/`applyPrunePreview` is previewed before the summary and applied only after the summary commits; a rejected review or failed summary leaves its results untouched. A legacy pruner without the preview entry cannot be pre-priced safely: this backend runs the summary first and the legacy prune only after it commits, so a conversation that the legacy prune alone would have cleared pays one extra summary request. A rejected review or failed summary still performs no legacy prune.
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -264,7 +266,7 @@ These limits define when automatic condensation is a poor fit or needs special c
 - **Overflow classification is adapter-maintained** — provider wording can change; both DeepSeek adapters normalize recognized context-limit failures to `CONTEXT_WINDOW_EXCEEDED`.
 - **Some indivisible-unit and envelope-only overflow remains outside surface compaction** — recovery cannot shrink system/tools/prefix, split an indivisible non-tool node, or repair a tool unit whose non-prunable remainder still exceeds the window. The optional pruner can shrink text-bearing tool-result bulk inside an otherwise indivisible pair.
 - **`compactRegion` requires an open turn** — a manual call on a fully-closed session throws ("no open turn") rather than compacting.
-- **Summarization failure preserves the latest durable surface** — before any replacement, the auto path closes the bracket with `compaction/end` carrying the error, logs a warning, and proceeds with full over-budget history. A failure that never opened a bracket — no routed capacity, a live lock, or pressure still above threshold after every attempt — is logged only. If pruning already landed, a later summarization failure proceeds from that durable pruned surface. Summarization truncation at `maxTokens`, which hidden reasoning tokens can consume, follows the same rule.
+- **Summarization failure preserves the latest durable surface** — before any replacement, the auto path closes the bracket with `compaction/end` carrying the error, logs a warning, and proceeds with full over-budget history. A failure that never opened a bracket — no routed capacity, a live lock, or pressure still above threshold after every attempt — is logged only. Tool-result pruning follows the same rule: a preview-applied prune lands only after a successful summary; a legacy pruner without preview is called only after the summary commits, at the cost of one extra summary when prune alone would have cleared pressure. Summarization truncation at `maxTokens`, which hidden reasoning tokens can consume, follows the same rule.
 
 <a id="dev-note"></a>
 ### Dev Note

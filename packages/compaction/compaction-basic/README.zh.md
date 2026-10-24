@@ -108,6 +108,8 @@ interface CompactionPolicy {
 
 在本包之前挂载 `dsh-compaction-tool-result-pruner`，即可在压缩过程中修剪超大工具结果。修剪不发起模型调用，并可能完全省去摘要：当修剪后的对话在阈值之内时，压缩会跳过摘要。修剪只在压缩触发条件满足后运行——低于压力的对话绝不会被触碰。
 
+实现 `previewSessionPrune`/`applyPrunePreview` 的 pruner 会在摘要前被预览、仅在摘要提交后应用；review 拒绝或摘要失败不会改动其结果。没有 preview 入口的旧 pruner 无法安全预估价：本后端先完成摘要，提交后才运行旧修剪，因此“仅修剪即可清压”的对话会多付一次摘要请求；review 拒绝或摘要失败仍然完全不修剪。
+
 -----
 
 <a id="understand-the-implementation"></a>

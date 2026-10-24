@@ -1227,6 +1227,81 @@ describe('pressure measurement and retention', () => {
     expect(logs).toContainEqual(expect.stringContaining('only the previous checkpoint'))
   })
 
+  it('recovers from durable config and capacity errors without a restart', async () => {
+    const compact = service({
+      auto: false,
+      thresholdRatio: 0.5,
+      retainTokens: 20,
+      maxConsecutiveFailures: 2,
+    })
+    const session = conversation(4)
+    for (let index = 0; index < 3; index += 1) {
+      const compactionId = CompactionId(`capacity-failure-${index}`)
+      session.append('compaction/start', { compactionId, turn: 5 })
+      session.append('compaction/end', {
+        compactionId,
+        turn: 5,
+        error: 'compaction-basic: no context capacity for test-model/test-model; '
+          + 'configure contextWindow on that adapter model',
+      })
+    }
+
+    expect(await compactIfNeeded(compact, session)).not.toBeNull()
+    expect(compact.calls).toHaveLength(1)
+  })
+
+  it('manual success clears every in-process breaker for the session', async () => {
+    const ctx = createContext(1_000)
+    const store = new SessionStore(ctx)
+    vi.spyOn(store, 'flush').mockResolvedValue(undefined)
+    const compact = service({
+      auto: false,
+      thresholdRatio: 0.5,
+      retainTokens: 20,
+      maxConsecutiveFailures: 1,
+    }, ctx)
+    const session = conversation(4)
+    compact.error = new Error('Connection error.')
+    await expect(compactIfNeeded(compact, session)).rejects.toThrow('Connection error.')
+    expect(compact.calls).toHaveLength(1)
+
+    compact.error = undefined
+    session.append('request/header', {
+      header: { config: { provider: 'other', model: 'other' } },
+      reason: 'change',
+    })
+    session.append('turn/end', { turn: 5, reason: { kind: 'completed' } })
+    expect(await compact.compactNow(manualAgent(session), SIGNAL)).not.toBeNull()
+
+    session.append('turn/start', { turn: 6 })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'x'.repeat(3_000) }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    session.append('request/header', {
+      header: { config: { provider: MODEL, model: MODEL } },
+      reason: 'resume',
+    })
+    for (let step = 1; step <= 2; step += 1) {
+      session.append('step/start', { turn: 6, step })
+      session.append('assistant/message', {
+        stream: [],
+        turn: 6,
+        step,
+        message: createMessage({
+          role: 'assistant',
+          content: [{ type: 'text', text: `step ${step} `.repeat(200) }],
+          source: { kind: 'model', ...{ provider: MODEL, model: MODEL } },
+        }),
+      }, { surfaceOp: 'append' })
+      session.append('step/end', { turn: 6, step })
+    }
+    compact.error = new Error('Connection error after manual.')
+
+    await expect(compactIfNeeded(compact, session)).rejects.toThrow('Connection error after manual.')
+    expect(compact.calls.length).toBeGreaterThan(2)
+  })
+
   it('bounds retries when a shrinking checkpoint remains above threshold', async () => {
     const compact = service({
       auto: false,

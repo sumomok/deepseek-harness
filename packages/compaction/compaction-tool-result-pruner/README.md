@@ -65,6 +65,8 @@ A recovery-aware replacement appends a short notice after the retained tail. On 
 
 `previewSessionPrune()` returns concrete replacement messages and projected savings without appending or saving. It considers only pure-text results: image-bearing and other rich results stay original because route token pricing can differ from the heuristic estimator. A candidate that would need a new spill artifact is reported as `spill-deferred` and is not previewed: no placeholder locator or placeholder text enters a summary. `applyPrunePreview()` runs after the caller's compaction commits, skips sequences a summary already shadowed or whose original content changed, and is idempotent.
 
+A deployment that runs an older pruner without these two entries keeps the legacy synchronous `pruneSession` path: `compaction-basic` calls it only after a summary commits, so a prune-only reduction that would have avoided a summary instead pays one extra summary request. Review rejection and summary failure still perform no prune.
+
 When no address can be produced, or the notice cannot fit the character budget, the result is kept unchanged rather than pruned without a way back. The synchronous `pruneSession()` remains the address-free legacy entry; deployments that use it keep the old behavior.
 
 `session_event_read` is mounted by the desktop composition, not by the base, web, or headless bundles. A pointer still names the durable sequence, but a model without that tool cannot resolve it; the host or a UI can read the same sequence through `ctx.sessionQuery`. A result pruned by an older build has no address and is not rewritten.

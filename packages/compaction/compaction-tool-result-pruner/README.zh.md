@@ -65,6 +65,8 @@ kind: "package-reference"
 
 `previewSessionPrune()` 返回确定的替换消息与预计节省，不 append、不保存。它只考虑纯文本结果：含图片等富内容的结果保持原文，因为路由的 token 计价可能与启发式估算不同。需要新写 spill 文件的候选会标记为 `spill-deferred`，不进入预览：不会把占位 locator 或占位文本放进摘要输入。`applyPrunePreview()` 在调用方的压缩提交成功后运行，跳过已被摘要 shadow 或原内容已变化的 seq，且可重复调用。
 
+运行没有这两个入口的旧 pruner 时，部署保留旧的同步 `pruneSession` 路径：`compaction-basic` 只在摘要提交后调用它，因此本可“仅修剪、不摘要”的缩减会多付一次摘要请求；review 拒绝或摘要失败仍然完全不修剪。
+
 无法生成地址、或 notice 放不下字符预算时，结果保持原样，而不是在没有回查途径时静默剪掉中间。同步 `pruneSession()` 仍是旧的、无地址入口；使用它的组合保持旧行为。
 
 `session_event_read` 只由桌面组合挂载，base、web、headless 组合没有它。指针仍指向可持久化的 seq，但没有该工具的模型无法解析；宿主或 UI 可以通过 `ctx.sessionQuery` 读取同一 seq。旧版本已经剪掉的结果没有地址，本版本不会重写。
