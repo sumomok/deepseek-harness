@@ -278,6 +278,7 @@ export class Microcompact extends Service {
   async runIdle(agent: Agent): Promise<MicrocompactResult> {
     if (!this.config.enabled) return { cleared: [], skipped: 0 }
     const session = agent.session
+    if (!this.readbackAvailable() || this.hasActiveCompaction(session)) return { cleared: [], skipped: 0 }
     if (this.healOrphanMarker(session)) {
       this.ctx.logger.info('idle microcompact: healed an interrupted compaction/prune marker')
     }

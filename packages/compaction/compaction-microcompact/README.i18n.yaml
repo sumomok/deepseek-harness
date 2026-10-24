@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/compaction/compaction-microcompact/README.md
+/deepseek-ai-dsh-compaction-microcompact:
+  en: df49a767c9e05a5b
+  zh: dd6e1c554d59c8c6
+/deepseek-ai-dsh-compaction-microcompact/summary:
+  en: e005f10bc9ff4486
+  zh: dedededf27c36c3a
+/deepseek-ai-dsh-compaction-microcompact/use-this-package:
+  en: bcb723d0e0b57610
+  zh: b3d422e6657cc76e
+/deepseek-ai-dsh-compaction-microcompact/use-this-package/what-it-clears:
+  en: 63177ef2b8dcae68
+  zh: eb4006483f79df94
+/deepseek-ai-dsh-compaction-microcompact/use-this-package/crash-behavior:
+  en: 6e227f6137187171
+  zh: 3bac26667b1596fc
+/deepseek-ai-dsh-compaction-microcompact/use-this-package/configuration:
+  en: 4735def8214f47af
+  zh: 37157acea76b494c
+/deepseek-ai-dsh-compaction-microcompact/model-experience:
+  en: bf6a8d20852179c9
+  zh: ba9265a36adf7f40
+/deepseek-ai-dsh-compaction-microcompact/known-limitations:
+  en: b0af75abf2319a26
+  zh: 270daa3a07ca3e0a

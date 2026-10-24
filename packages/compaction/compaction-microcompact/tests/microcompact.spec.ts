@@ -218,6 +218,21 @@ describe('idle microcompact preview and apply', () => {
     expect((await compact.preview(session)).skipped).toEqual([{ reason: 'active-job' }])
   })
 
+  it('replays a cleared surface without re-clearing or losing the original', async () => {
+    const session = busySession(25)
+    const { compact } = context(BASE)
+    const preview = await compact.preview(session)
+    const originalSeq = preview.entries[0]!.addressSeq
+    compact.apply(session, preview)
+    const restored = Session.create(SessionId('restored'), session.snapshotEvents())
+    const original = restored.eventAt(originalSeq)
+    expect(original?.type).toBe('tool/result')
+    const before = restored.snapshotEvents().length
+    const again = await compact.preview(restored)
+    expect(again.entries).toHaveLength(0)
+    expect(restored.snapshotEvents()).toHaveLength(before)
+  })
+
   it('heals a marker-only crash without losing the original content', async () => {
     const session = busySession(25)
     const { compact } = context(BASE)
