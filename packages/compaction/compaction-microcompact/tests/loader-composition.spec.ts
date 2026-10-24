@@ -45,15 +45,19 @@ describe('compaction-microcompact real Loader composition', () => {
     context.baseUrl = pathToFileURL(root).href + '/'
     await context.plugin(Loader)
     context.loader.builtins.include = Include
-    context.loader.internal = {
-      version: 'v2',
-      async import(specifier: string) {
-        if (specifier === '@deepseek-ai/dsh-session-projection') return SessionProjectionRegistry
-        if (specifier === '@deepseek-ai/dsh-token-meter') return TokenMeter
-        if (specifier === '@deepseek-ai/dsh-compaction-microcompact') return Microcompact
-        throw new Error(`unexpected Loader import: ${specifier}`)
+    Object.defineProperty(context.loader, 'internal', {
+      configurable: true,
+      writable: true,
+      value: {
+        version: 'v2',
+        async import(specifier: string) {
+          if (specifier === '@deepseek-ai/dsh-session-projection') return SessionProjectionRegistry
+          if (specifier === '@deepseek-ai/dsh-token-meter') return TokenMeter
+          if (specifier === '@deepseek-ai/dsh-compaction-microcompact') return Microcompact
+          throw new Error(`unexpected Loader import: ${specifier}`)
+        },
       },
-    } as unknown as NonNullable<typeof context.loader.internal>
+    })
     await context.loader.create({
       name: 'cordis:include',
       config: { path: pathToFileURL(configPath).href },
