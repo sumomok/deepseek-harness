@@ -364,7 +364,7 @@ describe('idle microcompact preview and apply', () => {
 
     const child = Session.create(SessionId('child-closed'))
     child.append('turn/start', { turn: 1 })
-    child.append('turn/end', { turn: 1 })
+    child.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     const control = context(BASE)
     control.ctx.provide('subagent', { listChildren: async () => [{ id: child.header.id }] })
     control.ctx.provide('sessions', { get: () => child })
@@ -420,7 +420,8 @@ describe('idle microcompact preview and apply', () => {
     const targetSeq = session.surface.nodes.at(-1)!
     const target = session.eventAt(targetSeq)
     if (target?.type !== 'tool/result') throw new Error('expected a tool result')
-    const original = session.deriveEventMessage(target) as { content: ContentBlock[] }
+    const original = session.deriveEventMessage(target)
+    if (original === null || original.role !== 'tool') throw new Error('expected a tool result message')
     session.append('compaction/prune', {
       shadowedRange: { start: targetSeq, end: targetSeq },
       shadowedSeqs: [targetSeq],

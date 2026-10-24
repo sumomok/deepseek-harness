@@ -1,13 +1,13 @@
 import { Context } from '@deepseek-ai/cordis'
 import { createToolResultMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ToolResultMessage } from '@deepseek-ai/dsh-llm'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import { contextBreakdownProjectionDefinition } from '../../../llm/token-meter/src/breakdown-projection.ts'
 import { describe, expect, it } from 'vitest'
 
-function appendResult(session: Session): number {
+function appendResult(session: Session): SessionSeq {
   return session.append('tool/result', {
     turn: 1,
     step: 1,
@@ -52,7 +52,7 @@ describe('isolated compaction/prune marker metering', () => {
       sourceEventSeqs: [otherSeq],
     })
 
-    expect(() => foldBreakdown(session)).toThrow(/no adjacent shadow price/)
+    expect(() => { foldBreakdown(session) }).toThrow(/no adjacent shadow price/)
   })
 
   it('expires harmlessly when the next event is a plain append', () => {
@@ -79,6 +79,6 @@ describe('isolated compaction/prune marker metering', () => {
       }),
     }, { surfaceOp: 'append' })
 
-    expect(() => foldBreakdown(session)).not.toThrow()
+    expect(() => { foldBreakdown(session) }).not.toThrow()
   })
 })

@@ -88,9 +88,7 @@ export function resolveConfig(config: MicrocompactConfig = {}): ResolvedMicrocom
   if (typeof enabled !== 'boolean') throw new Error('MicrocompactConfig: enabled must be a boolean')
   if (typeof keepErrors !== 'boolean') throw new Error('MicrocompactConfig: keepErrors must be a boolean')
   if (typeof allowHostOnlyReadback !== 'boolean') throw new Error('MicrocompactConfig: allowHostOnlyReadback must be a boolean')
-  if (!Array.isArray(excludeTools) || excludeTools.some(name => typeof name !== 'string')) {
-    throw new Error('MicrocompactConfig: excludeTools must be an array of strings')
-  }
+  if (!isStringArray(excludeTools)) throw new Error('MicrocompactConfig: excludeTools must be an array of strings')
   return deepFreeze({
     enabled,
     minIdleSeconds,
@@ -102,6 +100,11 @@ export function resolveConfig(config: MicrocompactConfig = {}): ResolvedMicrocom
     allowHostOnlyReadback,
     excludeTools: [...excludeTools],
   })
+}
+
+/** Narrow untrusted config to a string array without an `any` spread. */
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(item => typeof item === 'string')
 }
 
 /** Read one non-negative integer setting. */
