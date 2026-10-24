@@ -99,9 +99,9 @@ function writeTodos(session: Session, todos: readonly TodoItem[]): void {
   session.append('todo/write', { todos: [...todos] })
 }
 
-function callPlan(session: Session, plan: string, callId: string, outcome: 'approved' | 'dismissed' | 'failed' | 'unknown'): void {
+function callPlan(session: Session, plan: string, callId: string, outcome: 'approved' | 'dismissed' | 'failed' | 'unknown'): { readonly callSeq: SessionSeq; readonly resultSeq: SessionSeq } {
   const call = ToolCallId(callId)
-  session.append('tool/call', {
+  const callEvent = session.append('tool/call', {
     turn: 1, step: 1, callId: call, name: 'exit_plan_mode', arguments: JSON.stringify({ plan }),
   })
   const text = outcome === 'approved'
@@ -119,7 +119,8 @@ function callPlan(session: Session, plan: string, callId: string, outcome: 'appr
     content: [{ type: 'text', text }],
     ...outcome === 'failed' ? { isError: true } : {},
   }
-  session.append('tool/result', { turn: 1, step: 1, message }, { surfaceOp: 'append' })
+  const resultEvent = session.append('tool/result', { turn: 1, step: 1, message }, { surfaceOp: 'append' })
+  return { callSeq: callEvent.seq, resultSeq: resultEvent.seq }
 }
 
 function registerJob(session: Session, jobId: string, label: string, owner = session.id): void {
@@ -173,6 +174,37 @@ function compact(session: Session, id = 'c1', summary = 'condensed history'): vo
 /** A checkpoint whose surface replacement committed but whose closing event never did. */
 function compactWithoutEnd(session: Session, id = 'c-missing', summary = 'condensed history'): number {
   return checkpointReplacement(session, id, summary)
+}
+
+/** A checkpoint replacement over one explicit surface node, with no closing event. */
+function checkpointReplacementOver(
+  session: Session,
+  id: string,
+  summary: string,
+  shadowed: SessionSeq,
+): number {
+  const compactionId = CompactionId(id)
+  const start = session.append('compaction/start', { compactionId, turn: null })
+  const shadowedRange = { start: SessionSeq(0), end: SessionSeq(0) }
+  const summaryEvent = session.append('compaction/summary', {
+    compactionId,
+    summary: [{ type: 'text', text: summary }],
+    shadowedRange,
+    shadowedSeqs: [shadowed],
+    shadowedTokenCount: 12,
+    provider: 'test-provider',
+    model: 'test-model',
+    rawOutput: [{ type: 'text', text: summary }],
+    llmStreamCall: true,
+  })
+  const replacement = session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: summary }],
+    source: { kind: 'compact-checkpoint', compactionId },
+  }), {
+    surfaceOp: { op: 'replace', startSeq: shadowed, endSeq: shadowed },
+    sourceEventSeqs: [shadowed, start.seq, summaryEvent.seq],
+  })
+  return replacement.seq
 }
 
 /** A summary that never reached the surface: start and summary only, no replacement, no end. */
@@ -532,5 +564,28 @@ describe('the state a compaction rebuilds', () => {
     await ctxAgain.plugin(ToolTodo, { allowParallelInProgress: true })
     const resumedAgain = ctxAgain.sessions.create(first.session.id, { seed: resumed.ownEvents() })
     expect(await fire(ctxAgain, sessionAgent(resumedAgain, ctxAgain))).toBe(0)
+  })
+
+  it('rebuilds shadowed todo, plan, and job state when the close never commits', async () => {
+    const { ctx, session, agent } = await harness({ todo: true })
+    openTurn(session)
+    writeTodos(session, [{ content: 'shadowed task', status: 'pending' }])
+    const review = callPlan(session, '# Shadowed plan', 'plan-shadow', 'approved')
+    registerJob(session, 'bash-shadow', 'shadowed job')
+    const replacementSeq = checkpointReplacementOver(session, 'c-shadow', 'condensed', review.resultSeq)
+
+    expect(await fire(ctx, agent)).toBe(1)
+    const text = rebuildTexts(session)[0] ?? ''
+    expect(text).toContain('shadowed task')
+    expect(text).toContain('# Shadowed plan')
+    expect(text).toContain('shadowed job')
+    const event = session.ownEvents().find(candidate => candidate.type === 'user/message'
+      && candidate.data.source.kind === 'compaction-rehydration')
+    if (event?.type !== 'user/message' || event.data.source.kind !== 'compaction-rehydration') throw new Error('no rebuild message')
+    expect(event.data.source.compactionId).toBe('c-shadow')
+    expect(event.data.source.compactionSeq).toBe(replacementSeq)
+
+    expect(await fire(ctx, agent, 1, 2)).toBe(0)
+    expect(rebuildTexts(session)).toHaveLength(1)
   })
 })

@@ -164,7 +164,10 @@ function latestCheckpoint(session: Session): Checkpoint | undefined {
   let latest: Checkpoint | undefined
   for (const [id, entry] of facts) {
     if (entry.summarySeq === undefined || entry.replacementSeq === undefined) continue
-    const evidenceSeq = entry.endSeq ?? entry.replacementSeq
+    // The replacement is the summary it commits: one that precedes the summary
+    // belongs to another order and is not evidence for this transaction.
+    if (entry.replacementSeq <= entry.summarySeq) continue
+    const evidenceSeq = Math.max(entry.endSeq ?? 0, entry.replacementSeq)
     if (latest === undefined || evidenceSeq > latest.evidenceSeq) latest = { id, evidenceSeq }
   }
   return latest
