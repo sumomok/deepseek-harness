@@ -148,11 +148,11 @@ describe('fixture B: consecutive compactions', () => {
     expect(brackets).toHaveLength(2)
     expect(brackets[0]).toMatchObject({ failed: false })
     expect(brackets[1]).toMatchObject({ failed: true })
-    expect(brackets[0].end! + 1).toBe(brackets[1].start)
+    expect(brackets[0]!.end! + 1).toBe(brackets[1]!.start)
   })
 
   it('keeps the failed attempt from replacing the surface', () => {
-    const failedStart = compactionBrackets(events)[1].start
+    const failedStart = compactionBrackets(events)[1]!.start
     const replacementsAfterFailure = events
       .slice(failedStart)
       .filter(event => event.type === 'user/message' && typeof event.surfaceOp === 'object' && event.surfaceOp !== null
@@ -181,7 +181,7 @@ describe('fixture C: process exit during compaction', () => {
   it('leaves exactly one compaction open at the truncation point', () => {
     const brackets = compactionBrackets(events)
     expect(brackets).toHaveLength(1)
-    expect(brackets[0].end).toBeUndefined()
+    expect(brackets[0]!.end).toBeUndefined()
   })
 
   it('carries a restart boundary after the open compaction', () => {

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import type { BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
-import type { SummarizationInput } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
 import { CompactionId } from '@deepseek-ai/dsh-compaction'
 import type { CompactionResult } from '@deepseek-ai/dsh-compaction'
 import LlmRuntime, {
@@ -16,6 +15,13 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+
+/**
+ * The summarizer input as this suite records it. `BasicCompactionEngine` types
+ * this parameter but exports no public path for it, so the suite keeps the
+ * structural shape it actually relies on.
+ */
+type SummarizationInput = { readonly messages: readonly unknown[] }
 
 /**
  * Engine-driven measurements for the context-lifecycle redesign.
@@ -106,7 +112,7 @@ function conversation(turns = 4, text = 'fixture '.repeat(40).trim(), system?: s
       }),
     }, { surfaceOp: 'append' })
     session.append('step/end', { turn, step: 1 })
-    session.append('turn/end', { turn })
+    session.append('turn/end', { turn, reason: { kind: 'completed' } })
   }
   // Automatic compaction brackets must be enclosed in an open turn.
   session.append('turn/start', { turn: turns + 1 })
@@ -234,7 +240,7 @@ class ExposedCompactionEngine extends BasicCompactionEngine {
   runSummarize(owner: Agent): Promise<unknown> {
     return this.summarize({ messages: [createUserMessage({
       content: [{ type: 'text', text: 'transcript' }],
-      source: { kind: 'test' },
+      source: { kind: 'user' },
     })] }, owner, SIGNAL)
   }
 }
@@ -261,7 +267,9 @@ describe('stale route', () => {
       header: { config: { provider: 'header-provider', model: 'header-model' } },
       reason: 'initial',
     })
-    session.append('model/selection', { provider: 'pending-provider', model: 'pending-model' })
+    // `model/selection` belongs to the session-controller package's event map.
+    const appendSelection = session.append.bind(session) as (type: string, data: object) => unknown
+    appendSelection('model/selection', { provider: 'pending-provider', model: 'pending-model' })
     await compactEngine.runSummarize(agent(session, 'fallback-model'))
     expect(adapter.lastOptions?.provider).toBe('pending-provider')
     expect(adapter.lastOptions?.model).toBe('pending-model')

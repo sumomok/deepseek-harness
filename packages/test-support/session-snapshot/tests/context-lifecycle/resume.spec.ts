@@ -5,6 +5,8 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { JobId } from '@deepseek-ai/dsh-jobs/brand'
 import * as CompactionRehydration from '@deepseek-ai/dsh-compaction-rehydration'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
@@ -226,8 +228,8 @@ async function compactionCycle(id: SessionId): Promise<{ events: readonly { type
   const session = baseSession(id, 10, (early) => {
     early.append('todo/write', { todos: [{ content: 'plan', status: 'in_progress' }, { content: 'build', status: 'pending' }] })
     early.append('job/registered', {
-      jobId: 'job-open-1', owner: String(id), kind: 'bash', startedAt: 1,
-      toolCall: { callId: 'call-open-1', name: 'bash' },
+      jobId: JobId('job-open-1'), owner: id, kind: 'bash', label: 'bench job', startedAt: 1,
+      toolCall: { callId: ToolCallId('call-open-1'), rootCallId: ToolCallId('call-open-1') },
     })
     // A read whose metadata predates the version/digest fields, so the rebuilt
     // Files section exercises the bounded re-read fallback.

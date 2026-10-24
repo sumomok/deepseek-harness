@@ -2,7 +2,6 @@ import { Context } from '@deepseek-ai/cordis'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
-import type { SummarizationInput } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
 import { createMessage, createToolResultMessage, createUserMessage, LlmAdapter, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
@@ -11,6 +10,13 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { Microcompact } from '../../../../compaction/compaction-microcompact/src/index.ts'
+
+/**
+ * The summarizer input as this suite records it. `BasicCompactionEngine` types
+ * this parameter but exports no public path for it, so the suite keeps the
+ * structural shape it actually relies on.
+ */
+type SummarizationInput = { readonly messages: readonly unknown[] }
 
 const MODEL = 'test-model'
 const SIGNAL = new AbortController().signal

@@ -395,7 +395,9 @@ export function projectSession(
   const tally: RedactionTally = { redactions: 0, bytes: {} }
   const events = rows.map(row => projectEvent(JSON.parse(row) as Record<string, unknown>, minter, tally))
   const lines = events.map(event => JSON.stringify(event))
-  assertSanitized(lines, { forbidden, maxLineBytes: options.maxLineBytes })
+  assertSanitized(lines, options.maxLineBytes === undefined
+    ? { forbidden }
+    : { forbidden, maxLineBytes: options.maxLineBytes })
   let toolCalls = 0
   let toolResults = 0
   let compactions = 0
