@@ -93,6 +93,7 @@ describe('fork inherited address readback', () => {
     expect(parentText).toContain('inherited readable')
     expect(parentText).toContain('untrusted data')
     expect(parentText).not.toContain('title unavailable')
+    expect(parentText).not.toContain('inherited fork prefix')
     const childRead = await read(child.id, noticeSeq)
     const childText = childRead.content.map(block => block.type === 'text' ? block.text : '').join('\n')
     console.log('CHILD_READ', childText.slice(0, 200))
@@ -147,6 +148,8 @@ describe('fork authorization boundary', () => {
     expect(parentGoneText).toContain('inherited readable')
     expect(parentGoneText).toContain('untrusted data')
     expect(parentGoneText).toContain('parent title unavailable')
+    expect(parentGoneText).toContain('caller inherited fork prefix')
+    expect(parentGoneText).toContain('parent session corpus is currently unavailable')
 
     const errorCode = (result: Awaited<ReturnType<typeof ctx.tools.execute>>): unknown =>
       (result.error as { info?: { code?: string } } | undefined)?.info?.code

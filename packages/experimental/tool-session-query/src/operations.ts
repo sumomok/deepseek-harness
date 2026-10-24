@@ -253,7 +253,9 @@ async function executeEventRead(
   const title = inheritedFallback
     ? { text: 'parent title unavailable' }
     : await workspaceAccess.readTitle(ctx, caller, sessionId, exec.signal)
-  return presentation.formatEventRead(sessionId, title, window)
+  return presentation.formatEventRead(
+    sessionId, title, window, inheritedFallback ? 'inherited-parent' : undefined,
+  )
 }
 
 async function collectPages<T>(

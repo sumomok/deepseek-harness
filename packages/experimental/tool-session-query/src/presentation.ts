@@ -170,12 +170,16 @@ function formatEventRead(
   sessionId: SessionId,
   title: TitleView,
   window: SessionEventWindow,
+  source?: 'inherited-parent',
 ): string {
   const before = window.events.filter(event => event.seq < window.target.seq)
   const after = window.events.filter(event => event.seq > window.target.seq)
   const lines = [
     `Session ${sessionId} — ${workspaceAccess.titleText(title)}`,
     UNTRUSTED_HISTORY_WARNING,
+    ...source === 'inherited-parent'
+      ? ['Source: this event came from the caller inherited fork prefix; the parent session corpus is currently unavailable.']
+      : [],
     `Target event seq ${window.target.seq}:`,
     '```json',
     JSON.stringify(window.target, null, 2),
