@@ -921,19 +921,43 @@ export class BasicCompactionEngine extends CompactionEngine {
    * @param signal - optional summarization cancellation signal.
    * @returns the successful durable compaction result.
    */
+  /**
+   * Tools for a manual summary: the explicit summarizer or the conversation
+   * route (pending selection, header, AgentOptions). Kept separate from the
+   * pressure target because manual compaction may run without a durable
+   * route and still resolves AgentOptions.
+   * @param agent - agent owning the session.
+   * @returns header tools for a matching route, null to omit, undefined to inherit.
+   */
+  private manualSummaryTools(agent: Agent): readonly ToolSchema[] | null | undefined {
+    const conversation = conversationTarget(agent)
+    if (conversation === undefined) return undefined
+    const policy = resolveTargetPolicy(this.config, conversation)
+    const summaryTarget = policy.summarizationProvider.length === 0
+      ? conversation
+      : { provider: policy.summarizationProvider, model: policy.summarizationModel }
+    return this.summaryTools(agent, summaryTarget)
+  }
+
   override async compactRegion(
     start: SessionSeq,
     end: SessionSeq,
     agent: Agent,
     signal?: AbortSignal,
   ): Promise<CompactionResult> {
+    const manualTools = this.manualSummaryTools(agent)
     return compactSurfaceRegion(
       this.regionDependencies(),
       agent.session,
       start,
       end,
       agent,
-      { owner: 'current-turn', stability: 'whole-surface', manual: false },
+      {
+        owner: 'current-turn',
+        stability: 'whole-surface',
+        manual: false,
+        ...manualTools === undefined ? {} : { tools: manualTools },
+      },
       signal,
     )
   }
@@ -1076,6 +1100,7 @@ export class BasicCompactionEngine extends CompactionEngine {
       0,
     )
     if (range === null) return null
+    const manualTools = this.manualSummaryTools(agent)
     return compactSurfaceRegion(
       this.regionDependencies(),
       agent.session,
@@ -1087,6 +1112,7 @@ export class BasicCompactionEngine extends CompactionEngine {
         stability: owner === null ? 'selected-span' : 'whole-surface',
         manual: true,
         ...sourceCommandId === undefined ? {} : { sourceCommandId },
+        ...manualTools === undefined ? {} : { tools: manualTools },
         flush: async () => {
           await this.ctx.sessions.flush(agent.session)
         },

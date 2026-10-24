@@ -97,6 +97,17 @@ function agent(session: Session, model?: string): Agent {
   } as Agent
 }
 
+/** Minimal idle agent for direct manual compaction. */
+function manualAgent(session: Session): Agent {
+  const controller = new AbortController()
+  return {
+    session,
+    options: { provider: 'fallback', model: 'fallback' },
+    status: 'idle',
+    runMaintenance: async <T>(task: (signal: AbortSignal) => Promise<T>): Promise<T> => task(controller.signal),
+  } as Agent
+}
+
 /** Append the durable `model/selection` payload owned by the session-controller package. */
 function appendModelSelection(session: Session, provider: string, model: string): void {
   const append = session.append.bind(session) as (type: string, data: object) => unknown
@@ -763,6 +774,34 @@ describe('summary tools follow the route', () => {
     })
     await compact.compactIfNeeded(agent(matching, 'fallback'), 'pressure', SIGNAL)
     expect(adapter.lastOptions?.tools).toEqual(tools)
+  })
+
+  it('omits stale header tools from compactNow after a pending selection', async () => {
+    const ctx = createContext(1_000)
+    const store = new SessionStore(ctx)
+    vi.spyOn(store, 'flush').mockResolvedValue(undefined)
+    const adapter = new ScriptedAdapter([{ type: 'text', text: 'summary' }], undefined, 1_000)
+    ctx.llm.registerAdapter(['header', 'pending'], adapter)
+    const compact = new ExposedCompactionEngine(ctx, {
+      auto: false,
+      thresholdRatio: 0.5,
+      headroomTokens: 0,
+      maxTokens: 1,
+      retainTokens: 1,
+    })
+    const tools = [{ name: 'recursive', description: 'x', parameters: { type: 'object' } }]
+    const session = conversation(2, 'x'.repeat(600))
+    session.append('request/header', {
+      header: { config: { provider: 'header', model: 'header' }, tools },
+      reason: 'resume',
+    })
+    appendModelSelection(session, 'pending', 'pending')
+    session.append('turn/end', { turn: 3, reason: { kind: 'completed' } })
+
+    const result = await compact.compactNow(manualAgent(session), SIGNAL)
+
+    expect(result).not.toBeNull()
+    expect(adapter.lastOptions?.tools).toBeUndefined()
   })
 })
 
