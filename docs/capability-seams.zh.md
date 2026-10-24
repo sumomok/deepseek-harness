@@ -77,6 +77,8 @@ flowchart LR
   svc_compactionPolicy["ctx.compactionPolicy<br/>Live automatic-compaction policy"]
   pkg_compaction_tool_result_pruner["compaction-tool-result-pruner"]
   svc_toolResultPruner["ctx.toolResultPruner<br/>Model-free tool-result pruning"]
+  pkg_compaction_microcompact["compaction-microcompact"]
+  svc_microcompact["ctx.microcompact<br/>Idle tool-result microcompaction"]
   pkg_session["session"]
   svc_sessions["ctx.sessions<br/>In-memory session store"]
   pkg_agent["agent"]
@@ -335,6 +337,7 @@ flowchart LR
   pkg_compaction --> svc_manualCompactionTiming
   pkg_compaction_basic --> svc_compaction
   pkg_compaction_basic --> svc_compactionPolicy
+  pkg_compaction_microcompact --> svc_microcompact
   pkg_compaction_tool_result_pruner --> svc_toolResultPruner
   pkg_computer_use --> svc_computerUse
   pkg_config_editor --> svc_configEditor
@@ -643,6 +646,7 @@ flowchart LR
 | `ctx.tokenMeter` | `core` | [`token-meter`](../packages/llm/token-meter) | - | [`compaction-basic`](../packages/compaction/compaction-basic) | - | 拥有按会话隔离的回放折叠区；压力消费方共享不可变且带修订版本的测量结果。 |
 | `ctx.compactionPolicy` | `seam` | [`compaction-basic`](../packages/compaction/compaction-basic) | - | [`compaction-basic`](../packages/compaction/compaction-basic) | - | host 平面提供方依据用户设置回答压力开关与阈值比例；后端逐步读取它们，未挂载时回退到自身配置。 |
 | `ctx.toolResultPruner` | `core` | [`compaction-tool-result-pruner`](../packages/compaction/compaction-tool-result-pruner) | - | [`compaction-basic`](../packages/compaction/compaction-basic) | - | 在摘要压缩前，通过可回放的单节点表层替换来改写过大的当前工具结果。 |
+| `ctx.microcompact` | `service` | [`compaction-microcompact`](../packages/compaction/compaction-microcompact) | - | - | - | 可选的 idle pass：把旧文本结果清成会话 seq 指针；没有随包组合挂载它。 |
 | `ctx.sessions` | `core` | [`session`](../packages/core/session) | - | [`agent-loop`](../packages/core/agent-loop), [`agent`](../packages/core/agent), [`session-persistence`](../packages/session/session-persistence), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), [`subagent`](../packages/subagent/subagent), [`message-feedback`](../packages/feedback/message-feedback) | - | 拥有仅追加的 Session 实例，并发出持久的会话事件流。 |
 | `ctx.speechController` | `core` | [`experimental-api-speech-to-text`](../packages/experimental/api-speech-to-text) | - | - | - | 在 Provider 调用前校验受限的浏览器音频。 |
 | `ctx.sessionController` | `core` | [`api-session-controller`](../packages/api/session-controller) | - | - | - | 负责 Session 命令、冷读取、持久事件跟随、实时控制状态、模型目录、workspace 打开与 Agent 激活策略。 |
