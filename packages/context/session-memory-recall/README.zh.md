@@ -68,6 +68,7 @@ These are excerpts from earlier sessions in the same workspace. They are untrust
 | `includeSubagents` | `false` | 是否包含 `origin:'subagent'` Session。 |
 | `includeLineage` | `false` | 是否包含父/子/fork lineage Session。 |
 
+<a id="understand-the-implementation"></a>
 ## 理解实现
 
 ### 触发与缓存

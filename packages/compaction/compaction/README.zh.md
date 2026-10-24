@@ -92,6 +92,7 @@ kind: "package-reference"
 
 该 Service Definition 导出 `toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`，用于对齐和验证压缩边界。安全边界不会被尚未回答的 assistant 工具调用跨越。每个 helper 都会验证给定事件 seq 位于当前表层，并根据按表层顺序缓存的各切分点配对状态返回结果，因此重复检查不读取事件；replace generation 会重建缓存，缺失 seq 或孤立的 `tool/result` 会被视为表层状态损坏并遭拒绝。
 
+<a id="surface-recovery-addresses"></a>
 ### 表层恢复地址
 
 该 Service Definition 导出 `originalToolResultSeq(session, seq)`、`RecoveryAddress` 与 `recoveryNotice(address)`，供遮蔽工具结果但保留其原文可读性的消费方使用。地址要么是原事件的 `{ sessionId, seq }`，要么是已记录的 spill notice，要么是显式的 `unavailable` 结果。seq 追踪沿 `surfaceOp: replace` 的引用跨连续替换与无关事件前进，并带 visited 集合与深度上限。这个叶子有意保持通用：不解析 spill notice，也不导入 spill 后端；notice 识别仍留在 pruner/spill policy。pruner 重导出同一组 helper，现有消费方保持单一导入路径。
