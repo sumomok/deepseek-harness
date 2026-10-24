@@ -11,8 +11,10 @@ import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import { CompactionId } from '@deepseek-ai/dsh-compaction'
 import {
   createMessage,
+  createToolResultMessage,
   createUserMessage,
   LlmAdapter,
+  ToolCallId,
 } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
@@ -103,9 +105,9 @@ function baseSession(id: SessionId, turns = 2, seedEarly?: (session: Session) =>
         source: { kind: 'model', ...{ provider: MODEL, model: MODEL } },
       }),
     }, { surfaceOp: 'append' })
+    if (turn === 1) seedEarly?.(session)
     session.append('step/end', { turn, step: 1 })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
-    if (turn === 1) seedEarly?.(session)
   }
   // Automatic compaction brackets must be enclosed in an open turn.
   session.append('turn/start', { turn: turns + 1 })
@@ -219,6 +221,37 @@ async function compactionCycle(id: SessionId): Promise<{ events: readonly { type
       jobId: 'job-open-1', owner: String(id), kind: 'bash', startedAt: 1,
       toolCall: { callId: 'call-open-1', name: 'bash' },
     })
+    // A read whose metadata predates the version/digest fields, so the rebuilt
+    // Files section exercises the bounded re-read fallback.
+    early.append('assistant/message', {
+      stream: [],
+      turn: 1,
+      step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'tool-call', id: ToolCallId('read-open-1'), name: 'read', arguments: JSON.stringify({ file_path: '/abs/resumed.txt' }) }],
+        source: { kind: 'model', ...{ provider: MODEL, model: MODEL } },
+      }),
+    }, { surfaceOp: 'append' })
+    early.append('tool/call', {
+      turn: 1, step: 1, callId: ToolCallId('read-open-1'), name: 'read',
+      arguments: JSON.stringify({ file_path: '/abs/resumed.txt' }),
+    })
+    early.append('tool/result', {
+      turn: 1,
+      step: 1,
+      message: createToolResultMessage({
+        callId: ToolCallId('read-open-1'),
+        content: [{ type: 'text', text: 'resumed content' }],
+        isError: false,
+      }),
+      meta: {
+        path: '/abs/resumed.txt',
+        offset: 1,
+        lines: [{ number: 1, text: 'resumed content' }],
+        totalLines: 1,
+      },
+    }, { surfaceOp: 'append' })
   })
   const engineUnderTest = new SummaryStubEngine(ctx, {
     auto: false, headroomTokens: 0, maxTokens: 8192, thresholdRatio: 0.3, retainTokens: 20,
@@ -373,6 +406,34 @@ describe.skipIf(!HAS_LOCK_BINDING)('resume at the three compaction interruption 
     expect(rebuildCount(resumedAgent.session)).toBe(1)
     expect(await firePreStep(second, resumedAgent, 21)).toBe(0)
     expect(rebuildCount(resumedAgent.session)).toBe(1)
+    await second.fiber.dispose()
+  })
+
+  it('restates a file after a resume with the replacement and no closing event', async () => {
+    const id = SessionId('cut-after-replacement-files')
+    const { events, stage } = await compactionCycle(id)
+    const root = await tempRoot()
+    await seedPrefix(root, id, events, stage['replacement']!)
+    const second = await resumeFrom(root, id)
+    second.provide('fs', {
+      resolve: async (path: string) => ({ key: path }),
+      stat: async () => ({ version: 'v1', type: 'file', size: 15 }),
+      readText: async () => 'resumed content',
+    })
+    const resumedAgent = second.agents.get(id)!
+    expect(await firePreStep(second, resumedAgent)).toBe(1)
+    const text = resumedAgent.session.ownEvents()
+      .filter(event => event.type === 'user/message'
+        && (event.data as { source?: { kind?: string } }).source?.kind === 'compaction-rehydration')
+      .map((event) => {
+        const block = (event as { data: { content: readonly { type: string; text?: string }[] } }).data.content
+          .find(candidate => candidate.type === 'text')
+        return block?.text ?? ''
+      })
+      .join('\n')
+    expect(text).toContain('Files read earlier')
+    expect(text).toContain('`/abs/resumed.txt` — unchanged since your read')
+    expect(text).not.toContain('```text')
     await second.fiber.dispose()
   })
 })

@@ -72,6 +72,8 @@ function registerCatalogProjection(ctx: Context): void {
   } as never)
 }
 
+function childAgent(session: Session, ctx: Context): Agent { return sessionAgent(session, ctx) }
+
 function sessionAgent(session: Session, ctx: Context): Agent {
   return {
     id: session.id,
@@ -765,5 +767,83 @@ describe('the state a compaction rebuilds', () => {
     if (event?.type !== 'user/message' || event.data.source.kind !== 'compaction-rehydration') throw new Error('no rebuild')
     expect(event.data.source.sections.map(section => section.name)).toContain('files')
     expect(event.data.source.digests).toHaveLength(event.data.source.sections.length)
+  })
+
+  it('omits the Files section when the deployment has no filesystem service', async () => {
+    const { ctx, session, agent } = await harness({ todo: true })
+    openTurn(session)
+    writeTodos(session, [{ content: 'no fs here', status: 'pending' }])
+    recordFileRead(session, 'read-1', readMeta('/abs/a.txt', 'one'))
+    compact(session)
+    await fire(ctx, agent)
+    const text = rebuildTexts(session)[0] ?? ''
+    expect(text).toContain('Current todo list')
+    expect(text).not.toContain('Files read earlier')
+  })
+
+  it('points at a read the filesystem refuses to describe', async () => {
+    const fs = new FakeReadFs()
+    const { ctx, session, agent } = await harness({ fs })
+    openTurn(session)
+    recordFileRead(session, 'read-1', readMeta('/abs/denied.txt', 'secret'))
+    fs.stat = async () => { throw new Error('denied') }
+    compact(session)
+    await fire(ctx, agent)
+    const text = rebuildTexts(session)[0] ?? ''
+    expect(text).toContain('`/abs/denied.txt` — not readable now')
+    expect(text).not.toContain('secret')
+  })
+
+  it('keeps each checkpoint to one Files section across consecutive compactions', async () => {
+    const fs = new FakeReadFs()
+    fs.add('/abs/a.txt', { text: 'one', version: 'v1' })
+    const { ctx, session, agent } = await harness({ fs })
+    openTurn(session)
+    recordFileRead(session, 'read-1', readMeta('/abs/a.txt', 'one'))
+    compact(session, 'c1')
+    await fire(ctx, agent)
+    openTurn(session, 2)
+    compact(session, 'c2')
+    await fire(ctx, agent, 2)
+    const messages = rebuildTexts(session)
+    expect(messages).toHaveLength(2)
+    for (const text of messages) {
+      expect(text.match(/Files read earlier/gu)).toHaveLength(1)
+      expect(text).toContain('/abs/a.txt')
+    }
+  })
+
+  it('does not leak a parent session file into a fork', async () => {
+    const fs = new FakeReadFs()
+    fs.add('/abs/parent.txt', { text: 'parent', version: 'v1' })
+    const { ctx, session, agent } = await harness({ fs, todo: true })
+    openTurn(session)
+    recordFileRead(session, 'read-parent', readMeta('/abs/parent.txt', 'parent'))
+    compact(session)
+    await fire(ctx, agent)
+
+    const child = ctx.sessions.fork(session)
+    openTurn(child)
+    writeTodos(child, [{ content: 'child work', status: 'pending' }])
+    compact(child, 'c-child')
+    await fire(ctx, childAgent(child, ctx))
+    const text = rebuildTexts(child)[0] ?? ''
+    expect(text).toContain('child work')
+    expect(text).not.toContain('/abs/parent.txt')
+  })
+
+  it('truncates a large changed file inside the section budget', async () => {
+    const fs = new FakeReadFs()
+    const big = 'x'.repeat(4000)
+    fs.add('/abs/big.txt', { text: big, version: 'v2' })
+    const { ctx, session, agent } = await harness({ fs })
+    openTurn(session)
+    recordFileRead(session, 'read-1', readMeta('/abs/big.txt', 'old'))
+    compact(session)
+    await fire(ctx, agent)
+    const text = rebuildTexts(session)[0] ?? ''
+    expect(text).toContain('… (truncated)')
+    expect(text.length).toBeLessThanOrEqual(4000)
+    expect(text.indexOf('x'.repeat(1000))).toBeGreaterThan(-1)
   })
 })
