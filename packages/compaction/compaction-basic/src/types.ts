@@ -29,6 +29,11 @@ export interface CompactionPolicyConfig {
   maxConsecutiveFailures?: number
   /** Maximum retries after canonical context overflow; `0` disables recovery. Defaults to `1`. */
   maxOverflowRetries?: number
+  /**
+   * Largest replacement the shrink guard accepts, as a fraction of the span's
+   * route price. `1` takes any strictly smaller summary. Defaults to `1`.
+   */
+  summaryMaxRatio?: number
 }
 
 /** Exact provider/model override merged over the default compaction policy. */
@@ -62,6 +67,7 @@ interface ResolvedPolicyFields {
   readonly compactionRetries: number
   readonly maxConsecutiveFailures: number
   readonly maxOverflowRetries: number
+  readonly summaryMaxRatio: number
 }
 
 /** Validated immutable config whose target-specific defaults remain unresolved. */

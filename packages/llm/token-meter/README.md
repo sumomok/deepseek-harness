@@ -67,6 +67,8 @@ Both plugins have usable defaults. The meter consumes only the optional `llm` se
 
 Occupancy is a reference figure, not a billing record: nothing in the harness makes decisions from it, and compaction reads `measure()` instead. A UI computes occupancy by dividing measured pressure by the separately resolved capacity for the selected model. The `contextBreakdown` figures are estimates that will not sum to `projectedTokens`, whose provider anchor carries exactly the heuristic error — CJK text and JSON schemas underprice badly at four characters per token.
 
+That error matters wherever a decision turns on a *ratio* between two texts of different scripts, so the module also exports a dense profile: `estimateDenseTextTokens` and `estimateDenseMessageTokens` price every CJK code point as one token and other text at 3.5 characters per token. The dense figure is the conservative side of the estimate, and compaction compares a candidate summary against its span with it; nothing folds it into occupancy, which stays on the fixed heuristic so projections agree with the appended prices they replay.
+
 -----
 
 <a id="understand-the-implementation"></a>

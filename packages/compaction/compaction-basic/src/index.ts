@@ -93,6 +93,7 @@ const maxTokensSchema = z.number().step(1).min(1)
 const compactionRetriesSchema = z.number().step(1).min(0)
 const maxConsecutiveFailuresSchema = z.number().step(1).min(0)
 const maxOverflowRetriesSchema = z.number().step(1).min(0)
+const summaryMaxRatioSchema = z.number()
 
 const modelPolicy: z<ModelCompactPolicyConfig> = z.object({
   provider: z.string().required(),
@@ -107,6 +108,7 @@ const modelPolicy: z<ModelCompactPolicyConfig> = z.object({
   compactionRetries: compactionRetriesSchema,
   maxConsecutiveFailures: maxConsecutiveFailuresSchema,
   maxOverflowRetries: maxOverflowRetriesSchema,
+  summaryMaxRatio: summaryMaxRatioSchema,
 })
 
 /**
@@ -131,6 +133,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     compactionRetries: compactionRetriesSchema,
     maxConsecutiveFailures: maxConsecutiveFailuresSchema,
     maxOverflowRetries: maxOverflowRetriesSchema,
+    summaryMaxRatio: summaryMaxRatioSchema,
     modelPolicies: z.array(modelPolicy),
     auto: z.boolean(),
   })
@@ -144,6 +147,7 @@ export class BasicCompactionEngine extends CompactionEngine {
   private readonly overflowAgents = new WeakMap<Session, Agent>()
   private readonly waiting = new WaitingCompactions()
   private readonly summaryFailures = new Map<string, { count: number; errorClass: string }>()
+
 
   constructor(ctx: Context, config: BasicCompactionConfig = {}) {
     super(ctx)
@@ -535,6 +539,7 @@ export class BasicCompactionEngine extends CompactionEngine {
         : { provider: policy.summarizationProvider, model: policy.summarizationModel }
       const tools = this.summaryTools(agent, summaryTarget)
       const result = await this.compactPressureRegion(range.start, range.end, agent, signal,
+        policy.summaryMaxRatio,
         previewData === undefined ? undefined : { messages: previewData.messages, tokens: previewData.tokens },
         tools)
       if (preview !== undefined && prune !== undefined) await this.applyToolResultPreview(agent, prune, preview)
@@ -641,13 +646,15 @@ export class BasicCompactionEngine extends CompactionEngine {
         break
       }
       const rangeTokens = this.rangeTokenPrice(measurement, range)
-      // The selected span itself must be able to pay for the summary envelope;
-      // a first or later span below that floor can only fail the shrink check.
-      if (rangeTokens < minimumSummaryTokens(meter)) {
+      // The selected span must be able to pay for the smallest replacement the
+      // shrink guard would accept: the framing floor, under the configured
+      // share of the span. Anything smaller can only spend a request to fail.
+      const summaryFloor = minimumSummaryTokens(meter)
+      if (Math.floor(rangeTokens * spec.summaryMaxRatio) < summaryFloor) {
         this.ctx.logger.info(
-          'compaction (pressure): skipping; selected span is ~%d route tokens, '
-          + 'below the minimum summary envelope',
-          rangeTokens,
+          'compaction (pressure): skipping; selected span is ~%d route tokens, below the '
+          + '%d-token replacement ceiling at summaryMaxRatio %s',
+          rangeTokens, summaryFloor, String(spec.summaryMaxRatio),
         )
         if (result === null) {
           if (preview !== undefined && prune !== undefined) {
@@ -669,6 +676,7 @@ export class BasicCompactionEngine extends CompactionEngine {
       const started = performance.now()
       try {
         const committed = await this.compactPressureRegion(range.start, range.end, agent, signal,
+          spec.summaryMaxRatio,
           previewData === undefined ? undefined : { messages: previewData.messages, tokens: previewData.tokens },
           summaryTools)
         result = committed
@@ -944,6 +952,7 @@ export class BasicCompactionEngine extends CompactionEngine {
         owner: 'current-turn',
         stability: 'whole-surface',
         manual: false,
+        summaryMaxRatio: this.config.summaryMaxRatio,
         ...manualTools === undefined ? {} : { tools: manualTools },
       },
       signal,
@@ -967,6 +976,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     end: SessionSeq,
     agent: Agent,
     signal: AbortSignal,
+    summaryMaxRatio: number,
     preview?: {
       readonly messages: ReadonlyMap<SessionSeq, Message>
       readonly tokens: ReadonlyMap<SessionSeq, { readonly tokens: number; readonly heuristicTokens: number }>
@@ -983,6 +993,7 @@ export class BasicCompactionEngine extends CompactionEngine {
         owner: 'current-turn',
         stability: 'whole-surface',
         manual: false,
+        summaryMaxRatio,
         ...preview === undefined ? {} : { preview },
         ...tools === undefined ? {} : { tools },
       },
@@ -1092,6 +1103,7 @@ export class BasicCompactionEngine extends CompactionEngine {
         owner,
         stability: owner === null ? 'selected-span' : 'whole-surface',
         manual: true,
+        summaryMaxRatio: this.config.summaryMaxRatio,
         ...sourceCommandId === undefined ? {} : { sourceCommandId },
         ...manualTools === undefined ? {} : { tools: manualTools },
         flush: async () => {

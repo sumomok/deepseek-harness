@@ -19,6 +19,7 @@ import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
 import type { Message, ToolSchema, UserMessage } from '@deepseek-ai/dsh-llm'
 import type { TokenMeasurement, TokenMeter } from '@deepseek-ai/dsh-token-meter'
+import { estimateDenseMessageTokens } from '@deepseek-ai/dsh-token-meter/estimate'
 import { SessionSeq, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { frameSummary } from './summarizer.ts'
@@ -46,6 +47,8 @@ interface PreparedCompaction extends SurfaceSelection {
   readonly shadowedTokenCount: number
   /** Route-priced total of the selected span; the shrink comparison's unit. */
   readonly shadowedRouteTokenCount: number
+  /** Replacement ceiling this transaction was opened with. */
+  readonly summaryMaxRatio: number
   readonly input: SummarizationInput
 }
 
@@ -71,6 +74,8 @@ interface CompactionTransactionOptions {
   readonly sourceCommandId?: CommandId
   /** Whether failures are classified as {@link ManualCompactionError} for a manual caller. */
   readonly manual: boolean
+  /** Largest replacement this transaction accepts as a fraction of the span's route price. */
+  readonly summaryMaxRatio: number
 }
 
 interface CompactionEntryState {
@@ -385,7 +390,7 @@ export async function compactSurfaceRegion(
   let stage: TransactionFailure['stage'] = 'summary'
 
   try {
-    const prepared = prepareCompaction(dependencies, session, selection, options.preview, options.tools)
+    const prepared = prepareCompaction(dependencies, session, selection, options.summaryMaxRatio, options.preview, options.tools)
     const summarized = await summarizeCompaction(
       dependencies,
       prepared,
@@ -530,6 +535,7 @@ function prepareCompaction(
   dependencies: RegionDependencies,
   session: Session,
   selection: SurfaceSelection,
+  summaryMaxRatio: number,
   preview?: CompactionTransactionOptions['preview'],
   tools?: readonly ToolSchema[] | null,
 ): PreparedCompaction {
@@ -553,6 +559,7 @@ function prepareCompaction(
     // route-priced `tokens` instead.
     shadowedTokenCount: selectedNodes.reduce((total, node) => total + node.heuristicTokens, 0),
     shadowedRouteTokenCount: selectedNodes.reduce((total, node) => total + node.tokens, 0),
+    summaryMaxRatio,
     input: buildSummarizationInput(session, selection.shadowedSeqs, preview?.messages, tools),
   }
 }
@@ -580,7 +587,7 @@ async function summarizeCompaction(
       assertStable(dependencies, agent.session, prepared)
       if (!dependencies.recover(error, agent, prepared.shadowedSeqs, signal)) throw error
       prepared = prepareCompaction(dependencies, agent.session,
-        validateSurfaceRegion(agent.session, prepared.start, prepared.end), preview, tools)
+        validateSurfaceRegion(agent.session, prepared.start, prepared.end), prepared.summaryMaxRatio, preview, tools)
     }
   }
   const checkpointMessage = createUserMessage({
@@ -594,6 +601,19 @@ async function summarizeCompaction(
   if (framedSummaryTokenCount >= prepared.shadowedRouteTokenCount) {
     throw new Error(
       `summary is not smaller than the shadowed content (${framedSummaryTokenCount} estimated framed tokens >= ${prepared.shadowedRouteTokenCount})`,
+    )
+  }
+  // The fixed heuristic prices a CJK character at a quarter token, so a
+  // Chinese summary can look small here while the provider bills more than the
+  // span it replaces. The dense price is the conservative side of the same
+  // question, and the ratio keeps a replacement worth the transaction: a span
+  // that can only shrink a little is not worth a summary request.
+  const denseSummaryTokenCount = estimateDenseMessageTokens(checkpointMessage)
+  const summaryCeiling = Math.floor(prepared.shadowedRouteTokenCount * prepared.summaryMaxRatio)
+  if (denseSummaryTokenCount >= summaryCeiling) {
+    throw new Error(
+      `summary is not small enough for the shadowed content (${denseSummaryTokenCount} dense tokens > `
+      + `${summaryCeiling} = ${prepared.summaryMaxRatio} of ${prepared.shadowedRouteTokenCount} route tokens)`,
     )
   }
   const review: SummaryReview = {

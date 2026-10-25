@@ -388,6 +388,7 @@ describe('compact configuration and defaults', () => {
       compactionRetries: 1,
       maxConsecutiveFailures: 3,
       maxOverflowRetries: 1,
+      summaryMaxRatio: 1,
       modelPolicies: [],
       auto: true,
     })
@@ -623,6 +624,12 @@ describe('compact configuration and defaults', () => {
         /modelPolicies\[0\]: retainRatio \(0.9\).*thresholdRatio \(0.8\)/,
       ],
       [{ modelPolicies: [{ provider: MODEL, model: MODEL }, { provider: MODEL, model: MODEL }] }, /duplicate model policy/],
+      [{ summaryMaxRatio: 0 }, /BasicCompactionConfig.summaryMaxRatio \(0\).*must be a number in \(0, 1\]/],
+      [{ summaryMaxRatio: 1.5 }, /BasicCompactionConfig.summaryMaxRatio \(1.5\).*must be a number in \(0, 1\]/],
+      [
+        { modelPolicies: [{ provider: MODEL, model: MODEL, summaryMaxRatio: 2 }] },
+        /modelPolicies\[0\].summaryMaxRatio \(2\).*must be a number in \(0, 1\]/,
+      ],
       [{ models: { [MODEL]: { retainTokens: 10 } } }, /BasicCompactionConfig: unknown key "models"/],
       [{ thresholdRato: 0.5 }, /BasicCompactionConfig: unknown key "thresholdRato"/],
     ] as Array<[unknown, RegExp]>
@@ -1868,6 +1875,49 @@ describe('compaction region transaction', () => {
       agent(session, MODEL),
     )).rejects.toThrow(/summary is not smaller/)
     expect(session.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(false)
+  })
+
+  it('rejects a CJK summary the fixed heuristic under-prices', async () => {
+    const compact = service()
+    // 160 CJK code points price as 40 fixed-heuristic tokens (under the
+    // two-message span) but 168 dense tokens (over it). A provider bills the
+    // dense figure, so accepting this replacement would grow the context.
+    compact.summary = [{ type: 'text', text: '压'.repeat(160) }]
+    const session = conversation(2)
+    const nodes = session.surface.nodes
+
+    await expect(compact.compactRegion(
+      nodes[0]!,
+      nodes[2]!,
+      agent(session, MODEL),
+    )).rejects.toThrow(/summary is not small enough/)
+    expect(session.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(false)
+  })
+
+  it('honours summaryMaxRatio as the replacement ceiling', async () => {
+    const summary = [{ type: 'text', text: 'checkpoint '.repeat(40) }]
+    const strict = service({ auto: false, summaryMaxRatio: 0.2 })
+    strict.summary = summary
+    const strictSession = conversation(2)
+    const strictNodes = strictSession.surface.nodes
+
+    await expect(strict.compactRegion(
+      strictNodes[0]!,
+      strictNodes[2]!,
+      agent(strictSession, MODEL),
+    )).rejects.toThrow(/summary is not small enough/)
+
+    const lenient = service()
+    lenient.summary = summary
+    const lenientSession = conversation(2)
+    const lenientNodes = lenientSession.surface.nodes
+
+    const committed = await lenient.compactRegion(
+      lenientNodes[0]!,
+      lenientNodes[2]!,
+      agent(lenientSession, MODEL),
+    )
+    expect(committed.shadowedSeqs.length).toBeGreaterThan(0)
   })
 
   it('lets a model-independent custom summarizer compact without a conversation model', async () => {

@@ -74,10 +74,13 @@ All settings are optional. With context window `W`, effective request output cap
 | `compactionRetries` | `1` | Extra condensation attempts after the first when pressure remains above threshold. |
 | `maxConsecutiveFailures` | `3` | Consecutive failed automatic summaries for one Session and route before pressure pauses; `0` disables the breaker. |
 | `maxOverflowRetries` | `1` | Maximum retries after a confirmed context-window overflow; `0` disables recovery only. |
+| `summaryMaxRatio` | `1` | Largest replacement the shrink guard accepts, as a fraction of the selected span's route price. `1` accepts any strictly smaller summary; a lower value keeps condensation only where it frees a worthwhile share. |
 | `modelPolicies` | `[]` | Exact `{ provider, model, ...partialPolicy }` overrides for individual model routes. |
 | `auto` | `true` | Enable automatic condensation and overflow recovery; set `false` for manual-only operation. A policy service can suspend pressure condensation without this hard off. |
 
-Misconfiguration fails fast: unknown settings, duplicate per-model overrides, invalid token counts, both retention forms together, or a retention ratio at least as large as the threshold ratio reject the plugin at load. When the model is first used, `W − O − B` must be positive and the resolved retained budget must be below the trigger. Zero headroom requires an explicit positive `maxTokens`, globally or in that model policy. Small-window deployments must configure headroom that fits their capacity; lower `thresholdRatio` to compact earlier.
+A summary is priced twice before it is committed: the fixed heuristic that the rest of the meter uses, and a dense profile that charges one token per CJK code point instead of a quarter. A replacement that looks smaller under the fixed heuristic but costs more than its span under the dense profile is refused, because the provider bills the dense figure. `summaryMaxRatio` tightens that ceiling further.
+
+Misconfiguration fails fast: unknown settings, duplicate per-model overrides, invalid token counts, both retention forms together, a retention ratio at least as large as the threshold ratio, or a `summaryMaxRatio` outside `(0, 1]` reject the plugin at load. When the model is first used, `W − O − B` must be positive and the resolved retained budget must be below the trigger. Zero headroom requires an explicit positive `maxTokens`, globally or in that model policy. Small-window deployments must configure headroom that fits their capacity; lower `thresholdRatio` to compact earlier.
 
 ### Moving the threshold from user settings
 

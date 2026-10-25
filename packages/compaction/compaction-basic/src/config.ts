@@ -22,6 +22,9 @@ const DEFAULT_THRESHOLD_RATIO = 0.8
 /** Default verbatim-tail fraction for every routed model. */
 const DEFAULT_RETAIN_RATIO = 0.16
 
+/** Default share of a selected span's route price a replacement may keep: any strictly smaller one. */
+const DEFAULT_SUMMARY_MAX_RATIO = 1
+
 /** Fields shared by top-level defaults and exact-target overrides. */
 const POLICY_CONFIG_KEYS = [
   'thresholdRatio',
@@ -34,6 +37,7 @@ const POLICY_CONFIG_KEYS = [
   'compactionRetries',
   'maxConsecutiveFailures',
   'maxOverflowRetries',
+  'summaryMaxRatio',
 ] as const
 
 /** Complete public top-level configuration key set. */
@@ -106,6 +110,7 @@ export function resolveConfig(config: BasicCompactionConfig = {}): ResolvedConfi
     compactionRetries: config.compactionRetries ?? 1,
     maxConsecutiveFailures: config.maxConsecutiveFailures ?? 3,
     maxOverflowRetries: config.maxOverflowRetries ?? 1,
+    summaryMaxRatio: config.summaryMaxRatio ?? DEFAULT_SUMMARY_MAX_RATIO,
     modelPolicies,
     auto: config.auto ?? true,
   })
@@ -138,6 +143,7 @@ export function resolveTargetPolicy(
     compactionRetries: override?.compactionRetries ?? config.compactionRetries,
     maxConsecutiveFailures: override?.maxConsecutiveFailures ?? config.maxConsecutiveFailures,
     maxOverflowRetries: override?.maxOverflowRetries ?? config.maxOverflowRetries,
+    summaryMaxRatio: override?.summaryMaxRatio ?? config.summaryMaxRatio,
   })
 }
 
@@ -217,6 +223,7 @@ export function resolveCompactSpec(
     compactionRetries: policy.compactionRetries,
     maxConsecutiveFailures: policy.maxConsecutiveFailures,
     maxOverflowRetries: policy.maxOverflowRetries,
+    summaryMaxRatio: policy.summaryMaxRatio,
   })
 }
 
@@ -290,6 +297,7 @@ function validatePolicy(
   const compactionRetries = config.compactionRetries
   const maxConsecutiveFailures = config.maxConsecutiveFailures
   const maxOverflowRetries = config.maxOverflowRetries
+  const summaryMaxRatio = config.summaryMaxRatio
   if (thresholdRatio !== undefined) assertRatio(`${name}.thresholdRatio`, thresholdRatio)
   if (headroomTokens !== undefined) assertNonNegativeInteger(`${name}.headroomTokens`, headroomTokens)
   if (retainRatio !== undefined) assertRatio(`${name}.retainRatio`, retainRatio)
@@ -307,6 +315,7 @@ function validatePolicy(
   if (maxOverflowRetries !== undefined) {
     assertNonNegativeInteger(`${name}.maxOverflowRetries`, maxOverflowRetries)
   }
+  if (summaryMaxRatio !== undefined) assertRatio(`${name}.summaryMaxRatio`, summaryMaxRatio)
 
   validateSummarizationPair(config, name)
 }

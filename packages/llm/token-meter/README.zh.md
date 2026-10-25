@@ -67,6 +67,8 @@ const price = ctx.tokenMeter.estimateMessage(message)
 
 占用是参考数字，不是计费记录：harness 中没有任何机制依据它做决定，压缩读取的是 `measure()`。UI 用测量压力除以所选模型独立解析的容量来计算占用。`contextBreakdown` 数字是估算值，其总和不会等于 `projectedTokens`；后者的提供方锚点恰好携带启发式误差——CJK 文本与 JSON schema 在每 token 四字符下严重低估。
 
+当决定取决于两种文字之间的**比值**时，这个误差会直接影响结果，因此本模块还导出密集档：`estimateDenseTextTokens` 与 `estimateDenseMessageTokens` 把每个 CJK 码点计为一个 token，其余文本按每 token 3.5 字符计价。密集档是估算的保守一侧，压缩用它把候选摘要与所替换区间作比较；它不参与占用折叠——占用仍使用固定启发式，以保证投影与它回放的追加价格一致。
+
 -----
 
 <a id="understand-the-implementation"></a>

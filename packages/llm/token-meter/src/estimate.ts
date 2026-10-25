@@ -100,3 +100,80 @@ export function estimateToolsTokens(header: EpochHeader | undefined): number {
   if (header?.tools === undefined || header.tools.length === 0) return 0
   return Math.ceil(JSON.stringify(header.tools).length / CHARS_PER_TOKEN) + BLOCK_OVERHEAD
 }
+
+/**
+ * Density of non-CJK text under the dense profile. Providers price Latin text
+ * near four characters per token; the profile keeps a small margin below the
+ * fixed heuristic so a dense price is not lower than the provider's.
+ */
+const DENSE_LATIN_CHARS_PER_TOKEN = 3.5
+
+/**
+ * Code points a provider tokenizer charges at least one token for, although
+ * they occupy a single character: CJK ideographs, kana, Hangul, and the CJK
+ * punctuation and full-width forms around them. The fixed {@link CHARS_PER_TOKEN}
+ * heuristic prices them at a quarter token each, which is why a Chinese summary
+ * can look small to the fixed heuristic while costing more than what it replaced.
+ */
+const DENSE_CODE_POINT = new RegExp(
+  '[\\u2E80-\\u2EFF\\u2F00-\\u2FFF\\u3000-\\u303F\\u3040-\\u30FF'
+  + '\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uAC00-\\uD7AF\\uF900-\\uFAFF\\uFF00-\\uFFEF]',
+)
+
+/**
+ * Price text whose provider tokenization is denser than the fixed ASCII
+ * heuristic: every code point {@link DENSE_CODE_POINT} matches counts as one
+ * token, the rest at {@link DENSE_LATIN_CHARS_PER_TOKEN}.
+ *
+ * This is the conservative side of the estimate — a provider charges at least
+ * this many tokens for the same text — so a caller that must not overstate a
+ * shrink can compare against it. It is not the price the meter folds into
+ * occupancy, which stays on the fixed heuristic so projections agree with the
+ * appended prices they replay.
+ * @param text - text to price without mutation.
+ * @returns dense token estimate for the text alone.
+ */
+export function estimateDenseTextTokens(text: string): number {
+  let dense = 0
+  for (const codePoint of text) {
+    if (DENSE_CODE_POINT.test(codePoint)) dense += 1
+  }
+  return dense + Math.ceil((text.length - dense) / DENSE_LATIN_CHARS_PER_TOKEN)
+}
+
+/**
+ * Price one model-visible message under the dense text profile, keeping the
+ * fixed heuristic for structural blocks and tool-call JSON.
+ * @param message - message to price without mutation.
+ * @returns dense token estimate including the same framing overheads as
+ *   {@link estimateMessage}.
+ */
+export function estimateDenseMessageTokens(message: Message): number {
+  if (message.role === 'system') {
+    if (message.content.length === 0) return 0
+    let tokens = 0
+    for (const block of message.content) {
+      tokens += block.type === 'text'
+        ? estimateDenseTextTokens(block.text)
+        : Math.ceil(JSON.stringify(block).length / CHARS_PER_TOKEN)
+    }
+    return tokens + ROLE_OVERHEAD
+  }
+  let tokens = ROLE_OVERHEAD
+  for (const block of message.content) {
+    switch (block.type) {
+      case 'text':
+      case 'reasoning':
+        tokens += estimateDenseTextTokens(block.text) + BLOCK_OVERHEAD
+        break
+      case 'tool-call':
+        tokens += Math.ceil(block.name.length / CHARS_PER_TOKEN)
+          + Math.ceil(block.arguments.length / CHARS_PER_TOKEN)
+          + BLOCK_OVERHEAD
+        break
+      default:
+        tokens += estimateStructuralBlock(block)
+    }
+  }
+  return tokens
+}
