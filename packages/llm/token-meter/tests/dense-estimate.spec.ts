@@ -24,7 +24,7 @@ describe('dense text pricing', () => {
 
 describe('dense message pricing', () => {
   it('keeps the role and block framing of the fixed heuristic', () => {
-    const message = createUserMessage({ content: [{ type: 'text', text: '压压' }] })
+    const message = createUserMessage({ content: [{ type: 'text', text: '压压' }], source: { kind: 'user' } })
     expect(estimateDenseMessageTokens(message)).toBe(10)
     expect(estimateMessage(message)).toBe(9)
   })
@@ -38,6 +38,7 @@ describe('dense message pricing', () => {
     const message = createMessage({
       role: 'system',
       content: [{ type: 'image', attachment: { id: 'attachment-1' } } as never],
+      source: { kind: 'system-prompt' },
     })
     expect(estimateDenseMessageTokens(message)).toBe(estimateMessage(message))
   })
@@ -46,6 +47,7 @@ describe('dense message pricing', () => {
     const message = createMessage({
       role: 'user',
       content: [{ type: 'image', attachment: { id: 'attachment-1' } } as never],
+      source: { kind: 'user' },
     })
     expect(estimateDenseMessageTokens(message)).toBe(estimateMessage(message))
   })
@@ -54,6 +56,7 @@ describe('dense message pricing', () => {
     const message = createMessage({
       role: 'assistant',
       content: [{ type: 'tool-call', id: 'call-1' as never, name: 'tool', arguments: '{}' }],
+      source: { kind: 'model', provider: 'mock', model: 'mock' },
     })
     expect(estimateDenseMessageTokens(message)).toBe(10)
   })

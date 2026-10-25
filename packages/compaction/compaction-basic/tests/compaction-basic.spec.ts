@@ -1895,7 +1895,7 @@ describe('compaction region transaction', () => {
   })
 
   it('honours summaryMaxRatio as the replacement ceiling', async () => {
-    const summary = [{ type: 'text', text: 'checkpoint '.repeat(40) }]
+    const summary: ContentBlock[] = [{ type: 'text', text: 'checkpoint '.repeat(40) }]
     const strict = service({ auto: false, summaryMaxRatio: 0.2 })
     strict.summary = summary
     const strictSession = conversation(2)
