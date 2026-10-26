@@ -42,7 +42,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { composeEntries, loadOverlayPatches, resolveBundleDir } from '@deepseek-ai/dsh-app-boot'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context, type Plugin } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import * as Persona from '@deepseek-ai/dsh-persona'
 import { createScope, scopeOf, type Scope, type ScopeKey } from '@deepseek-ai/dsh-scope'
 import { applyChildComposition } from '@deepseek-ai/dsh-subagent'
@@ -203,7 +203,7 @@ const SESSION_TOOL_SERVICE_ROWS: Record<string, string> = {
   tools: 'tools',
   systemPrompt: 'system-prompt',
   sessionQuery: 'session-query-sqlite',
-  sessionProjections: 'session-projection',
+  agents: 'agent',
 }
 
 describe('the composed tool-session-query row', () => {
@@ -272,7 +272,14 @@ describe('the session tools in composed sessions', () => {
     root.systemPrompt.variable('cwd', () => '/workspace')
     root.systemPrompt.variable('model', () => 'deepseek-flash')
     await root.plugin(ToolRuntime)
+    root.tools.setExecutor({
+      describe: tools => ({
+        schemas: tools.map(tool => ({ name: tool.name, description: tool.description, parameters: tool.parameters })),
+      }),
+      execute: () => Promise.resolve({ results: [], additionalContexts: [], concluded: true }),
+    })
     await root.plugin(SessionProjectionRegistry)
+    await root.plugin(AgentRegistry)
     root.provide('sessionQuery', {})
     await root.plugin(ToolSessionQuery, entry(desktop, 'tool-session-query').config ?? {})
     const presetKey: ScopeKey = { preset: presetId }

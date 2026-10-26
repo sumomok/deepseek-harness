@@ -825,6 +825,7 @@ describe('subagent ownership fence', () => {
   it('records bounded prompt references on the message source and never in its content', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)
     const session = ctx.sessions.create(sid('session-prompt-references'), { meta: { cwd: '/proj' } })
     const followup = vi.fn()
