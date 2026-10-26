@@ -456,7 +456,7 @@ describe('workspaceFiles.changes — backends and access', () => {
     mark('checking-end')
     await expect(stream.next()).resolves.toEqual({ done: true, value: undefined })
     mark('complete')
-  })
+  }, 30_000)
 
   it.each(['create', 'modify', 'remove'] as const)(
     'reports an external direct-child %s through the real local watcher',

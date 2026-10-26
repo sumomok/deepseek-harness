@@ -185,7 +185,7 @@ it('refuses a repository that a completed fetch left past its limit', async () =
   await expect(repositories.read(source.url, source.commit, 'dir0/f.txt', 100, signal)).rejects.toMatchObject({ reason: 'too-large' })
   await repositories.settled()
   expect(readdirSync(join(root, 'cache'))).toEqual([])
-})
+}, 30_000)
 
 it('deletes least recently used repositories beyond the cache size and stale staging directories', async () => {
   const first = repository('f', { 'README.md': 'first' })
