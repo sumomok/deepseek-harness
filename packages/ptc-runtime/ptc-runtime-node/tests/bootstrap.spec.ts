@@ -143,6 +143,14 @@ describe('prepareException', () => {
     })
   })
 
+  it('does not turn a long absolute-path stack into an output-limit failure', () => {
+    const error = new Error('short diagnostic')
+    error.stack = `ptc-repl:1\n${'x'.repeat(2_000)}`
+    expect(prepareException(error, 1_024)).toEqual({
+      error: { kind: 'exception', message: 'short diagnostic' },
+    })
+  })
+
   it('contains a thrown value whose string conversion fails', () => {
     const thrown = { toString() { throw new Error('cannot render') } }
     expect(prepareException(thrown, 1_000)).toEqual({

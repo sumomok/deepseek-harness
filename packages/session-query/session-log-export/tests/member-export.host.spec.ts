@@ -9,6 +9,7 @@ import type { PrincipalMap } from '@deepseek-ai/dsh-typert-protocol'
 import { unzipSync } from 'fflate'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SESSION_LOG_EXPORT_PATH, SESSION_LOG_FILENAME, apply, inject } from '../src/index.ts'
+import { SESSION_MARKDOWN_EXPORT_PATH } from '../src/routes.ts'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface PrincipalMap {
@@ -55,6 +56,7 @@ async function mount(options: { readonly remoteAccess?: boolean; readonly sessio
         if (id === UNTRACEABLE) throw new Error('fixture lineage is unreadable')
         return lineage(String(id))
       },
+      readSession: async (id: SessionId) => ({ session: { header: header(String(id)) }, events: [] }),
     } as never)
   }
   ctx.provide('sessionPersistence', {
@@ -100,6 +102,16 @@ describe('Session-log export route for non-owner Peers', () => {
   it('exports a member\'s own Session', async () => {
     const { connection } = await mount()
     expect(await exportAs(connection, member(connection, 's1'), '?sessionId=s1')).toEqual({ status: 200, entries: [SESSION_LOG_FILENAME] })
+  })
+
+  it('checks only the selected Session for Markdown, even with a descendant query flag', async () => {
+    const { connection } = await mount()
+    const response = await connection.createSharedFetchHandler('/api').fetch(
+      new Request(`http://host${SESSION_MARKDOWN_EXPORT_PATH}?sessionId=s1&includeDescendants=true`),
+      member(connection, 's1'),
+    )
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('text/markdown; charset=utf-8')
   })
 
   it('refuses a member\'s export of another member\'s Session, or without a valid query, before reading any log', async () => {

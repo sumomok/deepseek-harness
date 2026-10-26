@@ -12,12 +12,14 @@
 /* Wide row: the whole row is the hover surface, so the trigger and whatever
    the action seat holds light up as one control instead of two. The rail row
    is excluded — there the 36px trigger circle is its own surface. */
-.triggerRow:not(.railRow):hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
+@media (hover: hover) {
+  .triggerRow:not(.railRow):hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
 
-.triggerRow:not(.railRow) .trigger:hover {
-  background: transparent;
+  .triggerRow:not(.railRow) .trigger:hover {
+    background: transparent;
+  }
 }
 
 .triggerRow.railRow {

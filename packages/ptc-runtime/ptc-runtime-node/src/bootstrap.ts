@@ -212,7 +212,9 @@ export function prepareException(
 ): ProgramResult {
   let message: string
   try {
-    const detail: unknown = error instanceof CapturedError ? error.stack ?? error.message : error
+    const detail: unknown = error instanceof CapturedError
+      ? (typeof error.stack === 'string' && error.message.length > 0 ? error.message : error.stack ?? error.message)
+      : error
     message = typeof detail === 'string' ? detail : String(detail)
   } catch {
     message = 'program threw an unrenderable value'

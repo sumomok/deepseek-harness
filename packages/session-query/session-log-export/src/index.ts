@@ -137,7 +137,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
     serveNonOwner: async (request, peer) => {
       const query = sessionLogExportQuery(request)
-      if (query === undefined || !await exportsAllowed(ctx, request, query, peer)) return forbidden()
+      if (query === undefined || !await exportsAllowed(ctx, request, { ...query, includeDescendants: false }, peer)) return forbidden()
       const response = await sessionMarkdownResponse(ctx, request)
       if (request.method === 'GET') return response
       await response.body?.cancel()

@@ -838,9 +838,8 @@ function renderAnchor(url: string, children: ReactNode[], key: Key, glyph = true
 /**
  * @param href - the normalized destination, shown as trailing inert text when
  * no delegate offers an opener. Only surfaces inside a `MarkdownDelegateProvider`
- * that supplies `openFile` reach the button; the sidebar document preview, the
- * plan preview, the trajectory table, and the question composer render markdown
- * outside any provider, and there the destination would otherwise vanish.
+ * that supplies `openFile` reach the button; other surfaces keep the authored
+ * link text and destination as inert prose, with the link text in its own span.
  */
 function MarkdownFileLink({ file, href, glyph, children }: {
   readonly file: { path: string; line?: number }
@@ -850,7 +849,7 @@ function MarkdownFileLink({ file, href, glyph, children }: {
 }): ReactNode {
   const { openFile, fileImages } = useMarkdownDelegate()
   const [load] = useState(nextImageLoad)
-  if (openFile === undefined) return <>{children}{` (${href})`}</>
+  if (openFile === undefined) return <><span>{children}</span>{` (${href})`}</>
   // Pure-image anchors already contain their preview and keep one navigation target.
   const preview = glyph && classifyLinkPath(file.path) === 'image' ? fileImages : undefined
   const resolved = preview?.resolve(file.path)

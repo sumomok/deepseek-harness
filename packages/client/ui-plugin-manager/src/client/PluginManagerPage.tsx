@@ -21,7 +21,7 @@ import {
   type IconProps, type StateDotState, type TerminalBlockLabels,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import { EXTENSION_BUNDLES, MORE_BUNDLES } from '@deepseek-ai/dsh-official-bundles'
+import { EXTENSION_BUNDLES, HIDDEN_BUNDLES, MORE_BUNDLES } from '@deepseek-ai/dsh-official-bundles'
 import type { createNavigationStore } from './navigation-store.ts'
 import type { PluginHeaderLayoutFace } from './header-scroll.ts'
 import { rowConfigKey, type OfficialItem } from './config-ledger.ts'
@@ -98,16 +98,6 @@ function AddPluginMenu({ t, disabled, openInstall, renderSlot }: {
 
 /** How long the list marks a package an install just enabled. */
 const HIGHLIGHT_MS = 2_400
-
-/** Built-in profile bundles stay out of this page even when the profile declares them as dependencies. */
-const BUILTIN_PROFILE_BUNDLES = new Set([
-  '@deepseek-ai/dsh-base',
-  '@deepseek-ai/dsh-web-app',
-  '@deepseek-ai/dsh-headless',
-  '@deepseek-ai/dsh-sdk-app',
-  '@deepseek-ai/dsh-acp-app',
-  '@deepseek-ai/dsh-sdk-minimal',
-])
 
 /**
  * Whether the main list shows an official optional bundle: any bundle outside `MORE_BUNDLES`, and any held-back one the profile enabled.
@@ -1549,7 +1539,8 @@ export function PluginManagerPage(props: PluginManagerPageProps): ReactNode {
   // The page manages what the person installed, what the installation ships for them to switch on, what the
   // launching application supplies from its payload, and a selected name the Host cannot read; the installation's
   // other bundles are inspected in the Settings Plugins section's Plugin list tab.
-  const listed = state.packages.filter(pkg => !BUILTIN_PROFILE_BUNDLES.has(pkg.name)
+  const listed = state.packages.filter(pkg => !HIDDEN_BUNDLES.has(pkg.name)
+    && (pkg.listedByDefault !== false || pkg.enabled || pkg.installed)
     && (pkg.installed || pkg.official || pkg.shipped || pkg.error !== undefined))
   const mine = listed.filter(pkg => !pkg.official)
   const official = listed.filter(pkg => pkg.official)
