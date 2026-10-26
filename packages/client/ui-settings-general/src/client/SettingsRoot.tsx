@@ -2,7 +2,10 @@
  * Settings shell root: the sidebar-foot trigger row plus the centered modal
  * panel (figma 2552:26025, 760x500) with the section nav rail, drawn as two
  * levels — fixed groups from `nav-groups.ts`, each with a glyph and a title
- * that labels it but cannot be clicked, over the ledger rows themselves.
+ * that labels it but cannot be clicked, over the ledger rows themselves. In
+ * browsers below 768px the panel fills the viewport and the rail turns into a
+ * horizontal strip; Windows and macOS desktop windows retain the rail
+ * (SettingsRoot.module.css).
  * The shell is a pure composition face — slot-owned text (trigger label,
  * panel title, close label, sections) arrives from registrants through slots;
  * accessible names resolve from localized content (trigger: shell locale;
@@ -83,9 +86,12 @@ function SettingsPanel({ rows, renderSlot, t, activeId, onSelect, onClose }: Pan
     <div className={css.overlay} role="presentation">
       <div className={css.mask} aria-hidden="true" onClick={onClose} />
       <div ref={panel} tabIndex={-1} data-shortcut-modal="settings" className={css.panel} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        {/* The four seats stay direct children of the panel and take their
+            places from its grid: title and header share the first row, the
+            navigation and the active section the second. */}
+        <div className={css.navTitle} id={titleId} tabIndex={-1}
+          data-modal-autofocus={active === undefined ? '' : undefined}>{renderSlot('settings.header', {})}</div>
         <nav className={css.nav}>
-          <div className={css.navTitle} id={titleId} tabIndex={-1}
-            data-modal-autofocus={active === undefined ? '' : undefined}>{renderSlot('settings.header', {})}</div>
           <div className={css.navList}>
             {groups.map(group => (
               <div
@@ -105,6 +111,7 @@ function SettingsPanel({ rows, renderSlot, t, activeId, onSelect, onClose }: Pan
                     className={clsx(css.navCell, row.id === active && css.active)}
                     aria-current={row.id === active ? 'true' : undefined}
                     data-modal-autofocus={row.id === active ? '' : undefined}
+                    onFocus={(event) => { event.currentTarget.scrollIntoView({ block: 'nearest', inline: 'nearest' }) }}
                     onClick={() => { onSelect(row.id) }}
                   >
                     <span className={css.navLabel}>{row.label}</span>
@@ -114,17 +121,15 @@ function SettingsPanel({ rows, renderSlot, t, activeId, onSelect, onClose }: Pan
             ))}
           </div>
         </nav>
-        <div className={css.content}>
-          <div className={css.header}>
-            <div className={css.actions}>{renderSlot('settings.action', {})}</div>
-            <button type="button" className={css.close} onClick={onClose}>
-              <IconCloseOutlineRegular size={14} />
-              <span className={css.hiddenLabel}>{renderSlot('settings.close', {})}</span>
-            </button>
-          </div>
-          <div className={css.options}>
-            {active !== undefined && renderSlot('settings.section', { close: onClose }, { only: active })}
-          </div>
+        <div className={css.header}>
+          <div className={css.actions}>{renderSlot('settings.action', {})}</div>
+          <button type="button" className={css.close} onClick={onClose}>
+            <IconCloseOutlineRegular size={14} />
+            <span className={css.hiddenLabel}>{renderSlot('settings.close', {})}</span>
+          </button>
+        </div>
+        <div className={css.options}>
+          {active !== undefined && renderSlot('settings.section', { close: onClose }, { only: active })}
         </div>
       </div>
     </div>

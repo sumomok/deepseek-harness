@@ -9,6 +9,7 @@
     "src/archive.ts",
     "src/export-extent.ts",
     "src/index.ts",
+    "src/markdown.ts",
     "src/routes.ts"
   ],
   "references": [
@@ -22,6 +23,7 @@
     { "path": "../../interaction/commands" },
     { "path": "../../session/session-format" },
     { "path": "../../session/session-persistence" },
+    { "path": "../../session/session-title" },
     { "path": "../session-query" }
   ]
 }

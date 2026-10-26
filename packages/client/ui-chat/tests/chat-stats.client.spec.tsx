@@ -273,7 +273,7 @@ describe('composer stats pills', () => {
     const { source } = makeSource({ nodes: [timedStep()] })
     const view = render(<StatsPills {...props(source)} />)
     const timePill = view.getAllByRole('button')[0]!
-    expect(timePill.textContent).toBe('1 turns 1 steps · 20 tok/s')
+    expect(timePill.textContent).toBe('1 turns 1 steps·20 tok/s')
     expect(timePill.getAttribute('aria-label')).toBe('1 turns 1 steps · 20 tok/s')
   })
 
@@ -282,7 +282,7 @@ describe('composer stats pills', () => {
     const view = render(<StatsPills {...props(source)} />)
     const pills = [...view.container.querySelectorAll('[data-composer-stat]')]
     expect(pills.map(pill => [pill.getAttribute('data-composer-stat'), pill.textContent])).toEqual([
-      ['activity', '1 turns 1 steps · 20 tok/s'],
+      ['activity', '1 turns 1 steps·20 tok/s'],
       ['usage', '105 tok · Cache hit 90%'],
     ])
   })
@@ -302,7 +302,7 @@ describe('composer stats pills', () => {
     expect(dialog.getAttribute('aria-label')).toBe('Session statistics')
     // Portaled out of the composer dock.
     expect(dialog.parentElement).toBe(document.body)
-    expect(dialog.firstChild?.textContent).toBe('Session statistics')
+    expect(dialog.firstChild?.textContent).toBe('Session statistics1 turns 1 steps')
     const details = dialog.querySelector('[data-session-stats-details]') as HTMLElement
     expect(details).toBeTruthy()
     expect(details.textContent).toContain('LLM time3.8s')
@@ -393,7 +393,7 @@ describe('composer stats pills', () => {
     const { source } = makeSource({ nodes: [timedStep()] })
     const view = render(<StatsPills {...props(source, { tokenUsage: tokenUsage(9_995, 5) })} t={t} />)
     const [timePill, usagePill] = [...view.getAllByRole('button')] as [HTMLElement, HTMLElement]
-    expect(timePill.textContent).toBe('1 轮 1 步 · 20 tok/s')
+    expect(timePill.textContent).toBe('1 轮 1 步·20 tok/s')
     // Whole-log total 9995 + 5 + 1 compacts to 10K.
     expect(usagePill.textContent).toBe('10K tok · 缓存命中 99.95%')
     fireEvent.click(timePill)
@@ -407,6 +407,53 @@ describe('composer stats pills', () => {
     const usageDialog = view.getByRole('dialog')
     expect(usageDialog.getAttribute('aria-label')).toBe('Token 用量')
     expect(usageDialog.textContent).toContain('未缓存输入5 tok')
+  })
+
+  describe('full reading of a cut-off pill', () => {
+    const FULL = '105 tok · Cache hit 90%'
+
+    function renderCut(overflow: boolean, mode: 'detailed' | 'compact' = 'detailed') {
+      vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockReturnValue(overflow ? 200 : 80)
+      vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(80)
+      vi.useFakeTimers()
+      const { source } = makeSource({ nodes: [timedStep()] })
+      return render(<StatsPills {...props(source)} usePerformanceUsage={selector => selector(mode)} />)
+    }
+    const tooltipText = (view: ReturnType<typeof render>) => view.queryByRole('tooltip')?.textContent ?? null
+    afterEach(() => { vi.useRealTimers() })
+
+    it.each([false, true])('shows on hover after the dock delay only while the label is cut off: %s', (overflow) => {
+      const view = renderCut(overflow)
+      fireEvent.pointerEnter(view.getAllByRole('button')[1]!)
+      expect(tooltipText(view)).toBeNull()
+      act(() => { vi.advanceTimersByTime(200) })
+      expect(tooltipText(view)).toBe(overflow ? FULL : null)
+    })
+
+    it('shows on keyboard focus of a dialog pill', () => {
+      const view = renderCut(true)
+      fireEvent.keyDown(document.body, { key: 'Tab' })
+      fireEvent.focus(view.getAllByRole('button')[1]!)
+      expect(tooltipText(view)).toBe(FULL)
+    })
+
+    it('yields to the open dialog, whose head carries the counts', () => {
+      const view = renderCut(true)
+      const [timePill] = view.getAllByRole('button') as [HTMLElement]
+      fireEvent.click(timePill)
+      fireEvent.pointerEnter(timePill)
+      act(() => { vi.advanceTimersByTime(200) })
+      expect(tooltipText(view)).toBeNull()
+      expect(view.getByRole('dialog').firstChild?.textContent).toBe('Session statistics1 turns 1 steps')
+    })
+
+    it('pins a cut-off static reading on tap', () => {
+      const view = renderCut(true, 'compact')
+      const plainPill = view.getByText('Cache hit 90%').parentElement!
+      fireEvent.pointerDown(plainPill, { pointerType: 'touch' })
+      fireEvent.click(plainPill)
+      expect(tooltipText(view)).toBe('Cache hit 90%')
+    })
   })
 
   it('keeps the durable usage pill after the visible step window is empty', () => {
@@ -487,7 +534,7 @@ describe('composer stats pills', () => {
       }),
     })} />)
     const timePill = view.getAllByRole('button')[0]!
-    expect(timePill.textContent).toBe('200 turns 200 steps · 20 tok/s')
+    expect(timePill.textContent).toBe('200 turns 200 steps·20 tok/s')
     fireEvent.click(timePill)
     const dialog = view.getByRole('dialog')
     expect(dialog.textContent).toContain('LLM time1m40s')

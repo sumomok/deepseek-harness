@@ -182,7 +182,7 @@ describe('matrix row: plain', () => {
   }
 
   it('a reference-only draft takes no submission observation and sends nothing; an added image does', () => {
-    const submissionState = vi.fn(() => ({ runMode: 'default' as const, running: false }))
+    const submissionState = vi.fn(() => ({ runMode: 'default' as const, running: false, newSession: false }))
     const messageSubmitted = vi.fn()
     const defaultSink = vi.fn(() => Promise.resolve<SubmitOutcome>({ kind: 'success' }))
     const shell = referenceShell({ defaultSink, submissionState, messageSubmitted })

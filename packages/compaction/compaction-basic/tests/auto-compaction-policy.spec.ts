@@ -87,11 +87,11 @@ class TestEngine extends BasicCompactionEngine {
   }
 }
 
-function createContext(contextWindow: number): Context {
+async function createContext(contextWindow: number): Promise<Context> {
   const ctx = new Context()
-  void new LlmRuntime(ctx)
-  new SessionProjectionRegistry(ctx)
-  void new TokenMeter(ctx)
+  await ctx.plugin(LlmRuntime)
+  await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(TokenMeter)
   ctx.llm.registerAdapter([MODEL], new ContextAdapter(contextWindow))
   return ctx
 }
@@ -173,7 +173,7 @@ function agent(session: Session): Agent {
 
 function preStep(ctx: Context, owner: Agent, signal = SIGNAL): Promise<unknown> {
   return agentEvents(ctx, owner).waterfall(
-    'agent/pre-step', { messages: [], turn: 1, step: 1, signal },
+    'agent/pre-step', { messages: [], turn: 1, step: 1, signal, modelSelection: { provider: 'p', model: 'm' } },
     () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
   )
 }
@@ -212,7 +212,7 @@ describe('context-meter numerator', () => {
   }
 
   it('is the projection the context meter publishes, on a session whose stream is a real one', async () => {
-    const probe = createContext(WINDOW)
+    const probe = await createContext(WINDOW)
     const streamed = conversation(4, true, USAGE, true)
     const projected = meterNumerator(probe, streamed)
     // A recorded output stream prices the anchored call heuristically, so the
@@ -223,19 +223,19 @@ describe('context-meter numerator', () => {
     expect(total).not.toBe(projected)
     expect(total).not.toBe(projected + OUTPUT_TOKENS)
 
-    expect(await triggersAt(createContext(WINDOW), conversation(4, true, USAGE, true), projected)).toBe(true)
-    expect(await triggersAt(createContext(WINDOW), conversation(4, true, USAGE, true), projected + 1)).toBe(false)
+    expect(await triggersAt(await createContext(WINDOW), conversation(4, true, USAGE, true), projected)).toBe(true)
+    expect(await triggersAt(await createContext(WINDOW), conversation(4, true, USAGE, true), projected + 1)).toBe(false)
   })
 
   it('is the same projection when the log kept no output stream', async () => {
-    const projected = meterNumerator(createContext(WINDOW), conversation())
+    const projected = meterNumerator(await createContext(WINDOW), conversation())
 
-    expect(await triggersAt(createContext(WINDOW), conversation(), projected)).toBe(true)
-    expect(await triggersAt(createContext(WINDOW), conversation(), projected + 1)).toBe(false)
+    expect(await triggersAt(await createContext(WINDOW), conversation(), projected)).toBe(true)
+    expect(await triggersAt(await createContext(WINDOW), conversation(), projected + 1)).toBe(false)
   })
 
-  it('trails the meter total by the reported output only in the special case of an empty stream', () => {
-    const ctx = createContext(WINDOW)
+  it('trails the meter total by the reported output only in the special case of an empty stream', async () => {
+    const ctx = await createContext(WINDOW)
     const session = conversation()
     const projected = meterNumerator(ctx, session)
 
@@ -247,7 +247,7 @@ describe('context-meter numerator', () => {
   })
 
   it('triggers on the displayed occupancy, not on the meter total that also carries response output', async () => {
-    const ctx = createContext(WINDOW)
+    const ctx = await createContext(WINDOW)
     const session = conversation()
     const projected = meterNumerator(ctx, session)
     const total = ctx.tokenMeter.measure(session).totalTokens
@@ -265,7 +265,7 @@ describe('context-meter numerator', () => {
   })
 
   it('keeps the route-priced meter total when a usage sample is too small to anchor it', async () => {
-    const ctx = createContext(WINDOW)
+    const ctx = await createContext(WINDOW)
     // A sample this far below the priced history cannot anchor the measurement,
     // so the meter stays on its own route-priced estimate while the projection
     // still publishes the provider figure the meter would display.
@@ -284,7 +284,7 @@ describe('context-meter numerator', () => {
   })
 
   it('falls back to the meter total before any provider usage is reported', async () => {
-    const ctx = createContext(WINDOW)
+    const ctx = await createContext(WINDOW)
     const session = conversation(4, false)
     expect(ctx.sessionProjections.snapshot(session, ['contextPressure']).values.contextPressure)
       .not.toHaveProperty('pressureTokens')
@@ -302,7 +302,7 @@ describe('context-meter numerator', () => {
 
 describe('live compaction policy', () => {
   it('keeps the configured threshold when no policy service is mounted', async () => {
-    const ctx = createContext(WINDOW)
+    const ctx = await createContext(WINDOW)
     const session = conversation()
     const projected = meterNumerator(ctx, session)
     const engine = new TestEngine(ctx, { retainTokens: 500 })
@@ -314,7 +314,7 @@ describe('live compaction policy', () => {
   })
 
   it('compacts at the policy threshold instead of the configured one', async () => {
-    const ctx = createContext(WINDOW)
+    const ctx = await createContext(WINDOW)
     const policy = new TestPolicy(ctx)
     const session = conversation()
     const projected = meterNumerator(ctx, session)
@@ -329,7 +329,7 @@ describe('live compaction policy', () => {
 
   it('outranks a modelPolicies threshold while that override keeps its retention', async () => {
     const shadowedUnder = async (retainTokens: number): Promise<number> => {
-      const ctx = createContext(WINDOW)
+      const ctx = await createContext(WINDOW)
       const policy = new TestPolicy(ctx)
       const session = conversation()
       policy.ratio = (meterNumerator(ctx, session) - 1) / WINDOW
@@ -352,7 +352,7 @@ describe('live compaction policy', () => {
   })
 
   it('skips the pressure path while the policy is disabled, and resumes when it is re-enabled', async () => {
-    const ctx = createContext(WINDOW)
+    const ctx = await createContext(WINDOW)
     const policy = new TestPolicy(ctx)
     const session = conversation()
     policy.ratio = (meterNumerator(ctx, session) - 1) / WINDOW
@@ -368,7 +368,7 @@ describe('live compaction policy', () => {
   })
 
   it('recovers from a provider-confirmed overflow even while the policy is disabled', async () => {
-    const ctx = createContext(WINDOW)
+    const ctx = await createContext(WINDOW)
     const policy = new TestPolicy(ctx)
     policy.enabled = false
     const engine = new TestEngine(ctx, { thresholdRatio: 1, retainTokens: 500 })
@@ -385,7 +385,7 @@ describe('live compaction policy', () => {
     ['not positive', 0],
     ['below the retained tail', 0.05],
   ])('warns once per routed target for a threshold %s and keeps the configured ratio', async (_name, ratio) => {
-    const ctx = createContext(WINDOW)
+    const ctx = await createContext(WINDOW)
     const warnings: string[] = []
     ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
     const policy = new TestPolicy(ctx)
@@ -410,7 +410,7 @@ describe('live compaction policy', () => {
 
 describe('automatic failure record', () => {
   it('leaves a durable errored compaction/end the conversation can render', async () => {
-    const ctx = createContext(WINDOW)
+    const ctx = await createContext(WINDOW)
     ctx.logger.warn = vi.fn() as typeof ctx.logger.warn
     const policy = new TestPolicy(ctx)
     const session = conversation()

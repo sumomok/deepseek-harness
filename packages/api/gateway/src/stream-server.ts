@@ -65,9 +65,22 @@ const MAX_MISSED_HEARTBEATS = 2
 /** Process-wide count of accepted sockets, so socket ids stay distinct across mux instances. */
 let acceptedSockets = 0
 
+/** Carrier options for {@link RemoteStreamMuxServer}. */
+export interface RemoteStreamMuxServerOptions {
+  /** Interval between WebSocket Ping control frames. */
+  readonly heartbeatIntervalMs: number
+  /** Buffered uplink frame bytes one logical stream may hold before it fails. */
+  readonly streamInboxBytes: number
+  /** Whether accepted connections negotiate the `permessage-deflate` extension. */
+  readonly compression: boolean
+}
+
 /** Own the no-server WebSocket acceptor and every active logical stream. */
 export class RemoteStreamMuxServer {
-  private readonly server = new WebSocketServer({ noServer: true })
+  private readonly server: WebSocketServer
+  private readonly heartbeatIntervalMs: number
+  private readonly streamInboxBytes: number
+  private readonly compression: boolean
   private readonly connections = new Set<Promise<void>>()
   private readonly missedHeartbeats = new WeakMap<WebSocket, number>()
   private heartbeatTimer: NodeJS.Timeout | undefined
@@ -75,17 +88,25 @@ export class RemoteStreamMuxServer {
   /**
    * @param open - Gateway stream dispatcher.
    * @param failure - Gateway error-to-wire mapper.
-   * @param heartbeatIntervalMs - interval between WebSocket Ping control frames.
-   * @param streamInboxBytes - buffered uplink frame bytes one logical stream may hold before it fails.
+   * @param options - heartbeat interval, uplink inbox bound, and compression setting for accepted connections.
    * @param sockets - optional observer of each accepted socket's binding to its Peer.
    */
   constructor(
     private readonly open: RemoteStreamOpener,
     private readonly failure: RemoteStreamFailureMapper,
-    private readonly heartbeatIntervalMs: number,
-    private readonly streamInboxBytes: number,
+    options: RemoteStreamMuxServerOptions,
     private readonly sockets?: RemoteSocketObserver,
-  ) {}
+  ) {
+    this.heartbeatIntervalMs = options.heartbeatIntervalMs
+    this.streamInboxBytes = options.streamInboxBytes
+    this.compression = options.compression
+    this.server = new WebSocketServer({
+      noServer: true,
+      // `ws` ignores its own `threshold` option while context takeover is
+      // enabled, so the mux decides per frame in send().
+      perMessageDeflate: options.compression ? { zlibDeflateOptions: { level: 1 } } : false,
+    })
+  }
 
   /**
    * Upgrade one admitted request and begin serving its logical streams. Every
@@ -111,7 +132,9 @@ export class RemoteStreamMuxServer {
       this.startHeartbeat()
       const bound: BoundStreamOpener = (endpoint, payload, uplink, control, window) =>
         this.open(endpoint, payload, uplink, peer, control, window)
-      const connection = new RemoteStreamMuxConnection(websocket, bound, this.failure, this.streamInboxBytes, alive)
+      const connection = new RemoteStreamMuxConnection(
+        websocket, bound, this.failure, this.streamInboxBytes, this.compression, alive,
+      )
       const done = connection.run().catch((error: unknown) => {
         console.error('[api-gateway] Remote stream connection failed:', error)
       }).then(async () => { await release() }).catch((error: unknown) => {
@@ -176,14 +199,16 @@ class RemoteStreamMuxConnection {
     private readonly open: BoundStreamOpener,
     private readonly failure: RemoteStreamFailureMapper,
     private readonly streamInboxBytes: number,
+    private readonly compression: boolean,
     private readonly alive: () => void,
   ) {}
 
   /**
    * Serve frames until the socket closes. A Pong, any received frame, and a
-   * downlink write that waited in the local send buffer and then completed
-   * count as peer activity, so a congested link that delays the Pong behind
-   * data keeps its socket. A write that completes at once proves nothing
+   * downlink write that does not complete at once count as peer activity, so
+   * a congested link that delays the Pong behind data keeps its socket. A
+   * frame above the compression threshold deflates asynchronously, so its
+   * completion always counts; a write that completes at once proves nothing
    * about the peer and does not count.
    */
   async run(): Promise<void> {
@@ -332,7 +357,9 @@ class RemoteStreamMuxConnection {
         return
       }
       let queued = false
-      this.socket.send(text, (error) => {
+      this.socket.send(text, {
+        compress: this.compression && text.length >= 1024,
+      }, (error) => {
         if (error) {
           reject(error)
           return
@@ -340,8 +367,10 @@ class RemoteStreamMuxConnection {
         if (queued) this.alive()
         resolve()
       })
-      // Read after send(): bytes still buffered mean the local send buffer was
-      // full, so their completion requires the peer to acknowledge data.
+      // Read after send(): buffered bytes mean the write did not complete at
+      // once, so its completion counts as peer activity. For a compressed frame
+      // the buffered bytes include ws's deflate queue, not just the TCP send
+      // buffer.
       queued = this.socket.bufferedAmount > 0
     }))
     this.writes = delivery.catch(() => undefined)

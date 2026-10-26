@@ -38,7 +38,7 @@ afterEach(() => {
 describe('session/probeTargets', () => {
   it('reports exists/kind for a file, a directory, and a missing path, in request order', async () => {
     const ctx = await context()
-    const remote = createSessionTestRemote(ctx, {
+    const remote = await createSessionTestRemote(ctx, {
       defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
       cwd: '/default',
     })
@@ -62,7 +62,7 @@ describe('session/probeTargets', () => {
 
   it('answers a UNC target with exists:false without ever calling stat, while a real neighboring path still resolves', async () => {
     const ctx = await context()
-    const remote = createSessionTestRemote(ctx, {
+    const remote = await createSessionTestRemote(ctx, {
       defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
       cwd: '/default',
     })
@@ -88,7 +88,7 @@ describe('session/probeTargets', () => {
 
   it('rejects an empty batch and a batch over the 64-path cap before probing anything', async () => {
     const ctx = await context()
-    const remote = createSessionTestRemote(ctx, {
+    const remote = await createSessionTestRemote(ctx, {
       defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
       cwd: '/default',
     })
@@ -103,7 +103,7 @@ describe('session/probeTargets', () => {
 
   it('probes a full 64-path batch, one result per path in order', async () => {
     const ctx = await context()
-    const remote = createSessionTestRemote(ctx, {
+    const remote = await createSessionTestRemote(ctx, {
       defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
       cwd: '/default',
     })

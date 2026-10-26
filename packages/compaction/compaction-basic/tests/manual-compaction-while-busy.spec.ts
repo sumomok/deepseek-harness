@@ -8,7 +8,7 @@ import type { CompactionResult, ManualCompactionWhileBusy } from '@deepseek-ai/d
 import { BasicCompactionEngine } from '@deepseek-ai/dsh-compaction-basic'
 import { createUserMessage, LlmAdapter, LlmError, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, LlmResolvedModelInfo, RequestMessage, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'

@@ -111,7 +111,7 @@ async function startHost(root: string, sessions: string, before?: (ctx: Context)
   await mountAgentLoopTestHarness(ctx)
   const adapter = new MockAdapter([textResponse('reply after the move')])
   ctx.llm.registerAdapter(['mock'], adapter)
-  const sessionRemote = createSessionTestRemote(ctx, {
+  const sessionRemote = await createSessionTestRemote(ctx, {
     defaultModelSelection: () => ({ provider: 'mock', model: 'mock' }),
     cwd: root,
   })

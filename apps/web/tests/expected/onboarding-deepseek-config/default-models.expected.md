@@ -1,18 +1,10 @@
 - dialog "设置":
+  - text: 设置
   - navigation:
-    - text: 设置
-    - group "通用":
-      - text: 通用
-      - button "通用设置"
-    - group "模型":
-      - text: 模型
-      - button "提供方与模型"
-    - group "智能体":
-      - text: 智能体
-      - button "Agent 预设"
-    - group "扩展":
-      - text: 扩展
-      - button "内置插件"
+    - button "通用设置"
+    - button "模型"
+    - button "内置插件"
+    - button "Agent 预设"
   - button "打开配置文件"
   - button "关闭"
   - heading "模型" [level=2]
@@ -33,6 +25,7 @@
         - text: 请填写兼容 Anthropic Messages 协议的 API 地址。
         - region "模型目录":
           - text: 模型目录 正在使用适配器默认模型
+          - button "调整模型顺序 1"
           - textbox "模型 ID 1":
             - /placeholder: 模型 ID
             - text: deepseek-flash
@@ -44,7 +37,7 @@
           - text: 上下文窗口
           - textbox "上下文窗口 1":
             - /placeholder: 1M
-            - text: 1M
+            - text: "1048576"
           - text: 最大输出 token 数
           - textbox "最大输出 token 数 1":
             - /placeholder: 256K
@@ -54,6 +47,7 @@
             - text: 文本
             - checkbox "图片" [checked]
             - text: 图片
+          - button "调整模型顺序 2"
           - textbox "模型 ID 2":
             - /placeholder: 模型 ID
             - text: deepseek-v4-pro
