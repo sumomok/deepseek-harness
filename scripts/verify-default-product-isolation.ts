@@ -24,7 +24,7 @@ import { isExperimentalPackageName } from './experimental-package-policy.ts'
 import { PRIVATE_PRODUCT_APP_DIRECTORIES } from './private-product-apps.ts'
 // The independently published entry package owns platform-engine dependencies.
 const EXTERNAL_KIT_PACKAGES = new Set(['@deepseek-ai/libreoffice-kit'])
-const PROFILE_SOURCE = 'packages/boot/app-boot/src/profile.ts'
+const PROFILE_SOURCE = 'packages/util/official-bundles/src/bundles.ts'
 const PRESET_PATTERN = 'packages/bundle/web-app/presets/*.patch.yml'
 const RUNTIME_SECTIONS = ['dependencies', 'optionalDependencies', 'peerDependencies'] as const
 

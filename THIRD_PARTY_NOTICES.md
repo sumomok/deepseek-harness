@@ -27,7 +27,7 @@ The Cordis framework and its foundation libraries are source-vendored into this 
 
 ## Runtime npm dependencies
 
-External packages installed for runtime use or distributed inside the prebuilt browser artifacts. Browser inputs are resolved through the shipping tsdown and Vite configurations, independently of npm dependency sections. The tier covers every plugin a user can mount from `cordis.yml` — not only what the `dsh` CLI, Web UI, and Python SDK runtime load by default.
+External packages installed for runtime use or embedded in distributed Host or browser artifacts. Browser inputs are resolved through the shipping tsdown and Vite configurations, independently of npm dependency sections. Host embedding declarations identify the distributing package and its embedded dependencies. The tier covers every plugin a user can mount from `cordis.yml` — not only what the `dsh` CLI, Web UI, and Python SDK runtime load by default.
 
 | Package | License |
 | --- | --- |
@@ -35,24 +35,26 @@ External packages installed for runtime use or distributed inside the prebuilt b
 | [`@anthropic-ai/claude-agent-sdk`](https://github.com/anthropics/claude-agent-sdk-typescript) | SEE LICENSE IN README.md |
 | [`@anthropic-ai/sdk`](https://github.com/anthropics/anthropic-sdk-typescript) | MIT |
 | [`@babel/code-frame`](https://github.com/babel/babel) | MIT |
+| [`@botiverse/oar`](https://github.com/botiverse/oar) | Apache-2.0 |
 | [`@browserbasehq/stagehand`](https://github.com/browserbase/stagehand) | MIT |
 | [`@deepseek-ai/libreoffice-kit`](https://github.com/deepseek-ai/dsh-libreoffice-kit) | MPL-2.0 |
 | [`@earendil-works/pi-ai`](https://github.com/earendil-works/pi) | MIT |
+| [`@earendil-works/pi-coding-agent`](https://github.com/earendil-works/pi) | MIT |
 | [`@eslint-community/regexpp`](https://github.com/eslint-community/regexpp) | MIT |
 | [`@fortune-sheet/core`](https://github.com/ruilisi/fortune-sheet) | MIT |
 | [`@fortune-sheet/react`](https://github.com/ruilisi/fortune-sheet) | MIT |
-| [`@haoran/dsh-auto-compact`](apps/desktop-server/vendor/haoran-dsh-auto-compact-0.5.1.tgz) | MIT |
+| [`@haoran/dsh-auto-compact`](apps/desktop-server/vendor/haoran-dsh-auto-compact-0.6.0.tgz) | MIT |
 | [`@haoran/dsh-btw`](apps/desktop-server/vendor/haoran-dsh-btw-0.3.0.tgz) | MIT |
 | [`@haoran/dsh-clickable-refs`](apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.6.0.tgz) | MIT |
 | [`@haoran/dsh-connection-banner`](apps/desktop-server/vendor/haoran-dsh-connection-banner-0.4.0.tgz) | MIT |
-| [`@haoran/dsh-crash-resume`](apps/desktop-server/vendor/haoran-dsh-crash-resume-0.5.0.tgz) | MIT |
+| [`@haoran/dsh-crash-resume`](apps/desktop-server/vendor/haoran-dsh-crash-resume-0.6.0.tgz) | MIT |
 | [`@haoran/dsh-data-location`](apps/desktop-server/vendor/haoran-dsh-data-location-0.2.2.tgz) | MIT |
 | [`@haoran/dsh-desktop-update`](apps/desktop-server/vendor/haoran-dsh-desktop-update-0.3.0.tgz) | MIT |
-| [`@haoran/dsh-llm-permission-gateway`](apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.7.0.tgz) | MIT |
+| [`@haoran/dsh-llm-permission-gateway`](apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.7.1.tgz) | MIT |
 | [`@haoran/dsh-mcp-servers`](apps/desktop-server/vendor/haoran-dsh-mcp-servers-0.3.1.tgz) | MIT |
 | [`@haoran/dsh-office-preview-notice`](apps/desktop-server/vendor/haoran-dsh-office-preview-notice-0.3.0.tgz) | MIT |
 | [`@haoran/dsh-screenshot`](apps/desktop-server/vendor/haoran-dsh-screenshot-0.7.0.tgz) | MIT |
-| [`@haoran/dsh-vision-switch`](apps/desktop-server/vendor/haoran-dsh-vision-switch-0.4.0.tgz) | MIT |
+| [`@haoran/dsh-vision-switch`](apps/desktop-server/vendor/haoran-dsh-vision-switch-0.4.1.tgz) | MIT |
 | [`@joplin/turndown-plugin-gfm`](https://github.com/laurent22/joplin-turndown-plugin-gfm) | MIT |
 | [`@jridgewell/gen-mapping`](https://github.com/jridgewell/sourcemaps) | MIT |
 | [`@js-temporal/polyfill`](https://github.com/js-temporal/temporal-polyfill) | ISC |
@@ -77,7 +79,7 @@ External packages installed for runtime use or distributed inside the prebuilt b
 | [`@shikijs/langs`](https://github.com/shikijs/shiki) | MIT |
 | [`@standard-schema/spec`](https://github.com/standard-schema/standard-schema) | MIT |
 | [`@sumomok/dsh-balance`](apps/desktop-server/vendor/sumomok-dsh-balance-0.8.0.tgz) | MIT |
-| [`@sumomok/dsh-quote-message`](apps/desktop-server/vendor/sumomok-dsh-quote-message-0.5.2.tgz) | MIT |
+| [`@sumomok/dsh-quote-message`](apps/desktop-server/vendor/sumomok-dsh-quote-message-0.6.0.tgz) | MIT |
 | [`@tanstack/react-virtual`](https://github.com/TanStack/virtual) | MIT |
 | [`@trycua/cua-driver`](https://github.com/trycua/cua) | MIT |
 | [`@vscode/ripgrep`](https://github.com/microsoft/vscode-ripgrep) | MIT |
@@ -90,6 +92,7 @@ External packages installed for runtime use or distributed inside the prebuilt b
 | [`ajv`](https://github.com/ajv-validator/ajv) | MIT |
 | [`anser`](https://github.com/IonicaBizau/anser) | MIT |
 | [`big.js`](https://github.com/MikeMcl/big.js) | MIT |
+| [`birpc`](https://github.com/antfu-collective/birpc) | MIT |
 | [`buffer`](https://github.com/feross/buffer) | MIT |
 | [`chokidar`](https://github.com/paulmillr/chokidar) | MIT |
 | [`chrome-devtools-frontend`](https://github.com/ChromeDevTools/devtools-frontend) | BSD-3-Clause |
@@ -97,6 +100,7 @@ External packages installed for runtime use or distributed inside the prebuilt b
 | [`clsx`](https://github.com/lukeed/clsx) | MIT |
 | [`commander`](https://github.com/tj/commander.js) | MIT |
 | [`compression`](https://github.com/expressjs/compression) | MIT |
+| [`cross-spawn`](https://github.com/moxystudio/node-cross-spawn) | MIT |
 | [`diff`](https://github.com/kpdecker/jsdiff) | BSD-3-Clause |
 | [`dompurify`](https://github.com/cure53/DOMPurify) | (MPL-2.0 OR Apache-2.0) |
 | [`electron-updater`](https://github.com/electron-userland/electron-builder) | MIT |
@@ -124,6 +128,7 @@ External packages installed for runtime use or distributed inside the prebuilt b
 | [`micromark-util-classify-character`](https://github.com/micromark/micromark/tree/main/packages/micromark-util-classify-character) | MIT |
 | [`micromark-util-sanitize-uri`](https://github.com/micromark/micromark/tree/main/packages/micromark-util-sanitize-uri) | MIT |
 | [`micromark-util-symbol`](https://github.com/micromark/micromark/tree/main/packages/micromark-util-symbol) | MIT |
+| [`mime`](https://github.com/broofa/mime) | MIT |
 | [`mime-types`](https://github.com/jshttp/mime-types) | MIT |
 | [`minisearch`](https://github.com/lucaong/minisearch) | MIT |
 | [`negotiator`](https://github.com/jshttp/negotiator) | MIT |
@@ -144,6 +149,7 @@ External packages installed for runtime use or distributed inside the prebuilt b
 | [`sherpa-onnx-node`](https://github.com/csukuangfj/sherpa-onnx) | Apache-2.0 |
 | [`shiki`](https://github.com/shikijs/shiki) | MIT |
 | [`simple-icons`](https://github.com/simple-icons/simple-icons) | CC0-1.0 |
+| [`string_decoder`](https://github.com/nodejs/string_decoder) | MIT |
 | [`supports-color`](https://github.com/chalk/supports-color) | MIT |
 | [`tar`](https://github.com/isaacs/node-tar) | BlueOak-1.0.0 |
 | [`tsx`](https://github.com/privatenumber/tsx) | MIT |
@@ -151,6 +157,7 @@ External packages installed for runtime use or distributed inside the prebuilt b
 | [`typescript`](https://github.com/microsoft/TypeScript) | Apache-2.0 |
 | [`undici`](https://github.com/nodejs/undici) | MIT |
 | [`use-sync-external-store`](https://github.com/facebook/react) | MIT |
+| [`which`](https://github.com/isaacs/node-which) | ISC |
 | [`ws`](https://github.com/websockets/ws) | MIT |
 | [`xlsx`](https://git.sheetjs.com/SheetJS/sheetjs) | Apache-2.0 |
 | [`yaml`](https://github.com/eemeli/yaml) | ISC |
@@ -159,7 +166,8 @@ External packages installed for runtime use or distributed inside the prebuilt b
 
 pnpm applies local patches to the following packages at install time, so shipped artifacts carry modified copies; each patch file is the complete record of the modification:
 
-- `@earendil-works/pi-ai@1.1.0` — [`patches/@earendil-works__pi-ai@1.1.0.patch`](patches/@earendil-works__pi-ai@1.1.0.patch)
+- `@botiverse/oar@0.67.0` — [`patches/@botiverse__oar@0.67.0.patch`](patches/@botiverse__oar@0.67.0.patch)
+- `@earendil-works/pi-ai@1.3.0` — [`patches/@earendil-works__pi-ai@1.3.0.patch`](patches/@earendil-works__pi-ai@1.3.0.patch)
 - `@electron/osx-sign@1.3.3` — [`patches/@electron__osx-sign@1.3.3.patch`](patches/@electron__osx-sign@1.3.3.patch)
 - `@fortune-sheet/core@1.0.4` — [`patches/@fortune-sheet__core@1.0.4.patch`](patches/@fortune-sheet__core@1.0.4.patch)
 - `@fortune-sheet/react@1.0.4` — [`patches/@fortune-sheet__react@1.0.4.patch`](patches/@fortune-sheet__react@1.0.4.patch)
@@ -167,6 +175,7 @@ pnpm applies local patches to the following packages at install time, so shipped
 - `app-builder-lib@26.17.0` — [`patches/app-builder-lib@26.17.0.patch`](patches/app-builder-lib@26.17.0.patch)
 - `electron-updater@6.8.9` — [`patches/electron-updater@6.8.9.patch`](patches/electron-updater@6.8.9.patch)
 - `exceljs@4.4.0` — [`patches/exceljs@4.4.0.patch`](patches/exceljs@4.4.0.patch)
+- `lexical@0.49.0` — [`patches/lexical@0.49.0.patch`](patches/lexical@0.49.0.patch)
 - `node-pty@1.2.0-beta.15` — [`patches/node-pty@1.2.0-beta.15.patch`](patches/node-pty@1.2.0-beta.15.patch)
 
 ## Chrome DevTools frontend
@@ -201,7 +210,7 @@ The [kit repository](https://github.com/deepseek-ai/dsh-libreoffice-kit) supplie
 
 ## Development-only npm dependencies
 
-External packages **directly declared** for development, tests, types, or tooling, without a runtime installation or browser-build relationship. A package here may still be pulled in transitively by a runtime dependency — `pnpm-lock.yaml` is the authority on that full closure.
+External packages **directly declared** for development, tests, types, or tooling, without a runtime installation or distribution inside a Host or browser bundle. A package here may still be pulled in transitively by a runtime dependency — `pnpm-lock.yaml` is the authority on that full closure.
 
 | Package | License |
 | --- | --- |

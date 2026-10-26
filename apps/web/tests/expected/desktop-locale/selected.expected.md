@@ -1,18 +1,10 @@
 - dialog "Settings":
+  - text: Settings
   - navigation:
-    - text: Settings
-    - group "General":
-      - text: General
-      - button "General settings"
-    - group "Models":
-      - text: Models
-      - button "Providers & models"
-    - group "Agent":
-      - text: Agent
-      - button "Agent presets"
-    - group "Extensions":
-      - text: Extensions
-      - button "Built-in plugins"
+    - button "General"
+    - button "Models"
+    - button "Built-in plugins"
+    - button "Agent presets"
   - button "Open configuration file"
   - button "Close"
   - text: Permission Choose the default permission mode for new sessions
@@ -32,14 +24,14 @@
   - button "Standard"
   - text: When to Collapse Work Details Choose when to automatically collapse work details
   - button "On completion"
+  - text: Replies After Collapse Choose which assistant replies stay visible when work details collapse
+  - button "All replies"
   - text: Show coding view Shows trajectory, code diffs, and all Agent presets
   - switch "Show coding view" [checked]
   - text: Keyboard shortcuts
   - paragraph: View and edit available shortcuts and input actions
   - button "Edit shortcuts"
   - text: Send behavior while busy What Enter and the Send button do while the agent is running; Cmd/Ctrl+Enter uses the other behavior
-  - button "Queue"
-  - text: "Compaction while busy What /compact does while the agent is running: Interrupt compacts after the current step, Queue after the current turn"
   - button "Queue"
   - text: Performance & usage Choose how much performance and usage information to show
   - button "Detailed"

@@ -192,6 +192,7 @@ export const PLUGIN_SECTION_KEYS: Readonly<Record<string, Readonly<Record<string
   'auto-compact': {
     enabled: flag,
     thresholdPercent: number({ min: 20, max: 95, step: 1 }),
+    retryAfterSteps: number({ min: 1, max: 50, step: 1 }),
   },
   'mcp-servers': {
     servers: value => Array.isArray(value),

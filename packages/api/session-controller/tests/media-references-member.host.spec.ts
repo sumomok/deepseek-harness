@@ -91,9 +91,19 @@ async function fileQueryAs(
   query: URLSearchParams,
   method = 'GET',
 ): Promise<{ readonly status: number; readonly bytes: Uint8Array }> {
-  const response = await connection.createSharedFetchHandler('/api').fetch(
-    new Request(`http://host/api/file?${query.toString()}`, { method }), peer,
-  )
+  const handler = connection.createSharedFetchHandler('/api')
+  // A versioned read redirects once to the URL naming the exact file version.
+  const original = new URL(`http://host/api/file?${query.toString()}`)
+  let response = await handler.fetch(new Request(original, { method }), peer)
+  const location = response.headers.get('location')
+  if (response.status === 302 && location !== null) {
+    // The redirect names the file version; the remaining query parameters are the request's own.
+    const next = new URL(location, original)
+    for (const [key, value] of original.searchParams) {
+      if (!next.searchParams.has(key)) next.searchParams.set(key, value)
+    }
+    response = await handler.fetch(new Request(next, { method }), peer)
+  }
   return { status: response.status, bytes: new Uint8Array(await response.arrayBuffer()) }
 }
 

@@ -41,6 +41,12 @@ const DEV_ONLY_AREAS = [
   'native/',
 ] as const
 
+/** Third-party implementations embedded by named Host packages' shipping build configurations. */
+const HOST_BUNDLED_DEPENDENCIES: Readonly<Record<string, readonly string[]>> = {
+  // subagent-oar/tsdown.config.ts embeds the patched adapter instead of installing a second copy.
+  '@deepseek-ai/dsh-experimental-subagent-oar': ['@botiverse/oar'],
+}
+
 /** First-party public native packages: reachable at runtime but not third-party. */
 const FIRST_PARTY = new Set([
   '@deepseek-ai/node-addon-system',
@@ -92,20 +98,20 @@ export const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   'node-addon-require-builtin': { repo: 'https://www.npmjs.com/package/node-addon-require-builtin' },
   // Vendored as tarballs; the archive committed here, not a registry version, is
   // the artifact this payload ships, so the archive is what the notice names.
-  '@haoran/dsh-auto-compact': { repo: 'apps/desktop-server/vendor/haoran-dsh-auto-compact-0.5.1.tgz' },
+  '@haoran/dsh-auto-compact': { repo: 'apps/desktop-server/vendor/haoran-dsh-auto-compact-0.6.0.tgz' },
   '@haoran/dsh-btw': { repo: 'apps/desktop-server/vendor/haoran-dsh-btw-0.3.0.tgz' },
   '@haoran/dsh-clickable-refs': { repo: 'apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.6.0.tgz' },
   '@haoran/dsh-connection-banner': { repo: 'apps/desktop-server/vendor/haoran-dsh-connection-banner-0.4.0.tgz' },
-  '@haoran/dsh-crash-resume': { repo: 'apps/desktop-server/vendor/haoran-dsh-crash-resume-0.5.0.tgz' },
+  '@haoran/dsh-crash-resume': { repo: 'apps/desktop-server/vendor/haoran-dsh-crash-resume-0.6.0.tgz' },
   '@haoran/dsh-data-location': { repo: 'apps/desktop-server/vendor/haoran-dsh-data-location-0.2.2.tgz' },
   '@haoran/dsh-desktop-update': { repo: 'apps/desktop-server/vendor/haoran-dsh-desktop-update-0.3.0.tgz' },
-  '@haoran/dsh-llm-permission-gateway': { repo: 'apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.7.0.tgz' },
+  '@haoran/dsh-llm-permission-gateway': { repo: 'apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.7.1.tgz' },
   '@haoran/dsh-mcp-servers': { repo: 'apps/desktop-server/vendor/haoran-dsh-mcp-servers-0.3.1.tgz' },
   '@haoran/dsh-office-preview-notice': { repo: 'apps/desktop-server/vendor/haoran-dsh-office-preview-notice-0.3.0.tgz' },
   '@haoran/dsh-screenshot': { repo: 'apps/desktop-server/vendor/haoran-dsh-screenshot-0.7.0.tgz' },
-  '@haoran/dsh-vision-switch': { repo: 'apps/desktop-server/vendor/haoran-dsh-vision-switch-0.4.0.tgz' },
+  '@haoran/dsh-vision-switch': { repo: 'apps/desktop-server/vendor/haoran-dsh-vision-switch-0.4.1.tgz' },
   '@sumomok/dsh-balance': { repo: 'apps/desktop-server/vendor/sumomok-dsh-balance-0.8.0.tgz' },
-  '@sumomok/dsh-quote-message': { repo: 'apps/desktop-server/vendor/sumomok-dsh-quote-message-0.5.2.tgz' },
+  '@sumomok/dsh-quote-message': { repo: 'apps/desktop-server/vendor/sumomok-dsh-quote-message-0.6.0.tgz' },
   // No `license` field in the published manifest; the tarball's LICENSE.txt is the MIT text.
 }
 
@@ -152,7 +158,7 @@ interface ExternalDep {
   name: string
   license: string
   repo: string
-  /** True when some shipped workspace consumer reaches it through runtime dependency edges. */
+  /** True when a shipped workspace consumer installs it at runtime or embeds its implementation. */
   runtime: boolean
 }
 
@@ -406,6 +412,7 @@ function normalizeRepo(raw: string | undefined): string | undefined {
   let url = raw
     .replace(/^git\+ssh:\/\/git@/, 'https://')
     .replace(/^git\+/, '')
+    .replace(/^git@([^:]+):/, 'https://$1/')
     .replace(/^git:\/\//, 'https://')
     .replace(/^github:/, 'https://github.com/')
     .replace(/\.git$/, '')
@@ -415,7 +422,7 @@ function normalizeRepo(raw: string | undefined): string | undefined {
 
 /**
  * Direct npm dependencies distributed through installed runtime libraries or
- * browser builds. Tooling declarations alone do not imply distribution.
+ * embedded in Host and browser bundles. Tooling declarations alone do not imply distribution.
  */
 function collectNpmDeps(manifests: Map<string, Manifest>, names: Set<string>, browser: ReadonlySet<string>): ExternalDep[] {
   return [...tierExternalDeps(manifests, names, browser)]
@@ -425,7 +432,7 @@ function collectNpmDeps(manifests: Map<string, Manifest>, names: Set<string>, br
 }
 
 /**
- * Tier every external dependency the workspace declares.
+ * Tier every external dependency the workspace declares, including named Host embeddings.
  * @param manifests - workspace manifests keyed by repository-relative path.
  * @param names - every workspace package name, which never counts as external.
  * @param browser - Direct third-party packages resolved by the browser builds.
@@ -439,10 +446,17 @@ export function tierExternalDeps(
   tiers.set('tsx', true)
   for (const [path, manifest] of manifests) {
     const devOnly = DEV_ONLY_AREAS.some(area => (area.endsWith('/') ? path.startsWith(area) : path === area))
+    const hostBundled = manifest.name === undefined ? [] : HOST_BUNDLED_DEPENDENCIES[manifest.name] ?? []
+    for (const dependency of hostBundled) {
+      if (!ALL_KINDS.some(kind => Object.hasOwn(manifest[kind] ?? {}, dependency))) {
+        throw new Error(`gen-third-party-notices: ${manifest.name} embeds ${dependency} but does not declare it`)
+      }
+    }
     for (const kind of ALL_KINDS) {
       for (const [dep, range] of Object.entries(manifest[kind] ?? {})) {
         if (names.has(dep) || range.startsWith('workspace:')) continue
-        const runtime = browser.has(dep) || !devOnly && (RUNTIME_KINDS as readonly string[]).includes(kind)
+        const runtime = browser.has(dep) || hostBundled.includes(dep)
+          || !devOnly && (RUNTIME_KINDS as readonly string[]).includes(kind)
         tiers.set(dep, (tiers.get(dep) ?? false) || runtime)
       }
     }
@@ -807,7 +821,7 @@ ${vendored.map(row => `| \`${row.npmName}\` | \`${row.upstreamName}\` | [${row.s
 
 ## Runtime npm dependencies
 
-External packages installed for runtime use or distributed inside the prebuilt browser artifacts. Browser inputs are resolved through the shipping tsdown and Vite configurations, independently of npm dependency sections. The tier covers every plugin a user can mount from \`cordis.yml\` — not only what the \`dsh\` CLI, Web UI, and Python SDK runtime load by default.
+External packages installed for runtime use or embedded in distributed Host or browser artifacts. Browser inputs are resolved through the shipping tsdown and Vite configurations, independently of npm dependency sections. Host embedding declarations identify the distributing package and its embedded dependencies. The tier covers every plugin a user can mount from \`cordis.yml\` — not only what the \`dsh\` CLI, Web UI, and Python SDK runtime load by default.
 
 ${renderNpmTable(runtimeDeps)}
 
@@ -830,7 +844,7 @@ The [kit repository](https://github.com/deepseek-ai/dsh-libreoffice-kit) supplie
 
 ## Development-only npm dependencies
 
-External packages **directly declared** for development, tests, types, or tooling, without a runtime installation or browser-build relationship. A package here may still be pulled in transitively by a runtime dependency — \`pnpm-lock.yaml\` is the authority on that full closure.
+External packages **directly declared** for development, tests, types, or tooling, without a runtime installation or distribution inside a Host or browser bundle. A package here may still be pulled in transitively by a runtime dependency — \`pnpm-lock.yaml\` is the authority on that full closure.
 
 ${renderNpmTable(devDeps)}
 ${renderNonPermissiveNote(nonPermissiveDev)}

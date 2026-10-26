@@ -15,8 +15,9 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import {
-  initProfile, loadOverlayPatches, PROFILE_PATCH_FILENAME, PROFILE_TEMPLATES, type ProfileContext, resolveBundleDir,
+  initProfile, loadOverlayPatches, PROFILE_PATCH_FILENAME, type ProfileContext, resolveBundleDir,
 } from '@deepseek-ai/dsh-app-boot'
+import { PROFILE_TEMPLATES } from '@deepseek-ai/dsh-official-bundles'
 import { writePluginEnabled } from '@deepseek-ai/dsh-plugin-manager/src/patch.ts'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { sameLinkTarget } from '../src/link-target.ts'

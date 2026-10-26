@@ -129,8 +129,8 @@ describe('PermissionSelect', () => {
     expect(icons[3]).toBe(icons[2])
     expect(icons[0]).not.toBe(icons[2])
     expect(icons[1]).not.toBe(icons[2])
-    // Outside the design set: the bare shield outline, one path, no inner mark.
-    expect(screen.getAllByRole('menuitem')[4]?.querySelectorAll('svg path')).toHaveLength(1)
+    // Outside the design set: the bare shield outline from the shared sprite.
+    expect(screen.getAllByRole('menuitem')[4]?.querySelector('svg')?.getAttribute('data-icon')).toBe('dsw-icon-shield-outline-regular')
     // The trigger resolves the current option through the same glyph choice.
     expect(trigger().querySelector('svg')?.innerHTML).toBe(icons[2])
   })

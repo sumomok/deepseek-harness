@@ -17,7 +17,6 @@ import type {
   SessionRecord,
 } from '@deepseek-ai/dsh-session-query'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
-import type {} from '@deepseek-ai/dsh-session-projection'
 import { serviceBoundary } from './service-boundary.ts'
 
 interface Caller {
@@ -26,7 +25,7 @@ interface Caller {
   /** Number of leading events inherited from a fork parent. */
   readonly inheritedEventCount: number
   /** The caller's own-session boundary fold (the `turnBoundary` projection). */
-  readonly boundary: TurnBoundaryProjection | undefined
+  readonly boundary: TurnBoundaryProjection
 }
 
 interface TitleView {
@@ -67,7 +66,7 @@ function callerOf(exec: ToolRunContext, ctx: Context): Caller {
     id: agent.session.id,
     header: agent.session.header,
     inheritedEventCount: agent.session.inheritedEventCount,
-    boundary: ctx.sessionProjections.stateOf(agent.session, 'turnBoundary'),
+    boundary: ctx.agents.turnBoundaryOf(agent.session),
   }
 }
 

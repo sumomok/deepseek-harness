@@ -108,8 +108,8 @@ async function boot(identity?: CheckpointRecord['identity'], stored: CheckpointR
   await ctx.plugin({ name: storageDomainName, inject: storageDomainInject, apply: storageDomainApply, Config: storageDomainConfig }, { backend: 'json' })
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
-  ctx.sessionProjections.register(titleUnit)
-  ctx.sessionProjections.register(directoryUnit)
+  await ctx.sessionProjections.register(titleUnit)
+  await ctx.sessionProjections.register(directoryUnit)
   await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000 })
   const puts: string[] = []
   ctx.on('domain/changed', (change) => {

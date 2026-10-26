@@ -27,20 +27,20 @@ id: 2026-10-24-context-lifecycle-message-sources
 baseline: false
 changes:
   - root: "event:agent/inbox/spliced"
-    previous: "2026-09-25-prompt-references"
-    after: "3f7749df86031cd9c7abefb7749ade632fc0815479f63d7eede11c8a10ccea5a"
+    previous: "2026-10-22-action-card-status"
+    after: "ab745034ce2567062bc2d77c666c56b2cede10d1d16e7463e634b8ab1d533da4"
     decision: same-version
   - root: "event:developer/message"
-    previous: "2026-09-25-prompt-references"
-    after: "6b9b40bfacfc3c7715056d8d55eef09a32c3d20d3d553cdf1ba344f1218c21b9"
+    previous: "2026-10-22-action-card-status"
+    after: "2b4f4e709e7f4e0a80b00616c6c6008d613c3d958b6fc3e425d0d2d0f91646da"
     decision: same-version
   - root: "event:session/title-llm-request"
-    previous: "2026-09-25-prompt-references"
-    after: "0d525666da54173551164fccd5e08a499ab3efd72f8c48688a9d041e33999ed8"
+    previous: "2026-10-22-action-card-status"
+    after: "dfcb7471099e73fdf3db00c8e29ff16831fa4baa654bc83285bbb4ab2dbf920e"
     decision: same-version
   - root: "event:user/message"
-    previous: "2026-09-25-prompt-references"
-    after: "69b30975b92408916dc479081a42d718eb87a2881269c49f617cf513fad911aa"
+    previous: "2026-10-22-action-card-status"
+    after: "42bbeec482ca3556312bf7dbb91ea68c01c5893a9a9b1ae2c63377585a26fd5f"
     decision: same-version
 ```
 

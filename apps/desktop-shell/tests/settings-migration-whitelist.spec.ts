@@ -89,6 +89,7 @@ const SAMPLES: Record<string, Record<string, readonly unknown[]>> = {
   'auto-compact': {
     enabled: [true, false, 'yes', 0],
     thresholdPercent: [20, 60, 73, 95, 19, 96, 72.5, 100, '60', true],
+    retryAfterSteps: [1, 3, 50, 0, 51, 1.5, '3', true],
   },
   'mcp-servers': {
     servers: [[], [{ id: 'fixture', command: 'node' }], [1, 'x'], {}, 'servers'],
