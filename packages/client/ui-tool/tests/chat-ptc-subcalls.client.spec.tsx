@@ -110,10 +110,10 @@ async function bench(snapshot: ChatSnapshot) {
   const conversation = createSnapshotStore(EMPTY_CONVERSATION_SNAPSHOT)
   const events = new ConversationEventRegistry(ctx)
   const views = new ConversationViewRegistry(ctx)
-  ctx.provide('connection', { state: createSnapshotStore('connected') } as never)
   ctx.provide('configForms', { developerTools: { enabled: createSnapshotStore(true) }, get: () => stubConfigForm().scope } as never)
   ctx.provide('connection', {
     generation: { getSnapshot: () => undefined, subscribe: () => () => {} },
+    state: createSnapshotStore('connected'),
   } as never)
   ctx.provide('conversation', {} as never)
   ctx.provide('uiConversation', {
