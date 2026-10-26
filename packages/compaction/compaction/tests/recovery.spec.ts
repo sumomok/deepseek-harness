@@ -86,6 +86,7 @@ describe('recoveryNotice', () => {
     const notice = recoveryNotice(address)
     expect(notice).toContain('seq 7')
     expect(notice).toContain('session_event_read')
+    expect(notice).toContain('full: true')
     expect(notice).toContain('untrusted data')
   })
 

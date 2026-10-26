@@ -1833,7 +1833,7 @@ Source: [`packages/skill/tool-skill/src/index.ts`](../packages/skill/tool-skill/
 
 ### `session_event_read`
 
-Read one full unabridged event and optional neighboring raw-event summaries from an authorized session.
+Read a bounded excerpt of one event, or the complete event with full: true.
 
 ```json
 {
@@ -1854,6 +1854,18 @@ Read one full unabridged event and optional neighboring raw-event summaries from
     "after": {
       "type": "integer",
       "description": "Number of following raw events to summarize. Omit for none."
+    },
+    "offset": {
+      "type": "integer",
+      "description": "Zero-based character offset into the formatted event JSON; use nextOffset from the previous page."
+    },
+    "maxChars": {
+      "type": "integer",
+      "description": "Characters per page (2–100000). Defaults to 16000."
+    },
+    "full": {
+      "type": "boolean",
+      "description": "Return the complete unabridged event. Cannot be combined with offset or maxChars."
     }
   },
   "required": [

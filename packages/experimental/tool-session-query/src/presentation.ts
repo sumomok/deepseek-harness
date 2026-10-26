@@ -18,6 +18,8 @@ import type {
   SessionId,
 } from '@deepseek-ai/dsh-session'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
+import type { EventReadPage } from './input.ts'
+import { splitsUnicodePair } from './text.ts'
 import { workspaceAccess } from './workspace-access.ts'
 
 type TitleView = Awaited<ReturnType<typeof workspaceAccess.readTitle>>
@@ -43,6 +45,9 @@ interface SessionTargetCallArgs {
 
 interface EventTargetCallArgs extends SessionTargetCallArgs {
   readonly seq: number
+  readonly offset?: number
+  readonly maxChars?: number
+  readonly full?: boolean
 }
 
 function formatSessionSearch(
@@ -170,7 +175,9 @@ function formatEventRead(
   sessionId: SessionId,
   title: TitleView,
   window: SessionEventWindow,
-  source?: 'inherited-parent',
+  source: 'inherited-parent' | undefined,
+  page: EventReadPage,
+  targetText: string,
 ): string {
   const before = window.events.filter(event => event.seq < window.target.seq)
   const after = window.events.filter(event => event.seq > window.target.seq)
@@ -180,18 +187,30 @@ function formatEventRead(
     ...source === 'inherited-parent'
       ? ['Source: this event came from the caller inherited fork prefix; the parent session corpus is currently unavailable.']
       : [],
-    `Target event seq ${window.target.seq}:`,
-    '```json',
-    JSON.stringify(window.target, null, 2),
-    '```',
   ]
-  if (before.length > 0) {
-    lines.push('', 'Before:')
-    for (const event of before) lines.push(formatNeighbor(event))
+  const complete = page.full || (page.offset === 0 && targetText.length <= page.maxChars)
+  if (complete) {
+    lines.push(`Target event seq ${window.target.seq}:`, '```json', targetText, '```')
+  } else {
+    let end = Math.min(page.offset + page.maxChars, targetText.length)
+    if (end < targetText.length && splitsUnicodePair(targetText, end)) end -= 1
+    const nextOffset = end < targetText.length ? String(end) : 'end'
+    lines.push(
+      `Target event seq ${window.target.seq} (characters ${page.offset}–${end} of ${targetText.length}; nextOffset ${nextOffset}):`,
+      '```text',
+      targetText.slice(page.offset, end),
+      '```',
+    )
   }
-  if (after.length > 0) {
-    lines.push('', 'After:')
-    for (const event of after) lines.push(formatNeighbor(event))
+  if (page.full || page.offset === 0) {
+    if (before.length > 0) {
+      lines.push('', 'Before:')
+      for (const event of before) lines.push(formatNeighbor(event))
+    }
+    if (after.length > 0) {
+      lines.push('', 'After:')
+      for (const event of after) lines.push(formatNeighbor(event))
+    }
   }
   return lines.join('\n')
 }
@@ -245,6 +264,9 @@ function presentEventTargetCall(
     rawInput: {
       ...args.session_id === undefined ? {} : { session_id: args.session_id },
       seq: args.seq,
+      ...args.offset === undefined ? {} : { offset: args.offset },
+      ...args.maxChars === undefined ? {} : { maxChars: args.maxChars },
+      ...args.full === undefined ? {} : { full: args.full },
     },
   }
 }

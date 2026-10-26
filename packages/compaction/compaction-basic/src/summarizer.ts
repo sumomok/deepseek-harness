@@ -193,8 +193,9 @@ export function frameSummary(
   const readbackText = readback === undefined ? '' : '\n\n'
     + `The original ${readback.shadowedCount} events remain in this session's event log `
     + `(compaction id ${readback.compactionId}; surface boundary seqs ${readback.startSeq} and ${readback.endSeq}). `
-    + 'For exact prior wording, errors, or tool output, use session_event_read with one of those seqs, '
-    + 'or session_event_search to find other events by content. Do not guess details that can be read back.'
+    + 'For exact prior wording, errors, or tool output, use session_event_search to locate content or '
+    + 'session_event_read with one of those seqs for a bounded excerpt; request full: true only when the '
+    + 'whole event is required. Do not guess details that can be read back.'
   return [
     { type: 'text', text: `${CHECKPOINT_PREAMBLE}${readbackText}\n\n${SUMMARY_OPEN_TAG}` },
     ...summary,

@@ -201,7 +201,7 @@ This is an automatically generated checkpoint condensing an earlier span of the 
 ##### Optional readback pointer
 
 ```markdown
-The original <shadowed-event-count> events remain in this session's event log (compaction id <compaction-id>; surface boundary seqs <start-seq> and <end-seq>). For exact prior wording, errors, or tool output, use session_event_read with one of those seqs, or session_event_search to find other events by content. Do not guess details that can be read back.
+The original <shadowed-event-count> events remain in this session's event log (compaction id <compaction-id>; surface boundary seqs <start-seq> and <end-seq>). For exact prior wording, errors, or tool output, use session_event_search to locate content or session_event_read with one of those seqs for a bounded excerpt; request full: true only when the whole event is required. Do not guess details that can be read back.
 ```
 
 #### Token effect

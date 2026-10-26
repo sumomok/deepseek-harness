@@ -1839,7 +1839,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 ### `session_event_read`
 
-从一个已获授权的会话中读取一个完整且未删节的事件，以及可选的相邻原始事件概述。
+读取一个事件的有界摘录，或通过 full: true 读取完整事件。
 
 ```json
 {
@@ -1860,6 +1860,18 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
     "after": {
       "type": "integer",
       "description": "Number of following raw events to summarize. Omit for none."
+    },
+    "offset": {
+      "type": "integer",
+      "description": "Zero-based character offset into the formatted event JSON; use nextOffset from the previous page."
+    },
+    "maxChars": {
+      "type": "integer",
+      "description": "Characters per page (2–100000). Defaults to 16000."
+    },
+    "full": {
+      "type": "boolean",
+      "description": "Return the complete unabridged event. Cannot be combined with offset or maxChars."
     }
   },
   "required": [
