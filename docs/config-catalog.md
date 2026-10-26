@@ -758,7 +758,7 @@ export type ThemePreference = typeof THEME_PREFERENCES[number]
 ## `@deepseek-ai/dsh-compaction-basic`
 
 - `inject`: `llm` · `tokenMeter` · `sessions` · `sessionProjections`
-- `source`: [`packages/compaction/compaction-basic/src/types.ts:45`](../packages/compaction/compaction-basic/src/types.ts)
+- `source`: [`packages/compaction/compaction-basic/src/types.ts:48`](../packages/compaction/compaction-basic/src/types.ts)
 
 ```ts config-catalog
 /** Basic compaction configuration with an optional exact-target policy table. */
@@ -767,6 +767,8 @@ export interface BasicCompactionConfig extends CompactionPolicyConfig {
   modelPolicies?: ModelCompactPolicyConfig[]
   /** Enable automatic step-boundary pressure and overflow-recovery listeners. Defaults to `true`. */
   auto?: boolean
+  /** Add session-history readback guidance to replacement checkpoints. Defaults to `false`. */
+  checkpointReadback?: boolean
 }
 
 /** Policy fields shared by the default policy and exact model overrides. */
@@ -791,7 +793,10 @@ export interface CompactionPolicyConfig {
   maxConsecutiveFailures?: number
   /** Maximum retries after canonical context overflow; `0` disables recovery. Defaults to `1`. */
   maxOverflowRetries?: number
-  /** Largest replacement the shrink guard accepts, as a fraction of the selected span's route price. `1` accepts any strictly smaller summary. Defaults to `1`. */
+  /**
+   * Largest replacement the shrink guard accepts, as a fraction of the span's
+   * route price. `1` takes any strictly smaller summary. Defaults to `1`.
+   */
   summaryMaxRatio?: number
 }
 

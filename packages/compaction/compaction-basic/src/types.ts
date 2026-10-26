@@ -50,6 +50,8 @@ export interface BasicCompactionConfig extends CompactionPolicyConfig {
   modelPolicies?: ModelCompactPolicyConfig[]
   /** Enable automatic step-boundary pressure and overflow-recovery listeners. Defaults to `true`. */
   auto?: boolean
+  /** Add session-history readback guidance to replacement checkpoints. Defaults to `false`. */
+  checkpointReadback?: boolean
 }
 
 /** Exactly one validated retention form. */
@@ -74,6 +76,7 @@ interface ResolvedPolicyFields {
 export type ResolvedConfig = ResolvedPolicyFields & ResolvedRetention & {
   readonly modelPolicies: readonly Readonly<ModelCompactPolicyConfig>[]
   readonly auto: boolean
+  readonly checkpointReadback: boolean
 }
 
 /** Fully merged policy for one routed conversation target, before capacity scaling. */

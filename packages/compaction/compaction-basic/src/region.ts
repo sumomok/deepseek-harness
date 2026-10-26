@@ -49,6 +49,8 @@ interface PreparedCompaction extends SurfaceSelection {
   readonly shadowedRouteTokenCount: number
   /** Replacement ceiling this transaction was opened with. */
   readonly summaryMaxRatio: number
+  /** Whether the checkpoint points at the shadowed events in the session log. */
+  readonly checkpointReadback: boolean
   readonly input: SummarizationInput
 }
 
@@ -76,6 +78,8 @@ interface CompactionTransactionOptions {
   readonly manual: boolean
   /** Largest replacement this transaction accepts as a fraction of the span's route price. */
   readonly summaryMaxRatio: number
+  /** Whether the checkpoint tells the model how to read shadowed events. */
+  readonly checkpointReadback: boolean
 }
 
 interface CompactionEntryState {
@@ -390,7 +394,8 @@ export async function compactSurfaceRegion(
   let stage: TransactionFailure['stage'] = 'summary'
 
   try {
-    const prepared = prepareCompaction(dependencies, session, selection, options.summaryMaxRatio, options.preview, options.tools)
+    const prepared = prepareCompaction(dependencies, session, selection, options.summaryMaxRatio,
+      options.checkpointReadback, options.preview, options.tools)
     const summarized = await summarizeCompaction(
       dependencies,
       prepared,
@@ -536,6 +541,7 @@ function prepareCompaction(
   session: Session,
   selection: SurfaceSelection,
   summaryMaxRatio: number,
+  checkpointReadback: boolean,
   preview?: CompactionTransactionOptions['preview'],
   tools?: readonly ToolSchema[] | null,
 ): PreparedCompaction {
@@ -560,6 +566,7 @@ function prepareCompaction(
     shadowedTokenCount: selectedNodes.reduce((total, node) => total + node.heuristicTokens, 0),
     shadowedRouteTokenCount: selectedNodes.reduce((total, node) => total + node.tokens, 0),
     summaryMaxRatio,
+    checkpointReadback,
     input: buildSummarizationInput(session, selection.shadowedSeqs, preview?.messages, tools),
   }
 }
@@ -587,11 +594,19 @@ async function summarizeCompaction(
       assertStable(dependencies, agent.session, prepared)
       if (!dependencies.recover(error, agent, prepared.shadowedSeqs, signal)) throw error
       prepared = prepareCompaction(dependencies, agent.session,
-        validateSurfaceRegion(agent.session, prepared.start, prepared.end), prepared.summaryMaxRatio, preview, tools)
+        validateSurfaceRegion(agent.session, prepared.start, prepared.end), prepared.summaryMaxRatio,
+        prepared.checkpointReadback, preview, tools)
     }
   }
   const checkpointMessage = createUserMessage({
-    content: frameSummary(summaryResult.summary),
+    content: frameSummary(summaryResult.summary, prepared.checkpointReadback
+      ? {
+        compactionId,
+        shadowedCount: prepared.shadowedSeqs.length,
+        startSeq: prepared.start,
+        endSeq: prepared.end,
+      }
+      : undefined),
     source: compactCheckpointSource(compactionId, sourceCommandId),
   })
   // The checkpoint is text-only, so its fixed-heuristic price IS its route

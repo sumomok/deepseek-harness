@@ -178,11 +178,25 @@ export async function summarizeWithLlm(
 /**
  * Wrap raw summary blocks in the durable checkpoint framing.
  * @param summary - safe text-only model output.
+ * @param readback - optional event-log pointer, shadowed-event count, and surface boundary seqs.
  * @returns content for the synthesized replacement user message.
  */
-export function frameSummary(summary: readonly ContentBlock[]): ContentBlock[] {
+export function frameSummary(
+  summary: readonly ContentBlock[],
+  readback?: {
+    readonly compactionId: string
+    readonly shadowedCount: number
+    readonly startSeq: number
+    readonly endSeq: number
+  },
+): ContentBlock[] {
+  const readbackText = readback === undefined ? '' : '\n\n'
+    + `The original ${readback.shadowedCount} events remain in this session's event log `
+    + `(compaction id ${readback.compactionId}; surface boundary seqs ${readback.startSeq} and ${readback.endSeq}). `
+    + 'For exact prior wording, errors, or tool output, use session_event_read with one of those seqs, '
+    + 'or session_event_search to find other events by content. Do not guess details that can be read back.'
   return [
-    { type: 'text', text: `${CHECKPOINT_PREAMBLE}\n\n${SUMMARY_OPEN_TAG}` },
+    { type: 'text', text: `${CHECKPOINT_PREAMBLE}${readbackText}\n\n${SUMMARY_OPEN_TAG}` },
     ...summary,
     { type: 'text', text: SUMMARY_CLOSE_TAG },
   ]
@@ -199,11 +213,14 @@ const MINIMUM_SUMMARY_SAFETY_RATIO = 0.1
  * A span below the floor cannot produce a smaller replacement, so pressure
  * stops instead of spending a guaranteed-failing request.
  * @param meter - token meter used for the same heuristic pricing as compaction.
+ * @param readback - whether the checkpoint carries the event-log readback pointer.
  * @returns minimum route-independent replacement tokens.
  */
-export function minimumSummaryTokens(meter: TokenMeter): number {
+export function minimumSummaryTokens(meter: TokenMeter, readback = false): number {
   const framing = meter.estimateMessage(createUserMessage({
-    content: frameSummary([{ type: 'text', text: 'summary' }]),
+    content: frameSummary([{ type: 'text', text: 'summary' }], readback
+      ? { compactionId: '00000000-0000-0000-0000-000000000000', shadowedCount: 0, startSeq: 0, endSeq: 0 }
+      : undefined),
     source: { kind: 'user' },
   }))
   return framing + Math.ceil(framing * MINIMUM_SUMMARY_SAFETY_RATIO)

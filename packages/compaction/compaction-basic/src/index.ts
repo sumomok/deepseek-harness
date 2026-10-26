@@ -136,6 +136,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     summaryMaxRatio: summaryMaxRatioSchema,
     modelPolicies: z.array(modelPolicy),
     auto: z.boolean(),
+    checkpointReadback: z.boolean(),
   })
 
   /** Resolved and validated compaction configuration. */
@@ -649,7 +650,7 @@ export class BasicCompactionEngine extends CompactionEngine {
       // The selected span must be able to pay for the smallest replacement the
       // shrink guard would accept: the framing floor, under the configured
       // share of the span. Anything smaller can only spend a request to fail.
-      const summaryFloor = minimumSummaryTokens(meter)
+      const summaryFloor = minimumSummaryTokens(meter, this.config.checkpointReadback)
       if (Math.floor(rangeTokens * spec.summaryMaxRatio) < summaryFloor) {
         this.ctx.logger.info(
           'compaction (pressure): skipping; selected span is ~%d route tokens, below the '
@@ -953,6 +954,7 @@ export class BasicCompactionEngine extends CompactionEngine {
         stability: 'whole-surface',
         manual: false,
         summaryMaxRatio: this.config.summaryMaxRatio,
+        checkpointReadback: this.config.checkpointReadback,
         ...manualTools === undefined ? {} : { tools: manualTools },
       },
       signal,
@@ -994,6 +996,7 @@ export class BasicCompactionEngine extends CompactionEngine {
         stability: 'whole-surface',
         manual: false,
         summaryMaxRatio,
+        checkpointReadback: this.config.checkpointReadback,
         ...preview === undefined ? {} : { preview },
         ...tools === undefined ? {} : { tools },
       },
@@ -1104,6 +1107,7 @@ export class BasicCompactionEngine extends CompactionEngine {
         stability: owner === null ? 'selected-span' : 'whole-surface',
         manual: true,
         summaryMaxRatio: this.config.summaryMaxRatio,
+        checkpointReadback: this.config.checkpointReadback,
         ...sourceCommandId === undefined ? {} : { sourceCommandId },
         ...manualTools === undefined ? {} : { tools: manualTools },
         flush: async () => {

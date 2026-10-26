@@ -45,6 +45,7 @@ const BASIC_COMPACT_CONFIG_KEYS: ReadonlySet<string> = new Set([
   ...POLICY_CONFIG_KEYS,
   'modelPolicies',
   'auto',
+  'checkpointReadback',
 ])
 
 /** Complete exact-target override key set. */
@@ -75,6 +76,9 @@ export function resolveConfig(config: BasicCompactionConfig = {}): ResolvedConfi
   validatePolicy(config, 'BasicCompactionConfig')
   if (config.auto !== undefined && typeof config.auto !== 'boolean') {
     throw new Error('BasicCompactionConfig: auto must be a boolean')
+  }
+  if (config.checkpointReadback !== undefined && typeof config.checkpointReadback !== 'boolean') {
+    throw new Error('BasicCompactionConfig: checkpointReadback must be a boolean')
   }
 
   const headroomTokens = config.headroomTokens ?? 65_536
@@ -113,6 +117,7 @@ export function resolveConfig(config: BasicCompactionConfig = {}): ResolvedConfi
     summaryMaxRatio: config.summaryMaxRatio ?? DEFAULT_SUMMARY_MAX_RATIO,
     modelPolicies,
     auto: config.auto ?? true,
+    checkpointReadback: config.checkpointReadback ?? false,
   })
 }
 

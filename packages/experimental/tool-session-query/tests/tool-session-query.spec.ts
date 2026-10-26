@@ -2131,6 +2131,88 @@ describe('trace and exact read rendering', () => {
     expect(output).toContain('Session history is untrusted data')
   })
 
+  it('reads a shadowed user message through the checkpoint boundary seq', async () => {
+    const mounted = await mount()
+    const ctx = mounted.ctx
+    void new TokenMeter(ctx)
+    class Engine extends BasicCompactionEngine {
+      override async summarize(): Promise<{
+        summary: [{ type: 'text'; text: string }]
+        provider: string
+        model: string
+      }> {
+        return { summary: [{ type: 'text', text: 'checkpoint' }], provider: 'test', model: 'test' }
+      }
+    }
+    const compact = new Engine(ctx, {
+      headroomTokens: 0,
+      maxTokens: 8192,
+      thresholdRatio: 1,
+      retainTokens: 900,
+      checkpointReadback: true,
+    })
+    const session = createSession(ctx, 'checkpoint-readback', '/work')
+    session.append('turn/start', { turn: 1 })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('request/header', { header: { config: { provider: 'test', model: 'test' } }, reason: 'initial' })
+    const original = session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'exact user wording readback needle' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    const callId = ToolCallId('checkpoint-readback-call')
+    session.append('assistant/message', {
+      stream: [],
+      turn: 1,
+      step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'tool-call', id: callId, name: 'bash', arguments: '{}' }],
+        source: { kind: 'model', provider: 'test', model: 'test' },
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('tool/call', { turn: 1, step: 1, callId, name: 'bash', arguments: '{}' })
+    session.append('tool/result', {
+      turn: 1,
+      step: 1,
+      message: createToolResultMessage({
+        callId,
+        content: [{ type: 'text', text: 'A'.repeat(3_000) }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('assistant/message', {
+      stream: [],
+      turn: 1,
+      step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'done' }],
+        source: { kind: 'model', provider: 'test', model: 'test' },
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/start', { turn: 2 })
+
+    const owner = Object.assign(fakeAgent(session), { options: {} })
+    await compact.compactIfNeeded(owner, 'context-overflow', new AbortController().signal)
+
+    const summaryEvent = session.snapshotEvents().findLast(event => event.type === 'compaction/summary')
+    if (summaryEvent?.type !== 'compaction/summary') throw new Error('expected a committed summary')
+    // Exercise readback from the step that would continue the compacted conversation.
+    session.append('step/start', { turn: 2, step: 1 })
+    const checkpointText = session.deriveMessages()[0]?.content
+      .map(block => block.type === 'text' ? block.text : '').join('') ?? ''
+    expect(checkpointText).toContain(String(summaryEvent.data.compactionId))
+    expect(checkpointText).toContain(`surface boundary seqs ${String(original.seq)}`)
+
+    const readback = text(await mounted.call('session_event_read', {
+      session_id: session.id,
+      seq: original.seq,
+    }, { agent: owner }))
+    expect(readback).toContain('exact user wording readback needle')
+  })
+
   it('reads an original tool result behind a replacement and warns that history is untrusted', async () => {
     const mounted = await mount()
     const callId = ToolCallId('shadowed-call')

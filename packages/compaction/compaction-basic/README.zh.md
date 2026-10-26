@@ -77,6 +77,7 @@ kind: "package-reference"
 | `summaryMaxRatio` | `1` | 收缩守卫接受的替换上限，按被选中区间的路由价格比例计。`1` 接受任何严格更小的摘要；调低则只在压缩能腾出足够份额时才执行。 |
 | `modelPolicies` | `[]` | 针对个别模型路由的精确 `{ provider, model, ...partialPolicy }` 覆盖。 |
 | `auto` | `true` | 启用自动压缩与溢出恢复；设为 `false` 则仅手动执行。策略服务可以在不使用这个硬开关的情况下暂停压力压缩。 |
+| `checkpointReadback` | `false` | 在检查点中加入压缩 id、被 shadow 的事件数、表层边界 seq 以及 `session_event_search` / `session_event_read` 使用指引，让模型能从 Session 事件日志读回精确的历史事件。仅在已挂载这些工具时启用。 |
 
 摘要提交前会按两种密度各计价一次：度量器其余部分使用的固定启发式，以及把每个 CJK 码点计为一个 token 的密集档。固定启发式下看起来更小、但密集档下比被替换区间更贵的摘要会被拒绝，因为 provider 按密集档计费。`summaryMaxRatio` 在此基础上进一步收紧上限。
 
@@ -197,13 +198,19 @@ interface CompactionPolicy {
 This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.
 ```
 
+##### 可选回读指针
+
+```markdown
+The original <shadowed-event-count> events remain in this session's event log (compaction id <compaction-id>; surface boundary seqs <start-seq> and <end-seq>). For exact prior wording, errors, or tool output, use session_event_read with one of those seqs, or session_event_search to find other events by content. Do not guess details that can be read back.
+```
+
 #### Token 影响
 
 不依赖模型的剪枝可以完全避免辅助调用；否则它会在摘要替换较早范围之前缩减该调用的 transcript（文本记录）。替换会缩减未来输入历史，而非追加第二份副本。摘要会保留到后续压缩将其替换，但不可分的非工具单元仍可能超出预算。
 
 #### KV Cache 影响
 
-它是替换，而非仅追加。每个检查点都会使从第一个已替换历史 token 起的复用失效；该范围之前未更改的请求前缀仍可复用。
+它是替换，而非仅追加。每个检查点都会使从第一个已替换历史 token 起的复用失效；该范围之前未更改的请求前缀仍可复用。`checkpointReadback` 只改变替换文本，不改变工具声明；后续 `session_event_*` 的结果像其他工具结果一样追加工具消息。
 
 ### 辅助摘要器请求
 

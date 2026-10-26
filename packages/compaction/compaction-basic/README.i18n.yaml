@@ -24,8 +24,8 @@
   en: eececa14706a707b
   zh: f4e42ff8881d1f3c
 /deepseek-ai-dsh-compaction-basic/use-this-package/tuning-when-condensation-starts:
-  en: 632a9d36f95a3155
-  zh: 2487041d7222de8e
+  en: af6e015ea0179a79
+  zh: f9ae8040c6cf9294
 /deepseek-ai-dsh-compaction-basic/use-this-package/moving-the-threshold-from-user-settings:
   en: f3545109f72bb14a
   zh: 8b9e6fd946826f1a
@@ -74,12 +74,15 @@
 /deepseek-ai-dsh-compaction-basic/model-experience/conversation-history/what-the-model-sees/conversation-checkpoint-preamble:
   en: 129d1eaba2519330
   zh: 3ec517bdc6cb5ae3
+/deepseek-ai-dsh-compaction-basic/model-experience/conversation-history/what-the-model-sees/optional-readback-pointer:
+  en: 4cf5c1a601fdae7f
+  zh: 8d1cf8ec7959fcb2
 /deepseek-ai-dsh-compaction-basic/model-experience/conversation-history/token-effect:
   en: 872515a75b5a9726
   zh: c0045e1972bbac4e
 /deepseek-ai-dsh-compaction-basic/model-experience/conversation-history/kv-cache-effect:
-  en: a22b43f321843aee
-  zh: a5960da1bef34441
+  en: 72057f1aa9e1fd63
+  zh: 335ae0ff38578ce8
 /deepseek-ai-dsh-compaction-basic/model-experience/auxiliary-summarizer-request:
   en: 7169bd02a7a6c396
   zh: 7c62e3d4a97c73f7

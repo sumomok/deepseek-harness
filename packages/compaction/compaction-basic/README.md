@@ -77,6 +77,7 @@ All settings are optional. With context window `W`, effective request output cap
 | `summaryMaxRatio` | `1` | Largest replacement the shrink guard accepts, as a fraction of the selected span's route price. `1` accepts any strictly smaller summary; a lower value keeps condensation only where it frees a worthwhile share. |
 | `modelPolicies` | `[]` | Exact `{ provider, model, ...partialPolicy }` overrides for individual model routes. |
 | `auto` | `true` | Enable automatic condensation and overflow recovery; set `false` for manual-only operation. A policy service can suspend pressure condensation without this hard off. |
+| `checkpointReadback` | `false` | Add the compaction id, shadowed-event count, surface boundary seqs, and `session_event_search` / `session_event_read` instructions to the checkpoint so the model can retrieve exact prior events from the Session event log. Mount the session-query tools when enabling it. |
 
 A summary is priced twice before it is committed: the fixed heuristic that the rest of the meter uses, and a dense profile that charges one token per CJK code point instead of a quarter. A replacement that looks smaller under the fixed heuristic but costs more than its span under the dense profile is refused, because the provider bills the dense figure. `summaryMaxRatio` tightens that ceiling further.
 
@@ -197,13 +198,19 @@ After a successful step crosses the threshold, oversized tool results are first 
 This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.
 ```
 
+##### Optional readback pointer
+
+```markdown
+The original <shadowed-event-count> events remain in this session's event log (compaction id <compaction-id>; surface boundary seqs <start-seq> and <end-seq>). For exact prior wording, errors, or tool output, use session_event_read with one of those seqs, or session_event_search to find other events by content. Do not guess details that can be read back.
+```
+
 #### Token effect
 
 Model-free pruning can avoid the auxiliary call entirely; otherwise it reduces that call's transcript before the summary replaces an older range. The replacement reduces future input history rather than appending a second copy. A summary remains until a later compaction replaces it, while an indivisible non-tool unit can still exceed the budget.
 
 #### KV Cache effect
 
-Replacing rather than append-only. Each checkpoint invalidates reuse from the first replaced history token; the unchanged request prefix before that range remains reusable.
+Replacing rather than append-only. Each checkpoint invalidates reuse from the first replaced history token; the unchanged request prefix before that range remains reusable. `checkpointReadback` changes only the replacement text and leaves tool declarations unchanged; later `session_event_*` results append tool messages like any other tool result.
 
 ### Auxiliary summarizer request
 

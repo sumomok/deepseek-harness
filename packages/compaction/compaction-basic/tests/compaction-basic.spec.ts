@@ -5,7 +5,7 @@ import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import type { BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
 import { selectCompactableRange } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
 import { conversationTarget, pressureTarget, summarizationTarget } from '@deepseek-ai/dsh-compaction-basic/src/route.ts'
-import { frameSummary } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
+import { frameSummary, minimumSummaryTokens } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
 import type { SummarizationInput, SummaryResult } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
 import { CompactionId, ManualCompactionError, toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compaction'
 import {
@@ -391,8 +391,14 @@ describe('compact configuration and defaults', () => {
       summaryMaxRatio: 1,
       modelPolicies: [],
       auto: true,
+      checkpointReadback: false,
     })
     expect(Object.isFrozen(resolved)).toBe(true)
+  })
+
+  it('prices the optional readback pointer into the minimum summary envelope', () => {
+    const ctx = createContext()
+    expect(minimumSummaryTokens(ctx.tokenMeter, true)).toBeGreaterThan(minimumSummaryTokens(ctx.tokenMeter))
   })
 
   it('defaults summary generation to headroom and preserves explicit caps', () => {
@@ -630,6 +636,7 @@ describe('compact configuration and defaults', () => {
         { modelPolicies: [{ provider: MODEL, model: MODEL, summaryMaxRatio: 2 }] },
         /modelPolicies\[0\].summaryMaxRatio \(2\).*must be a number in \(0, 1\]/,
       ],
+      [{ checkpointReadback: 1 }, /BasicCompactionConfig: checkpointReadback must be a boolean/],
       [{ models: { [MODEL]: { retainTokens: 10 } } }, /BasicCompactionConfig: unknown key "models"/],
       [{ thresholdRato: 0.5 }, /BasicCompactionConfig: unknown key "thresholdRato"/],
     ] as Array<[unknown, RegExp]>
@@ -1644,10 +1651,35 @@ describe('compaction region transaction', () => {
     const head = session.deriveMessages()[0]!
     expect(head.content[0]?.type).toBe('text')
     expect(head.content[0]?.type === 'text' ? head.content[0].text : '').toContain('<compacted-summary>')
+    expect(head.content[0]?.type === 'text' ? head.content[0].text : '').not.toContain('session_event_search')
     expect(head.content.at(-1)).toEqual({ type: 'text', text: '</compacted-summary>' })
 
     const replay = Session.create(SessionId('replay'), session.snapshotEvents())
     expect(replay.deriveMessages()).toEqual(session.deriveMessages())
+  })
+
+  it('points an opt-in checkpoint at its session-log events', async () => {
+    const compact = service({ auto: false, checkpointReadback: true })
+    const session = conversation(3)
+    const before = [...session.surface.nodes]
+    const headersBefore = session.snapshotEvents().filter(event => event.type === 'request/header')
+    const result = await compact.compactRegion(
+      before[0]!,
+      before[3]!,
+      agent(session, MODEL),
+      SIGNAL,
+    )
+
+    const head = session.deriveMessages()[0]!
+    const text = head.content[0]?.type === 'text' ? head.content[0].text : ''
+    expect(text).toContain(`compaction id ${result.compactionId}`)
+    expect(text).toContain(`The original ${result.shadowedSeqs.length} events remain`)
+    expect(text).toContain(`surface boundary seqs ${before[0]} and ${before[3]}`)
+    expect(text).toContain('session_event_search')
+    expect(text).toContain('session_event_read')
+    expect(session.snapshotEvents().findLast(event => event.type === 'compaction/summary')?.data)
+      .toMatchObject({ compactionId: result.compactionId, shadowedSeqs: result.shadowedSeqs })
+    expect(session.snapshotEvents().filter(event => event.type === 'request/header')).toEqual(headersBefore)
   })
 
   it('replays the system head and latest routed tools so the summarizer reuses the cache', async () => {
