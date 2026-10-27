@@ -34,7 +34,9 @@ const SUMMARY_CLOSE_TAG = '</compacted-summary>'
 const COMPACTION_INSTRUCTION = [
   'You are now acting as a compaction engine for this AI coding assistant. Condense the conversation ABOVE into a structured checkpoint that lets another model resume the work with no loss of essential context.',
   '',
-  'Output the Markdown structure below, in order. Use terse bullets and "(none)" for empty sections; never drop a section.',
+  'First write an <analysis> block: walk the conversation in order and note every user instruction, correction, decision, and open thread, then check the draft below against it. The <analysis> block is discarded and never reaches the next model, so nothing you want kept may live there alone.',
+  '',
+  'Then output the Markdown structure below, in order. Use terse bullets and "(none)" for empty sections; never drop a section.',
   '',
   '## Primary Request and Intent',
   "- [the user's original and evolving goals; quote verbatim where the exact wording matters]",
@@ -47,6 +49,9 @@ const COMPACTION_INSTRUCTION = [
   '',
   '## Errors and Fixes',
   '- [error: how it was resolved, plus any related user feedback]',
+  '',
+  '## All User Messages',
+  '- [every message the user wrote, in order, condensed to one line each but never merged or skipped; quote any instruction, constraint, correction, or preference word for word]',
   '',
   '## Pending Jobs',
   '- [explicitly requested work not yet completed]',
@@ -70,6 +75,7 @@ const COMPACTION_INSTRUCTION = [
   '- Output only the checkpoint text: do not call any tool or take any other action.',
   '- Reconcile Pending Jobs, Current Work, Next Step, and Critical Context with the latest messages: remove completed or duplicated items; use "(none)" when awaiting the user.',
   '- Copy every agreed rule into Rules and Conventions word for word. Never replace a rule with the file or line where it also lives, and never paraphrase it: the reader has no way to tell a paraphrase from the rule the user actually agreed to.',
+  '- All User Messages is the record the reader checks Rules and Conventions against: list every message, in order, and keep each instruction, constraint, and correction in the user\'s own words. A rule that appears only in a file, and not in what the user said, belongs in Files and Code instead.',
   `- If the conversation already contains a ${SUMMARY_OPEN_TAG} block, it is a PRIOR checkpoint. Do not copy it forward verbatim: preserve still-true facts, drop stale ones, and merge newer information into a single consolidated summary under the same structure.`,
 ].join('\n')
 
@@ -250,11 +256,29 @@ function finishError(finish: FinishReason): Error | undefined {
 }
 
 /** Reject visual output and keep only text before synthesizing a user message. */
+/** Matches the instruction's private planning block, which never reaches the next model. */
+const ANALYSIS_BLOCK = /<analysis>[\s\S]*?<\/analysis>\s*/g
+
+/**
+ * Drop the analysis block the summarization instruction asks for. Keeping it
+ * would spend the next model's context on the summarizer's scratchpad and
+ * leave two copies of the same facts.
+ * @param text - one text block of the model's output.
+ * @returns the text with every analysis block removed and outer whitespace trimmed.
+ */
+function withoutAnalysis(text: string): string {
+  return text.replace(ANALYSIS_BLOCK, '').trim()
+}
+
+/** Reject visual output and keep only text before synthesizing a user message. */
 function summaryText(
   blocks: readonly ContentBlock[],
 ): Array<Extract<ContentBlock, { type: 'text' }>> {
   if (contentHasImage(blocks)) {
     throw new LlmError('compaction summary cannot contain image output', 'UNSUPPORTED_CONTENT')
   }
-  return blocks.filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
+  return blocks
+    .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
+    .map(block => ({ type: 'text' as const, text: withoutAnalysis(block.text) }))
+    .filter(block => block.text.length > 0)
 }

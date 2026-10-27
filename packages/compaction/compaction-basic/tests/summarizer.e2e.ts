@@ -80,7 +80,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('default summarizer with real Dee
       .map(block => block.text)
       .join('')
     const sections = text.split(/^## /m).slice(1)
-    expect(sections).toHaveLength(9)
+    expect(sections).toHaveLength(10)
     for (const section of sections) {
       expect(section.split('\n', 1)[0]).toMatch(/[\u3400-\u9fff]/)
     }

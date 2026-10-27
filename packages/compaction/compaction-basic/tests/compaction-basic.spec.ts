@@ -2258,6 +2258,17 @@ describe('default one-shot summarizer', () => {
     expect(instruction?.type === 'text' ? instruction.text : '').toContain('## Primary Request and Intent')
   })
 
+  it('drops the analysis block the instruction asks for before storing the summary', async () => {
+    const { adapter, compact } = await summarizerHarness([{
+      type: 'text',
+      text: '<analysis>plan the checkpoint</analysis>\n## Primary Request and Intent\n- ship it\n',
+    }])
+    const output = await compact.runSummarize(promptInput('transcript'), agent(conversation(1), MODEL))
+
+    expect(output.summary).toEqual([{ type: 'text', text: '## Primary Request and Intent\n- ship it' }])
+    expect(adapter.lastOptions?.messages.at(-1)?.content[0]).toMatchObject({ type: 'text' })
+  })
+
   it('replays the conversation prefix and appends the instruction as the final message', async () => {
     const { adapter, compact } = await summarizerHarness([{ type: 'text', text: 'summary' }])
     const tools = [{ name: 'do_thing', description: 'd', parameters: { type: 'object' } }]
