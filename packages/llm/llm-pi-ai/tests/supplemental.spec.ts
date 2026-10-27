@@ -153,7 +153,10 @@ describe('explicit provider profiles over supplemental defaults', () => {
     expect(profile.piProvider?.getModels()[0]?.compat).toMatchObject({
       supportsStore: false,
       supportsDeveloperRole: false,
-      supportsReasoningEffort: false,
+      // Ollama takes `reasoning_effort` on its OpenAI-compatible endpoint, so
+      // the thinking level a user picks reaches the request.
+      supportsReasoningEffort: true,
+      thinkingFormat: 'openai',
       supportsStrictMode: false,
       maxTokensField: 'max_tokens',
     })
@@ -183,6 +186,7 @@ describe('explicit provider profiles over supplemental defaults', () => {
       supportsStore: false,
       supportsDeveloperRole: false,
       supportsReasoningEffort: true,
+      thinkingFormat: 'openai',
       supportsStrictMode: false,
       maxTokensField: 'max_tokens',
     })

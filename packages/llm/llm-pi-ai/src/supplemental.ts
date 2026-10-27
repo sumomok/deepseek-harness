@@ -55,7 +55,11 @@ const PROVIDERS: Readonly<Record<string, SupplementalProvider>> = {
     compat: {
       supportsStore: false,
       supportsDeveloperRole: false,
-      supportsReasoningEffort: false,
+      // Ollama's OpenAI-compatible endpoint takes `reasoning_effort`
+      // (ollama/ollama#14820), but rejects `minimal` (#17140); the levels are
+      // declared per model below.
+      supportsReasoningEffort: true,
+      thinkingFormat: 'openai',
       supportsStrictMode: false,
       maxTokensField: 'max_tokens',
     },
@@ -68,6 +72,9 @@ const PROVIDERS: Readonly<Record<string, SupplementalProvider>> = {
  * `models` list gets it in addition to the catalog's models, and an explicit
  * `models` list replaces the whole default set, including these entries.
  */
+/** The reasoning levels Ollama's endpoint accepts; `minimal` is rejected with a 400. */
+const OLLAMA_EFFORTS = { low: 'low', medium: 'medium', high: 'high' } as const
+
 const MODELS: Readonly<Record<string, readonly PiAiModelProfile[]>> = {
   ollama: [
     {
@@ -75,18 +82,21 @@ const MODELS: Readonly<Record<string, readonly PiAiModelProfile[]>> = {
       name: 'DeepSeek V4 Pro',
       contextWindow: 1_048_576,
       input: ['text'],
+      reasoningEfforts: OLLAMA_EFFORTS,
     },
     {
       id: 'deepseek-v4.1-flash',
       name: 'DeepSeek V4.1 Flash',
       contextWindow: 1_048_576,
       input: ['text', 'image'],
+      reasoningEfforts: OLLAMA_EFFORTS,
     },
     {
       id: 'kimi-k3',
       name: 'Kimi K3',
       contextWindow: 1_048_576,
       input: ['text', 'image'],
+      reasoningEfforts: OLLAMA_EFFORTS,
     },
     {
       id: 'kimi-k2.7-code',
@@ -99,18 +109,21 @@ const MODELS: Readonly<Record<string, readonly PiAiModelProfile[]>> = {
       name: 'GLM-5.3',
       contextWindow: 1_048_576,
       input: ['text'],
+      reasoningEfforts: OLLAMA_EFFORTS,
     },
     {
       id: 'glm-5.3-flash',
       name: 'GLM-5.3 Flash',
       contextWindow: 1_048_576,
       input: ['text', 'image'],
+      reasoningEfforts: OLLAMA_EFFORTS,
     },
     {
       id: 'minimax-m3',
       name: 'MiniMax M3',
       contextWindow: 524_288,
       input: ['text', 'image'],
+      reasoningEfforts: OLLAMA_EFFORTS,
     },
     {
       id: 'mistral-large-4',
