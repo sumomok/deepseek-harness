@@ -92,6 +92,7 @@ async function registerCatalogProjection(ctx: Context): Promise<void> {
       }
     },
     stateVersion: 0,
+    wire: { viewSchema: z.any(), view: (state: CatalogState) => state },
   } as never)
 }
 
