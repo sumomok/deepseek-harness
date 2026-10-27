@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-desktop-app",
   "description": "The desktop application's own composition layer: the deployment rows the shipped dsh-base and dsh-web-app layers leave to whoever deploys them, the Host half that names the app's own directories in the system prompt, the browser half that names the product in the sidebar, and the server-log exporter one of those rows mounts.",
-  "version": "0.2.1-rc.3.20261027.5",
+  "version": "0.2.1-rc.3.20261027.6",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
