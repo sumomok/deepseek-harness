@@ -1,13 +1,15 @@
 /**
  * Unified Web `@` reference source. File and session discovery run through
  * the cancellable generated Remote namespaces in parallel with deterministic
- * ordering and labels.
+ * ordering and labels; Workspace roots read the Client Workspace projection
+ * without a Remote call.
  * Candidate requests retain an existing Client Session through completion
  * and wait for its initial history open to succeed before contacting the Host.
  *
  * Rows carry only what distinguishes them: a file names its parent directory
  * (nothing at the workspace root), a directory listing names none because its
- * breadcrumb already does, and a session names its workspace only when that
+ * breadcrumb already does, a Workspace root names its path so same-titled
+ * roots stay distinct, and a session names its workspace only when that
  * workspace is not the current one. A session is dated from the Host session
  * list, so the `@` menu and the session list never disagree about its age.
  *
@@ -21,19 +23,24 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ISessions, ReferentRef } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { IWorkspaces, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
+import { workspaceDisplayTitle } from '@deepseek-ai/dsh-api-workspace-controller/default-workspace'
+import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { relativeTime } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { UserTextNodeProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { FileReference, FolderReference, type FileReferenceInjected } from './FileReference.tsx'
 import { fileReferenceRule, folderReferenceRule } from './user-text-rules.ts'
 export type {} from './user-text-rules.ts'
 import type {
-  ClientSessionContext, InputTriggerCrumb, InputTriggerServiceContract, InputTriggerSource,
+  ClientSessionContext, InputTriggerCandidate, InputTriggerCrumb, InputTriggerServiceContract, InputTriggerSource,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { formatFileMention } from '@deepseek-ai/dsh-file-reference/grammar'
 import type { FileReferenceCandidate } from '@deepseek-ai/dsh-file-reference/types'
 import type { SessionReferenceMentionCandidate } from '@deepseek-ai/dsh-session-reference/types'
-import { abbreviateHomePath, fileAddressFor, resolveWorkspacePath } from '@deepseek-ai/dsh-util-workspace-path'
-import { en, es, fr, de, ja, pt, ru, NS, zh, type ReferenceKey } from './locales.ts'
+import {
+  abbreviateHomePath, fileAddressFor, resolveWorkspacePath, workspaceTitleOf,
+} from '@deepseek-ai/dsh-util-workspace-path'
+import { en, es, fr, de, ja, pt, ru, NS, zh } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-api-session-controller/client' {
   interface SessionReferenceSourceMap {
@@ -42,20 +49,21 @@ declare module '@deepseek-ai/dsh-api-session-controller/client' {
   }
 }
 
-/** Required services: the trigger registry, the Remote namespaces, the copy, and the reference-open seam. */
+/** Required services: the trigger registry, the Remote namespaces, the copy, the Workspace projection, and the reference-open seam. */
 export const inject = [
-  'inputTriggers', 'locale', 'sessions', 'referent', 'remote', 'remote.fileReferences',
+  'inputTriggers', 'locale', 'sessions', 'workspaces', 'referent', 'remote', 'remote.fileReferences',
   'remote.sessionReferenceResolver', 'sidebarRight', 'slots', 'uiConversation',
 ]
 
 /**
- * Register the combined `@file` / `@session` source and independent file/folder text providers.
+ * Register the combined `@file` / `@workspace` / `@session` source and independent file/folder text providers.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'ui-reference: dictionaries')
   const t = ctx.locale.bind(NS)
   const sessions = ctx.get('sessions') as ISessions
+  const workspaces = ctx.get('workspaces') as IWorkspaces
   ctx.uiConversation.userText.register(fileReferenceRule)
   ctx.uiConversation.userText.register(folderReferenceRule)
   ctx.slots.inject('conversation.user.text.node', function* () {
@@ -111,6 +119,11 @@ export function apply(ctx: ClientContext): void {
       const withLocation = crumbsFor(query, quoted === true, drilled, t) === undefined
       const now = Date.now()
       const home = ctx.remote.$host.home
+      // An open quoted path is file-path completion; Workspace roots answer the
+      // same way Sessions do there: they stay out of the listing.
+      const workspaceItems = quoted === true
+        ? []
+        : workspaceCandidates(workspaces.list.getSnapshot().items, query, home, t)
       const listed = sessions.list.getSnapshot().byId
       const sessionRows = sessionItems.map((candidate) => {
         const summary = listed[candidate.sessionId]
@@ -130,6 +143,7 @@ export function apply(ctx: ClientContext): void {
       })
       return [
         ...fileItems.flatMap(candidate => fileCandidate(candidate, quoted === true, withLocation, t)),
+        ...workspaceItems,
         ...sessionRows.filter(item => item.child).map(item => item.row),
         ...sessionRows.filter(item => !item.child).map(item => item.row),
       ]
@@ -185,7 +199,8 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => inputTriggers.registerSource(source), 'ui-reference: @ source')
 }
 
-type Translate = (key: ReferenceKey, params?: Record<string, unknown>) => string
+/** Bound `reference` dictionary; the locale service appends the shared common vocabulary. */
+type Translate = TranslateNS<typeof NS>
 
 /**
  * The directory a Session's relative paths resolve against at this moment: its
@@ -270,6 +285,73 @@ function crumbsFor(
 function directoryValue(label: string, mention: string): string {
   const value: ReferenceCandidateValue = { kind: 'file', fileKind: 'directory', label, mention }
   return JSON.stringify(value)
+}
+
+/**
+ * Workspace-root rows for one query, in Host registry order.
+ *
+ * A row matches its displayed title or its root path, and roots dedupe on that
+ * canonical path so a duplicate registration cannot repeat a mention.
+ * @param items - Host Workspace projections in registry order.
+ * @param query - text following `@`, matched case-insensitively.
+ * @param home - Host account home for the displayed path.
+ * @param t - the reference dictionary.
+ * @returns one folder-shaped row per distinct mentionable root.
+ */
+function workspaceCandidates(
+  items: readonly WorkspaceView[],
+  query: string,
+  home: string | undefined,
+  t: Translate,
+): InputTriggerCandidate[] {
+  const needle = query.replaceAll('\\', '/').toLowerCase()
+  const defaultTitle = t('workspace.defaultName')
+  const section = t('section.workspaces')
+  const seen = new Set<string>()
+  const rows: InputTriggerCandidate[] = []
+  for (const item of items) {
+    const path = workspaceRootPath(item.path)
+    // An empty projection has no directory to mention.
+    if (path === '' || seen.has(path)) continue
+    seen.add(path)
+    const title = workspaceDisplayTitle(item.title, defaultTitle) || workspaceTitleOf(item.path)
+    if (needle !== '' && !title.toLowerCase().includes(needle) && !path.toLowerCase().includes(needle)) continue
+    const mention = workspaceMention(path)
+    if (mention === undefined) continue
+    const value: ReferenceCandidateValue = { kind: 'file', fileKind: 'directory', label: title, mention }
+    rows.push({
+      name: title,
+      description: abbreviateHomePath(item.path, home),
+      icon: 'folder',
+      section,
+      value: JSON.stringify(value),
+    })
+  }
+  return rows
+}
+
+/**
+ * Canonical root spelling for a mention: forward slashes, no trailing separator.
+ * @param path - Host Workspace path in either separator spelling.
+ * @returns the normalized root path, or an empty string for an empty projection.
+ */
+function workspaceRootPath(path: string): string {
+  const normalized = path.replaceAll('\\', '/').replace(/\/+$/u, '')
+  return normalized === '' && path !== '' ? '/' : normalized
+}
+
+/**
+ * Complete directory mention for a Workspace root. The shared formatter keeps a
+ * quoted directory's quote open so completion can descend inside it; a
+ * Workspace row settles atomically, so its mention closes that quote.
+ * @param path - normalized absolute root path.
+ * @returns the mention text, or undefined when the grammar cannot carry it.
+ */
+function workspaceMention(path: string): string | undefined {
+  // A filesystem root is the one empty formatter path the grammar still names.
+  const mention = formatFileMention({ path: path === '/' ? '' : path, kind: 'directory' }, false)
+  if (mention === undefined) return undefined
+  return mention.startsWith('@"') ? `${mention}"` : mention
 }
 
 function fileCandidate(

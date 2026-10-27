@@ -1,5 +1,5 @@
 ---
-description: "Web @file and @session reference source for the composer: candidates, ordering, and atomic inline references (unified file/session picking)."
+description: "Web @file, @workspace, and @session reference source for the composer: candidates, ordering, and atomic inline references (unified file/workspace/session picking)."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Use `dsh-client-ui-reference` when Web users need to mention files, folders, or sessions from one `@` completion menu. It lists files before sessions and keeps either group available when the other cannot load. Picking a file, folder, or session inserts an atomic reference with a stable clipboard form; folder rows also let users descend without closing completion. File rows omit redundant root locations, and session rows show a workspace only when it differs from the current one. Session mentions are validated before model context is captured, while browsing candidates has no model effect.
+Use `dsh-client-ui-reference` to mention files, folders, Workspace roots, or sessions from one `@` menu. It lists files, then registered Workspace roots, then sessions; a failed lookup leaves the other groups available. Picking any row inserts an atomic reference with a stable clipboard form, and folder rows still let users descend without closing completion. File rows omit redundant root locations, workspace roots name their absolute path so same-titled roots stay distinct, and session rows show a workspace only when it differs from the current one. Session mentions are validated before model context is captured; browsing candidates has no model effect.
 
 ## Table of Contents
 
@@ -25,11 +25,13 @@ Use `dsh-client-ui-reference` when Web users need to mention files, folders, or 
 <a id="use-this-package"></a>
 ## Use this package
 
-The source is active whenever the composition mounts this package and a Host `ctx.fileReferences` provider is available. Type `@` followed by an unquoted token to see files first, then sessions; open `@"…` to search files only. The candidate list is a completion menu, not a search result page: pick once and keep typing.
+The source is active whenever the composition mounts this package, a Host `ctx.fileReferences` provider is available, and the Client Workspace projection (`ctx.workspaces`) is composed. Type `@` followed by an unquoted token to see files first, then registered Workspace roots, then sessions; open `@"…` to search files only, which also suppresses Workspace and Session rows. The candidate list is a completion menu, not a search result page: pick once and keep typing.
 
 ### What a pick inserts
 
 A file closes completion as an atomic inline reference displayed with a file glyph and business-color filename. A directory row carries two verbs: the settling pick (row click or Enter) resolves the folder itself as the same kind of atomic reference — folder glyph, trailing-slash label, canonical `@dir/` mention as its serialized form — while the drill action (Tab or the row's chevron) keeps plain editable path text with a folder glyph and the menu active at its trailing slash, so you can descend another level. Paths containing whitespace use `@"path with spaces"`, and a quote the user opened explicitly remains quoted.
+
+A Workspace root pick settles as the same atomic folder reference: the hidden `ref` is the root's absolute path with a trailing slash, quoted when the path contains whitespace, and the chip label is the Workspace title. The mention is complete on insertion, so a root whose path contains spaces leaves no open quote in the draft. Workspace rows carry no drill verb, because a root may live outside the Session's file-search directory.
 
 A session pick inserts an atomic inline reference whose hidden `ref` and clipboard representation is the canonical `@[label](dsh-session:…)` mention returned by the Host; its visible form is a chat-bubble glyph plus the session title. Sending carries the mention through `session.prompt`, and the session-reference service validates it and captures model context at `agent/pre-step`.
 
@@ -51,7 +53,7 @@ The source keeps candidate encoding internal to the registration effect: the `/c
 
 ### Candidate flow
 
-For an unquoted token, the browser starts the `fileReferences/list` and `sessionReferenceResolver/candidates` Remote calls together, then deterministically orders files, direct subagents of the current Session, and other Sessions. Rows use the resolver's display title, which prefers a subagent's creation label while ordinary Sessions retain their projected title, and render under locale-owned group headings without a redundant raw `reference` source title. A session row is dated from the Host session list's `updatedAt` through the same relative-time bucket that list uses, so one session reads the same age on both surfaces; a session the list does not carry falls back to the candidate's creation time. A drilled query publishes a breadcrumb from the workspace root to the current directory; each crumb carries the drill payload a folder row would, so returning to a step and descending into one are one outcome.
+For an unquoted token, the browser starts the `fileReferences/list` and `sessionReferenceResolver/candidates` Remote calls together, then deterministically orders files, registered Workspace roots, direct subagents of the current Session, and other Sessions. Workspace roots come from the Client Workspace projection without a Remote call: rows keep Host registry order, match the displayed title or canonical path case-insensitively, dedupe on that canonical path, and render under their own locale-owned heading. An open quoted path suppresses them along with Sessions. Rows use the resolver's display title, which prefers a subagent's creation label while ordinary Sessions retain their projected title, and render under locale-owned group headings without a redundant raw `reference` source title. A session row is dated from the Host session list's `updatedAt` through the same relative-time bucket that list uses, so one session reads the same age on both surfaces; a session the list does not carry falls back to the candidate's creation time. A drilled query publishes a breadcrumb from the workspace root to the current directory; each crumb carries the drill payload a folder row would, so returning to a step and descending into one are one outcome.
 
 Candidate requests require an existing retained Client Session and share one temporary `referenceCandidates` reference. Both discovery calls wait for that Session's initial history open to succeed; an unretained Session or failed open prevents both RPCs. The candidate request's cancellation signal covers the history wait and both calls, and the temporary reference is released when the lookup settles.
 
@@ -86,7 +88,7 @@ Indirectly, through Host-owned providers, which own the file guidance and sessio
 
 #### KV Cache effect
 
-Candidate browsing has no model effect. A selected file or session changes only the new user-message suffix and any Host-prepared session-reference context that follows that message; earlier target history remains unchanged.
+Candidate browsing has no model effect. A selected file, Workspace root, or session changes only the new user-message suffix and any Host-prepared session-reference context that follows that message; earlier target history remains unchanged.
 
 ## Known Limitations and Deferred Work
 
@@ -99,6 +101,7 @@ These limits define when the reference source cannot help; they are current pack
 - **No browser-side file scan** — Web completion requires a mounted Host `ctx.fileReferences` provider; the browser cannot fall back to its own filesystem.
 - **Session search remains metadata-only** — discovery filters session id, cwd, and the latest log-backed title through `ctx.sessionReferenceResolver`; message bodies and full transcripts are not searched.
 - **Relative file references bind when clicked** — a relative path resolves against the Session's current working directory at the click, so after the agent changes directory again, an earlier relative reference in a sent message resolves against the new directory.
+- **Workspace rows are the registered projection** — a directory that is not a registered Workspace stays reachable only through `@` path completion, never as a Workspace row.
 
 <a id="dev-note"></a>
 ### Dev Note
