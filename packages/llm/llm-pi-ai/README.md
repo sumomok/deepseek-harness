@@ -78,7 +78,7 @@ Each profile may set a `retryPolicy`; omission uses normal mode with five retrie
 | `displayName` | provider name | Label shown by selector surfaces |
 | `api` | catalog protocol | Wire protocol; only needed for routes the catalog does not supply |
 | `baseURL` | catalog endpoint | Endpoint of every model on the route |
-| `models` | installed catalog | Replaces the route's catalog wholesale; each entry defaults from the installed model |
+| `models` | installed catalog | Replaces the route's default model set wholesale; each entry defaults from the installed or supplemental model of the same id |
 | `modelOverrides` | none | Reshapes individual installed-catalog models without replacing the rest |
 | `compat` | catalog detection | Wire-compatibility switches for unrecognized endpoints |
 | `defaultContextWindow` | `1,000,000` | Capacity fallback for undescribed models |
@@ -97,6 +97,14 @@ A provider pi-ai ships a login for can be signed into through the harness author
 ### Resolve the model catalog
 
 A profile's `models` list replaces the route's installed catalog rather than extending it; each entry defaults its unset fields from the installed model of the same id, so narrowing a route to two models, correcting one capacity, or adding a model newer than the installed catalog are one-line edits. `modelOverrides` reshapes individual installed-catalog models without that cost — correct one model, keep the other thirty-seven — and is refused when set beside a `models` list, on a hand-declared route, or naming a model the catalog does not describe, because a silently unchanged model would be a typo someone hunts for later.
+
+### Use providers the catalog does not ship
+
+Some providers and models are published and reachable before the installed pi-ai catalog lists them. The package ships defaults for those in [`src/supplemental.ts`](src/supplemental.ts): `ollama` appears on the Models page with its endpoint, protocol, compatible-layer switches, and default model set, so storing a credential activates the route; `kimi-coding` serves its catalog models plus `k3.1-pro` when the profile names no `models`. Neither needs a hand-written profile.
+
+Configuration always wins. A profile field replaces the supplemental value for that field, an explicit `models` list replaces the default model set wholesale, and the installed catalog takes over any provider or model id it describes. Supplemental compatibility switches are applied beneath a profile's own switches for each model, so a route repointed at another protocol keeps only the switches that protocol takes. A supplemental `maxTokens` is the model's capability; only a profile that names a cap limits requests by it.
+
+The table bridges a catalog gap; it is not a second catalog. Delete an entry once a pi-ai release ships the same provider or model: the catalog then serves it, and the entry only repeats facts the newer release owns.
 
 ### Run with reasoning and wire compatibility
 
@@ -149,6 +157,7 @@ Initial prompt text and active tools use pi-ai's `Context.systemPrompt` and `Con
 | [`src/login.ts`](src/login.ts) | Authorization flows for the installed providers that ship a login |
 | [`src/config.ts`](src/config.ts) | Profile schema, resolution, and serviceability checks |
 | [`src/catalog.ts`](src/catalog.ts) | Installed-catalog integration and drift gates |
+| [`src/supplemental.ts`](src/supplemental.ts) | Built-in provider and model defaults for routes the installed catalog does not describe |
 | [`src/provider-data.ts`](src/provider-data.ts) | Generated authentication and endpoint metadata for configuration surfaces |
 | [`src/models.ts`](src/models.ts) | Model collections, static providers, and reasoning levels over narrow pi-ai entry points |
 | [`src/provider.ts`](src/provider.ts) | The supported-protocol table and provider construction |
@@ -159,7 +168,7 @@ Initial prompt text and active tools use pi-ai's `Context.systemPrompt` and `Con
 
 ### Registration and directory
 
-The plugin declares every installed catalog provider it can authenticate in the configurable-provider directory, joined with every route the current profiles declare, so configuration surfaces can offer the full catalog before any route exists. A catalog provider whose catalog lists models but no chat model, such as one of classifier models alone, is left out and gets no sign-in flow, because this adapter dispatches chat requests only. Each entry carries `declared` — whether pi-ai ships nothing under that key — because only the adapter can distinguish a hand-declared route from a narrowed catalog route. A catalog entry carries `defaultBaseURL` for a fixed provider endpoint or a fixed endpoint shared by all its models, `baseURLEnv` for endpoint configuration variables, and `nativeAuth` for authentication variables and OAuth availability. Different model endpoints and unresolved URL templates are not presented as one fixed default. Route registration is atomic: a candidate set that collides with another adapter leaves the previous routes serving. A bare mount with zero routes is the dormant posture: nothing registers until the Config supplies profiles, and routes drop when it empties.
+The plugin declares every installed catalog provider it can authenticate in the configurable-provider directory, joined with every route the current profiles declare, so configuration surfaces can offer the full catalog before any route exists. A catalog provider whose catalog lists models but no chat model, such as one of classifier models alone, is left out and gets no sign-in flow, because this adapter dispatches chat requests only. Each entry carries `declared` — whether pi-ai ships nothing under that key — because only the adapter can distinguish a hand-declared route from a narrowed catalog route. A catalog entry carries `defaultBaseURL` for a fixed provider endpoint or a fixed endpoint shared by all its models, `baseURLEnv` for endpoint configuration variables, and `nativeAuth` for authentication variables and OAuth availability. Different model endpoints and unresolved URL templates are not presented as one fixed default. A supplemental route joins the directory after the catalog's entries and before stored profiles: it is `declared` because pi-ai ships nothing under its key, and it carries its declared endpoint so an editor can show and probe the route before any profile exists. Route registration is atomic: a candidate set that collides with another adapter leaves the previous routes serving. A bare mount with zero routes is the dormant posture: nothing registers until the Config supplies profiles, and routes drop when it empties.
 
 <a id="generated-provider-metadata"></a>
 ### Generated provider metadata
