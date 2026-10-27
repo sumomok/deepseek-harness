@@ -144,8 +144,8 @@
     "@haoran/dsh-office-preview-notice": "file:./vendor/haoran-dsh-office-preview-notice-0.3.0.tgz",
     "@haoran/dsh-screenshot": "file:./vendor/haoran-dsh-screenshot-0.7.0.tgz",
     "@haoran/dsh-vision-switch": "file:./vendor/haoran-dsh-vision-switch-0.4.1.tgz",
-    "@haoran/dsh-sidebar-autoscroll": "file:./vendor/haoran-dsh-sidebar-autoscroll-0.1.0.tgz",
-    "@sumomok/dsh-balance": "file:./vendor/sumomok-dsh-balance-0.9.0.tgz",
+    "@haoran/dsh-sidebar-autoscroll": "file:./vendor/haoran-dsh-sidebar-autoscroll-0.1.1.tgz",
+    "@sumomok/dsh-balance": "file:./vendor/sumomok-dsh-balance-0.9.4.tgz",
     "@sumomok/dsh-quote-message": "file:./vendor/sumomok-dsh-quote-message-0.6.0.tgz"
   }
 }

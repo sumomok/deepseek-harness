@@ -259,12 +259,16 @@ Output the Markdown structure below, in order. Use terse bullets and "(none)" fo
 ## Critical Context
 - [decisions and their rationale, constraints, user preferences, open questions, data needed to continue]
 
+## Rules and Conventions
+- [every rule, convention, checklist, or decision standard the user and assistant agreed on, quoted word for word, each with the scope it governs]
+
 Rules:
 - Write concise prose in the primary language of user messages, including headings. Preserve exact paths, commands, errors, identifiers, numbers, signatures, and syntax.
 - Capture user feedback and explicit instructions faithfully, especially corrections.
 - Do NOT mention this summarization request or that the context was compacted.
 - Output only the checkpoint text: do not call any tool or take any other action.
 - Reconcile Pending Jobs, Current Work, Next Step, and Critical Context with the latest messages: remove completed or duplicated items; use "(none)" when awaiting the user.
+- Copy every agreed rule into Rules and Conventions word for word. Never replace a rule with the file or line where it also lives, and never paraphrase it: the reader has no way to tell a paraphrase from the rule the user actually agreed to.
 - If the conversation already contains a <compacted-summary> block, it is a PRIOR checkpoint. Do not copy it forward verbatim: preserve still-true facts, drop stale ones, and merge newer information into a single consolidated summary under the same structure.
 ```
 

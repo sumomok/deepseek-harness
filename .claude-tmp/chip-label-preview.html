@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>窄栏额度显示方案</title>
+<style>
+  body { margin: 0; padding: 24px 28px; background: #f5f5f7; font-family: -apple-system, "PingFang SC", sans-serif; }
+  h1 { font-size: 13px; color: #444; margin: 0 0 18px; font-weight: 600; }
+  .row { display: flex; gap: 36px; align-items: flex-start; }
+  .panel { text-align: center; }
+  .caption { font-size: 11px; color: #777; margin-top: 10px; line-height: 1.6; }
+  .rail { width: 56px; background: #fff; border-radius: 10px; box-shadow: 0 0 0 1px rgba(0,0,0,.06); padding: 14px 0; display: flex; flex-direction: column; align-items: center; }
+  .chip { display: flex; align-items: center; justify-content: center; width: 100%; border: 0; background: transparent; font-size: 10px; font-weight: 600; line-height: 13px; color: #6b6b70; min-height: 32px; }
+  .stack { display: flex; flex-direction: column; align-items: center; white-space: nowrap; padding: 2px 0; }
+  .line { display: block; font-variant-numeric: tabular-nums; }
+  .zoom { transform: scale(4); transform-origin: top center; }
+  .zoom-wrap { width: 180px; height: 200px; display: flex; justify-content: center; padding-top: 6px; }
+  .zoom .chip { font-size: 10px; font-weight: 600; line-height: 13px; color: #6b6b70; }
+</style>
+</head>
+<body>
+  <h1>窄栏（56px）额度显示：短标签方案</h1>
+  <div class="row">
+    <div class="panel">
+      <div class="rail">
+        <button class="chip" type="button">
+          <span class="stack">
+            <span class="line">5时 96%</span>
+            <span class="line">7天 58%</span>
+            <span class="line">月 44%</span>
+          </span>
+        </button>
+      </div>
+      <div class="caption">中文<br>5时 / 7天 / 月</div>
+    </div>
+
+    <div class="panel">
+      <div class="rail">
+        <button class="chip" type="button">
+          <span class="stack">
+            <span class="line">5h 96%</span>
+            <span class="line">7d 58%</span>
+            <span class="line">1mo 44%</span>
+          </span>
+        </button>
+      </div>
+      <div class="caption">英文<br>5h / 7d / 1mo</div>
+    </div>
+
+    <div class="panel">
+      <div class="zoom-wrap">
+        <div class="zoom">
+          <div class="chip"><span class="stack">
+            <span class="line">5时 96%</span>
+            <span class="line">7天 58%</span>
+            <span class="line">月 44%</span>
+          </span></div>
+        </div>
+      </div>
+      <div class="caption">放大 4 倍</div>
+    </div>
+  </div>
+</body>
+</html>
