@@ -1,5 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { createMessage, createToolResultMessage, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import type { Session, SessionHeader } from '@deepseek-ai/dsh-session'
@@ -91,7 +92,9 @@ describe('idle microcompact address readback', () => {
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(Query)
+    await ctx.plugin(AgentRegistry)
     await ctx.plugin(ToolSessionQuery)
     new TokenMeter(ctx)
     new Microcompact(ctx, {
@@ -116,13 +119,12 @@ describe('idle microcompact address readback', () => {
     expect(applied.cleared).toHaveLength(20)
 
     const result = await ctx.tools.execute({
-      name: 'session_event_read',
-      arguments: { session_id: session.id, seq: originalSeq },
-      callId: ToolCallId('readback'),
+      calls: [{ type: 'tool-call', id: ToolCallId('readback'), name: 'session_event_read', arguments: JSON.stringify({ session_id: session.id, seq: originalSeq }) }],
       signal: new AbortController().signal,
       agent: agent(session),
     })
-    const text = result.content.map(block => block.type === 'text' ? block.text : '').join('\n')
+    const outcome = result.results[0]!.result
+    const text = outcome.content.map(block => block.type === 'text' ? block.text : '').join('\n')
     expect(text).toContain('readable '.repeat(200))
     expect(text).toContain('untrusted data')
   })

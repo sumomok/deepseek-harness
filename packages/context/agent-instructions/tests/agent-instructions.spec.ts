@@ -5769,6 +5769,9 @@ describe('dynamic nested workspace context injection', () => {
           offset: 1,
           lines: [{ number: 1, text: 'downstream replacement' }],
           totalLines: 1,
+          version: 'v1',
+          read: 'full',
+          digest: 'downstream-digest',
         },
         additionalContexts: [createUserMessage({
           content: [{ type: 'text' as const, text: 'downstream context' }],
@@ -5791,6 +5794,9 @@ describe('dynamic nested workspace context injection', () => {
         offset: 1,
         lines: [{ number: 1, text: 'downstream replacement' }],
         totalLines: 1,
+        version: 'v1',
+        read: 'full',
+        digest: 'downstream-digest',
       })
       expect(blocksText(result.content)).toContain('downstream replacement')
       expect(result.additionalContexts).toHaveLength(1)

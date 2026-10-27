@@ -2,7 +2,8 @@ import { Context } from '@deepseek-ai/cordis'
 import { mkdtemp, readFile, rm, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { createToolResultMessage, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -30,7 +31,9 @@ async function mountQuery(): Promise<Context> {
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(Query)
+  await ctx.plugin(AgentRegistry)
   await ctx.plugin(ToolSessionQuery)
   return ctx
 }
@@ -90,19 +93,19 @@ describe('spill retention and address separation', () => {
     const seq = session.surface.nodes.at(-1)!
     await rm(spill.locator)
     const read = await ctx.tools.execute({
-      name: 'session_event_read', arguments: { session_id: session.id, seq }, callId: ToolCallId('read'),
+      calls: [{ type: 'tool-call', id: ToolCallId('read'), name: 'session_event_read', arguments: JSON.stringify({ session_id: session.id, seq }) }],
       signal: new AbortController().signal, agent: agent(session),
     })
-    const text = read.content.map(block => block.type === 'text' ? block.text : '').join('\n')
+    const text = read.results[0]!.result.content.map(block => block.type === 'text' ? block.text : '').join('\n')
     expect(text).toContain('event body survives')
     expect(text).toContain('untrusted data')
 
     const missing = await ctx.tools.execute({
-      name: 'session_event_read', arguments: { session_id: 'spill-missing', seq: 0 }, callId: ToolCallId('read-missing'),
+      calls: [{ type: 'tool-call', id: ToolCallId('read-missing'), name: 'session_event_read', arguments: JSON.stringify({ session_id: 'spill-missing', seq: 0 }) }],
       signal: new AbortController().signal, agent: agent(session),
     })
-    expect(missing.isError).toBe(true)
-    expect(missing.content.map(block => block.type === 'text' ? block.text : '').join('\n'))
+    expect(missing.results[0]!.result.isError).toBe(true)
+    expect(missing.results[0]!.result.content.map(block => block.type === 'text' ? block.text : '').join('\n'))
       .toMatch(/outside the caller workspace|no event at seq|not found/i)
     await ctx.fiber.dispose()
   })
@@ -114,16 +117,16 @@ describe('spill retention and address separation', () => {
     session.append('user/message', createUserMessage({ content: [{ type: 'text', text: 'diskless body' }], source: { kind: 'user' } }), { surfaceOp: 'append' })
     const seq = session.surface.nodes[0]!
     const read = await ctx.tools.execute({
-      name: 'session_event_read', arguments: { session_id: session.id, seq }, callId: ToolCallId('read-live'),
+      calls: [{ type: 'tool-call', id: ToolCallId('read-live'), name: 'session_event_read', arguments: JSON.stringify({ session_id: session.id, seq }) }],
       signal: new AbortController().signal, agent: agent(session),
     })
-    expect(read.content.map(block => block.type === 'text' ? block.text : '').join('\n')).toContain('diskless body')
+    expect(read.results[0]!.result.content.map(block => block.type === 'text' ? block.text : '').join('\n')).toContain('diskless body')
     const missing = await ctx.tools.execute({
-      name: 'session_event_read', arguments: { session_id: 'diskless-unknown', seq: 0 }, callId: ToolCallId('read-unknown'),
+      calls: [{ type: 'tool-call', id: ToolCallId('read-unknown'), name: 'session_event_read', arguments: JSON.stringify({ session_id: 'diskless-unknown', seq: 0 }) }],
       signal: new AbortController().signal, agent: agent(session),
     })
-    expect(missing.isError).toBe(true)
-    expect(missing.content.map(block => block.type === 'text' ? block.text : '').join('\n'))
+    expect(missing.results[0]!.result.isError).toBe(true)
+    expect(missing.results[0]!.result.content.map(block => block.type === 'text' ? block.text : '').join('\n'))
       .toMatch(/outside the caller workspace|no event at seq|not found/i)
     await ctx.fiber.dispose()
   })

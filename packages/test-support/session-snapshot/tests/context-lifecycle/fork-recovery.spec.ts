@@ -1,5 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { createMessage, createToolResultMessage, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -53,7 +54,9 @@ async function mount(): Promise<{ ctx: Context; parent: Session; child: Session;
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(Query)
+  await ctx.plugin(AgentRegistry)
   await ctx.plugin(ToolSessionQuery)
   new TokenMeter(ctx)
   new Microcompact(ctx, {
@@ -82,9 +85,14 @@ async function mount(): Promise<{ ctx: Context; parent: Session; child: Session;
 describe('fork inherited address readback', () => {
   it('reads the parent address from the fork child and the inherited seq from the child', async () => {
     const { ctx, parent, child, noticeSeq } = await mount()
-    const read = async (sessionId: SessionId, seq: number) => ctx.tools.execute({
-      name: 'session_event_read', arguments: { session_id: sessionId, seq }, callId: ToolCallId('read'), signal: new AbortController().signal, agent: agent(child),
-    })
+    const read = async (sessionId: SessionId, seq: number) => {
+      const batch = await ctx.tools.execute({
+        calls: [{ type: 'tool-call', id: ToolCallId('read'), name: 'session_event_read', arguments: JSON.stringify({ session_id: sessionId, seq }) }],
+        signal: new AbortController().signal,
+        agent: agent(child),
+      })
+      return batch.results[0]!.result
+    }
     const readEvent = vi.spyOn(ctx.sessionQuery, 'readEvent')
     const parentRead = await read(parent.id, noticeSeq)
     expect(readEvent.mock.calls.at(-1)?.[0].sessionId).toBe(parent.id)
@@ -104,9 +112,13 @@ describe('fork inherited address readback', () => {
 describe('fork authorization boundary', () => {
   it('allows same-cwd siblings, denies another cwd, and cannot resolve a parent address without the parent live', async () => {
     const { ctx, parent, child, noticeSeq } = await mount()
-    const execute = (caller: Session, sessionId: SessionId, seq: number) => ctx.tools.execute({
-      name: 'session_event_read', arguments: { session_id: sessionId, seq }, callId: ToolCallId('read'), signal: new AbortController().signal, agent: agent(caller),
-    })
+    const execute = async (caller: Session, sessionId: SessionId, seq: number) => {
+      const batch = await ctx.tools.execute({
+        calls: [{ type: 'tool-call', id: ToolCallId('read'), name: 'session_event_read', arguments: JSON.stringify({ session_id: sessionId, seq }) }],
+        signal: new AbortController().signal, agent: agent(caller),
+      })
+      return batch.results[0]!.result
+    }
 
     const sibling = ctx.sessions.create(SessionId('same-cwd-sibling'), { meta: { createdAt: 1, cwd: '/work' } })
     expect((await execute(sibling, parent.id, noticeSeq)).isError).not.toBe(true)
@@ -124,24 +136,26 @@ describe('fork authorization boundary', () => {
     await second.plugin(SessionProjectionRegistry)
     await second.plugin(SystemPrompt)
     await second.plugin(ToolRuntime)
+    await second.plugin(NativeToolExecutor)
     await second.plugin(Query)
+    await second.plugin(AgentRegistry)
     await second.plugin(ToolSessionQuery)
     const orphan = second.sessions.create(child.id, {
       seed: child.snapshotEvents(),
       inheritedEventCount: child.inheritedEventCount,
       meta: { createdAt: 1, cwd: '/work', parentSession: parent.id, isSeeded: true },
     })
-    const orphanRead = await second.tools.execute({
-      name: 'session_event_read', arguments: { session_id: orphan.id, seq: noticeSeq }, callId: ToolCallId('read-orphan'),
+    const orphanRead = (await second.tools.execute({
+      calls: [{ type: 'tool-call', id: ToolCallId('read-orphan'), name: 'session_event_read', arguments: JSON.stringify({ session_id: orphan.id, seq: noticeSeq }) }],
       signal: new AbortController().signal, agent: agent(orphan),
-    })
+    })).results[0]!.result
     expect(orphanRead.isError).not.toBe(true)
     expect(orphanRead.content.map(block => block.type === 'text' ? block.text : '').join('\n')).toContain('inherited readable')
     const readGone = vi.spyOn(second.sessionQuery, 'readEvent')
-    const parentGone = await second.tools.execute({
-      name: 'session_event_read', arguments: { session_id: parent.id, seq: noticeSeq }, callId: ToolCallId('read-parent-gone'),
+    const parentGone = (await second.tools.execute({
+      calls: [{ type: 'tool-call', id: ToolCallId('read-parent-gone'), name: 'session_event_read', arguments: JSON.stringify({ session_id: parent.id, seq: noticeSeq }) }],
       signal: new AbortController().signal, agent: agent(orphan),
-    })
+    })).results[0]!.result
     expect(readGone.mock.calls.at(-1)?.[0].sessionId).toBe(orphan.id)
     const parentGoneText = parentGone.content.map(block => block.type === 'text' ? block.text : '').join('\n')
     expect(parentGone.isError).not.toBe(true)
@@ -151,22 +165,22 @@ describe('fork authorization boundary', () => {
     expect(parentGoneText).toContain('caller inherited fork prefix')
     expect(parentGoneText).toContain('parent session corpus is currently unavailable')
 
-    const errorCode = (result: Awaited<ReturnType<typeof ctx.tools.execute>>): unknown =>
+    const errorCode = (result: Awaited<ReturnType<typeof ctx.tools.execute>>['results'][number]['result']): unknown =>
       (result.error as { info?: { code?: string } } | undefined)?.info?.code
 
     // Non-parent, cross-cwd, over-boundary, and cwd-less callers stay rejected.
     const nonParent = second.sessions.create(SessionId('non-parent'), { meta: { createdAt: 1, cwd: '/other' } })
-    const nonParentRead = await second.tools.execute({
-      name: 'session_event_read', arguments: { session_id: nonParent.id, seq: 0 }, callId: ToolCallId('read-non-parent'),
+    const nonParentRead = (await second.tools.execute({
+      calls: [{ type: 'tool-call', id: ToolCallId('read-non-parent'), name: 'session_event_read', arguments: JSON.stringify({ session_id: nonParent.id, seq: 0 }) }],
       signal: new AbortController().signal, agent: agent(orphan),
-    })
+    })).results[0]!.result
     expect(nonParentRead.isError).toBe(true)
     expect(errorCode(nonParentRead)).toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
 
-    const over = await second.tools.execute({
-      name: 'session_event_read', arguments: { session_id: parent.id, seq: orphan.inheritedEventCount }, callId: ToolCallId('read-over'),
+    const over = (await second.tools.execute({
+      calls: [{ type: 'tool-call', id: ToolCallId('read-over'), name: 'session_event_read', arguments: JSON.stringify({ session_id: parent.id, seq: orphan.inheritedEventCount }) }],
       signal: new AbortController().signal, agent: agent(orphan),
-    })
+    })).results[0]!.result
     expect(over.isError).toBe(true)
     expect(errorCode(over)).toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
 
@@ -174,10 +188,10 @@ describe('fork authorization boundary', () => {
       seed: child.snapshotEvents(), inheritedEventCount: child.inheritedEventCount,
       meta: { createdAt: 1, cwd: '/other', parentSession: parent.id, isSeeded: true },
     })
-    const crossRead = await ctx.tools.execute({
-      name: 'session_event_read', arguments: { session_id: parent.id, seq: noticeSeq }, callId: ToolCallId('read-cross'),
+    const crossRead = (await ctx.tools.execute({
+      calls: [{ type: 'tool-call', id: ToolCallId('read-cross'), name: 'session_event_read', arguments: JSON.stringify({ session_id: parent.id, seq: noticeSeq }) }],
       signal: new AbortController().signal, agent: agent(cross),
-    })
+    })).results[0]!.result
     expect(crossRead.isError).toBe(true)
     expect(errorCode(crossRead)).toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
 
@@ -185,10 +199,10 @@ describe('fork authorization boundary', () => {
       seed: child.snapshotEvents(), inheritedEventCount: child.inheritedEventCount,
       meta: { createdAt: 1, parentSession: parent.id, isSeeded: true },
     })
-    const noCwdRead = await second.tools.execute({
-      name: 'session_event_read', arguments: { session_id: parent.id, seq: noticeSeq }, callId: ToolCallId('read-no-cwd'),
+    const noCwdRead = (await second.tools.execute({
+      calls: [{ type: 'tool-call', id: ToolCallId('read-no-cwd'), name: 'session_event_read', arguments: JSON.stringify({ session_id: parent.id, seq: noticeSeq }) }],
       signal: new AbortController().signal, agent: agent(noCwd),
-    })
+    })).results[0]!.result
     expect(noCwdRead.isError).toBe(true)
     expect(errorCode(noCwdRead)).toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
     await second.fiber.dispose()

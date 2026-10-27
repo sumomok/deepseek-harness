@@ -381,12 +381,16 @@ function normalizeProjectedRow(source: Readonly<Record<string, unknown>>): Recor
 
 /** Materialize fixture-only header omissions and tokens before physical validation. */
 function normalizeProjectedHeader(header: Readonly<Record<string, unknown>>): Record<string, unknown> {
-  const normalized = { ...header }
-  if (normalized['version'] === 0 && !Object.hasOwn(header, 'delegationDepth')) {
+  const envelope = header['data']
+  const normalized = envelope !== null && typeof envelope === 'object' && !Array.isArray(envelope)
+    ? { ...envelope, ...(Object.hasOwn(header, 'type') ? { type: header['type'] } : {}) }
+    : { ...header }
+  if (normalized['version'] === 0 && !Object.hasOwn(normalized, 'delegationDepth')) {
     normalized['delegationDepth'] = 0
   }
-  if (typeof header['cwd'] === 'string' && /^\{\{cwd\}\}(?:\/|$)/.test(header['cwd'])) {
-    normalized['cwd'] = header['cwd'].replace('{{cwd}}', '/dsh-snapshot-cwd')
+  if (normalized['createdAt'] === undefined) normalized['createdAt'] = 1
+  if (typeof normalized['cwd'] === 'string' && /^\{\{cwd\}\}(?:\/|$)/.test(normalized['cwd'])) {
+    normalized['cwd'] = normalized['cwd'].replace('{{cwd}}', '/dsh-snapshot-cwd')
   }
   return normalized
 }

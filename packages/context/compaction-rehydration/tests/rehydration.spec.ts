@@ -34,7 +34,6 @@ interface Bench {
 }
 
 async function harness(options: {
-  projections?: boolean
   todo?: boolean
   subagents?: boolean
   fs?: ReadFsLike
@@ -45,11 +44,11 @@ async function harness(options: {
   await ctx.plugin(SystemPrompt, { personaPrefix: '' })
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(UserQuestionService)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
-  if (options.projections !== false) await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(Rehydration)
   if (options.todo === true) await ctx.plugin(ToolTodo, { allowParallelInProgress: true })
-  if (options.subagents === true) registerCatalogProjection(ctx)
+  if (options.subagents === true) await registerCatalogProjection(ctx)
   if (options.fs !== undefined) ctx.provide('fs', options.fs)
   const session = options.cwd === null
     ? ctx.sessions.create()
@@ -73,8 +72,8 @@ interface CatalogState {
   readonly head?: CatalogChunk
 }
 
-function registerCatalogProjection(ctx: Context): void {
-  ctx.sessionProjections.register({
+async function registerCatalogProjection(ctx: Context): Promise<void> {
+  await ctx.sessionProjections.register({
     key: 'subagentCatalog',
     stateSchema: z.object({ head: z.any().optional() }),
     init: () => ({}),
@@ -464,8 +463,8 @@ describe('the state a compaction rebuilds', () => {
     expect(await fire(ctx, agent)).toBe(0)
   })
 
-  it('rebuilds the log-derived sections when projections are not mounted', async () => {
-    const { ctx, session, agent } = await harness({ projections: false })
+  it('rebuilds the log-derived sections without a catalog projection', async () => {
+    const { ctx, session, agent } = await harness()
     openTurn(session)
     callPlan(session, '# Plan\n- keep going', 'plan-4', 'approved')
     writeTodos(session, [{ content: 'not projected', status: 'pending' }])
