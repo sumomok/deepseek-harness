@@ -131,6 +131,13 @@ const MODELS: Readonly<Record<string, readonly PiAiModelProfile[]>> = {
         high: 'high',
         max: 'max',
       },
+      // The Kimi coding endpoint rejects the developer role and the store
+      // parameter; the catalog declares both for k3, and this model is not in
+      // the catalog, so they are stated here.
+      compat: {
+        supportsDeveloperRole: false,
+        supportsStore: false,
+      },
     },
   ],
 }

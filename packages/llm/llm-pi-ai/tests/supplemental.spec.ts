@@ -159,6 +159,20 @@ describe('explicit provider profiles over supplemental defaults', () => {
     })
   })
 
+  it('keeps the developer role off the Kimi coding endpoint for the supplemental model', () => {
+    // Kimi's coding endpoint answers `role 'developer' is not allowed` with a
+    // 400. The catalog states that switch for its own k3 models; k3.1-pro is
+    // not in the catalog, so the table has to state it or every request on
+    // this route fails.
+    const profile = resolved('kimi-coding', { apiKeyEnv: 'KIMI_CODING_API_KEY' })
+    const model = profile.piProvider?.getModels().find(entry => entry.id === 'k3.1-pro')
+
+    expect(model?.compat).toMatchObject({
+      supportsDeveloperRole: false,
+      supportsStore: false,
+    })
+  })
+
   it('lets a profile switch win over the supplemental value for that field', () => {
     const profile = resolved('ollama', {
       compat: { supportsReasoningEffort: true },
