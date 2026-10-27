@@ -131,7 +131,7 @@ function sessionWithHistory(): Session {
 async function preStep(ctx: Context, session: Session): Promise<void> {
   await agentEvents(ctx, agent(session)).waterfall(
     'agent/pre-step',
-    { messages: [], turn: 7, step: 1, signal: SIGNAL },
+    { messages: [], turn: 7, step: 1, modelSelection: { provider: 'test', model: 'test' }, signal: SIGNAL },
     () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
   )
 }

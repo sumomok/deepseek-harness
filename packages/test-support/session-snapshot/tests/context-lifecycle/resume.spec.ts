@@ -300,7 +300,7 @@ async function firePreStep(ctx: Context, agent: Agent, turn = 20, step = 1): Pro
   })
   const decision = await agentEvents(ctx, agent).waterfall(
     'agent/pre-step',
-    { messages: [proposed], turn, step, signal: new AbortController().signal },
+    { messages: [proposed], turn, step, modelSelection: { provider: 'test', model: 'test' }, signal: new AbortController().signal },
     () => Promise.resolve({ kind: 'enter' as const, messages: [proposed] }),
   )
   if (decision.kind === 'reject') return 0

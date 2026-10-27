@@ -382,7 +382,7 @@ function normalizeProjectedRow(source: Readonly<Record<string, unknown>>): Recor
 /** Materialize fixture-only header omissions and tokens before physical validation. */
 function normalizeProjectedHeader(header: Readonly<Record<string, unknown>>): Record<string, unknown> {
   const envelope = header['data']
-  const normalized = envelope !== null && typeof envelope === 'object' && !Array.isArray(envelope)
+  const normalized: Record<string, unknown> = envelope !== null && typeof envelope === 'object' && !Array.isArray(envelope)
     ? { ...envelope, ...(Object.hasOwn(header, 'type') ? { type: header['type'] } : {}) }
     : { ...header }
   if (normalized['version'] === 0 && !Object.hasOwn(normalized, 'delegationDepth')) {

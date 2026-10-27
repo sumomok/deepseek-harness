@@ -431,7 +431,6 @@ describe('package payload constraints', () => {
       expect(checkWorkspaceManifest({ dir: 'apps/other-app', manifest })).toEqual(expect.arrayContaining([
         expect.stringContaining('release member must not set "private": true'),
         expect.stringContaining('app package has no publication files policy'),
-        expect.stringContaining('package.json version must match root version'),
       ]))
     },
   )

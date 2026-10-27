@@ -47,6 +47,7 @@ async function runPreStep(ctx: Context, session: ReturnType<SessionStore['create
     messages: [user],
     turn: 1,
     step: 1,
+    modelSelection: { provider: 'test', model: 'test' },
     signal: SIGNAL,
   }, async () => ({ kind: 'enter', messages: [user] }))
   return decision.kind === 'enter' ? [...decision.messages] : []

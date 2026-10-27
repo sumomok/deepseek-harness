@@ -288,7 +288,7 @@ function jobSection(session: Session): DraftSection | undefined {
 function subagentSection(ctx: Context, session: Session): DraftSection | undefined {
   const projections = ctx.get('sessionProjections')
   if (projections === undefined) return undefined
-  const state = projections.stateOf(session, 'subagentCatalog') as { readonly head?: CatalogChunk } | undefined
+  const state = projections.snapshot(session, ['subagentCatalog']).values.subagentCatalog as { readonly head?: CatalogChunk } | undefined
   if (state?.head === undefined) return undefined
   const children = new Map<string, CatalogChild>()
   for (let chunk: CatalogChunk | undefined = state.head; chunk !== undefined; chunk = chunk.previous) {

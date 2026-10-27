@@ -129,6 +129,7 @@ async function runPreStep(
     messages: [user],
     turn: 1,
     step,
+    modelSelection: { provider: 'test', model: 'test' },
     signal: SIGNAL,
   }, async () => ({ kind: 'enter', messages: [user] }))
   expect(decision.kind).toBe('enter')

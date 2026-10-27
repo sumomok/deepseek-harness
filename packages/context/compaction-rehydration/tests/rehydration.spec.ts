@@ -107,6 +107,7 @@ function sessionAgent(session: Session, ctx: Context): Agent {
   return {
     id: session.id,
     options: {},
+    model: {} as Agent['model'],
     session,
     inbox: unsupportedInbox(),
     status: 'running',
@@ -349,7 +350,7 @@ async function fire(ctx: Context, agent: Agent, turn = 1, step = 1): Promise<num
   })
   const decision = await agentEvents(ctx, agent).waterfall(
     'agent/pre-step',
-    { messages: [proposed], turn, step, signal: SIGNAL },
+    { messages: [proposed], turn, step, modelSelection: { provider: 'test', model: 'test' }, signal: SIGNAL },
     () => Promise.resolve({ kind: 'enter' as const, messages: [proposed] }),
   )
   if (decision.kind === 'reject') return 0
