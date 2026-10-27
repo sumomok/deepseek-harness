@@ -29,6 +29,8 @@ import type {
   Provider,
   ThinkingLevelMap,
 } from '@earendil-works/pi-ai'
+import { supplementalModels, supplementalProvider } from './supplemental.ts'
+import type { SupplementalProvider } from './supplemental.ts'
 
 /**
  * Pricing for a model the installed catalog does not describe. The harness
@@ -218,6 +220,18 @@ export function catalogModels(provider: string): Map<string, Model<Api>> {
   if (!catalogProviders().has(provider)) return new Map()
   const models = getBuiltinModels(provider as BuiltinProvider) as Model<Api>[]
   return new Map(models.map(model => [model.id, model]))
+}
+
+/**
+ * The supplemental provider facts for one route, when the installed catalog
+ * ships nothing under that key. The catalog keeps priority: a route it begins
+ * to describe takes over with no edit here, so the table only ever fills a
+ * gap the catalog leaves.
+ * @param provider - provider route key.
+ * @returns the supplemental facts, or `undefined` for a catalog route or a key no table names.
+ */
+export function supplementalProviderFacts(provider: string): SupplementalProvider | undefined {
+  return catalogProvider(provider) === undefined ? supplementalProvider(provider) : undefined
 }
 
 /**
@@ -779,17 +793,20 @@ type ModelCompat = OpenAICompletionsCompat | OpenAIResponsesCompat | AnthropicMe
 /**
  * Resolve one model's compat block from the profile's switches.
  *
- * A model switch wins over the route switch field by field; whatever neither
- * sets keeps the installed entry's value, and a field no layer decides falls
- * through to pi-ai's own detection. A model-level switch its protocol does not
- * take fails resolution — about one named model it can only be a mistake —
- * while a route-level one skips past such models, since a route default must
- * stay settable on a route whose models do not all speak one protocol. Every
- * field reaching here is offered by some protocol; {@link
- * assertOfferedCompatFields} has already refused the rest.
+ * Three layers, each winning field by field over the one before: the
+ * supplemental defaults this package ships for an endpoint pi-ai cannot
+ * detect, the route switches the deployment set, and the entry's own switches.
+ * Whatever none sets keeps the installed entry's value, and a field no layer
+ * decides falls through to pi-ai's own detection. A model-level switch its
+ * protocol does not take fails resolution — about one named model it can only
+ * be a mistake — while a route-level or supplemental one skips past such
+ * models, since a default must stay settable on a route whose models do not
+ * all speak one protocol. Every field reaching here is offered by some
+ * protocol; {@link assertOfferedCompatFields} has already refused the rest.
  * @param provider - provider route key, for diagnostics.
  * @param entry - the configured model entry.
  * @param route - the route-level switches, when any.
+ * @param supplemental - the supplemental provider's switches, when any.
  * @param base - the installed catalog entry of the same id, when one exists.
  * @param api - the model's resolved wire protocol.
  * @returns a `compat` field to spread into the model, or nothing.
@@ -798,11 +815,16 @@ function resolveModelCompat(
   provider: string,
   entry: PiAiModelProfile,
   route: PiAiCompatProfile | undefined,
+  supplemental: PiAiCompatProfile | undefined,
   base: Model<Api> | undefined,
   api: string,
 ): { compat: ModelCompat } | Record<string, never> {
   const gate = compatGate(api)
   const configured: Record<string, unknown> = {}
+  for (const [field, value] of configuredCompatEntries(supplemental)) {
+    if (gate?.[field] !== 'offer') continue
+    configured[field] = value
+  }
   for (const [field, value] of configuredCompatEntries(route)) {
     if (gate?.[field] !== 'offer') continue
     configured[field] = value
@@ -849,8 +871,10 @@ export interface RouteCatalog {
 /**
  * Materialize one route's catalog by merging the installed catalog defaults
  * under the configured entries. A route with no configured `models` serves the
- * installed catalog unchanged, which is what keeps an existing
- * `providers: { deepseek: { apiKeyEnv: … } }` profile working untouched.
+ * installed catalog plus this package's supplemental defaults, which is what
+ * keeps an existing `providers: { deepseek: { apiKeyEnv: … } }` profile working
+ * untouched and lets a published route pi-ai has not caught up with work
+ * without a hand-written profile.
  * @param request - the route-level catalog facts.
  * @param validation - strict writes reject every error; deferred reads retain model diagnostics.
  * @returns the materialized models and the explicitly configured request caps.
@@ -860,14 +884,88 @@ export function resolveRouteModels(
   validation: 'strict' | 'deferred' = 'strict',
 ): RouteCatalog {
   const { provider } = request
-  const defaults = catalogModels(provider)
+  const installed = catalogModels(provider)
   const providerBaseUrl = catalogProvider(provider)?.baseUrl
+  // The protocol the installed catalog's models agree on, read before any
+  // supplemental entry joins: a default cannot answer what the route speaks.
+  const routeApi = sharedCatalogApi(installed)
+  const defaultCompat = supplementalProviderFacts(provider)?.compat
   // An absent `models` key and an empty one are the same request: the config
   // schema materializes `[]` for the absent case, and an empty catalog could
-  // serve no request anyway, so both mean "serve the installed catalog".
+  // serve no request anyway, so both mean "serve the default catalog".
   const configured = request.models ?? []
   const overrides = request.modelOverrides ?? {}
   const modelErrors = new Map<string, string>()
+  const seen = new Set<string>()
+  const configuredMaxTokens = new Map<string, number>()
+  const defaults = new Map(installed)
+  /**
+   * Materialize one entry over the defaults. `declared` distinguishes the
+   * route's own entries — which report duplicates and request caps — from a
+   * supplemental default materialized before them, whose capacities are the
+   * model's capability rather than a deployment choice.
+   */
+  const resolveEntry = (entry: PiAiModelProfile, declared: boolean): Model<Api> => {
+    assertOfferedCompatFields(provider, `model "${entry.id}"`, entry.compat)
+    if (entry.id.length === 0) invalid(provider, 'has a model with an empty id')
+    if (declared) {
+      if (seen.has(entry.id)) invalid(provider, `lists model "${entry.id}" more than once`)
+      seen.add(entry.id)
+    }
+    const base = defaults.get(entry.id)
+    const api = request.api ?? base?.api ?? routeApi
+    if (api === undefined) {
+      invalid(provider, `model "${entry.id}" needs an api; the installed catalog does not describe it, so set the`
+        + ' route\'s api to the wire protocol its endpoint speaks')
+    }
+    const baseUrl = request.baseURL ?? base?.baseUrl ?? providerBaseUrl
+    if (baseUrl === undefined) {
+      invalid(provider, `model "${entry.id}" needs a baseURL; the installed catalog does not describe this route`)
+    }
+    // Capacities fall back to the route's own defaults, so a model listing that
+    // discloses nothing but ids still yields a serviceable route. The fallback
+    // is a guess by construction, which is why it is a configurable route field
+    // rather than a constant buried here.
+    const contextWindow = entry.contextWindow ?? base?.contextWindow ?? request.defaultContextWindow
+    if (!Number.isInteger(contextWindow) || contextWindow <= 0) {
+      invalid(provider, `model "${entry.id}" contextWindow must be a positive integer`)
+    }
+    const maxTokens = entry.maxTokens ?? base?.maxTokens ?? request.defaultMaxTokens
+    if (!Number.isInteger(maxTokens) || maxTokens <= 0) {
+      invalid(provider, `model "${entry.id}" maxTokens must be a positive integer`)
+    }
+    // Only a value the profile named is a deployment choice; the catalog's is
+    // the model's capability and stays out of request defaults.
+    if (declared && entry.maxTokens !== undefined) configuredMaxTokens.set(entry.id, entry.maxTokens)
+    return {
+      // The installed entry lays the floor, and the fields below override it.
+      // Enumerating instead would silently drop every `Model` field this
+      // package does not model — reasoning-level spellings, compatibility
+      // quirks, model headers, and whatever a pi-ai upgrade adds next. Spread,
+      // never enumerate.
+      ...base,
+      id: entry.id,
+      name: entry.name ?? base?.name ?? entry.id,
+      api,
+      provider,
+      baseUrl,
+      input: declaredInput(entry.input) ?? base?.input ?? [...request.defaultInput],
+      cost: base?.cost ?? NO_COST,
+      contextWindow,
+      maxTokens,
+      ...resolveModelReasoning(provider, entry, base),
+      ...resolveModelCompat(provider, entry, request.compat, defaultCompat, base, api),
+    }
+  }
+  // Supplemental models are served as though the installed catalog described
+  // them; an id the catalog already describes keeps the catalog's entry. A
+  // failure here is not the stored-configuration failure the entry loop
+  // contains: the table ships with this package, so an entry that cannot
+  // materialize is a defect, and `resolveProfiles` retains the diagnostic when
+  // a stored profile is read.
+  for (const entry of supplementalModels(provider).filter(entry => !defaults.has(entry.id))) {
+    defaults.set(entry.id, resolveEntry(entry, false))
+  }
   // Writes reject missing referents. Stored overrides retain a diagnostic
   // after catalog removal rather than silently disappearing.
   for (const [id, override] of Object.entries(overrides)) {
@@ -902,68 +1000,15 @@ export function resolveRouteModels(
     invalid(provider, 'resolves no models; the installed catalog does not describe this route, so its models'
       + ' must be listed in configuration')
   }
-  const routeApi = sharedCatalogApi(defaults)
   // Vocabulary before protocols: a withheld or undeclared switch is refused
   // wherever it is written, so it cannot look applied on a route whose models
   // never reach the protocol that would have taken it.
   assertOfferedCompatFields(provider, 'route', request.compat)
-  const seen = new Set<string>()
-  const configuredMaxTokens = new Map<string, number>()
-  const resolveEntry = (entry: PiAiModelProfile): Model<Api> => {
-    assertOfferedCompatFields(provider, `model "${entry.id}"`, entry.compat)
-    if (entry.id.length === 0) invalid(provider, 'has a model with an empty id')
-    if (seen.has(entry.id)) invalid(provider, `lists model "${entry.id}" more than once`)
-    seen.add(entry.id)
-    const base = defaults.get(entry.id)
-    const api = request.api ?? base?.api ?? routeApi
-    if (api === undefined) {
-      invalid(provider, `model "${entry.id}" needs an api; the installed catalog does not describe it, so set the`
-        + ' route\'s api to the wire protocol its endpoint speaks')
-    }
-    const baseUrl = request.baseURL ?? base?.baseUrl ?? providerBaseUrl
-    if (baseUrl === undefined) {
-      invalid(provider, `model "${entry.id}" needs a baseURL; the installed catalog does not describe this route`)
-    }
-    // Capacities fall back to the route's own defaults, so a model listing that
-    // discloses nothing but ids still yields a serviceable route. The fallback
-    // is a guess by construction, which is why it is a configurable route field
-    // rather than a constant buried here.
-    const contextWindow = entry.contextWindow ?? base?.contextWindow ?? request.defaultContextWindow
-    if (!Number.isInteger(contextWindow) || contextWindow <= 0) {
-      invalid(provider, `model "${entry.id}" contextWindow must be a positive integer`)
-    }
-    const maxTokens = entry.maxTokens ?? base?.maxTokens ?? request.defaultMaxTokens
-    if (!Number.isInteger(maxTokens) || maxTokens <= 0) {
-      invalid(provider, `model "${entry.id}" maxTokens must be a positive integer`)
-    }
-    // Only a value the profile named is a deployment choice; the catalog's is
-    // the model's capability and stays out of request defaults.
-    if (entry.maxTokens !== undefined) configuredMaxTokens.set(entry.id, entry.maxTokens)
-    return {
-      // The installed entry lays the floor, and the fields below override it.
-      // Enumerating instead would silently drop every `Model` field this
-      // package does not model — reasoning-level spellings, compatibility
-      // quirks, model headers, and whatever a pi-ai upgrade adds next. Spread,
-      // never enumerate.
-      ...base,
-      id: entry.id,
-      name: entry.name ?? base?.name ?? entry.id,
-      api,
-      provider,
-      baseUrl,
-      input: declaredInput(entry.input) ?? base?.input ?? [...request.defaultInput],
-      cost: base?.cost ?? NO_COST,
-      contextWindow,
-      maxTokens,
-      ...resolveModelReasoning(provider, entry, base),
-      ...resolveModelCompat(provider, entry, request.compat, base, api),
-    }
-  }
   const models: Model<Api>[] = []
   for (const entry of entries) {
     let model: Model<Api>
     try {
-      model = resolveEntry(entry)
+      model = resolveEntry(entry, true)
     } catch (error) {
       if (validation === 'strict' || !(error instanceof PiAiCatalogError)) throw error
       modelErrors.set(entry.id, error.message)

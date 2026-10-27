@@ -143,9 +143,10 @@ describe('hand-declared providers', () => {
       declared: true,
     })
     // Membership of the catalog, not of the settings document: a shipped
-    // provider carries a stored profile the moment anyone corrects it.
-    expect(directory.filter(entry => entry.declared).map(entry => entry.provider))
-      .toEqual(['acme-gateway'])
+    // provider carries a stored profile the moment anyone corrects it. The
+    // supplemental routes this package ships are declared for the same reason
+    // the gateway is — pi-ai's catalog answers for neither.
+    expect(directory.find(entry => entry.provider === 'acme-gateway')?.declared).toBe(true)
     expect(directory.find(entry => entry.provider === 'deepseek')?.declared).toBe(false)
   })
 
