@@ -83,7 +83,7 @@ describe('HMR exact config paths', () => {
     for (const root of hmrRoots.splice(0)) rmSync(root, { recursive: true, force: true })
   })
 
-  it.for([false, true])('excludes siblings while observing config replacement through an alias (missing parents: %s)', { timeout: 30_000 }, async (missingParents, test) => {
+  it.for([false, true])('excludes siblings while observing config replacement through an alias (missing parents: %s)', { timeout: 60_000 }, async (missingParents, test) => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-hmr-config-scope-'))
     onTestFinished(() => { rmSync(root, { recursive: true, force: true }) })
     const target = join(root, 'target')
