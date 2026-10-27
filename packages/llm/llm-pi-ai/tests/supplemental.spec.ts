@@ -168,7 +168,10 @@ describe('explicit provider profiles over supplemental defaults', () => {
     // would send a level the endpoint does not have.
     const profile = resolved('ollama', { apiKeyEnv: 'OLLAMA_API_KEY' })
     const models = profile.piProvider?.getModels() ?? []
-    const thinking = (id: string): { reasoning?: boolean; map?: Record<string, string | null> } => {
+    const thinking = (id: string): {
+      reasoning: boolean | undefined
+      map: Record<string, string | null> | undefined
+    } => {
       const model = models.find(entry => entry.id === id)
       return { reasoning: model?.reasoning, map: model?.thinkingLevelMap as Record<string, string | null> | undefined }
     }
