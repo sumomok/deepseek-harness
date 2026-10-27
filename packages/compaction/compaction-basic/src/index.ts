@@ -17,6 +17,8 @@ import { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError } from '@deepseek-ai/dsh-llm'
 import type { LlmCallConfig, Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
+// Type-only: the `ctx.systemPrompt` Context merge behind the declared injection.
+import type {} from '@deepseek-ai/dsh-system-prompt'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 // Type-only: makes the optional sibling service available to `ctx.get()`.
 import type ToolResultPruner from '@deepseek-ai/dsh-compaction-tool-result-pruner'
@@ -133,6 +135,16 @@ const modelPolicy: z<ModelCompactPolicyConfig> = z.object({
  * mutation strategy stays fixed so every pricing decision uses the singleton
  * token meter.
  */
+/**
+ * Standing guidance about checkpoints, independent of this engine's own
+ * configuration: a summary indexes the conversation, so anything it points at
+ * still has to be read before it is relied on.
+ */
+const CHECKPOINT_REFERENCE_TEXT =
+  'A checkpoint or summary is a lossy index, not the record. When one names a file, a line, or a session event '
+  + 'that governs the current question, read it before answering; if it cannot be read, say so rather than '
+  + 'reconstructing it from the summary.'
+
 export class BasicCompactionEngine extends CompactionEngine {
   static inject = ['llm', 'tokenMeter', 'sessions', 'sessionProjections']
 
@@ -167,6 +179,15 @@ export class BasicCompactionEngine extends CompactionEngine {
   constructor(ctx: Context, config: BasicCompactionConfig = {}) {
     super(ctx)
     this.config = resolveConfig(config)
+    // Optional sibling: a deployment without the prompt registry still compacts.
+    const systemPrompt = ctx.get('systemPrompt')
+    if (systemPrompt !== undefined) {
+      ctx.effect(() => systemPrompt.section({
+        name: 'compaction:checkpoint-reference',
+        order: systemPrompt.getSectionOrder('CHECKPOINT_REFERENCE'),
+        text: CHECKPOINT_REFERENCE_TEXT,
+      }), 'compaction-basic: checkpoint reference guidance')
+    }
     this._registerWaitingCompaction()
     if (this.config.auto) this._registerAutomaticCompaction()
   }

@@ -2,6 +2,7 @@ import { describe, expect, expectTypeOf, it, onTestFinished, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
+import { SystemPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
 import { selectCompactableRange } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
 import { conversationTarget, pressureTarget, summarizationTarget } from '@deepseek-ai/dsh-compaction-basic/src/route.ts'
@@ -2256,6 +2257,18 @@ describe('default one-shot summarizer', () => {
     })
     const instruction = adapter.lastOptions?.messages.at(-1)?.content[0]
     expect(instruction?.type === 'text' ? instruction.text : '').toContain('## Primary Request and Intent')
+  })
+
+  it('tells the model that a checkpoint indexes the conversation instead of replacing it', async () => {
+    const ctx = createContext()
+    new SystemPrompt(ctx, {})
+    new BasicCompactionEngine(ctx, {})
+
+    const assembled = await ctx.systemPrompt.assemble()
+    const guidance = assembled.sections.map(section => section.text).join('\n')
+
+    expect(guidance).toContain('is a lossy index, not the record')
+    expect(guidance).toContain('read it before answering')
   })
 
   it('drops the analysis block the instruction asks for before storing the summary', async () => {
