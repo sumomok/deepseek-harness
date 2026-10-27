@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-desktop-server",
   "description": "Dependency-only deploy root defining the desktop app's embedded `dsh web` server closure; `pnpm deploy` materializes this manifest and node_modules into the Electron bundle's resources (the python/sdk-runtime pattern).",
-  "version": "0.1.0-rc.7",
+  "version": "0.2.1-rc.3.20261027.5",
   "private": true,
   "type": "module",
   "license": "MIT",
