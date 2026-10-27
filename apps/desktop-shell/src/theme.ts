@@ -72,3 +72,17 @@ export type Appearance = keyof typeof PALETTES
 export function resolveAppearance(): Appearance {
   return storedThemePreference(resolveHarnessHome()) ?? (nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
 }
+
+/**
+ * Pin the native window chrome to the appearance the web UI will paint.
+ *
+ * macOS draws the title bar and its window controls from `nativeTheme`, which
+ * follows the OS unless a source is set. With an explicit `light` or `dark`
+ * preference the page is pinned but the title bar was not, so a dark OS drew a
+ * dark strip above a light page. An explicit preference becomes that source;
+ * `system` keeps following the OS, which is what the web UI does for it too.
+ * @param appearance - the palette this launch paints.
+ */
+export function applyNativeAppearance(appearance: Appearance): void {
+  nativeTheme.themeSource = appearance
+}

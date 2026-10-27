@@ -72,8 +72,15 @@ const PROVIDERS: Readonly<Record<string, SupplementalProvider>> = {
  * `models` list gets it in addition to the catalog's models, and an explicit
  * `models` list replaces the whole default set, including these entries.
  */
-/** The reasoning levels Ollama's endpoint accepts; `minimal` is rejected with a 400. */
-const OLLAMA_EFFORTS = { low: 'low', medium: 'medium', high: 'high' } as const
+/**
+ * The thinking levels each Ollama model reports through `POST /api/show`, read
+ * 2026-10-27. Levels are per model and none offers `medium`: a `false` entry is
+ * the model's "no thinking" value and becomes `off`, which sends no level at
+ * all. `minimax-m3`, `mistral-large-4` and `kimi-k2.7-code` report no named
+ * levels (the last is plain on/off), so they declare none.
+ */
+const OLLAMA_EFFORTS_FULL = { off: null, low: 'low', high: 'high', max: 'max' } as const
+const OLLAMA_EFFORTS_NO_OFF = { low: 'low', high: 'high', max: 'max' } as const
 
 const MODELS: Readonly<Record<string, readonly PiAiModelProfile[]>> = {
   ollama: [
@@ -82,21 +89,21 @@ const MODELS: Readonly<Record<string, readonly PiAiModelProfile[]>> = {
       name: 'DeepSeek V4 Pro',
       contextWindow: 1_048_576,
       input: ['text'],
-      reasoningEfforts: OLLAMA_EFFORTS,
+      reasoningEfforts: OLLAMA_EFFORTS_FULL,
     },
     {
       id: 'deepseek-v4.1-flash',
       name: 'DeepSeek V4.1 Flash',
       contextWindow: 1_048_576,
       input: ['text', 'image'],
-      reasoningEfforts: OLLAMA_EFFORTS,
+      reasoningEfforts: OLLAMA_EFFORTS_FULL,
     },
     {
       id: 'kimi-k3',
       name: 'Kimi K3',
       contextWindow: 1_048_576,
       input: ['text', 'image'],
-      reasoningEfforts: OLLAMA_EFFORTS,
+      reasoningEfforts: OLLAMA_EFFORTS_FULL,
     },
     {
       id: 'kimi-k2.7-code',
@@ -109,21 +116,20 @@ const MODELS: Readonly<Record<string, readonly PiAiModelProfile[]>> = {
       name: 'GLM-5.3',
       contextWindow: 1_048_576,
       input: ['text'],
-      reasoningEfforts: OLLAMA_EFFORTS,
+      reasoningEfforts: OLLAMA_EFFORTS_NO_OFF,
     },
     {
       id: 'glm-5.3-flash',
       name: 'GLM-5.3 Flash',
       contextWindow: 1_048_576,
       input: ['text', 'image'],
-      reasoningEfforts: OLLAMA_EFFORTS,
+      reasoningEfforts: OLLAMA_EFFORTS_NO_OFF,
     },
     {
       id: 'minimax-m3',
       name: 'MiniMax M3',
       contextWindow: 524_288,
       input: ['text', 'image'],
-      reasoningEfforts: OLLAMA_EFFORTS,
     },
     {
       id: 'mistral-large-4',

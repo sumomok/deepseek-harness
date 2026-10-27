@@ -162,6 +162,25 @@ describe('explicit provider profiles over supplemental defaults', () => {
     })
   })
 
+  it('offers exactly the thinking levels Ollama reports for each model', () => {
+    // `POST /api/show` answers `thinking.values` per model; deepseek-v4.1-flash
+    // reports [false, low, high, max] and no `medium`, so offering `medium`
+    // would send a level the endpoint does not have.
+    const profile = resolved('ollama', { apiKeyEnv: 'OLLAMA_API_KEY' })
+    const models = profile.piProvider?.getModels() ?? []
+    const thinking = (id: string): { reasoning?: boolean; map?: Record<string, string | null> } => {
+      const model = models.find(entry => entry.id === id)
+      return { reasoning: model?.reasoning, map: model?.thinkingLevelMap as Record<string, string | null> | undefined }
+    }
+
+    // `false` in `values` is "no thinking", which becomes `off` and sends no
+    // level; `medium` is absent from the model and stays unsupported.
+    expect(thinking('deepseek-v4.1-flash').reasoning).toBe(true)
+    expect(thinking('deepseek-v4.1-flash').map).toMatchObject({ low: 'low', high: 'high', max: 'max', medium: null })
+    expect(thinking('glm-5.3').map).toMatchObject({ low: 'low', high: 'high', max: 'max', off: null })
+    expect(thinking('minimax-m3').reasoning).toBe(false)
+  })
+
   it('keeps the developer role off the Kimi coding endpoint for the supplemental model', () => {
     // Kimi's coding endpoint answers `role 'developer' is not allowed` with a
     // 400. The catalog states that switch for its own k3 models; k3.1-pro is
