@@ -101,7 +101,7 @@ import {
   type TerminalEnvHost,
 } from './terminal-env.ts'
 import { terminalForLaunch } from './terminal-sync-record.ts'
-import { PALETTES, applyNativeAppearance, resolveAppearance } from './theme.ts'
+import { PALETTES, applyNativeAppearance, resolveAppearance, resolveAppearanceSource } from './theme.ts'
 import { storedLanguagePreference } from './theme-preference.ts'
 import { guardWindowClose, setupTray } from './tray.ts'
 import {
@@ -1141,8 +1141,9 @@ function createBootWindow(receipt?: string): BootView {
   // opposite one.
   const appearance = resolveAppearance()
   // The page paints this palette; the title bar has to match it, or a dark OS
-  // leaves a dark strip above a light page.
-  applyNativeAppearance(appearance)
+  // leaves a dark strip above a light page. The source, not the palette, keeps
+  // a `system` preference following the OS for the renderer too.
+  applyNativeAppearance(resolveAppearanceSource())
   const window = new BrowserWindow({
     width: 1360,
     height: 900,
