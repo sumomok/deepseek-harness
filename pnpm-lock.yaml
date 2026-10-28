@@ -3691,6 +3691,9 @@ importers:
       '@deepseek-ai/dsh-compaction-basic':
         specifier: workspace:*
         version: link:../../compaction/compaction-basic
+      '@deepseek-ai/dsh-compaction-microcompact':
+        specifier: workspace:*
+        version: link:../../compaction/compaction-microcompact
       '@deepseek-ai/dsh-compaction-tool-result-pruner':
         specifier: workspace:*
         version: link:../../compaction/compaction-tool-result-pruner
