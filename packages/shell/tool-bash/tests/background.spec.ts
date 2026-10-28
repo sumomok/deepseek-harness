@@ -127,7 +127,7 @@ describe('background bash output', () => {
       workdir: '/nonexistent-dsh',
       run_in_background: true,
     })
-    expect(text(started)).toMatch(/^started background job bash-[0-9a-f]{16}\. Its completion arrives as a notice/)
+    expect(text(started)).toMatch(/^started background job bash-[0-9a-f]{16}\. It will not reopen your turn/)
     const jobs = ctx.jobs
     const job = jobs.list()[0]
     await until(() => jobs.get(job!.id).status === 'killed' ? true : undefined)

@@ -325,7 +325,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.systemPrompt.section({
     name: 'tool:jobs',
     order: ctx.systemPrompt.getSectionOrder('TOOL_JOBS'),
-    text: 'Track every background job id you start. You are notified in-session when a job finishes — do not busy-poll or sleep on one; keep working on independent steps and do not duplicate a running job\'s work. job_output never waits: it reports what the job has produced so far. Before giving a final answer, collect every still-relevant job with job_output, and job_kill jobs that stopped mattering.',
+    text: 'Track every background job id you start. A completion always reaches you — as a new turn when the call asked for wake, otherwise with your next input — so never poll or sleep on one; ending your turn does not stop the work, and a wake result starts a new turn for you. Keep working on independent steps and do not duplicate a running job\'s work. job_output never waits: it reports what the job has produced so far. Before giving a final answer, collect every still-relevant job with job_output, and job_kill jobs that stopped mattering.',
   })
 
   // Live jobs whose kill the model itself requested through `job_kill`: that

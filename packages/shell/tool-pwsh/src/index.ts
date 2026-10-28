@@ -83,6 +83,7 @@ interface PwshToolArgs {
   timeoutMs?: number
   workdir?: string
   run_in_background?: boolean
+  notify?: 'wake' | 'quiet'
   sandbox_permissions?: string
   justification?: string
 }
@@ -288,6 +289,9 @@ export function apply(ctx: Context, config: Config = {}): void {
         label: args.command,
         toolCall: { callId: exec.callId, rootCallId: exec.rootCallId },
         ...exec.agent ? { owner: exec.agent.id } : {},
+        // A call that fired work off does not want its turn reopened; a
+        // foreground call promoted on timeout is work the caller was waiting on.
+        notify: args.notify ?? (args.run_in_background === true ? 'quiet' : 'wake'),
         output: processSources(() => proc),
         run: () => {
           const hooks = processJob(
@@ -405,6 +409,11 @@ export function apply(ctx: Context, config: Config = {}): void {
         workdir: { type: 'string', description: 'Working directory for this command. Defaults to the session workspace; a relative path is resolved against it.' },
         ...background ? {
           run_in_background: { type: 'boolean' as const, description: 'Run in the background and return a job id immediately (collect with job_output, stop with job_kill). No timeout applies.' },
+          notify: {
+            type: 'string' as const,
+            enum: ['wake', 'quiet'] as const,
+            description: 'Whether the completion should reopen your turn: "wake" when the user\'s next step depends on the result, even if they did not ask to be told; "quiet" when you fired the work off and will collect it later. Defaults to quiet.',
+          },
         } : {},
         ...escalationModes.length > 0 ? {
           sandbox_permissions: {
@@ -490,10 +499,12 @@ export function apply(ctx: Context, config: Config = {}): void {
           ],
         },
         /* jscpd:ignore-end */
-        render: (_args, value) => [{
+        render: (args, value) => [{
           type: 'text',
           text: value.kind === 'background'
-            ? `started background job ${value.jobId}. Its completion arrives as a notice — do not poll it; job_output reads what it has produced so far.`
+            ? (args.notify ?? 'quiet') === 'wake'
+              ? `started background job ${value.jobId}. Its completion will reopen your turn — do not poll it; job_output reads what it has produced so far.`
+              : `started background job ${value.jobId}. It will not reopen your turn — do not wait for it; job_output reads what it has produced so far.`
             : value.kind === 'promoted'
               ? renderPwshPromoted(value)
               : renderPwshResult(value as RenderablePwshResult, escalationModes),

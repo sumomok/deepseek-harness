@@ -62,6 +62,7 @@ interface SendArgs extends SessionArgs {
   text: string
   submit?: boolean
   run_in_background?: boolean
+  notify?: 'wake' | 'quiet'
 }
 
 interface ReadArgs extends SessionArgs {
@@ -208,7 +209,14 @@ export function apply(ctx: Context, config: Config = {}): void {
       text: { type: 'string', required: true, description: 'UTF-8 text to write to the terminal.' },
       submit: { type: 'boolean', description: 'Submit Enter after text (default true). Set false for control characters or incomplete REPL input.' },
       ...enableRunInBackground
-        ? { run_in_background: { type: 'boolean' as const, description: 'Return a job id immediately; collect with job_output or stop with job_kill.' } }
+        ? {
+          run_in_background: { type: 'boolean' as const, description: 'Return a job id immediately; collect with job_output or stop with job_kill.' },
+          notify: {
+            type: 'string' as const,
+            enum: ['wake', 'quiet'] as const,
+            description: 'Whether the completion should reopen your turn: "wake" when the user\'s next step depends on the result, even if they did not ask to be told; "quiet" when you fired the work off and will collect it later. Defaults to quiet.',
+          },
+        }
         : {},
     },
     finalizeContent,
@@ -233,10 +241,12 @@ export function apply(ctx: Context, config: Config = {}): void {
           },
         ],
       },
-      render: (_args, value) => [{
+      render: (args, value) => [{
         type: 'text',
         text: value.kind === 'background'
-          ? `started background job ${value.jobId}. Its completion arrives as a notice — do not poll it; job_output reads what it has produced so far.`
+          ? (args.notify ?? 'quiet') === 'wake'
+            ? `started background job ${value.jobId}. Its completion will reopen your turn — do not poll it; job_output reads what it has produced so far.`
+            : `started background job ${value.jobId}. It will not reopen your turn — do not wait for it; job_output reads what it has produced so far.`
           : renderSend(value, maxResultBytes),
       }],
       presentationMeta: (_args, value) => value.kind === 'foreground'
@@ -263,6 +273,8 @@ export function apply(ctx: Context, config: Config = {}): void {
           label: `${id}: ${args.text || '(input)'}`,
           toolCall: { callId: exec.callId, rootCallId: exec.rootCallId },
           owner: owner.id,
+          // A send fired off in the background is work the caller collects later.
+          notify: args.notify ?? 'quiet',
           outputLimitBytes: maxResultBytes,
           output: [sendSource(() => operation)],
           run: () => {

@@ -447,7 +447,7 @@ describe('tool-terminal task integration', () => {
     await call(ctx, 'terminal_open', { type: 'stub' }, agent)
     const started = await call(ctx, 'terminal_send', { sessionId: 'pty-1', text: 'build', run_in_background: true }, agent)
     const jobId = backgroundJobId(started)
-    expect(text(started)).toBe(`started background job ${jobId}. Its completion arrives as a notice — do not poll it; job_output reads what it has produced so far.`)
+    expect(text(started)).toBe(`started background job ${jobId}. It will not reopen your turn — do not wait for it; job_output reads what it has produced so far.`)
     expect(started).toMatchObject({ isError: false, value: { kind: 'background', jobId } })
     const output = await call(ctx, 'job_output', { job_id: jobId }, agent)
     expect(text(output)).toContain('live output')
