@@ -32,7 +32,7 @@
                 name: '@deepseek-ai/dsh-compaction-basic'
                 config:
                   checkpointReadback: true
-                  retainRatio: 0.02
+                  retainRatio: 0.01
               - id: microcompact
                 name: '@deepseek-ai/dsh-compaction-microcompact'
                 config:
