@@ -493,7 +493,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         render: (_args, value) => [{
           type: 'text',
           text: value.kind === 'background'
-            ? `started background job ${value.jobId}`
+            ? `started background job ${value.jobId}. Its completion arrives as a notice — do not poll it; job_output reads what it has produced so far.`
             : value.kind === 'promoted'
               ? renderPwshPromoted(value)
               : renderPwshResult(value as RenderablePwshResult, escalationModes),

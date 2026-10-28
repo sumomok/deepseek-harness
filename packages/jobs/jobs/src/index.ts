@@ -27,6 +27,7 @@ export type {
   JobHooks,
   JobKind,
   JobKindMap,
+  JobNotify,
   JobOutcome,
   JobOutputRead,
   JobOutputSource,

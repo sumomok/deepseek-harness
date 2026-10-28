@@ -65,6 +65,7 @@ interface BashToolArgs {
   timeoutMs?: number
   workdir?: string
   run_in_background?: boolean
+  notify?: 'wake' | 'quiet'
   sandbox_permissions?: string
   /** Optional for an omitted or repeated effective mode; widening requires a non-empty reason. */
   justification?: string
@@ -271,6 +272,9 @@ export function apply(ctx: Context, config: Config = {}): void {
         label: args.command,
         toolCall: { callId: exec.callId, rootCallId: exec.rootCallId },
         ...exec.agent ? { owner: exec.agent.id } : {},
+        // A call that fired work off does not want its turn reopened; a
+        // foreground call promoted on timeout is work the caller was waiting on.
+        notify: args.notify ?? (args.run_in_background === true ? 'quiet' : 'wake'),
         output: processSources(() => proc),
         run: () => {
           const hooks = processJob(
@@ -386,6 +390,11 @@ export function apply(ctx: Context, config: Config = {}): void {
         workdir: { type: 'string', description: 'Working directory for this command. Defaults to the session workspace; a relative path is resolved against it.' },
         ...background ? {
           run_in_background: { type: 'boolean' as const, description: 'Run in the background and return a job id immediately (collect with job_output, stop with job_kill). No timeout applies.' },
+          notify: {
+            type: 'string' as const,
+            enum: ['wake', 'quiet'] as const,
+            description: 'What its completion should do to you while you are idle: "wake" opens a turn so you can act on it; "quiet" leaves it for your next step, for work nobody is waiting on. Defaults to quiet.',
+          },
         } : {},
         ...escalationModes.length > 0 ? {
           sandbox_permissions: {
@@ -468,7 +477,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         render: (_args, value) => [{
           type: 'text',
           text: value.kind === 'background'
-            ? `started background job ${value.jobId}`
+            ? `started background job ${value.jobId}. Its completion arrives as a notice — do not poll it; job_output reads what it has produced so far.`
             : value.kind === 'promoted'
               ? renderPromoted(value)
               : renderResult(value as { kind: 'foreground' } & ShellRunResult, escalationModes),

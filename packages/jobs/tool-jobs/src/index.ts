@@ -4,9 +4,10 @@
  * producers. It also delivers completions the model has not already
  * collected to the owning agent: injected into a busy owner's next step, or
  * opening a turn on an idle one under the default `wakeup` delivery, unbounded
- * unless `maxConsecutiveWakes` caps it per owner. A notice carries the job's
- * output and result when it fits `inlineOutputBytes`, and `job_output`
- * withdraws a notice still pending.
+ * unless `maxConsecutiveWakes` caps it per owner, and skipped for a job the
+ * producer started `quiet`. A notice carries the job's output and result when it
+ * fits `inlineOutputBytes`, and `job_output` withdraws a notice still
+ * pending. `job_output` never waits for a job to settle.
  * @module @deepseek-ai/dsh-tool-jobs
  */
 
@@ -39,12 +40,8 @@ export const inject = ['tools', 'jobs', 'systemPrompt']
  */
 export type CompletionDelivery = 'quiet' | 'wakeup'
 
-/** Configures bounded `job_output` waits and completion-notice delivery. */
+/** Configures completion-notice delivery. */
 export interface Config {
-  /** Wait duration applied when `job_output` sets `wait` without `timeout_ms` (default 30s). */
-  waitTimeoutMs?: number
-  /** Hard cap on any single wait; a larger model-supplied `timeout_ms` is clamped down to it (default 10min). */
-  maxWaitTimeoutMs?: number
   /** Whether a completion opens a turn on an idle owner (default `wakeup`). */
   completionDelivery?: CompletionDelivery
   /**
@@ -66,8 +63,6 @@ export interface Config {
 }
 
 export const Config: z<Config> = z.object({
-  waitTimeoutMs: z.number().min(1).default(30_000),
-  maxWaitTimeoutMs: z.number().min(1).default(600_000),
   completionDelivery: z.union(['quiet', 'wakeup'] as const).default('wakeup'),
   maxConsecutiveWakes: z.number().min(1),
   inlineOutputBytes: z.natural().default(2048),
@@ -218,6 +213,9 @@ function presentJobCall(title: string, kind: 'read' | 'execute', rawInput?: stri
   return { card: 'generic', title, kind, ...rawInput !== undefined ? { rawInput } : {} }
 }
 
+/** A settlement event, the one kind this plugin delivers. */
+type SettledEvent = Extract<JobEvent, { type: 'settled' }>
+
 /** A completion notice not yet logged; see the `pending` map in {@link apply}. */
 interface PendingNotice {
   readonly owner: NonNullable<JobView['owner']>
@@ -238,8 +236,6 @@ function readBody(read: JobRead): { text: string; job: PublicJobSnapshot } {
 }
 
 export function apply(ctx: Context, config: Config): void {
-  const waitDefault = config.waitTimeoutMs ?? 30_000
-  const waitCap = config.maxWaitTimeoutMs ?? 600_000
   const delivery = config.completionDelivery ?? 'wakeup'
   const wakeBudget = config.maxConsecutiveWakes
   const inlineBytes = config.inlineOutputBytes ?? 2048
@@ -248,9 +244,6 @@ export function apply(ctx: Context, config: Config): void {
   // human input. Keyed by the exact Agent, so a same-session replacement
   // starts with a full budget.
   const spentWakes = new WeakMap<Agent, number>()
-  if (waitDefault > waitCap) {
-    throw new Error(`tool-jobs: waitTimeoutMs (${waitDefault}) exceeds maxWaitTimeoutMs (${waitCap})`)
-  }
   // A budget is a count of turns: a fraction never names a turn, and
   // `Infinity` would spell an "unbounded" that omitting the field already means.
   if (wakeBudget !== undefined && !Number.isSafeInteger(wakeBudget)) {
@@ -316,41 +309,13 @@ export function apply(ctx: Context, config: Config): void {
   ctx.systemPrompt.section({
     name: 'tool:jobs',
     order: ctx.systemPrompt.getSectionOrder('TOOL_JOBS'),
-    text: 'Track every background job id you start. You are notified in-session when a job finishes — do not busy-poll or sleep on one; keep working on independent steps and do not duplicate a running job\'s work. Before giving a final answer, collect every still-relevant job with job_output (set wait: true only when you are genuinely blocked on it), and job_kill jobs that stopped mattering.',
+    text: 'Track every background job id you start. You are notified in-session when a job finishes — do not busy-poll or sleep on one; keep working on independent steps and do not duplicate a running job\'s work. job_output never waits: it reports what the job has produced so far. Before giving a final answer, collect every still-relevant job with job_output, and job_kill jobs that stopped mattering.',
   })
 
   // Live jobs whose kill the model itself requested through `job_kill`: that
   // tool result is the model's delivery, so the settlement notice would only
-  // repeat it. A wait needs no entry here — the registry reports a settlement
-  // that released a live wait as `awaited`, whichever plugin was waiting.
+  // repeat it. A settlement no caller collected arrives here as a notice.
   const killedByModel = new Set<JobId>()
-
-  // Waits this plugin ended on next-step input whose consuming read has not
-  // committed yet. A settlement inside that window is carried by that read's
-  // terminal state and result, so its notice would repeat them; the registry
-  // cannot report it `awaited`, because releasing the wait already left the
-  // waiter set. One pending claim per released read keeps parallel waits on the
-  // same job covered until the last of their reads commits.
-  const releasedReads = new Map<JobId, { pending: number }>()
-  /** A settlement a released read is expected to carry; delivered at once if that read never commits. */
-  const suppressedSettlements = new Map<JobId, SettledEvent>()
-  /** A settlement event, the one kind this plugin delivers. */
-  type SettledEvent = Extract<JobEvent, { type: 'settled' }>
-  const beginReleasedRead = (id: JobId): (() => void) => {
-    const claim = releasedReads.get(id) ?? { pending: 0 }
-    releasedReads.set(id, claim)
-    claim.pending += 1
-    return () => {
-      claim.pending -= 1
-      if (claim.pending !== 0) return
-      releasedReads.delete(id)
-      // Every released read committed: the result carried the settlement.
-      const pending = suppressedSettlements.get(id)
-      if (pending === undefined) return
-      suppressedSettlements.delete(id)
-      deliverSettlement(pending)
-    }
-  }
 
   // A busy owner is injected: the notice waits in its next-step inbox, which
   // the turn cannot close over, so jobs settling together cost one step. An
@@ -395,7 +360,10 @@ export function apply(ctx: Context, config: Config): void {
     pending.set(event.job.id, {
       owner: event.job.owner, messageId: message.id, inline: inline !== undefined, ...held === undefined ? {} : { held },
     })
-    if (delivery === 'wakeup' && owner.status === 'idle') {
+    // A producer that started work nobody is waiting on marks it `quiet`: the
+    // notice waits in the inbox for the owner's next step instead of pulling the
+    // owner out of whatever it is doing now.
+    if (delivery === 'wakeup' && event.job.notify !== 'quiet' && owner.status === 'idle') {
       if (wakeBudget === undefined) {
         owner.followup(message)
         return
@@ -422,22 +390,16 @@ export function apply(ctx: Context, config: Config): void {
     // released read that has not committed yet. Holding an already-delivered
     // settlement would repeat it when that read never commits.
     if (killedByModel.delete(event.job.id) || event.awaited) return
-    if (releasedReads.has(event.job.id)) {
-      suppressedSettlements.set(event.job.id, event)
-      return
-    }
     deliverSettlement(event)
   })
 
   ctx.tools.register(defineTool({
     name: 'job_output',
-    description: 'Read a background job: output since the previous read for stream jobs, or the result of a finished final-output job.',
+    description: 'Read a background job without waiting: output since the previous read for stream jobs, or the result of a finished final-output job. A running job answers with its output so far; its completion arrives as a notice on its own.',
     // A timed-out wait returns job state rather than a TOOL_TIMEOUT error, so
     // this tool owns its deadline instead of using ToolDefinition.timeoutMs.
     parameters: {
       job_id: { type: 'string', required: true, description: 'Job id returned by the tool that started the background work.' },
-      wait: { type: 'boolean', description: 'Block until the job finishes or the timeout expires; a timed-out wait leaves the job running. Defaults to false.' },
-      timeout_ms: { type: 'number', description: 'Max wait in milliseconds with wait: true. Defaults to and is capped by configuration.' },
     },
     finalizeContent: finalizeJobContent,
     output: {
@@ -455,84 +417,21 @@ export function apply(ctx: Context, config: Config): void {
         return [{ type: 'text', text: `${body}${separator}${statusLine(value.job)}` }]
       },
     },
-    async execute(args, exec) {
+    execute(args, exec) {
       const id = validateJobId(args.job_id)
-      const jobs = ctx.jobs
-      const agent = exec.agent
-      // A wait this execution ends on next-step input claims the read that
-      // follows it: the claim stays open until that read commits, so a
-      // settlement landing first is delivered by the result, not a notice.
-      // The registry keeps its own abort semantics; this tool's input
-      // controller only ends the wait early, and the catch below reads the
-      // reason from the caller's signals.
-      let endReleasedRead: (() => void) | undefined
-      let releasedBy: string | undefined
-      try {
-        if (args.wait === true) {
-          const input = new AbortController()
-          // FIXME: this treats an inbox insertion whose source is `user` as a
-          // user steer, but the source only says who authored the message: hooks,
-          // subagents, and future hosts also deliver current-step input, and a
-          // plugin may label its own context as `user`. The decision to stop
-          // waiting belongs to the operation that delivered the input, not to
-          // this consumer; a shared steer signal (a broadcast or AbortSignal
-          // raised by the user-input entry points) should let waiters subscribe
-          // and decide locally instead. Tracked in #5965.
-          const checkInput = (): void => {
-            // Only a user-authored message releases the wait. Other current-step
-            // inputs — completion notices and injected context — stay queued for
-            // the next step instead of interrupting a wait the user did not.
-            if (agent === undefined || !agent.inbox.nextStep.some(message => message.source.kind === 'user')) return
-            if (endReleasedRead === undefined) {
-              endReleasedRead = beginReleasedRead(id)
-              releasedBy = 'user steered'
-            }
-            input.abort()
-          }
-          // Subscribe before reading pending input; each parallel wait owns its
-          // listener. The notification follows the durable insertion commit.
-          // FIXME: only this wait stops on the signal. Other blocking waits
-          // (`wait_agent`, future subagent waits) keep waiting for the same
-          // input and need the shared steer signal rather than their own copy of
-          // this release logic. Tracked in #5965.
-          const unsubscribe = agent === undefined ? () => {} : ctx.on('agent/inbox/inserted', ({ agent: subject }) => {
-            if (subject === agent) checkInput()
-          })
-          try {
-            checkInput()
-            await jobs.wait(id, Math.min(args.timeout_ms ?? waitDefault, waitCap), agent?.id, AbortSignal.any([exec.signal, input.signal]))
-          } catch (error) {
-            // The registry reports every abort as a cancellation. A wait this
-            // tool released with its own input controller ends the same way,
-            // so the abort reason is read from the caller's own signal here.
-            if (!input.signal.aborted) throw error
-            // An input released this wait, so the read below carries the
-            // current state; a cancellation leaves no consumer for that read,
-            // and the claim's release delivers the settlement it withheld.
-            if (exec.signal.aborted) throw new Error('wait aborted')
-          } finally {
-            unsubscribe()
-          }
-        }
-        const body = readBody(jobs.read(id, exec.agent?.id))
-        // This result carries any settlement the released wait suppressed.
-        if (releasedBy !== undefined) suppressedSettlements.delete(id)
-        const notice = pending.get(id)
-        if (notice !== undefined) {
-          pending.delete(id)
-          // This result covers everything the pending notice reports.
-          ctx.get('agents')?.get(notice.owner)?.inbox.remove(notice.messageId)
-          body.text = `${notice.held ?? ''}${body.text}`
-        }
-        // The result, not the schema, explains an interruption: the model sees
-        // why a running job came back early beside its unchanged progress line.
-        if (releasedBy !== undefined && (body.job.status === 'running' || body.job.status === 'stopping')) {
-          body.job.detail = body.job.detail === undefined ? releasedBy : `${body.job.detail}; ${releasedBy}`
-        }
-        return body
-      } finally {
-        endReleasedRead?.()
+      // A read never waits. The settlement arrives as a completion notice, so a
+      // read that reports `running` is not the model's last chance to learn the
+      // outcome; holding the step open for it stalls unrelated work and breaks
+      // the flow the user is following.
+      const body = readBody(ctx.jobs.read(id, exec.agent?.id))
+      const notice = pending.get(id)
+      if (notice !== undefined) {
+        pending.delete(id)
+        // This result covers everything the pending notice reports.
+        ctx.get('agents')?.get(notice.owner)?.inbox.remove(notice.messageId)
+        body.text = `${notice.held ?? ''}${body.text}`
       }
+      return Promise.resolve(body)
     },
     presentCall: args => presentJobCall(`Read output from background job ${args.job_id}`, 'read', args.job_id),
   }))
