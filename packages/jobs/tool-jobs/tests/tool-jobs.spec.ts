@@ -103,6 +103,15 @@ async function fakeAgent(ctx: Context, sessionId: string, delivery: FakeDelivery
 }
 
 /** Durably queue one next-step message and publish its live insertion, as `ReactLoopInbox` does. */
+/** Queue one next-step input and report it the way the inbox does. */
+function insertNextStep(ctx: Context, owner: Agent, text: string): void {
+  const message = createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+  const nextStep = fakeInboxes.get(owner)
+  if (nextStep === undefined) throw new Error(`fake agent "${owner.id}" has no next-step inbox`)
+  nextStep.push(message)
+  emitAgentEvent(ctx, owner, 'agent/inbox/claimed', { message, turn: 1 })
+}
+
 async function detachAgent(agent: Agent): Promise<void> {
   const dispose = agentRegistryDisposers.get(agent)
   if (dispose === undefined) throw new Error(`missing registry disposer for agent "${agent.id}"`)
@@ -762,6 +771,12 @@ describe('completion notice delivery', () => {
     ctx.jobs.start(p.spec)
 
     p.settle({ status: 'completed' })
+    await tick()
+    // Held until the owner's own input arrives, so the notice cannot land ahead
+    // of the request that input belongs to.
+    expect(inject).not.toHaveBeenCalled()
+    expect(followup).not.toHaveBeenCalled()
+    insertNextStep(ctx, owner, 'next request')
     await tick()
     expect(inject).toHaveBeenCalledTimes(1)
     expect(followup).not.toHaveBeenCalled()

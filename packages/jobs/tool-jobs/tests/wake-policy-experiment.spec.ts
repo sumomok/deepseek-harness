@@ -98,11 +98,13 @@ describe('what a settlement does to an idle owner', () => {
     expect(never?.wokeOnItsOwn).toBe(false)
     expect(quiet?.wokeOnItsOwn).toBe(false)
     expect(wake?.wokeOnItsOwn).toBe(true)
-    // Either way the notice reaches the owner's next request, ahead of the
-    // message that request carries.
-    for (const row of rows) {
-      expect(row.noticeAt).toBeGreaterThanOrEqual(0)
-      expect(row.noticeAt).toBeLessThan(row.requestAt)
-    }
+    // Every policy delivers the notice; where it lands is what changed. A wake
+    // puts it ahead of the request, a quiet settlement puts it after the input
+    // that request carries.
+    for (const row of rows) expect(row.noticeAt).toBeGreaterThanOrEqual(0)
+    expect(always?.noticeAt).toBeLessThan(always?.requestAt ?? -1)
+    expect(wake?.noticeAt).toBeLessThan(wake?.requestAt ?? -1)
+    expect(never?.noticeAt).toBeGreaterThan(never?.requestAt ?? 0)
+    expect(quiet?.noticeAt).toBeGreaterThan(quiet?.requestAt ?? 0)
   }, 60_000)
 })

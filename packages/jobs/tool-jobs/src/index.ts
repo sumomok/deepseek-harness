@@ -13,12 +13,13 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { boundContextSummary, createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
+import { boundContextSummary, createUserMessage, type ContentBlock, type UserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed, MessageId } from '@deepseek-ai/dsh-llm'
 import { TextRetainer } from '@deepseek-ai/dsh-output-retention'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, ToolDefinition, ToolExecution } from '@deepseek-ai/dsh-tools'
 import { JobId } from '@deepseek-ai/dsh-jobs'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { JobEvent, JobView, JobRead } from '@deepseek-ai/dsh-jobs'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent'
@@ -258,14 +259,29 @@ export function apply(ctx: Context, config: Config): void {
   // `job_output` returns the held read. `job_output` also withdraws a notice
   // still pending, which would only repeat its result.
   const pending = new Map<JobId, PendingNotice>()
+  /**
+   * Quiet settlements waiting for the owner's next human input. Injecting one
+   * now would put it ahead of that input in the same request — the claim drains
+   * `next-step` before `next-turn` — so the owner would read a stale result
+   * before the request it is answering. Holding it until the input is claimed
+   * delivers it in the following step instead.
+   */
+  const heldForInput = new Map<SessionId, { jobId: JobId; message: UserMessage }[]>()
 
-  if (delivery === 'wakeup' && wakeBudget !== undefined) {
-    ctx.on('agent/inbox/claimed', ({ agent, message }) => {
-      // Claiming is the point the human's input actually enters a step; a notice
-      // this plugin itself queued must not refill the budget it just spent.
-      if (message.source.kind === 'user') spentWakes.delete(agent)
-    })
-  }
+  ctx.on('agent/inbox/claimed', ({ agent, message }) => {
+    // Claiming is the point the human's input actually enters a step; a notice
+    // this plugin itself queued must not refill the budget it just spent.
+    if (message.source.kind !== 'user') return
+    if (delivery === 'wakeup' && wakeBudget !== undefined) spentWakes.delete(agent)
+    const held = heldForInput.get(agent.id)
+    if (held === undefined) return
+    heldForInput.delete(agent.id)
+    for (const entry of held) {
+      // A notice `job_output` already withdrew must not arrive twice.
+      if (!pending.has(entry.jobId)) continue
+      agent.inject(entry.message)
+    }
+  })
   ctx.on('session/event', (session, event) => {
     if (event.type !== 'user/message' || event.data.source.kind !== 'tool-jobs') return
     for (const [id, notice] of pending) {
@@ -363,6 +379,14 @@ export function apply(ctx: Context, config: Config): void {
     // A producer that started work nobody is waiting on marks it `quiet`: the
     // notice waits in the inbox for the owner's next step instead of pulling the
     // owner out of whatever it is doing now.
+    // Either the producer or the deployment said this settlement must not pull
+    // the owner back; an idle owner gets it after its next input.
+    if ((event.job.notify === 'quiet' || delivery === 'quiet') && owner.status === 'idle') {
+      const held = heldForInput.get(event.job.owner) ?? []
+      held.push({ jobId: event.job.id, message })
+      heldForInput.set(event.job.owner, held)
+      return
+    }
     if (delivery === 'wakeup' && event.job.notify !== 'quiet' && owner.status === 'idle') {
       if (wakeBudget === undefined) {
         owner.followup(message)
