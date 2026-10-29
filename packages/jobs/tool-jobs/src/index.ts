@@ -419,7 +419,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'job_output',
-    description: 'Read a background job without waiting: output since the previous read for stream jobs, or the result of a finished final-output job. A running job answers with its output so far; its completion arrives as a notice on its own.',
+    description: 'Read a background job without waiting: output since the previous read for stream jobs, or the result of a finished final-output job. A running job answers with its output so far; its completion arrives as a notice on its own. A settled job answers with its captured output and its `[exit code: N]` marker, so re-running it to read them spends the wait twice.',
     // A timed-out wait returns job state rather than a TOOL_TIMEOUT error, so
     // this tool owns its deadline instead of using ToolDefinition.timeoutMs.
     parameters: {

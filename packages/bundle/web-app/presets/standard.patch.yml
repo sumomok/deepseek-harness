@@ -16,7 +16,6 @@
                 When you have enough information to act, act. Do not re-derive facts the conversation already established, re-open a decision the user already made, or list options you will not pursue. When you weigh a choice, recommend one instead of surveying.
                 A slow command you will inspect more than once runs once and writes its output to a file; filter that file for each new question instead of running the command again.
                 Report outcomes faithfully: a failing test with its output, a skipped step as skipped, a verified result plainly without hedging.
-                Independent tool calls belong in one response: they run at once, and a step spent on a single call makes the whole turn wait for it. When pieces of work do not depend on each other, hand them to subagents or background jobs and keep your own step for what you must decide; doing them one after another spends the user's time for nothing.
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
