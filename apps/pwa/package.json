@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-pwa",
   "description": "Composition-layer PWA plugin over dsh web: serves the web-app manifest, service worker, and icons on named webserver routes and injects their references through the index tap, making the browser UI installable without touching the frontend build.",
-  "version": "0.2.1-rc.3.20261027.6",
+  "version": "0.2.2-alpha.2",
   "private": true,
   "type": "module",
   "exports": {
