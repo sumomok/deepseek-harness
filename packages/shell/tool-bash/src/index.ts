@@ -71,6 +71,22 @@ interface BashToolArgs {
   justification?: string
 }
 
+/** A leading foreground `sleep` at or above this many seconds holds the turn instead of yielding it. */
+const LEADING_SLEEP_LIMIT_SECONDS = 10
+
+/**
+ * Seconds of a `sleep` that opens `command`, before any other work starts.
+ * @param command - the shell command as the caller wrote it.
+ * @returns the duration in seconds, or undefined when the command starts with something else.
+ */
+function leadingSleepSeconds(command: string): number | undefined {
+  const match = /^\s*sleep\s+(\d+(?:\.\d+)?)([smh]?)(?:\s|;|$)/.exec(command)
+  if (match === null) return undefined
+  const value = Number(match[1])
+  const unit = match[2]
+  return unit === 'm' ? value * 60 : unit === 'h' ? value * 3600 : value
+}
+
 function validateBashArgs(args: BashToolArgs, effectiveMode: SandboxMode | undefined): void {
   if (args.command.trim().length === 0) {
     throw new Error('invalid command: expected a non-empty string')
@@ -492,6 +508,15 @@ export function apply(ctx: Context, config: Config = {}): void {
         // Description is display metadata; workdir defaults to the caller's session.
         const standingPolicy = resolveSandboxPolicy(exec)
         validateBashArgs(args, standingPolicy?.mode)
+        // A foreground sleep holds the turn for its whole duration; the same wait
+        // belongs to a background job, which yields the turn and reports back.
+        const sleepSeconds = args.run_in_background === true ? undefined : leadingSleepSeconds(args.command)
+        // A deadline shorter than the sleep already bounds the wait, so it is not holding the turn.
+        const boundedByDeadline = args.timeoutMs !== undefined && args.timeoutMs < (sleepSeconds ?? 0) * 1000
+        if (sleepSeconds !== undefined && sleepSeconds >= LEADING_SLEEP_LIMIT_SECONDS && !boundedByDeadline) {
+          throw new Error(`blocked: a leading sleep of ${String(sleepSeconds)} seconds holds the turn. `
+            + 'Start the command with `run_in_background: true` and continue with other work; its completion reaches you as a notice.')
+        }
         const approvedMode = args.sandbox_permissions !== undefined && args.justification !== undefined
           ? await approveBashEscalation(args.sandbox_permissions, args.justification, exec, standingPolicy)
           : undefined

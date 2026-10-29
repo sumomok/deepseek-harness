@@ -266,7 +266,7 @@ describe('foreground commands as jobs', () => {
 
   it('a foreground command stopped from outside the call reports the reason instead of failing', async ({ task }) => {
     const ctx = await setup()
-    const pending = call(ctx, { command: 'sleep 30', description: 'test command' })
+    const pending = call(ctx, { command: 'exec sleep 30', description: 'test command' })
     const job = await until(() => ctx.jobs.list()[0], task.timeout)
     expect(ctx.jobs.kill(job.id, undefined, 'cancelled by the user')).toBe('requested')
     const result = await pending
@@ -298,7 +298,7 @@ describe('foreground commands as jobs', () => {
       signal: controller.signal,
       callId: ToolCallId('background-call-aborted'),
       name: 'bash',
-      arguments: { command: 'sleep 30', description: 'test command' },
+      arguments: { command: 'exec sleep 30', description: 'test command' },
     })
     await until(() => ctx.jobs.list()[0], task.timeout)
     controller.abort()

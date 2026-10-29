@@ -351,7 +351,7 @@ describe('bash tool', () => {
     const pending = executeToolFixture(ctx, {
       callId: ToolCallId('call-abort'),
       name: 'bash',
-      arguments: { command: 'sleep 60', description: 'test command' },
+      arguments: { command: 'exec sleep 60', description: 'test command' },
       signal: controller.signal,
     })
     setTimeout(() => { controller.abort() }, 50)
@@ -396,6 +396,46 @@ describe('bash tool', () => {
     const result = await call(ctx, 'bash', args)
     expect(result.isError).toBe(true)
     expect(text(result)).toMatch(pattern)
+  })
+
+  it.each([
+    ['sleep 30; echo waited', true],
+    ['sleep 1m; echo waited', true],
+    ['  sleep 12', true],
+  ])('blocks a leading foreground sleep in %j', async (command) => {
+    const ctx = await setup()
+    const result = await call(ctx, 'bash', { command, description: 'wait' })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toMatch(/blocked: a leading sleep of \d+ seconds holds the turn/)
+    expect(text(result)).toContain('run_in_background: true')
+  })
+
+  it('leaves a short leading sleep alone', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'bash', { command: 'sleep 1; echo ok', description: 'short wait' })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('ok')
+  })
+
+  it('leaves a sleep that opens a loop alone', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'bash', { command: 'for i in 1; do sleep 0.1; done; echo ok', description: 'loop' })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('ok')
+  })
+
+  it('leaves a long sleep that is not leading alone', async () => {
+    const ctx = await setup()
+    // The deadline, not the guard, bounds this one: it must reach the timeout path.
+    const result = await call(ctx, 'bash', { command: 'echo start; sleep 30', description: 'later wait', timeoutMs: 100 })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('timed out')
+  })
+
+  it('allows a long sleep once the call is backgrounded', async () => {
+    const ctx = await setupWithJobs()
+    const result = await call(ctx, 'bash', { command: 'sleep 30', description: 'wait', run_in_background: true })
+    expect(result.isError).toBe(false)
   })
 
   it('rejects a non-JSON numeric argument before tool-specific validation', async () => {
