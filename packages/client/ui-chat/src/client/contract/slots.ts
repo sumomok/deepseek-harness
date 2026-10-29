@@ -8,6 +8,7 @@ import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { InboxState } from '@deepseek-ai/dsh-agent/types'
 import type {
   CommandNode, CompactionSummaryNode, ConversationLocationDataStore, ConversationTurnDataMap,
+  TextInteractionGesture, TextInteractionSurface,
   ConversationGroupData, GroupSnapshot,
   MessageImageLoader, MessageImageSource, MessageImagesOwnerProps, RenderEntry, TurnLocation, UserTextFacts, UserTextInput,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -16,7 +17,10 @@ import type {
   PropsRenderFactories, PropsStore, SlotHookFactory, SnapshotSelectorHook,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
-import type { MarkdownFileMentions, MarkdownLabels, MarkdownProseReferents } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { ConnectionStateSource } from '@deepseek-ai/dsh-client-connection/client'
+import type {
+  MarkdownFileMentions, MarkdownLabels, MarkdownProseReferents,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: the Session-scope access Hook (`useAccess`) the Chat entries read.
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
@@ -219,9 +223,11 @@ export interface ProseReferents {
    * here — verification against the session truth index or a prior `stat`
    * result is a cache read, never a fresh probe.
    * @param text - Exact text content of the node being rendered.
-   * @param context - `cwd`/`home` resolve a relative candidate (undefined
-   * wherever the session/workspace has none — the provider decides whether
-   * that suppresses a span or not); `inlineCode` is true for an inline-code
+   * @param context - `cwd`/`home` resolve a relative candidate. `cwd` is the
+   * session's current working directory at this call, or its header
+   * directory when no working directory is recorded (undefined wherever the
+   * session/workspace has neither — the provider decides whether that
+   * suppresses a span or not); `inlineCode` is true for an inline-code
    * token, false for plain prose text.
    * @returns Non-overlapping, verified spans in ascending `start` order.
    */
@@ -325,6 +331,20 @@ export interface ChatNodeInjected {
     disclosure: SlotHookFactory<'conversation.chat.node', UseDisclosure>
     groupAction: SlotHookFactory<'conversation.chat.node', UseGroupAction>
   }
+}
+
+/**
+ * Owner currency of the message-source decoration above one user message bubble.
+ *
+ * Entry selectors receive the durable message `source` and row kind. A
+ * non-null selection elects the component and reaches it as `matched`.
+ * Entries own their markup and copy; Chat does not interpret the source.
+ */
+export interface UserBeforeOwnerProps {
+  /** Durable message source; Chat does not interpret it. */
+  readonly source: unknown
+  /** Chat row kind that owns the decoration site. */
+  readonly kind: 'user' | 'steering'
 }
 
 /** Stable owner currency delivered to a keyed Chat renderer. */
@@ -435,7 +455,13 @@ export interface PerformanceUsageInjected {
 
 /** Business callbacks injected into the Chat view. */
 export interface ChatViewInjected {
+  /** File preparation and failure callbacks owned by the file-drag plugin. */
+  readonly fileDrag: import('@deepseek-ai/dsh-client-ui-primitives').FileDragActions
+  /** Dispatch one gesture to the Conversation plugin registry. */
+  dispatchInteraction: (gesture: TextInteractionGesture) => string | null
   hooks: {
+    /** Live plugin IDs; removed plugins dismiss their active surface. */
+    interactionIds: ObservableSnapshot<readonly string[]>
     /** Live presentation policy derived from the accepted work-details mode. */
     presentation: ObservableSnapshot<ChatPresentationPolicy>
   }
@@ -470,8 +496,13 @@ export interface ChatViewInjected {
   referents: MarkdownProseReferents | undefined
 }
 
-/** Existing Session-owned node sources shared by the view and its flow renderer. */
-export type ChatFlowDataInjected = Pick<ChatViewInjected, 'hooks' | 'keyedHooks'>
+/** Session-owned node sources shared with the view, plus the flow's connection state. */
+export type ChatFlowDataInjected = Pick<ChatViewInjected, 'keyedHooks'> & {
+  hooks: Pick<ChatViewInjected['hooks'], 'presentation'> & {
+    /** Client connection lifecycle; the running clock pauses while it is not connected. */
+    connectionState: ConnectionStateSource
+  }
+}
 
 /** Ordered rows and reconciled local echoes rendered inside one Chat viewport. */
 export interface ChatFlowOwnerProps extends Pick<ChatNodeOwnerProps,
@@ -494,7 +525,7 @@ export type ChatFlowSlotProps =
 /** Full Chat view props. */
 export type ChatViewSlotProps =
   PropsRuntime<'conversation.view'>
-  & PropsRenderSlots<'conversation.chat.flow'>
+  & PropsRenderSlots<'conversation.chat.flow' | 'conversation.chat.text-interaction'>
   & PropsStore<ChatStore>
   & InjectFace<ChatViewInjected>
   & PropsLocale<'chat'>
@@ -531,6 +562,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 
   interface SlotMap {
+    /** Area-local text gestures and surfaces; each consumer registers its own synchronous admission. */
+    'conversation.chat.text-interaction': { kind: 'keyed'; scope: 'session'; owner: TextInteractionSurface }
+
     /** Ordered Chat rows and local echoes with viewport-bound visibility hooks. */
     'conversation.chat.flow': {
       kind: 'single'
@@ -551,6 +585,17 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       keyProps: { [Kind in ChatNodeKind]: { node: ChatNode<Kind> } }
       hookContext: ChatNodeHookContext
       inject: ChatNodeInjected
+    }
+    /**
+     * Message-source decoration owned and rendered by the user Node entry.
+     * Selectors elect one component from the durable source and row kind.
+     * No match renders no visible content; steering and pending rows do not
+     * render this slot.
+     */
+    'conversation.chat.user.before': {
+      kind: 'chain'
+      scope: 'session'
+      owner: UserBeforeOwnerProps
     }
     /**
      * Renderer for one consecutive group of durable message images. The owner

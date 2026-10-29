@@ -1,18 +1,10 @@
 - dialog "设置":
+  - text: 设置
   - navigation:
-    - text: 设置
-    - group "通用":
-      - text: 通用
-      - button "通用设置"
-    - group "模型":
-      - text: 模型
-      - button "提供方与模型"
-    - group "智能体":
-      - text: 智能体
-      - button "Agent 预设"
-    - group "扩展":
-      - text: 扩展
-      - button "内置插件"
+    - button "通用设置"
+    - button "模型"
+    - button "内置插件"
+    - button "Agent 预设"
   - button "打开配置文件"
   - button "关闭"
   - text: 权限 选择新会话的默认权限模式
@@ -32,6 +24,8 @@
   - button "标准"
   - text: 工作步骤收起时机 选择何时自动收起工作步骤
   - button "回答结束后"
+  - text: 收起后显示的回复 工作步骤收起后，保留哪些助手回复
+  - button "全部回复"
   - text: 显示代码工作视图 开启后，显示轨迹、本轮代码差异，可选择完整的 Agent 预设切换
   - switch "显示代码工作视图" [checked]
   - text: 快捷键
@@ -39,8 +33,6 @@
   - button "编辑快捷键"
   - text: 繁忙时的发送行为 智能体运行时 Enter 键和发送按钮的行为；Cmd/Ctrl+Enter 使用另一行为
   - button "排队发送"
-  - text: 繁忙时的压缩行为 智能体运行时输入 /compact 的处理方式：立即打断在当前步骤结束后压缩，排队等候在本轮结束后压缩
-  - button "排队等候"
   - text: 性能与用量 选择性能与用量信息展示的详细程度
   - button "详细"
   - text: 在使用官方模型 API 时上传 Session Log 帮助改进 DeepSeek 模型与产品

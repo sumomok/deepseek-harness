@@ -1,18 +1,10 @@
 - dialog "设置":
+  - text: 设置
   - navigation:
-    - text: 设置
-    - group "通用":
-      - text: 通用
-      - button "通用设置"
-    - group "模型":
-      - text: 模型
-      - button "提供方与模型"
-    - group "智能体":
-      - text: 智能体
-      - button "Agent 预设"
-    - group "扩展":
-      - text: 扩展
-      - button "内置插件"
+    - button "通用设置"
+    - button "模型"
+    - button "内置插件"
+    - button "Agent 预设"
   - button "打开配置文件"
   - button "关闭"
   - heading "模型" [level=2]
@@ -40,6 +32,7 @@
           - text: 模型目录 已自定义模型目录
           - button "恢复默认模型"
           - button "获取可用模型"
+          - button "调整模型顺序 1"
           - textbox "模型 ID 1":
             - /placeholder: 模型 ID
             - text: gpt-6-astra
@@ -50,11 +43,11 @@
           - button "删除模型 1"
           - text: 上下文窗口
           - textbox "上下文窗口 1":
-            - /placeholder: 256K
+            - /placeholder: 1M
             - text: 272K
           - text: 最大输出 token 数
           - textbox "最大输出 token 数 1":
-            - /placeholder: 32K
+            - /placeholder: 128K
             - text: 128K
           - group "输入类型 1":
             - text: 输入类型
