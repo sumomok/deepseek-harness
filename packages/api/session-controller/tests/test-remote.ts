@@ -51,7 +51,7 @@ import type {
   SessionOpenWorkspacePathRequest,
   SessionOpenWorkspacePathValue,
   SessionWorkspacePathApplication,
-  SessionPage,
+  SessionEventsPage,
   SessionPageRequest,
   SessionProbeTargetsRequest,
   SessionProbeTargetsValue,
@@ -68,7 +68,7 @@ import type {
   SessionUpdateQueueValue,
 } from '../src/types.ts'
 
-/** Direct test face matching the generated `ctx.remote.session` unary methods. */
+/** Direct test face for the generated `ctx.remote.session` unary methods these tests exercise. */
 export interface TestSessionRemote {
   workspacePathApplications(
     request: { readonly path: string }, signal?: AbortSignal,
@@ -90,7 +90,7 @@ export interface TestSessionRemote {
     signal?: AbortSignal,
   ): Promise<RemoteResult<SessionOpenWorkspacePathValue>>
   probeTargets(request: SessionProbeTargetsRequest): Promise<RemoteResult<SessionProbeTargetsValue>>
-  page(request: SessionPageRequest, signal?: AbortSignal): Promise<RemoteResult<SessionPage>>
+  page(request: SessionPageRequest, signal?: AbortSignal): Promise<RemoteResult<SessionEventsPage>>
   projections(request: SessionProjectionsRequest, signal?: AbortSignal): Promise<RemoteResult<SessionProjectionsValue>>
   follow(request: SessionFollowRequest, signal?: AbortSignal): AsyncIterable<SessionFollowFrame>
   control(signal?: AbortSignal): AsyncIterable<SessionControlFrame>
@@ -392,6 +392,7 @@ export async function createSessionTestRemote(
     ),
     probeTargets: request => remoteResult(() => direct.probeTargets(request)),
     page: (request, signal = new AbortController().signal) => remoteResult(
+      // oxlint-disable-next-line typescript/no-deprecated -- Test face keeps the legacy page entry covered.
       () => direct.page(request, signal),
       signal,
     ),

@@ -364,6 +364,8 @@ export function apply(ctx: Context, config: Config = Config({})): void {
       selectWorkspace: workspaceId => workspaceNavigation.openWorkspace(workspaceId, (nextId) => {
         if (sessionId !== undefined && nextId !== sessionId) {
           const from = inputHub.shell(sessionId)
+          // A draft with a submission in flight stays with the Session that is admitting it.
+          if (from.snapshot.phase !== 'plain' && from.snapshot.phase !== 'claimed') return
           const draft = from.draftSnapshot
           // A reference belongs to the Session its owner created it for; it stays in that draft.
           const attachmentIds = concreteConversation(ctx).resolveDraftAttachments(from.snapshot.attachmentIds)
@@ -500,7 +502,8 @@ export function apply(ctx: Context, config: Config = Config({})): void {
         keyboard: shell,
         addFiles: (files, directories = new Set()) => {
           if (sessions.binding(sessionId) === undefined) return t('file.sessionUnavailable')
-          if (shell.snapshot.phase === 'adjudicating' || shell.snapshot.phase === 'submitting') {
+          const { phase } = shell.snapshot
+          if (phase === 'adjudicating' || phase === 'submitting' || phase === 'sending') {
             return t('attachment.dropBlocked')
           }
           const uploads: File[] = []

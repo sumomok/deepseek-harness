@@ -49,13 +49,11 @@ Default roots are scanned in this provider's rank order:
 |---|---|---|
 | 100 | `project-dsh` | `<projectRoot>/.dsh/skills` |
 | 200 | `project-agents` | `<projectRoot>/.agents/skills` |
-| 210 | `project-claude` | `<projectRoot>/.claude/skills` |
 | 300 | `custom` | `Config.customSkillDirs` |
 | 400 | `user-dsh` | `<dshHome>/skills` |
 | 500 | `user-agents` | `<agentsHome>/skills` |
-| 510 | `user-claude` | `<claudeHome>/skills` |
 
-The `.claude` roots are read so skills authored for the agent clients that keep them there are available unchanged; a name present in both roots of a tier resolves to the `.agents` copy. Roots are deduplicated by canonical path, so a `.claude/skills` that is a symbolic link to `.agents/skills` is scanned and watched once rather than offering every skill twice. The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. The user DSH root skips its `.system` child. `includeDefaultRoots: false` omits the project and user rows plus the `$DSH_BUNDLED_SKILL_DIR` default so an isolated provider sees only its own configured roots; `bundledSkillDir` adds a bundled root at rank 600.
+The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. The user DSH root skips its `.system` child. `includeDefaultRoots: false` omits the project and user rows plus the `$DSH_BUNDLED_SKILL_DIR` default so an isolated provider sees only its own configured roots; `bundledSkillDir` adds a bundled root at rank 600.
 
 ### Mount and configure
 
@@ -72,7 +70,6 @@ Load the plugin alongside the skill registry; it requires `ctx.skills`.
 | `includeDefaultRoots` | `true` | Include project and user roots around `customSkillDirs` |
 | `dshHome` | `$DSH_HOME` or `~/.dsh` | Harness config root; its `skills` subdirectory is scanned |
 | `agentsHome` | `$DSH_AGENTS_HOME` or `~/.agents` | Shared agent config root scanned for compatible skills |
-| `claudeHome` | `$DSH_CLAUDE_HOME` or `~/.claude` | Claude Code config root scanned for compatible skills |
 | `customSkillDirs` | `[]` | Additional local skill roots, after project roots and before user roots |
 | `watch` | `true` | Watch local roots and invalidate the provider when the catalog may have changed |
 | `bundledSkillDir` | — | Bundled skill root scanned at rank 600 when configured |
@@ -85,7 +82,7 @@ Existing roots are watched, so adding, renaming, or deleting a skill (or editing
 
 ### Observable success and failures
 
-A valid skill under any scanned root appears in the session catalog sorted by name, and loading it returns the current file body. A file without valid frontmatter, an invalid name, or an invalid invocation value is skipped with a warning, so the model catalog receives no per-skill diagnostic and cannot distinguish an absent skill from an invalid one. Unexpected discovery or read failures leave the catalog observation incomplete rather than replacing the last-good view with a misleading deletion. A root the scan cannot read at all — permission denied, or a link that resolves to itself — is named in one warning and dropped from that observation alone, so every other root still contributes its skills.
+A valid skill under any scanned root appears in the session catalog sorted by name, and loading it returns the current file body. A file without valid frontmatter, an invalid name, or an invalid invocation value is skipped with a warning, so the model catalog receives no per-skill diagnostic and cannot distinguish an absent skill from an invalid one. A root whose discovery or file read fails is logged with its path and omitted; other roots remain available. The observation is incomplete and is retried on the next lookup rather than cached. The model catalog identifies incomplete discovery separately from confirmed absence.
 
 -----
 
@@ -127,7 +124,7 @@ Read these pages when the package-level contract is not enough. They move from t
 - [Skill subsystem reference](../../../docs/subsystems/skills.md) — the registry contract and the local discovery priority table.
 - [skill package](../skill/README.md) — the registry this provider registers on.
 - [tool-skill package](../tool-skill/README.md) — how discovered skills reach the session catalog and the model.
-- [home-paths package](../../util/home-paths/README.md) — how `dshHome`, `agentsHome`, and `claudeHome` resolve.
+- [home-paths package](../../util/home-paths/README.md) — how `dshHome` and `agentsHome` resolve.
 
 -----
 
@@ -149,7 +146,8 @@ These limits define when the provider is a poor fit or needs special operational
 
 - **Discovery is one level deep** — only `<root>/<name>/SKILL.md` and `<root>/<name>.md` are recognized; nested skill trees and package manifests are ignored.
 - **Project scope is the nearest `.git` ancestor** — workspaces without that marker fall back to the supplied cwd, with no alternate project-root marker or monorepo subproject selection.
-- **Malformed entries disappear with a warning** — the model catalog receives no per-skill diagnostic and cannot distinguish an absent skill from an invalid one; unexpected I/O failures preserve the last-good catalog instead.
+- **Malformed entries disappear with a warning** — the model catalog receives no per-skill diagnostic and cannot distinguish an absent skill from an invalid one.
+- **I/O failures omit the whole root** — one unreadable skill also hides its readable siblings for that observation. Other roots remain available, so a lower-priority same-name skill can supply the description and loaded body. Discovery retries on each lookup and restores normal priority when the root recovers.
 - **Missing-root observation polls one path segment** — roots absent at startup use `fs.watchFile` at `watchPollIntervalMs` until Chokidar can attach, trading bounded detection latency for reliable creation detection across IDE, Git, and shell workflows.
 - **No body revision protocol** — a loaded body is ordinary retained tool history; later file edits affect later calls but neither rewrite old results nor announce that the body changed.
 

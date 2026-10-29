@@ -207,12 +207,12 @@ describe('Session relocation in a composed Host', () => {
     // The cache rebinds its record on the relocation event; the move does not wait for that write.
     await vi.waitFor(() => { expect(ctx.sessionProjectionCache.cachedSnapshot(moved)).toBeDefined() })
     const follow = new AbortController()
-    const history = sessionRemote.follow({ address: { kind: 'session', sessionId: SESSION } }, follow.signal)[Symbol.asyncIterator]()
+    const history = sessionRemote.follow({ address: { kind: 'session', sessionId: SESSION }, activate: true }, follow.signal)[Symbol.asyncIterator]()
     // The snapshot hydrates the stored Session from the cached checkpoint.
     expect((await history.next()).value).toMatchObject({
       type: 'snapshot', projections: { values: { workingDirectory: destination } },
     })
-    // Delivery resumes past the snapshot only when the follower pulls again; that starts the Agent.
+    // `activate` requests promotion with the opening; the Agent starts from it.
     const tail = history.next()
     await vi.waitFor(() => { expect(ctx.agents.get(SESSION)).toBeDefined() })
     await expect(sessionRemote.prompt({
@@ -232,9 +232,9 @@ describe('Session relocation in a composed Host', () => {
   it('refuses to move a Session whose followed history resumed its Agent', async () => {
     const { ctx, origin, destination, sessionRemote } = await host()
     const follow = new AbortController()
-    const history = sessionRemote.follow({ address: { kind: 'session', sessionId: SESSION } }, follow.signal)[Symbol.asyncIterator]()
+    const history = sessionRemote.follow({ address: { kind: 'session', sessionId: SESSION }, activate: true }, follow.signal)[Symbol.asyncIterator]()
     expect((await history.next()).value).toMatchObject({ type: 'snapshot' })
-    // Delivery resumes past the snapshot only when the follower pulls again; that starts the Agent.
+    // `activate` requests promotion with the opening; the Agent starts from it.
     const tail = history.next()
     await vi.waitFor(() => { expect(ctx.agents.get(SESSION)).toBeDefined() })
 
