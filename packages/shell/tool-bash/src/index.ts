@@ -95,6 +95,8 @@ function bashDescription(): string {
     + 'Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. '
     + 'Provide `description` before `command` in the arguments. '
     + 'Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. '
+    + 'Before a command whose effect you cannot undo — removing a volume or container, `docker system prune`, `rm -rf`, a migration, `git reset --hard` — say what the recovery point is and establish it first: a copy, a `docker commit`, a database dump. '
+    + 'Git covers committed files only; volumes, containers, databases, and remote hosts have no history. If you cannot name one, do not run the command. '
     + 'An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`. '
     + 'Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]`, a policy denial: do not retry another way.'
 }
