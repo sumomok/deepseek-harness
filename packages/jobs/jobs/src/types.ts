@@ -5,7 +5,7 @@
  * @module @deepseek-ai/dsh-jobs/types
  */
 
-import type { SessionEventMap, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEventMap, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { JobId } from './brand.ts'
 import type { JobChannel, JobChunk, JobKind, JobView } from './view.ts'
 
