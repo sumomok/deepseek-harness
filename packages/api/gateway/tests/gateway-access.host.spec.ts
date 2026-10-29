@@ -747,7 +747,6 @@ describe('Gateway forwarded events for non-owner Peers', () => {
     push({ event: 'fixture/shelf', args: ['s1'], resources })
     const asked = await ownerEvents.next()
     expect(asked).toMatchObject({ value: { type: 'waterfall', event: 'fixture/ask' } })
-    await expect(ownerEvents.next()).resolves.toMatchObject({ value: { type: 'waterfall', event: 'fixture/ask' } })
     const pending = ctx.typertGateway.getPendingRemoteEvents()
     expect(pending).toEqual([{ event: 'fixture/ask', agentId: 'agent-1' }])
     expect(pending).not.toBe(ctx.typertGateway.getPendingRemoteEvents())

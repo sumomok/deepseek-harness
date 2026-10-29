@@ -453,7 +453,7 @@ describe('SettingsRoot.module.css', () => {
     expect(declarations('.triggerRow:not(.railRow):hover')?.get('background')).toBe('var(--dsw-alias-interactive-bg-hover)')
     expect(declarations('.triggerRow:not(.railRow) .trigger:hover')?.get('background')).toBe('transparent')
     // The rail row is excluded: there the trigger circle is its own surface.
-    expect(declarations('.trigger:hover')?.get('background')).toBe('var(--dsw-alias-interactive-bg-hover)')
+    expect(declarations('.trigger:hover')?.get('background-color')).toBe('var(--dsw-alias-interactive-bg-hover)')
   })
 })
 

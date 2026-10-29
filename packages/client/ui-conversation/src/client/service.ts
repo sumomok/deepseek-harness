@@ -307,6 +307,8 @@ export class ConversationController extends Service implements IConversation {
     // The composer owns the attachments until the Host accepts the prompt.
     const ownership = { accepted: false, retiredUnobserved: false }
     const acceptance = Promise.withResolvers<undefined>()
+    // Only a draft with attachments holds a retirement to wait for.
+    const retirement = attachments.length === 0 ? undefined : Promise.withResolvers<{ readonly reason: string }>()
     const submission = session.beginSubmission({
       mode,
       text,
@@ -321,6 +323,7 @@ export class ConversationController extends Service implements IConversation {
         if (settlement.reason === 'observed') this.settleSubmittedAttachments(session.sessionId, attachments, settlement)
         else if (ownership.accepted) this.releaseDraftAttachments(attachments)
         else ownership.retiredUnobserved = true
+        retirement?.resolve(settlement)
       },
     })
     let content: Parameters<SessionFace['prompt']>[0]
@@ -338,9 +341,14 @@ export class ConversationController extends Service implements IConversation {
     // nothing here because the Host already holds the message.
     const result = await Promise.race([session.prompt(content, mode, signal, submission.requestId, resolved), acceptance.promise])
     if (result !== undefined && !result.ok) return { kind: 'error' }
+    // Acceptance settles the composer early; without it the echo decides, and an
+    // unobserved retirement keeps the attachments for the retry.
+    if (!ownership.accepted && retirement !== undefined) {
+      if ((await retirement.promise).reason !== 'observed') return { kind: 'error' }
+    } else if (ownership.retiredUnobserved) {
+      this.releaseDraftAttachments(attachments)
+    }
     ownership.accepted = true
-    // An accepted prompt whose echo already retired unobserved, as when its queue entry was removed.
-    if (ownership.retiredUnobserved) this.releaseDraftAttachments(attachments)
     return { kind: 'success' }
   }
 

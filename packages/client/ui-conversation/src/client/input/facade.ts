@@ -415,6 +415,8 @@ export class SessionInputShell implements SessionInput {
       this.notify('error', this.deps.commandAttachments.unsupportedNotice(before.claim?.token ?? before.draft))
       return
     }
+    // A reference annotates a prompt; on its own it leaves nothing to send.
+    if (before.phase === 'plain' && before.draft.trim() === '' && this.attachmentIds.length === references) return
     this.dispatchRun({
       type: 'enter',
       mode,

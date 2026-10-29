@@ -199,7 +199,7 @@ describe('matrix row: plain', () => {
       shell.submit('queue', 'click')
       expect(submissionState).toHaveBeenCalledOnce()
       expect(messageSubmitted).toHaveBeenCalledOnce()
-      expect(defaultSink).toHaveBeenCalledWith('', ['ref-1', 'img-1'], 'queue', expect.any(AbortSignal))
+      expect(defaultSink).toHaveBeenCalledWith('', ['ref-1', 'img-1'], 'queue', expect.any(AbortSignal), expect.any(Function))
     } finally { shell.dispose() }
   })
 

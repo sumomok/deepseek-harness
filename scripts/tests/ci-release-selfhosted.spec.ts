@@ -166,5 +166,11 @@ for (const [file, jobIds] of [['release.yml', ['dependencies', 'pack']], ['relea
 it.each(['release-publish.yml', 'release-vendor-publish.yml'])('keeps %s manual and entirely hosted', (file) => {
   const publish = workflow(file)
   expect(Object.keys(publish.on)).toEqual(['workflow_dispatch'])
-  for (const job of Object.values(publish.jobs)) expect(job['runs-on']).toBe(hosted)
+  // The failover switch may move the pack job onto a self-hosted runner. A
+  // manual dispatch without it stays on the hosted image.
+  const dispatch = { 'github.repository': repository, 'github.event_name': 'workflow_dispatch' }
+  for (const job of Object.values(publish.jobs)) {
+    const runsOn = String(job['runs-on'])
+    expect(runsOn.includes('${{') ? evaluate(runsOn, dispatch) : runsOn).toBe(hosted)
+  }
 })

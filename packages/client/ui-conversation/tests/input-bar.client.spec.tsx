@@ -1286,7 +1286,7 @@ describe('running and lock semantics', () => {
 
     const typed = bench({ draft: '这是什么', attachments: [reference] })
     fireEvent.keyDown(typed.textarea, { key: 'Enter' })
-    expect(typed.sink).toHaveBeenCalledWith('这是什么', ['ref-1'], 'queue', expect.any(AbortSignal))
+    expect(typed.sink).toHaveBeenCalledWith('这是什么', ['ref-1'], 'queue', expect.any(AbortSignal), expect.any(Function))
   })
 
   it('an attachment-only draft with a reference sends the media and the reference together', () => {
@@ -1302,7 +1302,7 @@ describe('running and lock semantics', () => {
     }
     const { textarea, sink } = bench({ attachments: [reference, image] })
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('', ['ref-1', 'draft-1'], 'queue', expect.any(AbortSignal))
+    expect(sink).toHaveBeenCalledWith('', ['ref-1', 'draft-1'], 'queue', expect.any(AbortSignal), expect.any(Function))
   })
 
   it('running blocked composer keeps Stop with a retained draft', () => {
