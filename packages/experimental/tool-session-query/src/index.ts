@@ -51,7 +51,8 @@ const TEXT_OUTPUT = {
 const PROMPT_TEXT =
   'Use session_search to find relevant work from prior sessions, or session_event_search to search earlier '
   + 'events in one session. Search results are cursor-free and workspace-scoped. Follow a useful hit with '
-  + 'session_trace, session_event_trace, or session_event_read when you need lineage, relationships, or exact data.'
+  + 'session_trace, session_event_trace, or bounded session_event_read excerpts; use full: true only when '
+  + 'the complete event is necessary.'
 
 /** Register all five tools and their shared model guidance. */
 export function apply(ctx: Context, config: Config): void {
@@ -107,12 +108,15 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'session_event_read',
-    description: 'Read one full unabridged event and optional neighboring raw-event summaries from an authorized session.',
+    description: 'Read a bounded excerpt of one event, or the complete event with full: true.',
     parameters: {
       ...toolInput.targetSessionParameter,
       seq: { type: 'integer', required: true, description: 'Target event sequence number.' },
       before: { type: 'integer', description: 'Number of preceding raw events to summarize. Omit for none.' },
       after: { type: 'integer', description: 'Number of following raw events to summarize. Omit for none.' },
+      offset: { type: 'integer', description: 'Zero-based character offset into the formatted event JSON; use nextOffset from the previous page.' },
+      maxChars: { type: 'integer', description: 'Characters per page (2–100000). Defaults to 16000.' },
+      full: { type: 'boolean', description: 'Return the complete unabridged event. Cannot be combined with offset or maxChars.' },
     },
     output: TEXT_OUTPUT,
     isConcurrencySafe: () => true,

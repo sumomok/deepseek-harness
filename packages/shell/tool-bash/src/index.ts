@@ -65,9 +65,26 @@ interface BashToolArgs {
   timeoutMs?: number
   workdir?: string
   run_in_background?: boolean
+  notify?: 'wake' | 'quiet'
   sandbox_permissions?: string
   /** Optional for an omitted or repeated effective mode; widening requires a non-empty reason. */
   justification?: string
+}
+
+/** A leading foreground `sleep` at or above this many seconds holds the turn instead of yielding it. */
+const LEADING_SLEEP_LIMIT_SECONDS = 10
+
+/**
+ * Seconds of a `sleep` that opens `command`, before any other work starts.
+ * @param command - the shell command as the caller wrote it.
+ * @returns the duration in seconds, or undefined when the command starts with something else.
+ */
+function leadingSleepSeconds(command: string): number | undefined {
+  const match = /^\s*sleep\s+(\d+(?:\.\d+)?)([smh]?)(?:\s|;|$)/.exec(command)
+  if (match === null) return undefined
+  const value = Number(match[1])
+  const unit = match[2]
+  return unit === 'm' ? value * 60 : unit === 'h' ? value * 3600 : value
 }
 
 function validateBashArgs(args: BashToolArgs, effectiveMode: SandboxMode | undefined): void {
@@ -94,6 +111,8 @@ function bashDescription(): string {
     + 'Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. '
     + 'Provide `description` before `command` in the arguments. '
     + 'Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. '
+    + 'Before a command whose effect you cannot undo — removing a volume or container, `docker system prune`, `rm -rf`, a migration, `git reset --hard` — say what the recovery point is and establish it first: a copy, a `docker commit`, a database dump. '
+    + 'Git covers committed files only; volumes, containers, databases, and remote hosts have no history. If you cannot name one, do not run the command. '
     + 'An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`. '
     + 'Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]`, a policy denial: do not retry another way.'
 }
@@ -271,6 +290,9 @@ export function apply(ctx: Context, config: Config = {}): void {
         label: args.command,
         toolCall: { callId: exec.callId, rootCallId: exec.rootCallId },
         ...exec.agent ? { owner: exec.agent.id } : {},
+        // A call that fired work off does not want its turn reopened; a
+        // foreground call promoted on timeout is work the caller was waiting on.
+        notify: args.notify ?? (args.run_in_background === true ? 'quiet' : 'wake'),
         output: processSources(() => proc),
         run: () => {
           const hooks = processJob(
@@ -386,6 +408,11 @@ export function apply(ctx: Context, config: Config = {}): void {
         workdir: { type: 'string', description: 'Working directory for this command. Defaults to the session workspace; a relative path is resolved against it.' },
         ...background ? {
           run_in_background: { type: 'boolean' as const, description: 'Run in the background and return a job id immediately (collect with job_output, stop with job_kill). No timeout applies.' },
+          notify: {
+            type: 'string' as const,
+            enum: ['wake', 'quiet'] as const,
+            description: 'Whether the completion should reopen your turn: "wake" when the user\'s next step depends on the result, even if they did not ask to be told; "quiet" when you fired the work off and will collect it later. Defaults to quiet.',
+          },
         } : {},
         ...escalationModes.length > 0 ? {
           sandbox_permissions: {
@@ -465,10 +492,12 @@ export function apply(ctx: Context, config: Config = {}): void {
             },
           ],
         },
-        render: (_args, value) => [{
+        render: (args, value) => [{
           type: 'text',
           text: value.kind === 'background'
-            ? `started background job ${value.jobId}`
+            ? (args.notify ?? 'quiet') === 'wake'
+              ? `started background job ${value.jobId}. Its completion will reopen your turn — do not poll it; job_output reads what it has produced so far.`
+              : `started background job ${value.jobId}. It will not reopen your turn — do not wait for it; job_output reads what it has produced so far.`
             : value.kind === 'promoted'
               ? renderPromoted(value)
               : renderResult(value as { kind: 'foreground' } & ShellRunResult, escalationModes),
@@ -479,6 +508,15 @@ export function apply(ctx: Context, config: Config = {}): void {
         // Description is display metadata; workdir defaults to the caller's session.
         const standingPolicy = resolveSandboxPolicy(exec)
         validateBashArgs(args, standingPolicy?.mode)
+        // A foreground sleep holds the turn for its whole duration; the same wait
+        // belongs to a background job, which yields the turn and reports back.
+        const sleepSeconds = args.run_in_background === true ? undefined : leadingSleepSeconds(args.command)
+        // A deadline shorter than the sleep already bounds the wait, so it is not holding the turn.
+        const boundedByDeadline = args.timeoutMs !== undefined && args.timeoutMs < (sleepSeconds ?? 0) * 1000
+        if (sleepSeconds !== undefined && sleepSeconds >= LEADING_SLEEP_LIMIT_SECONDS && !boundedByDeadline) {
+          throw new Error(`blocked: a leading sleep of ${String(sleepSeconds)} seconds holds the turn. `
+            + 'Start the command with `run_in_background: true` and continue with other work; its completion reaches you as a notice.')
+        }
         const approvedMode = args.sandbox_permissions !== undefined && args.justification !== undefined
           ? await approveBashEscalation(args.sandbox_permissions, args.justification, exec, standingPolicy)
           : undefined

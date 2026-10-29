@@ -83,12 +83,19 @@ kind: "package-reference"
 
 同步的 `compaction/summary-error` waterfall 让后端为失败的摘要及明确选区请求持久输入恢复。监听器只有在记录实际进展后才返回 true，否则调用 `next()` 委派后续处理。后端在触发事件前检查取消和选区稳定性，重试前重新派生输入并计价。事件声明说明其载荷；图片策略由 `dsh-compaction-image-offload` 负责。
 
+同步的 `compaction/summary-review` waterfall 在 shrink 检查之后、`compaction/summary` 与替换 `user/message` 之前运行。监听器调用 `next()` 表示接受，返回 false 表示拒绝；拒绝会像摘要失败一样关闭 bracket——恰好一条携带错误的 `compaction/end`，不写 summary 事件、不替换、不重试。它有意保持同步：监听器可以检查或拒绝，但事务内不会运行异步模型评审。
+
 预期手动失败会抛出 `ManualCompactionError`，携带来自小型封闭集合的稳定 `code`；只有 `compaction/start` 标记之后发生的失败才会被记录——以携带错误的 `compaction/end` 形式——而 `busy` 拒绝或 start 之前的取消不会留下记录。每个错误码的语义见[压缩子系统参考](../../../docs/subsystems/compaction.zh.md)。
 
 <a id="tool-pairing-boundaries"></a>
 ### 工具配对边界
 
 该 Service Definition 导出 `toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`，用于对齐和验证压缩边界。安全边界不会被尚未回答的 assistant 工具调用跨越。每个 helper 都会验证给定事件 seq 位于当前表层，并根据按表层顺序缓存的各切分点配对状态返回结果，因此重复检查不读取事件；replace generation 会重建缓存，缺失 seq 或孤立的 `tool/result` 会被视为表层状态损坏并遭拒绝。
+
+<a id="surface-recovery-addresses"></a>
+### 表层恢复地址
+
+该 Service Definition 导出 `originalToolResultSeq(session, seq)`、`RecoveryAddress` 与 `recoveryNotice(address)`，供遮蔽工具结果但保留其原文可读性的消费方使用。地址要么是原事件的 `{ sessionId, seq }`，要么是已记录的 spill notice，要么是显式的 `unavailable` 结果。seq 追踪沿 `surfaceOp: replace` 的引用跨连续替换与无关事件前进，并带 visited 集合与深度上限。这个叶子有意保持通用：不解析 spill notice，也不导入 spill 后端；notice 识别仍留在 pruner/spill policy。pruner 重导出同一组 helper，现有消费方保持单一导入路径。
 
 ### 表层约定
 
@@ -103,6 +110,7 @@ kind: "package-reference"
 | [`src/index.ts`](src/index.ts) | 插件入口：抽象 `CompactionEngine`、`CompactionTrigger`、`ManualCompactionError`、`ctx.compaction` 合并 |
 | [`src/types.ts`](src/types.ts) | `CompactionResult` 与声明合并的 `compaction/*` 会话事件 |
 | [`src/tool-pairing.ts`](src/tool-pairing.ts) | 两个边界 helper 背后的每会话切分点平衡缓存 |
+| [`src/recovery.ts`](src/recovery.ts) | 通用 `{sessionId, seq}` / spill notice 恢复地址与替换链追踪 |
 | [`src/checkpoint.ts`](src/checkpoint.ts) | 无 Cordis 依赖的检查点来源构造函数与谓词（`./checkpoint` 叶子） |
 | [`src/brand.ts`](src/brand.ts) | `CompactionId` 品牌化标识 |
 
@@ -112,7 +120,7 @@ kind: "package-reference"
 
 ### 事件
 
-`compaction/*` 事件通过 declaration merging 扩展 `SessionEventMap`（可合并扩展）——它们是会话事件，不是 Cordis `Events`，且都仅写入日志。生成的[持久化日志事件目录](../../../docs/persistence-catalog.zh.md)拥有每个事件的 payload；`compaction/prune` 记录了与工具结果修剪器共享的影子价格协议。
+`compaction/*` 事件通过 declaration merging 扩展 `SessionEventMap`（可合并扩展）——它们是会话事件，不是 Cordis `Events`，且都仅写入日志。生成的[持久化日志事件目录](../../../docs/persistence-catalog.zh.md)拥有每个事件的 payload；`compaction/prune` 记录了与工具结果修剪器共享的影子价格协议。`compaction/summary-review` 与 `compaction/summary-error` 是后端围绕摘要派发的独立 Cordis waterfall；二者都不是会话事件。
 
 </details>
 

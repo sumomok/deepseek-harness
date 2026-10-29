@@ -70,15 +70,20 @@ All settings are optional. With context window `W`, effective request output cap
 | `headroomTokens` | `65536` | Additional pressure headroom beyond the routed output reservation; a non-negative integer. |
 | `retainRatio` | `0.16` | Recent conversation kept verbatim as a fraction of `W − O`; mutually exclusive with `retainTokens`. |
 | `retainTokens` | — | Absolute recent-conversation budget kept verbatim; mutually exclusive with `retainRatio` and must be below the resolved threshold. |
-| `summarizationProvider` | `''` | Set together with `summarizationModel`; an empty pair uses the latest routed request target, then the `AgentOptions` pair. |
+| `summarizationProvider` | `''` | Set together with `summarizationModel`; an empty pair uses the next request's pending model selection, then the latest routed request target, then the `AgentOptions` pair. |
 | `summarizationModel` | `''` | Set together with `summarizationProvider`; an empty pair uses the latest routed request target, then the `AgentOptions` pair. |
 | `maxTokens` | `headroomTokens` (`65536`) | Positive summary output cap, including any provider-counted reasoning tokens. Explicit per-model caps override explicit global caps; otherwise the cap follows the resolved headroom. |
 | `compactionRetries` | `1` | Extra condensation attempts after the first when pressure remains above threshold. |
+| `maxConsecutiveFailures` | `3` | Consecutive failed automatic summaries for one Session and route before pressure pauses; `0` disables the breaker. |
 | `maxOverflowRetries` | `1` | Maximum retries after a confirmed context-window overflow; `0` disables recovery only. |
+| `summaryMaxRatio` | `1` | Largest replacement the shrink guard accepts, as a fraction of the selected span's route price. `1` accepts any strictly smaller summary; a lower value keeps condensation only where it frees a worthwhile share. |
 | `modelPolicies` | `[]` | Exact `{ provider, model, ...partialPolicy }` overrides for individual model routes. |
 | `auto` | `true` | Enable automatic condensation and overflow recovery; set `false` for manual-only operation. A policy service can suspend pressure condensation without this hard off. |
+| `checkpointReadback` | `false` | Add the compaction id, shadowed-event count, surface boundary seqs, and `session_event_search` / `session_event_read` instructions to the checkpoint so the model can retrieve exact prior events from the Session event log. Mount the session-query tools when enabling it. |
 
-Misconfiguration fails fast: unknown settings, duplicate per-model overrides, invalid token counts, both retention forms together, or a retention ratio at least as large as the threshold ratio reject the plugin at load. When the model is first used, `W − O − B` must be positive and the resolved retained budget must be below the trigger. Zero headroom requires an explicit positive `maxTokens`, globally or in that model policy. Small-window deployments must configure headroom that fits their capacity; lower `thresholdRatio` to compact earlier.
+A summary is priced twice before it is committed: the fixed heuristic that the rest of the meter uses, and a dense profile that charges one token per CJK code point instead of a quarter. A replacement that looks smaller under the fixed heuristic but costs more than its span under the dense profile is refused, because the provider bills the dense figure. `summaryMaxRatio` tightens that ceiling further.
+
+Misconfiguration fails fast: unknown settings, duplicate per-model overrides, invalid token counts, both retention forms together, a retention ratio at least as large as the threshold ratio, or a `summaryMaxRatio` outside `(0, 1]` reject the plugin at load. When the model is first used, `W − O − B` must be positive and the resolved retained budget must be below the trigger. Zero headroom requires an explicit positive `maxTokens`, globally or in that model policy. Small-window deployments must configure headroom that fits their capacity; lower `thresholdRatio` to compact earlier.
 
 ### Moving the threshold from user settings
 
@@ -115,6 +120,8 @@ With `dsh-command-compact` mounted, type `/compact` in a chat UI to condense imm
 
 Mount `dsh-compaction-tool-result-pruner` before this package to trim oversized tool results as part of condensation. Trimming makes no model call and can remove the need to summarize at all: when the trimmed conversation fits within the threshold, condensation skips the summary. Trimming only runs after a condensation trigger qualifies — a below-pressure conversation is never touched.
 
+A pruner that implements `previewSessionPrune`/`applyPrunePreview` is previewed before the summary and applied only after the summary commits; a rejected review or failed summary leaves its results untouched. A legacy pruner without the preview entry cannot be pre-priced safely: this backend runs the summary first and the legacy prune only after it commits, so a conversation that the legacy prune alone would have cleared pays one extra summary request. A rejected review or failed summary still performs no legacy prune.
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -144,11 +151,13 @@ A mounted `compactionPolicy` is read fresh on every step and never cached, so a 
 
 ### Summarization mechanics
 
-A direct `ctx.llm.stream()` call uses the configured provider/model pair and cap, falling back to the latest logged request target and then the `AgentOptions` pair, without running the loop-only `agent/request` extension point. The call replays the derived `system/message` at surface node 0 as the leading entry of `messages`, followed by the shadowed-region messages (including a shadowed in-history `system/message` in its surface position), and supplies the header's active tools for route-specific projection. The selected adapter must resolve image references in the replayed messages or explicitly reject them. The call appends the compaction instruction as the final user message, preserving the provider's warm prefix where projection permits. An empty-content system head contributes no message but remains outside the compacted range. The final instruction is a frozen `RequestUserInput` without durable identity or source; the replayed history and persisted checkpoint remain durable messages. The call sets `GenerateOptions.purpose` to `compaction`; only returned text enters the checkpoint, excluding reasoning and tool calls. Image output fails with `UNSUPPORTED_CONTENT` rather than disappearing. The replacement user message frames the summary with `<compacted-summary>` tags; the raw summary remains on the `compaction/summary` event. The call also carries `Session.toolHistory()` so the runtime can project deferred and retained definitions; a prefix missing update messages uses active declarations without developer updates.
+A direct `ctx.llm.stream()` call uses the configured provider/model pair and cap, falling back to the next request's pending model selection, then the latest logged request target, then the `AgentOptions` pair, without running the loop-only `agent/request` extension point. The call replays the derived `system/message` at surface node 0 as the leading entry of `messages`, followed by the shadowed-region messages (including a shadowed in-history `system/message` in its surface position), and supplies the header's active tools for route-specific projection. The selected adapter must resolve image references in the replayed messages or explicitly reject them. The call appends the compaction instruction as the final user message, preserving the provider's warm prefix where projection permits. An empty-content system head contributes no message but remains outside the compacted range. The final instruction is a frozen `RequestUserInput` without durable identity or source; the replayed history and persisted checkpoint remain durable messages. The call sets `GenerateOptions.purpose` to `compaction`; only returned text enters the checkpoint, excluding reasoning and tool calls. Image output fails with `UNSUPPORTED_CONTENT` rather than disappearing. The replacement user message frames the summary with `<compacted-summary>` tags; the raw summary remains on the `compaction/summary` event. The call also carries `Session.toolHistory()` so the runtime can project deferred and retained definitions; a prefix missing update messages uses active declarations without developer updates.
 
 ### The region transaction
 
 Failed summary requests dispatch synchronous `compaction/summary-error` after checking cancellation and selection stability. A recovery listener must record a durable input change before requesting retry. The backend re-derives the selected messages and refreshes their token prices and shrink baseline. The image-offload plugin owns image selection; its recorded omissions remain effective if the summary later fails or is cancelled.
+
+After the shrink check and before anything commits, the backend dispatches the synchronous `compaction/summary-review` waterfall with the framed summary, its source span, and the routed summarizer. A listener accepts by calling `next()` and rejects by returning false; a rejection is classified as a summary failure, so the transaction writes exactly one `compaction/end` carrying the error and leaves the surface unchanged. No asynchronous review runs inside this transaction; `/compact` reports a rejection as its `summary` failure class.
 
 The transaction validates the surface span and the durable lock, appends `compaction/start`, summarizes through the hook, revalidates stability (whole-surface for automatic calls, selected-span for manual calls), rejects a summary that does not shrink its source, appends `compaction/summary` plus the replacement `user/message`, and makes exactly one `compaction/end` attempt. A live unmatched start is the durable lock: an unmatched marker before a newer `session/end-seed` is stale evidence from a prior lifecycle and does not block; one after that boundary reports `busy`. A failed close deliberately leaves a blocking orphan. Cancellation remains authoritative after cleanup and durability.
 
@@ -199,13 +208,19 @@ After a successful step crosses the threshold, oversized tool results are first 
 This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.
 ```
 
+##### Optional readback pointer
+
+```markdown
+The original <shadowed-event-count> events remain in this session's event log (compaction id <compaction-id>; surface boundary seqs <start-seq> and <end-seq>). For exact prior wording, errors, or tool output, use session_event_search to locate content or session_event_read with one of those seqs for a bounded excerpt; request full: true only when the whole event is required. Do not guess details that can be read back.
+```
+
 #### Token effect
 
 Model-free pruning can avoid the auxiliary call entirely; otherwise it reduces that call's transcript before the summary replaces an older range. The replacement reduces future input history rather than appending a second copy. A summary remains until a later compaction replaces it, while an indivisible non-tool unit can still exceed the budget.
 
 #### KV Cache effect
 
-Replacing rather than append-only. Each checkpoint invalidates reuse from the first replaced history token; the unchanged request prefix before that range remains reusable.
+Replacing rather than append-only. Each checkpoint invalidates reuse from the first replaced history token; the unchanged request prefix before that range remains reusable. `checkpointReadback` changes only the replacement text and leaves tool declarations unchanged; later `session_event_*` results append tool messages like any other tool result.
 
 ### Auxiliary summarizer request
 
@@ -218,7 +233,7 @@ The summarization model receives the system prompt and shadowed-region history, 
 ```markdown
 You are now acting as a compaction engine for this AI coding assistant. Condense the conversation ABOVE into a structured checkpoint that lets another model resume the work with no loss of essential context.
 
-Output EXACTLY the Markdown structure below: keep every section, in order. Use terse bullets, not prose paragraphs. Write "(none)" for an empty section — never drop a section.
+Output the Markdown structure below, in order. Use terse bullets and "(none)" for empty sections; never drop a section.
 
 ## Primary Request and Intent
 - [the user's original and evolving goals; quote verbatim where the exact wording matters]
@@ -244,11 +259,16 @@ Output EXACTLY the Markdown structure below: keep every section, in order. Use t
 ## Critical Context
 - [decisions and their rationale, constraints, user preferences, open questions, data needed to continue]
 
+## Rules and Conventions
+- [every rule, convention, checklist, or decision standard the user and assistant agreed on, quoted word for word, each with the scope it governs]
+
 Rules:
-- Write concise English engineering prose. Preserve exact file paths, commands, error strings, identifiers, numeric values, function signatures, and syntax fragments.
+- Write concise prose in the primary language of user messages, including headings. Preserve exact paths, commands, errors, identifiers, numbers, signatures, and syntax.
 - Capture user feedback and explicit instructions faithfully, especially corrections.
 - Do NOT mention this summarization request or that the context was compacted.
 - Output only the checkpoint text: do not call any tool or take any other action.
+- Reconcile Pending Jobs, Current Work, Next Step, and Critical Context with the latest messages: remove completed or duplicated items; use "(none)" when awaiting the user.
+- Copy every agreed rule into Rules and Conventions word for word. Never replace a rule with the file or line where it also lives, and never paraphrase it: the reader has no way to tell a paraphrase from the rule the user actually agreed to.
 - If the conversation already contains a <compacted-summary> block, it is a PRIOR checkpoint. Do not copy it forward verbatim: preserve still-true facts, drop stale ones, and merge newer information into a single consolidated summary under the same structure.
 ```
 
@@ -272,7 +292,7 @@ These limits define when automatic condensation is a poor fit or needs special c
 - **Some indivisible-unit and envelope-only overflow remains outside surface compaction** — recovery cannot shrink system/tools/prefix, split an indivisible non-tool node, or repair a tool unit whose non-prunable remainder still exceeds the window. The optional pruner can shrink text-bearing tool-result bulk inside an otherwise indivisible pair.
 - **`compactRegion` requires an open turn** — a manual call on a fully-closed session throws ("no open turn") rather than compacting.
 - **Cross-model image pricing can refuse a valid summary** — a model switch selects a range with destination pricing but validates the shrink against the committed route, so differing image prices can fail shrink validation even when the summary would lower destination pressure.
-- **Summarization failure preserves the latest durable surface** — before any replacement, the auto path closes the bracket with `compaction/end` carrying the error, logs a warning, and proceeds with full over-budget history. A failure that never opened a bracket — no routed capacity, a live lock, or pressure still above threshold after every attempt — is logged only. If pruning already landed, a later summarization failure proceeds from that durable pruned surface. Summarization truncation at `maxTokens`, which hidden reasoning tokens can consume, follows the same rule.
+- **Summarization failure preserves the latest durable surface** — before any replacement, the auto path closes the bracket with `compaction/end` carrying the error, logs a warning, and proceeds with full over-budget history. A failure that never opened a bracket — no routed capacity, a live lock, or pressure still above threshold after every attempt — is logged only. Tool-result pruning follows the same rule: a preview-applied prune lands only after a successful summary; a legacy pruner without preview is called only after the summary commits, at the cost of one extra summary when prune alone would have cleared pressure. If pruning already landed, a later summarization failure proceeds from that durable pruned surface. Summarization truncation at `maxTokens`, which hidden reasoning tokens can consume, follows the same rule.
 
 <a id="dev-note"></a>
 ### Dev Note

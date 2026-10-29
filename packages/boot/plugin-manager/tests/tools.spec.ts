@@ -309,4 +309,6 @@ it('tells the agent the next step for each change outcome it can act on', async 
   expect(await outcome({ changed: false, application: 'failed' })).toContain('Report the diagnostic')
   expect(await outcome({ changed: false, application: 'failed', error: { code: 'deployment-required' } }))
     .toBe('The deployment requires this entry, so it cannot be changed.')
+  expect(await outcome({ changed: false, application: 'failed', error: { code: 'unsupported-platform' } }))
+    .toBe('This bundle cannot run on the current Host platform; ask the user to use a supported Host.')
 })

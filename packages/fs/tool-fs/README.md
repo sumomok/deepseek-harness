@@ -25,7 +25,7 @@ Use `dsh-tool-fs` to let a model read UTF-8 files with line numbers, read suppor
 <a id="use-this-package"></a>
 ## Use this package
 
-Relative paths use the Session's current working directory. A directory change affects subsequent reads and mutations without changing sandbox permission roots. Successful results return the canonical absolute path from `fs.processPath`, and root result metadata retains that operation-time path for replay and navigation.
+Relative paths use the Session's current working directory. A directory change affects subsequent reads and mutations without changing sandbox permission roots. Successful results return the canonical absolute path from `fs.processPath`, and root result metadata retains that operation-time path for replay and navigation. A successful `read` also persists the log-only read facts in the same metadata: the filesystem `version` token at read time, `size` when the backend reports one, `read: 'full' | 'window'` (whether the returned lines reproduce the whole file unmodified), and a `digest` of the returned line window. They stay in `tool/result.meta`; the model never sees them, and logs written before these optional fields remain readable.
 
 Mount the tools after a `ctx.fs` backend and, for read-before-write/edit behavior, the policy plugin. The model then gets line-numbered reads, atomic writes and edits, and — with an attachment store mounted — image reads; every result is capped, and failures carry stable codes with recovery instructions.
 
@@ -75,7 +75,7 @@ With `fs-observation-policy` mounted and `read` disabled, `write` can still crea
 
 Path authorization for `read` and `read_image` belongs entirely to `ctx.fs`; media-type declarations and file signatures only decide whether `read_image` accepts the bytes returned by that backend.
 
-With the policy plugin mounted, `write` and `edit` obtain their guard from the `fs/*` intent slots, so an unread target or a stale observation fails with `FS_NOT_OBSERVED` or `FS_STALE_VERSION` and a recovery instruction. Under a confining backend (`fs-sandbox`), `write`/`edit` additionally advertise `sandbox_permissions` and `justification`; a denied mutation returns the `[sandbox: file access denied under <mode> mode]` marker with the same-turn escalation hint, and an approved retry may stamp a strictly wider mode for that one call. The justification asks the model to use the language of the current user request.
+With the policy plugin mounted, `write` and `edit` obtain their guard from the `fs/*` intent slots, so an unread target or a stale observation fails with `FS_NOT_OBSERVED` or `FS_STALE_VERSION` and a recovery instruction. Under a confining backend (`fs-sandbox`), `write`/`edit` additionally advertise `sandbox_permissions` and `justification`; a denied mutation returns the `[sandbox: file access denied under <mode> mode]` marker with the same-turn escalation hint, and an approved retry may stamp a strictly wider mode for that one call. When `sandbox_permissions` is omitted or repeats the call's effective mode, `justification` may be omitted, empty, or whitespace-only; no approval is requested. A different mode still requires a non-empty reason, and widening requires approval. A non-empty reason without a mode is rejected. These exceptions do not bypass observation checks or filesystem denials. The justification asks the model to use the language of the current user request.
 
 ### Failures and recovery
 

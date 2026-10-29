@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-相对路径使用 Session 的当前工作目录。切换目录会影响后续读取和修改，但不会改变沙箱权限根目录。成功结果返回 `fs.processPath` 提供的规范化绝对路径，根调用结果元数据保留该操作发生时的路径，用于回放和导航。
+相对路径使用 Session 的当前工作目录。切换目录会影响后续读取和修改，但不会改变沙箱权限根目录。成功结果返回 `fs.processPath` 提供的规范化绝对路径，根调用结果元数据保留该操作发生时的路径，用于回放和导航。成功的 `read` 还会在同一份元数据里持久化仅供日志的读取事实：读取时的文件系统 `version` 令牌、后端给出时的 `size`、`read: 'full' | 'window'`（返回行是否原样覆盖整个文件），以及返回行窗口的 `digest`。它们只存在于 `tool/result.meta`，模型看不到；写入这些可选字段之前的旧日志仍可读。
 
 在 `ctx.fs` 后端之后挂载工具，并在需要先读后写/编辑行为时挂载策略插件。模型随后获得带行号的读取、原子的写入与编辑，以及——挂载附件存储时——图像读取；每个结果都有上限，失败携带稳定错误码与恢复指令。
 
@@ -75,7 +75,7 @@ kind: "package-reference"
 
 `read` 与 `read_image` 的路径授权完全由 `ctx.fs` 负责；媒体类型声明和文件签名只决定 `read_image` 是否接受该后端返回的字节。
 
-挂载策略插件后，`write` 与 `edit` 从 `fs/*` 意图槽位取得防护，因此未读目标或陈旧观察会以 `FS_NOT_OBSERVED` 或 `FS_STALE_VERSION` 及恢复指令失败。使用施加沙箱限制的后端（`fs-sandbox`）时，`write`/`edit` 还会公开 `sandbox_permissions` 与 `justification`；被拒绝的变更返回 `[sandbox: file access denied under <mode> mode]` 标记与同轮次升级提示，获批的重试可以在该次调用中加盖严格更宽的模式。理由字段提示模型使用用户当前提问的语言。
+挂载策略插件后，`write` 与 `edit` 从 `fs/*` 意图槽位取得防护，因此未读目标或陈旧观察会以 `FS_NOT_OBSERVED` 或 `FS_STALE_VERSION` 及恢复指令失败。使用施加沙箱限制的后端（`fs-sandbox`）时，`write`/`edit` 还会公开 `sandbox_permissions` 与 `justification`；被拒绝的变更返回 `[sandbox: file access denied under <mode> mode]` 标记与同轮次升级提示，获批的重试可以在该次调用中加盖严格更宽的模式。省略 `sandbox_permissions` 或重复当前调用的生效模式时，`justification` 可以省略、为空字符串或仅含空白，且不会请求审批。不同模式仍需非空理由，升权还需审批。没有模式却提供非空理由会被拒绝。这些例外不会绕过观察检查或文件系统拒绝。理由字段提示模型使用用户当前提问的语言。
 
 ### 失败与恢复
 

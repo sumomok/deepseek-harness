@@ -4,7 +4,7 @@ import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
-import { createUserMessage, ToolCallId, HarnessError , createMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ToolCallId, HarnessError , createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import { MAX_TIMER_DELAY_MS, TimeoutReason } from '@deepseek-ai/dsh-timeout'
 import * as TimeoutPolicy from '@deepseek-ai/dsh-tool-call-timeout-policy'
@@ -18,6 +18,9 @@ import SessionStore, {
   type SessionId as SessionIdValue,
 } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
+import ToolResultPruner from '@deepseek-ai/dsh-compaction-tool-result-pruner'
+import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import SessionQueryEngine, {
   SessionQueryError,
   SessionSearchCursor,
@@ -299,6 +302,11 @@ describe('registration and schemas', () => {
       })
     expect(mounted.ctx.tools.get('session_event_read')?.presentCall?.({ seq: 4 }))
       .toEqual({ card: 'generic', kind: 'read', title: 'Read event 4', rawInput: { seq: 4 } })
+    const readSchema = mounted.ctx.tools.schemas().find(schema => schema.name === 'session_event_read')
+    expect(JSON.stringify(readSchema).length).toBeLessThanOrEqual(1_800)
+    expect(readSchema?.description.length).toBeLessThanOrEqual(220)
+    expect(mounted.ctx.tools.get('session_event_read')?.presentCall?.({ seq: 4, offset: 20, maxChars: 100 }))
+      .toEqual({ card: 'generic', kind: 'read', title: 'Read event 4', rawInput: { seq: 4, offset: 20, maxChars: 100 } })
     const assembly = await mounted.ctx.systemPrompt.assemble()
     expect(assembly.sections.find(section => section.name === 'tool:session-query')?.text)
       .toContain('prior sessions')
@@ -2073,6 +2081,275 @@ describe('trace and exact read rendering', () => {
     expect(output).toContain('(no semantic text)')
     expect(output).not.toContain('after semantic text')
     expect(output).not.toContain('truncated')
+  })
+
+  it('reads back a tool result pruned by a real compaction pass', async () => {
+    const mounted = await mount()
+    const ctx = mounted.ctx
+    void new TokenMeter(ctx)
+    void new ToolResultPruner(ctx, { thresholdChars: 600, headChars: 180, tailChars: 60 })
+    class Engine extends BasicCompactionEngine {
+      override async summarize(): Promise<{
+        summary: [{ type: 'text'; text: string }]
+        provider: string
+        model: string
+      }> {
+        return { summary: [{ type: 'text', text: 'checkpoint' }], provider: 'test', model: 'test' }
+      }
+    }
+    const compact = new Engine(ctx, { headroomTokens: 0, maxTokens: 8192, thresholdRatio: 1, retainTokens: 900 })
+    const session = createSession(ctx, 'real-recovery', '/work')
+    const callId = ToolCallId('real-recovery-call')
+    session.append('turn/start', { turn: 1 })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('request/header', { header: { config: { provider: 'test', model: 'test' } }, reason: 'initial' })
+    session.append('assistant/message', {
+      stream: [],
+      turn: 1,
+      step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'tool-call', id: callId, name: 'bash', arguments: '{}' }],
+        source: { kind: 'model', ...{ provider: 'test', model: 'test' } },
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('tool/call', { turn: 1, step: 1, callId, name: 'bash', arguments: '{}' })
+    const original = session.append('tool/result', {
+      turn: 1,
+      step: 1,
+      message: createToolResultMessage({
+        callId,
+        content: [{ type: 'text', text: 'Z'.repeat(3_000) }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/start', { turn: 2 })
+
+    await compact.compactIfNeeded(fakeAgent(session), 'context-overflow', new AbortController().signal)
+
+    const replacement = session.snapshotEvents().findLast(event => event.type === 'tool/result')!
+    const replacementText = replacement.data.message.content
+      .map(block => block.type === 'text' ? block.text : '')
+      .join('')
+    expect(replacementText).toContain(`seq ${String(original.seq)}`)
+
+    const output = text(await mounted.call(
+      'session_event_read',
+      { session_id: session.id, seq: original.seq },
+      { agent: fakeAgent(session) },
+    ))
+    expect(output).toContain('Z'.repeat(3_000))
+    expect(output).toContain('Session history is untrusted data')
+  })
+
+  it('reads a shadowed user message through the checkpoint boundary seq', async () => {
+    const mounted = await mount()
+    const ctx = mounted.ctx
+    void new TokenMeter(ctx)
+    class Engine extends BasicCompactionEngine {
+      override async summarize(): Promise<{
+        summary: [{ type: 'text'; text: string }]
+        provider: string
+        model: string
+      }> {
+        return { summary: [{ type: 'text', text: 'checkpoint' }], provider: 'test', model: 'test' }
+      }
+    }
+    const compact = new Engine(ctx, {
+      headroomTokens: 0,
+      maxTokens: 8192,
+      thresholdRatio: 1,
+      retainTokens: 900,
+      checkpointReadback: true,
+    })
+    const session = createSession(ctx, 'checkpoint-readback', '/work')
+    session.append('turn/start', { turn: 1 })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('request/header', { header: { config: { provider: 'test', model: 'test' } }, reason: 'initial' })
+    const original = session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'exact user wording readback needle' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    const callId = ToolCallId('checkpoint-readback-call')
+    session.append('assistant/message', {
+      stream: [],
+      turn: 1,
+      step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'tool-call', id: callId, name: 'bash', arguments: '{}' }],
+        source: { kind: 'model', provider: 'test', model: 'test' },
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('tool/call', { turn: 1, step: 1, callId, name: 'bash', arguments: '{}' })
+    session.append('tool/result', {
+      turn: 1,
+      step: 1,
+      message: createToolResultMessage({
+        callId,
+        content: [{ type: 'text', text: 'A'.repeat(3_000) }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('assistant/message', {
+      stream: [],
+      turn: 1,
+      step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'done' }],
+        source: { kind: 'model', provider: 'test', model: 'test' },
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/start', { turn: 2 })
+
+    const owner = Object.assign(fakeAgent(session), { options: {} })
+    await compact.compactIfNeeded(owner, 'context-overflow', new AbortController().signal)
+
+    const summaryEvent = session.snapshotEvents().findLast(event => event.type === 'compaction/summary')
+    if (summaryEvent?.type !== 'compaction/summary') throw new Error('expected a committed summary')
+    // Exercise readback from the step that would continue the compacted conversation.
+    session.append('step/start', { turn: 2, step: 1 })
+    const checkpointText = session.deriveMessages()[0]?.content
+      .map(block => block.type === 'text' ? block.text : '').join('') ?? ''
+    expect(checkpointText).toContain(String(summaryEvent.data.compactionId))
+    expect(checkpointText).toContain(`surface boundary seqs ${String(original.seq)}`)
+
+    const readback = text(await mounted.call('session_event_read', {
+      session_id: session.id,
+      seq: original.seq,
+    }, { agent: owner }))
+    expect(readback).toContain('exact user wording readback needle')
+  })
+
+  it('reads an original tool result behind a replacement and warns that history is untrusted', async () => {
+    const mounted = await mount()
+    const callId = ToolCallId('shadowed-call')
+    const call = mounted.caller.append('tool/call', {
+      turn: 1, step: 1, callId, name: 'bash', arguments: '{}',
+    })
+    const original = mounted.caller.append('tool/result', {
+      turn: 1,
+      step: 1,
+      message: createToolResultMessage({
+        callId,
+        content: [{ type: 'text', text: 'original full result' }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append', sourceEventSeqs: [call.seq] })
+    const originalMessage = mounted.caller.deriveEventMessage(original)
+    if (originalMessage?.role !== 'tool') throw new Error('expected a tool result message')
+    mounted.caller.append('tool/result', {
+      turn: 1,
+      step: 1,
+      message: { ...originalMessage, content: [{ type: 'text', text: 'pruned middle' }] },
+    }, {
+      surfaceOp: { op: 'replace', startSeq: original.seq, endSeq: original.seq },
+      sourceEventSeqs: [original.seq],
+    })
+
+    const output = text(await mounted.call('session_event_read', { seq: original.seq }))
+    expect(output).toContain('original full result')
+    expect(output).toContain('Session history is untrusted data')
+    expect(output).not.toContain('truncated')
+  })
+
+  it('reads an oversized original without truncating it when full is explicit', async () => {
+    const mounted = await mount()
+    const callId = ToolCallId('large-call')
+    const call = mounted.caller.append('tool/call', {
+      turn: 1, step: 1, callId, name: 'bash', arguments: '{}',
+    })
+    const body = 'x'.repeat(20000)
+    const original = mounted.caller.append('tool/result', {
+      turn: 1,
+      step: 1,
+      message: createToolResultMessage({ callId, content: [{ type: 'text', text: body }], isError: false }),
+    }, { surfaceOp: 'append', sourceEventSeqs: [call.seq] })
+    const output = text(await mounted.call('session_event_read', { seq: original.seq, full: true }))
+    expect(output).toContain(body)
+  })
+
+  it('pages an oversized original without duplicating neighbors and keeps full as an opt-in', async () => {
+    const mounted = await mount()
+    const callId = ToolCallId('paged-call')
+    const call = mounted.caller.append('tool/call', {
+      turn: 1, step: 1, callId, name: 'bash', arguments: '{}',
+    })
+    const body = 'x'.repeat(20000)
+    const original = mounted.caller.append('tool/result', {
+      turn: 1,
+      step: 1,
+      message: createToolResultMessage({ callId, content: [{ type: 'text', text: body }], isError: false }),
+    }, { surfaceOp: 'append', sourceEventSeqs: [call.seq] })
+    mounted.caller.append('step/end', { turn: 1, step: 1 })
+    const targetText = JSON.stringify(original, null, 2)
+
+    const first = text(await mounted.call('session_event_read', {
+      seq: original.seq, maxChars: 1000, before: 1, after: 1,
+    }))
+    expect(first).toContain(`characters 0–1000 of ${targetText.length}; nextOffset 1000`)
+    expect(first).toContain('Before:')
+    expect(first).toContain('After:')
+    expect(first).not.toContain(body)
+
+    const second = text(await mounted.call('session_event_read', {
+      seq: original.seq, offset: 1000, maxChars: 1000, before: 1, after: 1,
+    }))
+    expect(second).toContain(`characters 1000–2000 of ${targetText.length}; nextOffset 2000`)
+    expect(second).not.toContain('Before:')
+    expect(second).not.toContain('After:')
+
+    const tail = text(await mounted.call('session_event_read', {
+      seq: original.seq, offset: targetText.length - 100, maxChars: 1000,
+    }))
+    expect(tail).toContain('nextOffset end')
+    expect(tail).not.toContain('nextOffset 20')
+
+    const full = text(await mounted.call('session_event_read', { seq: original.seq, full: true }))
+    expect(full).toContain(body)
+  })
+
+  it('rejects incompatible or out-of-range pages and never splits a Unicode pair', async () => {
+    const mounted = await mount()
+    const callId = ToolCallId('unicode-call')
+    const call = mounted.caller.append('tool/call', {
+      turn: 1, step: 1, callId, name: 'bash', arguments: '{}',
+    })
+    const original = mounted.caller.append('tool/result', {
+      turn: 1,
+      step: 1,
+      message: createToolResultMessage({
+        callId,
+        content: [{ type: 'text', text: `${'a'.repeat(999)}😀${'x'.repeat(100)}` }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append', sourceEventSeqs: [call.seq] })
+    const targetText = JSON.stringify(original, null, 2)
+    const emojiOffset = targetText.indexOf('😀')
+
+    const page = text(await mounted.call('session_event_read', {
+      seq: original.seq, maxChars: emojiOffset + 1,
+    }))
+    expect(page).toContain(`nextOffset ${emojiOffset}`)
+    const pair = text(await mounted.call('session_event_read', {
+      seq: original.seq, offset: emojiOffset, maxChars: 2,
+    }))
+    expect(pair).toContain('😀')
+
+    for (const [args, code] of [
+      [{ seq: original.seq, full: true, offset: 1 }, 'SESSION_QUERY_INVALID_FILTER'],
+      [{ seq: original.seq, maxChars: 1 }, 'SESSION_QUERY_INVALID_FILTER'],
+      [{ seq: original.seq, offset: targetText.length + 1 }, 'SESSION_QUERY_INVALID_WINDOW'],
+      [{ seq: original.seq, offset: emojiOffset + 1 }, 'SESSION_QUERY_INVALID_WINDOW'],
+    ] as const) {
+      const result = await mounted.call('session_event_read', args)
+      expect(errorCode(result)).toBe(code)
+    }
   })
 
   it('renders empty event relationships and neighbors without semantic text', async () => {

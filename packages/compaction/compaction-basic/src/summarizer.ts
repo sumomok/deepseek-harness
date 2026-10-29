@@ -5,12 +5,14 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { contentHasImage, BlockAssembler, LlmError } from '@deepseek-ai/dsh-llm'
+import { contentHasImage, BlockAssembler, createUserMessage, LlmError } from '@deepseek-ai/dsh-llm'
 import { deepFreeze } from '@deepseek-ai/dsh-util-values'
 import type {
   ContentBlock, FinishReason, GenerateOptions, Message, RequestMessage, TokenUsage, ToolSchema,
 } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { TokenMeter } from '@deepseek-ai/dsh-token-meter'
+import { summarizationTarget } from './route.ts'
 
 interface SummaryConfig {
   readonly summarizationProvider: string
@@ -32,7 +34,9 @@ const SUMMARY_CLOSE_TAG = '</compacted-summary>'
 const COMPACTION_INSTRUCTION = [
   'You are now acting as a compaction engine for this AI coding assistant. Condense the conversation ABOVE into a structured checkpoint that lets another model resume the work with no loss of essential context.',
   '',
-  'Output EXACTLY the Markdown structure below: keep every section, in order. Use terse bullets, not prose paragraphs. Write "(none)" for an empty section — never drop a section.',
+  'First write an <analysis> block: walk the conversation in order and note every user instruction, correction, decision, and open thread, then check the draft below against it. The <analysis> block is discarded and never reaches the next model, so nothing you want kept may live there alone.',
+  '',
+  'Then output the Markdown structure below, in order. Use terse bullets and "(none)" for empty sections; never drop a section.',
   '',
   '## Primary Request and Intent',
   "- [the user's original and evolving goals; quote verbatim where the exact wording matters]",
@@ -45,6 +49,9 @@ const COMPACTION_INSTRUCTION = [
   '',
   '## Errors and Fixes',
   '- [error: how it was resolved, plus any related user feedback]',
+  '',
+  '## All User Messages',
+  '- [every message the user wrote, in order, condensed to one line each but never merged or skipped; quote any instruction, constraint, correction, or preference word for word]',
   '',
   '## Pending Jobs',
   '- [explicitly requested work not yet completed]',
@@ -59,10 +66,11 @@ const COMPACTION_INSTRUCTION = [
   '- [decisions and their rationale, constraints, user preferences, open questions, data needed to continue]',
   '',
   'Rules:',
-  '- Write concise English engineering prose. Preserve exact file paths, commands, error strings, identifiers, numeric values, function signatures, and syntax fragments.',
+  '- Write concise prose in the primary language of user messages, including headings. Preserve exact paths, commands, errors, identifiers, numbers, signatures, and syntax.',
   '- Capture user feedback and explicit instructions faithfully, especially corrections.',
   '- Do NOT mention this summarization request or that the context was compacted.',
-  '- Output only the checkpoint text: do not call any tool or take any other action.',
+  '- Output only the analysis block and the checkpoint text: do not call any tool or take any other action.',
+  '- Reconcile Pending Jobs, Current Work, Next Step, and Critical Context with the latest messages: remove completed or duplicated items; use "(none)" when awaiting the user.',
   `- If the conversation already contains a ${SUMMARY_OPEN_TAG} block, it is a PRIOR checkpoint. Do not copy it forward verbatim: preserve still-true facts, drop stale ones, and merge newer information into a single consolidated summary under the same structure.`,
 ].join('\n')
 
@@ -124,17 +132,10 @@ export async function summarizeWithLlm(
   agent: Agent,
   signal?: AbortSignal,
 ): Promise<SummaryResult> {
-  const latest = agent.session.requestHeader()?.config
-  const configured = config.summarizationProvider.length === 0
-    ? undefined
-    : { provider: config.summarizationProvider, model: config.summarizationModel }
-  const agentTarget = agent.options.provider !== undefined
-    && agent.options.provider.length > 0
-    && agent.options.model !== undefined
-    && agent.options.model.length > 0
-    ? { provider: agent.options.provider, model: agent.options.model }
-    : undefined
-  const target = configured ?? latest ?? agentTarget
+  // Explicit summarizer configuration wins; otherwise the shared conversation
+  // route keeps the summary on the same pending selection the next real request
+  // will use.
+  const target = summarizationTarget(config, agent)
   if (target === undefined) {
     throw new Error(
       'no provider/model available for summarization: set both BasicCompactionConfig summarization fields, route one request, or set both AgentOptions fields',
@@ -183,14 +184,53 @@ export async function summarizeWithLlm(
 /**
  * Wrap raw summary blocks in the durable checkpoint framing.
  * @param summary - safe text-only model output.
+ * @param readback - optional event-log pointer, shadowed-event count, and surface boundary seqs.
  * @returns content for the synthesized replacement user message.
  */
-export function frameSummary(summary: readonly ContentBlock[]): ContentBlock[] {
+export function frameSummary(
+  summary: readonly ContentBlock[],
+  readback?: {
+    readonly compactionId: string
+    readonly shadowedCount: number
+    readonly startSeq: number
+    readonly endSeq: number
+  },
+): ContentBlock[] {
+  const readbackText = readback === undefined ? '' : '\n\n'
+    + `The original ${readback.shadowedCount} events remain in this session's event log `
+    + `(compaction id ${readback.compactionId}; surface boundary seqs ${readback.startSeq} and ${readback.endSeq}). `
+    + 'For exact prior wording, errors, or tool output, use session_event_search to locate content or '
+    + 'session_event_read with one of those seqs for a bounded excerpt; request full: true only when the '
+    + 'whole event is required. Do not guess details that can be read back.'
   return [
-    { type: 'text', text: `${CHECKPOINT_PREAMBLE}\n\n${SUMMARY_OPEN_TAG}` },
+    { type: 'text', text: `${CHECKPOINT_PREAMBLE}${readbackText}\n\n${SUMMARY_OPEN_TAG}` },
     ...summary,
     { type: 'text', text: SUMMARY_CLOSE_TAG },
   ]
+}
+
+/** Safety margin over the measured instruction and framing floor. */
+const MINIMUM_SUMMARY_SAFETY_RATIO = 0.1
+
+/**
+ * The smallest replacement envelope that can still shrink a selected span: the
+ * checkpoint framing plus one minimal summary body, with a safety margin for
+ * provider tokenization differences. The compaction instruction is request
+ * overhead and is not part of the replacement, so it does not set this floor.
+ * A span below the floor cannot produce a smaller replacement, so pressure
+ * stops instead of spending a guaranteed-failing request.
+ * @param meter - token meter used for the same heuristic pricing as compaction.
+ * @param readback - whether the checkpoint carries the event-log readback pointer.
+ * @returns minimum route-independent replacement tokens.
+ */
+export function minimumSummaryTokens(meter: TokenMeter, readback = false): number {
+  const framing = meter.estimateMessage(createUserMessage({
+    content: frameSummary([{ type: 'text', text: 'summary' }], readback
+      ? { compactionId: '00000000-0000-0000-0000-000000000000', shadowedCount: 0, startSeq: 0, endSeq: 0 }
+      : undefined),
+    source: { kind: 'user' },
+  }))
+  return framing + Math.ceil(framing * MINIMUM_SUMMARY_SAFETY_RATIO)
 }
 
 /** Map a terminal summarization finish to its fail-closed error. */
@@ -211,11 +251,29 @@ function finishError(finish: FinishReason): Error | undefined {
 }
 
 /** Reject visual output and keep only text before synthesizing a user message. */
+/** Matches the instruction's private planning block, which never reaches the next model. */
+const ANALYSIS_BLOCK = /<analysis>[\s\S]*?<\/analysis>\s*/g
+
+/**
+ * Drop the analysis block the summarization instruction asks for. Keeping it
+ * would spend the next model's context on the summarizer's scratchpad and
+ * leave two copies of the same facts.
+ * @param text - one text block of the model's output.
+ * @returns the text with every analysis block removed and outer whitespace trimmed.
+ */
+function withoutAnalysis(text: string): string {
+  return text.replace(ANALYSIS_BLOCK, '').trim()
+}
+
+/** Reject visual output and keep only text before synthesizing a user message. */
 function summaryText(
   blocks: readonly ContentBlock[],
 ): Array<Extract<ContentBlock, { type: 'text' }>> {
   if (contentHasImage(blocks)) {
     throw new LlmError('compaction summary cannot contain image output', 'UNSUPPORTED_CONTENT')
   }
-  return blocks.filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
+  return blocks
+    .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
+    .map(block => ({ type: 'text' as const, text: withoutAnalysis(block.text) }))
+    .filter(block => block.text.length > 0)
 }

@@ -85,6 +85,50 @@ const targetSessionParameter = {
   session_id: { type: 'string', description: 'Target session id. Omit for the current session.' },
 } as const
 
+/** Default target-JSON characters returned by one event-read page. */
+export const DEFAULT_EVENT_READ_MAX_CHARS = 16_000
+
+/** Largest explicit event-read page; larger reads require `full: true`. */
+export const MAX_EVENT_READ_MAX_CHARS = 100_000
+
+/** Validated event-read pagination or explicit full-event selection. */
+export interface EventReadPage {
+  readonly full: boolean
+  readonly offset: number
+  readonly maxChars: number
+}
+
+/** Resolve one model event-read call without silently allowing a full read by default. */
+function resolveEventReadPage(args: {
+  readonly offset?: number
+  readonly maxChars?: number
+  readonly full?: boolean
+}): EventReadPage {
+  if (args.full !== undefined && typeof args.full !== 'boolean') {
+    throw new SessionQueryError('full must be a boolean', 'SESSION_QUERY_INVALID_FILTER')
+  }
+  if (args.offset !== undefined) assertNonNegativeSafeInteger('offset', args.offset)
+  if (args.maxChars !== undefined) {
+    if (!Number.isSafeInteger(args.maxChars) || args.maxChars < 2 || args.maxChars > MAX_EVENT_READ_MAX_CHARS) {
+      throw new SessionQueryError(
+        `maxChars must be an integer from 2 to ${MAX_EVENT_READ_MAX_CHARS}`,
+        'SESSION_QUERY_INVALID_FILTER',
+      )
+    }
+  }
+  if (args.full === true && (args.offset !== undefined || args.maxChars !== undefined)) {
+    throw new SessionQueryError(
+      'full: true cannot be combined with offset or maxChars',
+      'SESSION_QUERY_INVALID_FILTER',
+    )
+  }
+  return {
+    full: args.full ?? false,
+    offset: args.offset ?? 0,
+    maxChars: args.maxChars ?? DEFAULT_EVENT_READ_MAX_CHARS,
+  }
+}
+
 function buildSessionFilters(args: SessionSearchArgs): SessionResultFilter[] {
   const filters: SessionResultFilter[] = []
   if (args.session_ids !== undefined) {
@@ -303,5 +347,6 @@ export const toolInput = {
   buildEventFilters,
   normalizeQuery,
   sequenceRange,
+  resolveEventReadPage,
   assertNonNegativeSafeInteger,
 }

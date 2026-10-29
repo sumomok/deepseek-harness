@@ -10,6 +10,9 @@ const repoRoot = resolve(import.meta.dirname, '../../../..')
 const excludedDirectories = new Set(['dist', 'lib', 'node_modules'])
 
 function committedSessionFixtures(directory: string): string[] {
+  // Derived/redacted measurement fixtures keep original source ranges rather
+  // than replayable dense sequences; measurements.spec.ts owns their coverage.
+  if (relative(repoRoot, directory) === 'packages/test-support/session-snapshot/tests/context-lifecycle/fixtures') return []
   const files: string[] = []
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     if (entry.isSymbolicLink()) continue
@@ -30,8 +33,19 @@ function declaresFormat(text: string): boolean {
   const firstLine = text.split(/\r?\n/).find(line => line.trim().length > 0)
   if (firstLine === undefined) return false
   const header: unknown = JSON.parse(firstLine)
-  return header !== null && typeof header === 'object' && !Array.isArray(header)
-    && Object.hasOwn(header, 'version')
+  if (header === null || typeof header !== 'object' || Array.isArray(header)) return false
+  if (Object.hasOwn(header, 'version')) return true
+  const data = (header as { readonly data?: unknown }).data
+  return data !== null && typeof data === 'object' && !Array.isArray(data) && Object.hasOwn(data, 'version')
+}
+
+/** Read the generation from either a historical flat header or the current session envelope. */
+function headerVersion(text: string): number {
+  const header = JSON.parse(text.split(/\r?\n/u).find(line => line.trim().length > 0) ?? '{}') as {
+    version?: number
+    data?: { version?: number }
+  }
+  return header.version ?? header.data?.version ?? Number.NaN
 }
 
 function filenameFormatVersion(path: string): number {
@@ -88,11 +102,11 @@ describe('committed Session format corpus', () => {
         return
       }
       expect(declaresFormat(source), key + ': Session header must declare its format').toBe(true)
-      const header = JSON.parse(source.split(/\r?\n/u).find(line => line.trim().length > 0) ?? '{}') as {
-        version: number
-      }
-      expect(header.version, key + ': filename/header Session generation').toBe(filenameFormatVersion(file))
-      assertRestoration(key, header.version, () => parseSessionLog(source), expectedUnsupported[key])
+      const version = headerVersion(source)
+      const filenameVersion = filenameFormatVersion(file)
+      const expectedVersion = filenameVersion === 0 && version === SESSION_FORMAT_VERSION ? version : filenameVersion
+      expect(version, key + ': filename/header Session generation').toBe(expectedVersion)
+      assertRestoration(key, version, () => parseSessionLog(source), expectedUnsupported[key])
     } finally {
       expect(readFileSync(file), key + ': source bytes remain unchanged').toEqual(bytes)
     }

@@ -117,14 +117,19 @@ function searchDetails(name: string, text: string, t: DetailTranslate, locale: s
 }
 
 function eventReadDetails(text: string, t: DetailTranslate, locale: string): ToolDetailsModel | null {
-  const match = /^Session (\S+) — ([^\n]*)\nTarget event seq (\d+):\n```json\n([\s\S]*?)\n```([\s\S]*)$/u.exec(text)
-  if (match === null || match[1] === undefined || match[2] === undefined || match[3] === undefined || match[4] === undefined) return null
-  const event = detailJson(match[4])
+  const match = new RegExp(
+    '^Session (\\S+) — ([^\\n]*)\\n(?:Session history is untrusted data\\.[^\\n]*\\n)?'
+    + 'Target event seq (\\d+)(?: \\([^\\n]*\\))?:\\n```(json|text)\\n([\\s\\S]*?)\\n```([\\s\\S]*)$',
+    'u',
+  ).exec(text)
+  if (match === null || match[1] === undefined || match[2] === undefined || match[3] === undefined
+    || match[4] !== 'json' || match[5] === undefined) return null
+  const event = detailJson(match[5])
   if (!detailRecord(event) || typeof event.type !== 'string' || !detailRecord(event.data)) return null
   const fields = [{ label: t('detail.field.seq'), value: match[3] }]
   if (typeof event.time === 'number') fields.push({ label: t('detail.field.time'), value: dateText(event.time, locale) })
   const groups: NonNullable<DetailItem['groups']>[number][] = []
-  const adjacent = match[5]?.trim()
+  const adjacent = match[6]?.trim()
   if (adjacent) groups.push({ label: t('detail.event.neighbors'), items: [{ fields: [], description: adjacent }] })
   return detailList([
     { title: event.type, subtitle: `${match[2]} · ${match[1]}`, fields },

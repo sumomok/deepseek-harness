@@ -42,23 +42,26 @@
   en: 74e6cf9cb23ed052
   zh: 8d09c0e844b8ffbe
 /deepseek-ai-dsh-compaction/understand-the-implementation/manual-failure-taxonomy:
-  en: 81449c88ba52f445
-  zh: 2cdcce236bfbf284
+  en: 4d55a001cc3974a1
+  zh: ee1ae24169e6e886
 /deepseek-ai-dsh-compaction/understand-the-implementation/tool-pairing-boundaries:
   en: 15dad68a04d6c86b
-  zh: 3b95acf1b7e503bf
+  zh: 3704160eaff3f883
+/deepseek-ai-dsh-compaction/understand-the-implementation/surface-recovery-addresses:
+  en: b75c280828485ae1
+  zh: 62998ea39a4f81ca
 /deepseek-ai-dsh-compaction/understand-the-implementation/the-surface-contract:
   en: 28980d8259e59700
   zh: c452e0bb4b778824
 /deepseek-ai-dsh-compaction/understand-the-implementation/source-map:
-  en: 076448ecc9911baf
-  zh: 1b671f96fb217d5e
+  en: 8a0ab495324cc576
+  zh: 7c6dbafdbd9ed013
 /deepseek-ai-dsh-compaction/understand-the-implementation/locking-and-serialization:
   en: 68caa51bed28bada
   zh: 3f8261f9dcba95ed
 /deepseek-ai-dsh-compaction/understand-the-implementation/events:
-  en: dc5faf71b27cc340
-  zh: 065f8339009c1a3a
+  en: ec67c74e3d134a9e
+  zh: c758ab5300e24af0
 /deepseek-ai-dsh-compaction/further-exploration:
   en: b12341c6424d7960
   zh: 09fe5b30a599146f

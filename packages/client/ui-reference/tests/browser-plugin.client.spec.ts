@@ -1,18 +1,21 @@
 /**
  * Web reference source coverage: Remote-backed file/session discovery,
- * deterministic ordering and labels, quoted-path suppression, pick projections, codec
- * round-trip, and registration lifecycle.
+ * Workspace-root candidates from the Client projection, deterministic ordering
+ * and labels, quoted-path suppression, pick projections, codec round-trip, and
+ * registration lifecycle.
  */
 import { Context, Service } from '@deepseek-ai/cordis'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
+import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import { UiConversation } from '@deepseek-ai/dsh-client-ui-conversation/src/client/conversation/assembly.ts'
 import { ClientReferent, type ReferentRef } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import { FileReference, FolderReference, type FileReferenceInjected } from '../src/client/FileReference.tsx'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { RemoteError, TestSessions } from '@deepseek-ai/dsh-client-test-runtime'
+import { RemoteError, TestSessions, TestWorkspaces } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionFixture } from '@deepseek-ai/dsh-client-test-runtime'
 import type {
   CandidateRequest, ClientSessionContext, InputTriggerCandidate, InputTriggerSource,
@@ -121,7 +124,13 @@ async function bench(
   new RemoteService(ctx)
   ctx.provide('remote.fileReferences', { list: files })
   ctx.provide('remote.sessionReferenceResolver', { candidates: sessions })
-  ctx.provide('locale', new LocaleRuntime(ctx))
+  const locale = new LocaleRuntime(ctx)
+  ctx.provide('locale', locale)
+  // The shipped locale plugin owns the common namespace; the reference source
+  // reads the default Workspace name from it.
+  locale.register('common', 'en', commonEn)
+  const workspaces = new TestWorkspaces(async (action) => { await action() })
+  ctx.provide('workspaces', workspaces)
   const sessionStore = new TestSessions(async (action) => { await action() }, ctx)
   onTestFinished(async () => {
     await sessionStore.disposeScopes()
@@ -138,13 +147,24 @@ async function bench(
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   if (source === undefined) throw new Error('reference source was not registered')
-  return { ctx, fiber, source, sessions: sessionStore, owner }
+  return { ctx, fiber, source, sessions: sessionStore, workspaces, owner }
+}
+
+function workspaceView(id: string, path: string, title: string): WorkspaceView {
+  return {
+    workspaceId: id as WorkspaceId,
+    path,
+    title,
+    sessionIds: [],
+    createdAt: new Date(CREATED_AT).toISOString(),
+    updatedAt: new Date(UPDATED_AT).toISOString(),
+  }
 }
 
 describe('apply', () => {
   it('declares its services and releases the @ reference registration on disposal', async () => {
     expect(inject).toEqual([
-      'inputTriggers', 'locale', 'sessions', 'referent', 'remote', 'remote.fileReferences',
+      'inputTriggers', 'locale', 'sessions', 'workspaces', 'referent', 'remote', 'remote.fileReferences',
       'remote.sessionReferenceResolver', 'sidebarRight', 'slots', 'uiConversation',
     ])
     const { fiber } = await bench()
@@ -170,6 +190,7 @@ describe('apply', () => {
     ctx.provide('remote.fileReferences', { list: () => Promise.resolve({ ok: true, value: [] }) })
     ctx.provide('remote.sessionReferenceResolver', { candidates: () => Promise.resolve({ ok: true, value: [] }) })
     ctx.provide('locale', new LocaleRuntime(ctx))
+    ctx.provide('workspaces', new TestWorkspaces(async (action) => { await action() }))
     const sessions = new TestSessions(async (action) => { await action() }, ctx)
     onTestFinished(() => sessions.disposeScopes())
     ctx.provide('sessions', sessions)
@@ -540,6 +561,136 @@ describe('candidates', () => {
     await expect(source.candidates(session, request('sib'))).resolves.toEqual([
       expect.objectContaining({ name: 'Sibling run', description: '3d' }),
     ])
+  })
+})
+
+describe('workspace roots', () => {
+  const noFiles = () => vi.fn(() => Promise.resolve({
+    ok: true as const, value: [] as FileReferenceCandidate[],
+  }))
+  const noSessions = () => vi.fn(() => Promise.resolve({
+    ok: true as const, value: [] as SessionReferenceMentionCandidate[],
+  }))
+
+  async function withWorkspaces(...views: WorkspaceView[]) {
+    const b = await bench(noFiles(), noSessions())
+    await b.workspaces.update((draft) => { draft.items = views })
+    return b
+  }
+
+  it('places registered roots after files and before sessions', async () => {
+    const files = vi.fn(() => Promise.resolve({
+      ok: true as const,
+      value: [{ path: 'src', kind: 'directory' as const }],
+    }))
+    const sessions = vi.fn(() => Promise.resolve({
+      ok: true as const,
+      value: [{
+        sessionId: sid('source'),
+        label: 'Research',
+        cwd: `${HOME}/project`,
+        sameWorkspace: false,
+        createdAt: CREATED_AT,
+        mention: '@[Research](dsh-session:InNvdXJjZSI)',
+      }],
+    }))
+    const b = await bench(files, sessions, { source: { updatedAt: UPDATED_AT } })
+    await b.workspaces.update((draft) => {
+      draft.items = [
+        workspaceView('alpha', `${HOME}/projects/alpha`, 'Alpha'),
+        workspaceView('beta', '/srv/beta', 'Beta'),
+      ]
+    })
+    const candidates = await b.source.candidates(session, request(''))
+    expect(candidates.map(candidate => ({
+      name: candidate.name,
+      description: candidate.description,
+      icon: candidate.icon,
+      section: candidate.section,
+    }))).toEqual([
+      { name: 'src/', description: undefined, icon: 'folder', section: 'Files & folders' },
+      { name: 'Alpha', description: '~/projects/alpha', icon: 'folder', section: 'Workspaces' },
+      { name: 'Beta', description: '/srv/beta', icon: 'folder', section: 'Workspaces' },
+      { name: 'Research', description: '~/project · 1h', icon: 'session', section: 'Sessions' },
+    ])
+    expect(candidates[1]?.value).toBe(JSON.stringify({
+      kind: 'file',
+      fileKind: 'directory',
+      label: 'Alpha',
+      mention: '@/Users/dev/projects/alpha/',
+    }))
+    expect(candidates[1]).not.toHaveProperty('drill')
+  })
+
+  it('matches the displayed title and the canonical path', async () => {
+    const b = await withWorkspaces(
+      workspaceView('alpha', `${HOME}/work/alpha`, 'Alpha'),
+      workspaceView('data', '/srv/data/gamma', 'Research'),
+    )
+    await expect(b.source.candidates(session, request('alp'))).resolves.toEqual([
+      expect.objectContaining({ name: 'Alpha' }),
+    ])
+    await expect(b.source.candidates(session, request('SRV'))).resolves.toEqual([
+      expect.objectContaining({ name: 'Research' }),
+    ])
+    await expect(b.source.candidates(session, request('zzz'))).resolves.toEqual([])
+  })
+
+  it('keeps roots out of an explicitly quoted file path', async () => {
+    const b = await withWorkspaces(workspaceView('alpha', `${HOME}/work/alpha`, 'Alpha'))
+    await expect(b.source.candidates(session, request('', { quoted: true }))).resolves.toEqual([])
+  })
+
+  it('labels the automatic default root and keeps one mentionable row per path', async () => {
+    const b = await withWorkspaces(
+      workspaceView('first', `${HOME}/work/shared`, 'First'),
+      workspaceView('duplicate', `${HOME}/work/shared/`, 'Duplicate'),
+      workspaceView('untitled', '/srv/untitled', ''),
+      workspaceView('default', `${HOME}/Documents/deepseek-harness/default-workspace`, 'default-workspace'),
+      workspaceView('windows', 'C:\\work\\win', 'Win'),
+      workspaceView('root', '/', 'Root'),
+      workspaceView('unnameable', `${HOME}/bad"name`, 'Bad'),
+      workspaceView('empty', '', 'Empty'),
+    )
+    const rows = await b.source.candidates(session, request(''))
+    expect(rows.map(row => ({ name: row.name, description: row.description }))).toEqual([
+      { name: 'First', description: '~/work/shared' },
+      { name: 'untitled', description: '/srv/untitled' },
+      { name: 'Default workspace', description: '~/Documents/deepseek-harness/default-workspace' },
+      { name: 'Win', description: 'C:\\work\\win' },
+      { name: 'Root', description: '/' },
+    ])
+    expect(rows.map(row => (JSON.parse(row.value ?? '{}') as { mention: string }).mention)).toEqual([
+      '@/Users/dev/work/shared/',
+      '@/srv/untitled/',
+      '@/Users/dev/Documents/deepseek-harness/default-workspace/',
+      '@C:/work/win/',
+      '@/',
+    ])
+  })
+
+  it('settles a root atomically as a complete quoted folder reference', async () => {
+    const b = await withWorkspaces(workspaceView('spaced', `${HOME}/My Projects/alpha`, 'Alpha'))
+    const [row] = await b.source.candidates(session, request(''))
+    const mention = '@"/Users/dev/My Projects/alpha/"'
+    expect(b.source.onPick({
+      candidate: row!,
+      session,
+      position: 'inline',
+      via: 'menu',
+      action: 'pick',
+      span: { start: 0, end: 1, draftRev: 1 },
+    })).toEqual({
+      insert: {
+        source: 'reference',
+        ref: mention,
+        label: 'Alpha/',
+        appearance: 'folder',
+        clipboardText: mention,
+      },
+    })
+    expect(b.source.codec?.clipboardText(mention)).toBe(mention)
+    await expect(b.source.codec?.serialize(mention, new AbortController().signal)).resolves.toBe(mention)
   })
 })
 

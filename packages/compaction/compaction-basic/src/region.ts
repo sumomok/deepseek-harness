@@ -14,11 +14,12 @@ import {
   toolPairingBalancedAfter,
   toolPairingBalancedBefore,
 } from '@deepseek-ai/dsh-compaction'
-import type { CompactionResult } from '@deepseek-ai/dsh-compaction'
+import type { CompactionResult, SummaryReview } from '@deepseek-ai/dsh-compaction'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
-import type { Message, UserMessage } from '@deepseek-ai/dsh-llm'
+import type { Message, ToolSchema, UserMessage } from '@deepseek-ai/dsh-llm'
 import type { TokenMeasurement, TokenMeter } from '@deepseek-ai/dsh-token-meter'
+import { estimateDenseMessageTokens } from '@deepseek-ai/dsh-token-meter/estimate'
 import { SessionSeq, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { frameSummary } from './summarizer.ts'
@@ -27,6 +28,7 @@ interface RegionDependencies {
   readonly meter: TokenMeter
   summarize(input: SummarizationInput, agent: Agent, signal?: AbortSignal): Promise<SummaryResult>
   recover(error: unknown, agent: Agent, sourceEventSeqs: readonly SessionSeq[], signal?: AbortSignal): boolean
+  review(review: SummaryReview): boolean
 }
 
 /** One validated inclusive span of current surface positions. */
@@ -45,6 +47,10 @@ interface PreparedCompaction extends SurfaceSelection {
   readonly shadowedTokenCount: number
   /** Route-priced total of the selected span; the shrink comparison's unit. */
   readonly shadowedRouteTokenCount: number
+  /** Replacement ceiling this transaction was opened with. */
+  readonly summaryMaxRatio: number
+  /** Whether the checkpoint points at the shadowed events in the session log. */
+  readonly checkpointReadback: boolean
   readonly input: SummarizationInput
 }
 
@@ -55,6 +61,13 @@ type SummarizedCompaction = PreparedCompaction & SummaryResult & {
 interface CompactionTransactionOptions {
   /** `current-turn` derives a numbered owner; `null` writes a standalone bracket. */
   readonly owner: 'current-turn' | null
+  /** Read-only pruned messages and prices the summary should see instead of the live events. */
+  readonly preview?: {
+    readonly messages: ReadonlyMap<SessionSeq, Message>
+    readonly tokens: ReadonlyMap<SessionSeq, { readonly tokens: number; readonly heuristicTokens: number }>
+  }
+  /** Tools the summary request should carry; null omits the header's tools. */
+  readonly tools?: readonly ToolSchema[] | null
   /** Surface relationship that must survive asynchronous summarization. */
   readonly stability: 'whole-surface' | 'selected-span'
   /** Optional durability checkpoint after a successfully closed bracket. */
@@ -63,6 +76,10 @@ interface CompactionTransactionOptions {
   readonly sourceCommandId?: CommandId
   /** Whether failures are classified as {@link ManualCompactionError} for a manual caller. */
   readonly manual: boolean
+  /** Largest replacement this transaction accepts as a fraction of the span's route price. */
+  readonly summaryMaxRatio: number
+  /** Whether the checkpoint tells the model how to read shadowed events. */
+  readonly checkpointReadback: boolean
 }
 
 interface CompactionEntryState {
@@ -77,6 +94,12 @@ interface CompactionEntryState {
  * caller can report the two causes differently.
  */
 class SurfaceChangedError extends Error {}
+
+/** Stable message a durable summary-review rejection carries. */
+export const SUMMARY_REJECTED_MESSAGE = 'compaction: a summary-review listener rejected the summary'
+
+/** A synchronous `compaction/summary-review` listener refused the framed summary. */
+export class SummaryRejectedError extends Error {}
 
 /** Whether the summary may still replace the span it was built from. */
 type StabilityCheck = (
@@ -157,6 +180,156 @@ export function selectCompactableRange(
 }
 
 /**
+ * Resolve the next range starting at the first non-system surface node while
+ * retaining a priced recent tail that begins at a complete user turn. The
+ * retained tail is widened backwards from the token budget to the first
+ * `user/message` of the turn that owns the budget boundary, so a later
+ * compaction never keeps a turn from its middle. When the budget falls inside
+ * the only user turn, the user message and its newest complete step group stay
+ * verbatim and earlier assistant/tool steps are compactable. Tool-call/result
+ * pairing still decides the final cut; a span with no earlier balanced step is
+ * refused.
+ * @param session - session supplying authoritative current surface positions.
+ * @param measurement - unified pressure and surface measurement from the conversation meter.
+ * @param retainTokens - minimum recent tail budget retained verbatim.
+ * @param boundaries - user-turn and step-start seqs precomputed from the same current surface; omitted scans the durable log.
+ * @returns the inclusive positional seq range to compact, or `null`.
+ */
+export function selectCompactableRangeAtTurnBoundary(
+  session: Session,
+  measurement: TokenMeasurement,
+  retainTokens: number,
+  boundaries?: { readonly userTurnStarts: readonly SessionSeq[]; readonly stepStarts: readonly SessionSeq[] },
+): { start: SessionSeq; end: SessionSeq } | null {
+  const pricedNodes = measurement.nodes
+  if (pricedNodes.length === 0) return null
+
+  const surfaceNodes = session.surface.nodes
+  if (surfaceNodes.length !== pricedNodes.length
+    || surfaceNodes.some((seq, index) => seq !== pricedNodes[index]?.seq)) {
+    throw new Error('compaction: token-meter surface does not match the current session surface')
+  }
+  // oxlint-disable-next-line typescript/no-non-null-assertion
+  const firstIdx = systemHead(session, surfaceNodes[0]!) === undefined ? 0 : 1
+
+  let accumulated = 0
+  let keepFromIdx = pricedNodes.length
+  for (let index = pricedNodes.length - 1; index >= 0; index -= 1) {
+    // oxlint-disable-next-line typescript/no-non-null-assertion
+    accumulated += pricedNodes[index]!.tokens
+    keepFromIdx = index
+    if (accumulated >= retainTokens) break
+  }
+  if (keepFromIdx <= firstIdx) return null
+
+  const userTurnStarts = boundaries?.userTurnStarts ?? userTurnStartSeqs(session)
+  let boundaryIdx = -1
+  for (const boundary of userTurnStarts) {
+    const index = surfaceNodes.indexOf(boundary)
+    if (index > boundaryIdx && index <= keepFromIdx) boundaryIdx = index
+  }
+
+  if (boundaryIdx > firstIdx) {
+    keepFromIdx = boundaryIdx
+    while (keepFromIdx > firstIdx) {
+      // oxlint-disable-next-line typescript/no-non-null-assertion
+      if (toolPairingBalancedBefore(session, surfaceNodes[keepFromIdx]!)) break
+      keepFromIdx -= 1
+    }
+    if (keepFromIdx <= firstIdx) return null
+    // oxlint-disable-next-line typescript/no-non-null-assertion
+    return { start: surfaceNodes[firstIdx]!, end: surfaceNodes[keepFromIdx - 1]! }
+  }
+
+  // No later complete user turn is inside the retained tail. A long single
+  // task still has earlier assistant/tool steps worth compacting: keep the
+  // user message and the newest complete step group, and compact steps before
+  // that group. Only a turn with no earlier balanced step refuses.
+  const firstBoundary = userTurnStarts[0]
+  const userIdx = firstBoundary === undefined ? -1 : surfaceNodes.indexOf(firstBoundary)
+  if (userIdx < firstIdx) return selectCompactableRange(session, measurement, retainTokens)
+  const startIdx = userIdx + 1
+  if (startIdx >= surfaceNodes.length) return null
+  // A single long turn has no later user boundary, so the newest complete
+  // assistant/tool group replaces the token budget as the retention edge:
+  // keeping the user message and that group is the semantic requirement, and
+  // every earlier step stays compactable even when the token budget would
+  // have kept more.
+  const groupStarts = (boundaries?.stepStarts ?? stepStartSeqs(session))
+    .map(seq => surfaceNodes.indexOf(seq))
+    .filter(index => index > startIdx)
+    .sort((left, right) => right - left)
+  for (const groupIdx of groupStarts) {
+    const endIdx = groupIdx - 1
+    if (endIdx < startIdx) continue
+    // oxlint-disable-next-line typescript/no-non-null-assertion
+    const start = surfaceNodes[startIdx]!
+    // oxlint-disable-next-line typescript/no-non-null-assertion
+    const end = surfaceNodes[endIdx]!
+    if (!toolPairingBalancedBefore(session, start)) continue
+    if (!toolPairingBalancedAfter(session, end)) continue
+    return { start, end }
+  }
+  return null
+}
+
+/**
+ * Surface seqs of the first `user/message` in each turn, in log order. A turn
+ * that produced no user message contributes no boundary; the surface may start
+ * with a system node before the first user message.
+ * @param session - session whose log and current surface are read.
+ * @returns user-message seqs that begin a turn's surface contribution.
+ */
+function userTurnStartSeqs(session: Session): SessionSeq[] {
+  const surface = new Set(session.surface.nodes)
+  const starts: SessionSeq[] = []
+  let inTurn = false
+  let sawUser = false
+  // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
+  for (const event of session.snapshotEvents()) {
+    if (event.type === 'turn/start') {
+      inTurn = true
+      sawUser = false
+      continue
+    }
+    if (event.type === 'turn/end') {
+      inTurn = false
+      sawUser = false
+      continue
+    }
+    if (!inTurn || sawUser || !surface.has(event.seq) || event.type !== 'user/message') continue
+    starts.push(event.seq)
+    sawUser = true
+  }
+  return starts
+}
+
+/**
+ * Surface seqs of the first assistant message after each `step/start`, in log
+ * order. These are the assistant/tool group boundaries a single long turn can
+ * compact at while keeping its newest complete group; a step without an
+ * assistant message contributes no boundary.
+ * @param session - session whose log and current surface are read.
+ * @returns assistant-message seqs that begin a step's surface contribution.
+ */
+function stepStartSeqs(session: Session): SessionSeq[] {
+  const surface = new Set(session.surface.nodes)
+  const starts: SessionSeq[] = []
+  let pending = false
+  // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
+  for (const event of session.snapshotEvents()) {
+    if (event.type === 'step/start') {
+      pending = true
+      continue
+    }
+    if (!pending || event.type !== 'assistant/message' || !surface.has(event.seq)) continue
+    starts.push(event.seq)
+    pending = false
+  }
+  return starts
+}
+
+/**
  * Run the single compaction transaction over one selected positional span.
  * Selection and validation are read-only. Idle/log validation and
  * `compaction/start` are synchronously adjacent, so the durable opening marker is
@@ -221,7 +394,8 @@ export async function compactSurfaceRegion(
   let stage: TransactionFailure['stage'] = 'summary'
 
   try {
-    const prepared = prepareCompaction(dependencies, session, selection)
+    const prepared = prepareCompaction(dependencies, session, selection, options.summaryMaxRatio,
+      options.checkpointReadback, options.preview, options.tools)
     const summarized = await summarizeCompaction(
       dependencies,
       prepared,
@@ -229,6 +403,8 @@ export async function compactSurfaceRegion(
       compactionId,
       options.sourceCommandId,
       assertStable,
+      options.preview,
+      options.tools,
       signal,
     )
     if (options.owner === null) signal?.throwIfAborted()
@@ -364,9 +540,17 @@ function prepareCompaction(
   dependencies: RegionDependencies,
   session: Session,
   selection: SurfaceSelection,
+  summaryMaxRatio: number,
+  checkpointReadback: boolean,
+  preview?: CompactionTransactionOptions['preview'],
+  tools?: readonly ToolSchema[] | null,
 ): PreparedCompaction {
   const measurement = dependencies.meter.measure(session)
   const selectedNodes = measurement.nodes.slice(selection.startIdx, selection.endIdx + 1)
+    .map((node) => {
+      const priced = preview?.tokens.get(node.seq)
+      return priced === undefined ? node : { ...node, ...priced }
+    })
   if (selectedNodes.length !== selection.shadowedSeqs.length
     || selectedNodes.some((node, index) => node.seq !== selection.shadowedSeqs[index])) {
     throw new SurfaceChangedError('compaction: selected surface changed before summarization began')
@@ -381,7 +565,9 @@ function prepareCompaction(
     // route-priced `tokens` instead.
     shadowedTokenCount: selectedNodes.reduce((total, node) => total + node.heuristicTokens, 0),
     shadowedRouteTokenCount: selectedNodes.reduce((total, node) => total + node.tokens, 0),
-    input: buildSummarizationInput(session, selection.shadowedSeqs),
+    summaryMaxRatio,
+    checkpointReadback,
+    input: buildSummarizationInput(session, selection.shadowedSeqs, preview?.messages, tools),
   }
 }
 
@@ -393,6 +579,8 @@ async function summarizeCompaction(
   compactionId: CompactionResult['compactionId'],
   sourceCommandId: CommandId | undefined,
   assertStable: StabilityCheck,
+  preview?: CompactionTransactionOptions['preview'],
+  tools?: readonly ToolSchema[] | null,
   signal?: AbortSignal,
 ): Promise<SummarizedCompaction> {
   let summaryResult: SummaryResult
@@ -406,11 +594,19 @@ async function summarizeCompaction(
       assertStable(dependencies, agent.session, prepared)
       if (!dependencies.recover(error, agent, prepared.shadowedSeqs, signal)) throw error
       prepared = prepareCompaction(dependencies, agent.session,
-        validateSurfaceRegion(agent.session, prepared.start, prepared.end))
+        validateSurfaceRegion(agent.session, prepared.start, prepared.end), prepared.summaryMaxRatio,
+        prepared.checkpointReadback, preview, tools)
     }
   }
   const checkpointMessage = createUserMessage({
-    content: frameSummary(summaryResult.summary),
+    content: frameSummary(summaryResult.summary, prepared.checkpointReadback
+      ? {
+        compactionId,
+        shadowedCount: prepared.shadowedSeqs.length,
+        startSeq: prepared.start,
+        endSeq: prepared.end,
+      }
+      : undefined),
     source: compactCheckpointSource(compactionId, sourceCommandId),
   })
   // The checkpoint is text-only, so its fixed-heuristic price IS its route
@@ -421,6 +617,37 @@ async function summarizeCompaction(
     throw new Error(
       `summary is not smaller than the shadowed content (${framedSummaryTokenCount} estimated framed tokens >= ${prepared.shadowedRouteTokenCount})`,
     )
+  }
+  // The fixed heuristic prices a CJK character at a quarter token, so a
+  // Chinese summary can look small here while the provider bills more than the
+  // span it replaces. The dense price is the conservative side of the same
+  // question, and the ratio keeps a replacement worth the transaction: a span
+  // that can only shrink a little is not worth a summary request.
+  const denseSummaryTokenCount = estimateDenseMessageTokens(checkpointMessage)
+  const summaryCeiling = Math.floor(prepared.shadowedRouteTokenCount * prepared.summaryMaxRatio)
+  if (denseSummaryTokenCount >= summaryCeiling) {
+    throw new Error(
+      `summary is not small enough for the shadowed content (${denseSummaryTokenCount} dense tokens > `
+      + `${summaryCeiling} = ${prepared.summaryMaxRatio} of ${prepared.shadowedRouteTokenCount} route tokens)`,
+    )
+  }
+  const review: SummaryReview = {
+    agent: {
+      session: agent.session,
+      options: {
+        ...agent.options.provider === undefined ? {} : { provider: agent.options.provider },
+        ...agent.options.model === undefined ? {} : { model: agent.options.model },
+      },
+    },
+    summary: checkpointMessage.content,
+    shadowedSeqs: [...prepared.shadowedSeqs],
+    shadowedTokenCount: prepared.shadowedTokenCount,
+    summaryTokens: framedSummaryTokenCount,
+    provider: summaryResult.provider,
+    model: summaryResult.model,
+  }
+  if (!dependencies.review(review)) {
+    throw new SummaryRejectedError(SUMMARY_REJECTED_MESSAGE)
   }
   return {
     ...prepared,
@@ -546,6 +773,8 @@ function completeCompaction(
 function buildSummarizationInput(
   session: Session,
   shadowedSeqs: readonly SessionSeq[],
+  preview?: ReadonlyMap<SessionSeq, Message>,
+  tools?: readonly ToolSchema[] | null,
 ): SummarizationInput {
   const header = session.requestHeader()
   // shadowedSeqs are current surface seqs, so the surface has a node 0.
@@ -556,10 +785,11 @@ function buildSummarizationInput(
     // shadowedSeqs are current surface seqs, so each is a valid log index.
     // Existing Session history read; migration deferred.
     // oxlint-disable-next-line typescript/no-non-null-assertion, typescript/no-deprecated
-    .map(seq => session.deriveEventMessage(session.eventAt(seq)!))
+    .map(seq => preview?.get(seq) ?? session.deriveEventMessage(session.eventAt(seq)!))
     .filter((message): message is Message => message !== null)
+  const requestTools = tools === null ? undefined : tools ?? header?.tools
   return {
-    ...header?.tools === undefined ? {} : { tools: header.tools },
+    ...requestTools === undefined ? {} : { tools: requestTools },
     messages: system === null ? regionMessages : [system, ...regionMessages],
   }
 }

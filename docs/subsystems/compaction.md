@@ -100,7 +100,15 @@ type ManualCompactionErrorCode =
 
 Pressure compaction runs at the `agent/pre-step` waterfall before request derivation, on the occupancy the context meter displays: wherever provider usage anchors the measurement the backend reads the [`contextPressure` projection](token-meter.md)'s own published `projectedTokens`, so the automatic trigger and the on-screen percentage are one value rather than two calculations; any other baseline keeps the trigger on the meter's route-priced `totalTokens`, the only reading that sees unbilled image pressure. The capacity is unaffected either way: the backend divides by the adapter's `resolveModelInfo` window, never the projection's recorded `contextWindow`. compaction-basic reads an optional `ctx.compactionPolicy` on every such step — never cached — for a live enable switch and a threshold ratio that outranks its configured one; overflow recovery ignores that switch. A model switch also runs pressure compaction at `agent/request` against the changed destination before its header is logged: the summary retains the previous route unless an explicit summary target is configured, and a failed switch preserves that header and any completed reductions. Once pressure or canonical overflow qualifies, compaction-basic invokes optional [`ctx.toolResultPruner`](../../packages/compaction/compaction-tool-result-pruner/README.md) before range selection, remeasures through `ctx.tokenMeter`, and can advance the surface without a summary. Failed-request recovery runs through `agent/request-error` after the failed step closes and returns a retry action only when the surface replacement generation advances, even if later summary work throws after pruning; cancellation still wins. Region boundaries preserve tool-call/result pairing but not whole turns, allowing early closed steps of one oversized turn to compact. `dsh-compaction-basic` owns thresholds, retained-tail policy, overflow caps, and failure handling.
 
+The pressure path keeps a complete user turn at the retained edge; when the budget falls inside a single long user turn it keeps that user message and the newest complete assistant/tool group, compacting earlier steps instead of refusing the whole task. A span that is only a prior compaction checkpoint is not summarized again. A per-Session-and-route consecutive-failure breaker (config `maxConsecutiveFailures`, default `3`, `0` disables) pauses pressure after repeated `compaction/end` errors, seeds itself from trailing durable errors after a restart, and resets on success; each attempt logs its route, occupancy, threshold, fixed prefix, reclaimable and needed tokens, then its duration, error class, and provider usage when available.
+
 The Service Definition exports `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)` for the tool-call/result pairing checks before and after a seq. Both validate current surface membership and reject missing seqs and orphan results; the [package contract](../../packages/compaction/compaction/README.md#tool-pairing-boundaries) defines their cache behavior.
+
+Before a summary commits, a backend dispatches the synchronous `compaction/summary-review` Cordis waterfall with a `SummaryReview`: the framed summary, its shadowed surface seqs and token prices, the routed summarizer's provider and model, and the compacting agent's session and routing options. Listeners accept by calling `next()` and reject by returning false; the default without a listener is acceptance. A rejection is a summary failure: the backend writes exactly one `compaction/end` carrying the error and leaves `compaction/summary` and the surface replacement unwritten. The hook is intentionally synchronous and is not a Session event, so it adds no persisted format.
+
+## Surface recovery helpers
+
+The Service Definition also exports the generic surface-recovery vocabulary used by consumers that shadow a tool result but keep the original readable: `originalToolResultSeq(session, seq)`, `RecoveryAddress`/`RecoverySpillRef`, and `recoveryNotice(address)`. The default address is the original event's `{ sessionId, seq }`; an existing spill notice is reused verbatim; a spill reference is optional and typed generically, so this package imports no spill backend and parses no notice. Sequence tracing follows `surfaceOp: replace` citations across consecutive replacements and unrelated events with a visited set and depth cap. The tool-result pruner re-exports the same helpers. See the [package contract](../../packages/compaction/compaction/README.md#surface-recovery-addresses).
 
 ## Tool-result pruning outcomes
 
@@ -259,6 +267,52 @@ whileBusy(): ManualCompactionWhileBusy
 
 Source: [`packages/compaction/compaction/src/index.ts`](../../packages/compaction/compaction/src/index.ts)
 
+<a id="ctxmicrocompact--microcompact"></a>
+
+### `ctx.microcompact` — `Microcompact`
+
+Idle microcompaction service.
+
+```ts cordis-catalog
+/**
+ * Heal a crash that left the last `compaction/prune` marker without its
+ * adjacent replacement. It appends an identical-content replacement for a
+ * single-node marker, consuming the armed claim without losing text.
+ * @param session - session whose durable tail may end at an orphan marker.
+ * @returns true when a healing replacement was appended.
+ */
+healOrphanMarker(session: Session): boolean
+
+/**
+ * Plan one idle pass without appending or saving anything.
+ * @param session - session whose durable activity and surface are inspected.
+ * @param scope - agent whose tool visibility decides model readback; omitted checks the global view.
+ * @returns planned replacements and reasons for refusals.
+ */
+async preview(session: Session, scope?: Agent): Promise<MicrocompactPreview>
+
+/**
+ * Apply a preview after it was produced from the current surface. Entries
+ * whose sequence or message changed are skipped; a second apply is a no-op.
+ * @param session - session whose surface is rewritten.
+ * @param preview - plan returned by {@link preview}.
+ * @returns landed entries and the count of stale entries.
+ */
+apply(session: Session, preview: MicrocompactPreview): MicrocompactResult
+
+/**
+ * Run the idle path for one pre-step. Heals an interrupted marker, plans,
+ * and applies at most once per durable idle window.
+ * @param agent - agent whose session is inspected.
+ * @returns the applied result, or an empty result when this window was already attempted.
+ */
+async runIdle(agent: Agent): Promise<MicrocompactResult>
+```
+
+Types: [Agent](core.md) · [Session](session.md)
+
+Source: [`packages/compaction/compaction-microcompact/src/index.ts`](../../packages/compaction/compaction-microcompact/src/index.ts)
+
 <a id="ctxtoolresultpruner--toolresultpruner"></a>
 
 ### `ctx.toolResultPruner` — `ToolResultPruner`
@@ -295,6 +349,41 @@ pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null
  * earlier in the pass remain durable.
  */
 pruneSession(session: Session): PruneResult
+
+/**
+ * Recovery-aware pruning: each replacement carries an address for its
+ * complete original. The default session address writes nothing. An existing
+ * spill notice is reused exactly. Only `address: 'spill'` with no notice
+ * saves complete text, once per session and original sequence.
+ * @param session - session whose current surface is rewritten.
+ * @param options - address preference and optional spill store.
+ * @returns replacements with their addresses, plus skipped replacements.
+ */
+async pruneSessionWithRecovery( session: Session, options: ToolResultRecoveryOptions = {}, ): Promise<RecoveryPruneResult>
+
+/**
+ * Plan a pruning pass without changing the session or saving a spill file.
+ * The caller may run summary review first and apply the preview only after
+ * its compaction transaction commits. A spill address with no recorded
+ * notice is reported as deferred; preview invents no locator.
+ * @param session - session whose current surface is measured.
+ * @param options - address preference and optional spill store.
+ * @returns candidate replacements, skipped candidates, and projected savings.
+ */
+previewSessionPrune( session: Session, options: ToolResultRecoveryOptions = {}, ): PrunePreview
+
+/**
+ * Apply a preview after the caller's summary/replacement has committed.
+ * Entries whose sequence is no longer on the surface, or whose message no
+ * longer matches the preview, are skipped; applying the same preview twice
+ * is idempotent. A spill save happens only here, and a save failure falls
+ * back to the session address or skips the entry.
+ * @param session - session whose current surface is rewritten.
+ * @param preview - read-only plan produced by {@link previewSessionPrune}.
+ * @param options - address preference and optional spill store.
+ * @returns landed replacements and counts of skipped preview entries.
+ */
+async applyPrunePreview( session: Session, preview: PrunePreview, options: ToolResultRecoveryOptions = {}, ): Promise<PruneApplyResult>
 ```
 
 Types: [ContentBlock](llm-streaming.md) · [Session](session.md)
@@ -329,6 +418,31 @@ Recover a failed summary request by synchronously recording a durable change to 
 ```
 
 Types: [Session](session.md) · [SessionSeq](session.md)
+
+Source: [`packages/compaction/compaction/src/index.ts`](../../packages/compaction/compaction/src/index.ts)
+
+<a id="compactionsummary-review--waterfall"></a>
+
+#### `compaction/summary-review` — waterfall
+
+Review a framed summary before its replacement commits. Runs after the shrink check and before `compaction/summary` and the replacement `user/message`; a listener that accepts calls next(), and a listener that rejects returns false without calling it. A rejection closes the transaction like a summary failure: exactly one `compaction/end` carrying the error, no summary event, no replacement, no retry. The review is synchronous: a listener may reject or accept but cannot run an asynchronous model review inside the transaction.
+
+```ts cordis-catalog
+/**
+ * Review a framed summary before its replacement commits. Runs after the
+ * shrink check and before `compaction/summary` and the replacement
+ * `user/message`; a listener that accepts calls next(), and a listener that
+ * rejects returns false without calling it. A rejection closes the
+ * transaction like a summary failure: exactly one `compaction/end`
+ * carrying the error, no summary event, no replacement, no retry. The
+ * review is synchronous: a listener may reject or accept but cannot run
+ * an asynchronous model review inside the transaction.
+ * @param payload - the framed summary, its source span, and the routed summarizer.
+ * @param next - delegate to the next reviewer; true accepts when nobody rejects.
+ * @mode waterfall
+ */
+'compaction/summary-review'(payload: SummaryReview, next: () => boolean): boolean
+```
 
 Source: [`packages/compaction/compaction/src/index.ts`](../../packages/compaction/compaction/src/index.ts)
 <!-- END GENERATED cordis-surface -->

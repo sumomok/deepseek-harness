@@ -70,15 +70,20 @@ kind: "package-reference"
 | `headroomTokens` | `65536` | 路由请求输出预留之外的额外压力余量；必须为非负整数。 |
 | `retainRatio` | `0.16` | 以 `W − O` 的一部分表示逐字保留的近期对话；与 `retainTokens` 互斥。 |
 | `retainTokens` | — | 逐字保留的近期对话绝对预算；与 `retainRatio` 互斥，并且必须低于已解析阈值。 |
-| `summarizationProvider` | `''` | 与 `summarizationModel` 一起设置；空对使用最新已路由请求目标，再回退到 `AgentOptions` 对。 |
+| `summarizationProvider` | `''` | 与 `summarizationModel` 一起设置；空对使用下一请求的待生效模型选择，再回退到最新已路由请求目标，最后回退到 `AgentOptions` 对。 |
 | `summarizationModel` | `''` | 与 `summarizationProvider` 一起设置；空对使用最新已路由请求目标，再回退到 `AgentOptions` 对。 |
 | `maxTokens` | `headroomTokens`（`65536`） | 正数摘要输出上限，包含提供方计入的推理 token。显式模型上限覆盖显式全局上限；否则跟随解析后的余量。 |
 | `compactionRetries` | `1` | 压力仍高于阈值时，在首次压缩后进行的额外尝试次数。 |
+| `maxConsecutiveFailures` | `3` | 同一 Session 与路由连续自动摘要失败多少次后暂停压力压缩；`0` 禁用熔断。 |
 | `maxOverflowRetries` | `1` | 已确认上下文窗口溢出后的最大重试次数；`0` 只禁用恢复。 |
+| `summaryMaxRatio` | `1` | 收缩守卫接受的替换上限，按被选中区间的路由价格比例计。`1` 接受任何严格更小的摘要；调低则只在压缩能腾出足够份额时才执行。 |
 | `modelPolicies` | `[]` | 针对个别模型路由的精确 `{ provider, model, ...partialPolicy }` 覆盖。 |
 | `auto` | `true` | 启用自动压缩与溢出恢复；设为 `false` 则仅手动执行。策略服务可以在不使用这个硬开关的情况下暂停压力压缩。 |
+| `checkpointReadback` | `false` | 在检查点中加入压缩 id、被 shadow 的事件数、表层边界 seq 以及 `session_event_search` / `session_event_read` 使用指引，让模型能从 Session 事件日志读回精确的历史事件。仅在已挂载这些工具时启用。 |
 
-配置错误会快速失败：未知设置、重复的按模型覆盖、无效 token 数、两种保留形式同时出现，或保留比例不小于阈值比例，都会在加载时拒绝插件。模型首次使用时，`W − O − B` 必须为正，且解析出的保留预算必须低于触发阈值。余量为零时，必须在全局或对应模型策略中显式设置正数 `maxTokens`。小窗口部署必须配置适合其容量的余量；降低 `thresholdRatio` 可以提早压缩。
+摘要提交前会按两种密度各计价一次：度量器其余部分使用的固定启发式，以及把每个 CJK 码点计为一个 token 的密集档。固定启发式下看起来更小、但密集档下比被替换区间更贵的摘要会被拒绝，因为 provider 按密集档计费。`summaryMaxRatio` 在此基础上进一步收紧上限。
+
+配置错误会快速失败：未知设置、重复的按模型覆盖、无效 token 数、两种保留形式同时出现、保留比例不小于阈值比例，或 `summaryMaxRatio` 不在 `(0, 1]` 内，都会在加载时拒绝插件。模型首次使用时，`W − O − B` 必须为正，且解析出的保留预算必须低于触发阈值。余量为零时，必须在全局或对应模型策略中显式设置正数 `maxTokens`。小窗口部署必须配置适合其容量的余量；降低 `thresholdRatio` 可以提早压缩。
 
 ### 从用户设置移动阈值
 
@@ -115,6 +120,8 @@ interface CompactionPolicy {
 
 在本包之前挂载 `dsh-compaction-tool-result-pruner`，即可在压缩过程中修剪超大工具结果。修剪不发起模型调用，并可能完全省去摘要：当修剪后的对话在阈值之内时，压缩会跳过摘要。修剪只在压缩触发条件满足后运行——低于压力的对话绝不会被触碰。
 
+实现 `previewSessionPrune`/`applyPrunePreview` 的 pruner 会在摘要前被预览、仅在摘要提交后应用；review 拒绝或摘要失败不会改动其结果。没有 preview 入口的旧 pruner 无法安全预估价：本后端先完成摘要，提交后才运行旧修剪，因此“仅修剪即可清压”的对话会多付一次摘要请求；review 拒绝或摘要失败仍然完全不修剪。
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -144,11 +151,13 @@ interface CompactionPolicy {
 
 ### 摘要机制
 
-直接 `ctx.llm.stream()` 调用使用已配置的提供方／模型对与上限，回退到最新已记录请求目标，然后再回退到 `AgentOptions` 对，而不运行仅用于 agent loop 的 `agent/request` 扩展点。该调用将 surface 节点 0 处派生的 `system/message` 作为 `messages` 的首项回放，后接已遮蔽区域消息（包括位于其 surface 位置的被遮蔽历史内 `system/message`），并提供 header 的有效工具供路由特定投影使用。所选适配器必须解析回放消息中的图片引用或明确拒绝它们。调用将压缩指令作为最后一条 user 消息追加，在投影允许时保留提供方的热前缀 cache。空内容系统头节点不贡献消息，但仍处于压缩范围之外。最终指令是冻结的 `RequestUserInput`，不含持久身份或来源；回放历史和持久化检查点仍然使用持久消息。调用将 `GenerateOptions.purpose` 设为 `compaction`；只有返回文本进入检查点，推理与工具调用都会被排除。图片输出会以 `UNSUPPORTED_CONTENT` 失败，而不是消失。替换 user 消息用 `<compacted-summary>` 标签框定摘要；原始摘要保留在 `compaction/summary` 事件上。 调用还携带 `Session.toolHistory()`，供运行时投影延迟和保留定义；若前缀缺少更新消息，则使用有效声明且不发送 developer 更新。
+直接 `ctx.llm.stream()` 调用使用已配置的提供方／模型对与上限，回退到下一请求的待生效模型选择，再回退到最新已记录请求目标，最后回退到 `AgentOptions` 对，而不运行仅用于 agent loop 的 `agent/request` 扩展点。该调用将 surface 节点 0 处派生的 `system/message` 作为 `messages` 的首项回放，后接已遮蔽区域消息（包括位于其 surface 位置的被遮蔽历史内 `system/message`），并提供 header 的有效工具供路由特定投影使用。所选适配器必须解析回放消息中的图片引用或明确拒绝它们。调用将压缩指令作为最后一条 user 消息追加，在投影允许时保留提供方的热前缀 cache。空内容系统头节点不贡献消息，但仍处于压缩范围之外。最终指令是冻结的 `RequestUserInput`，不含持久身份或来源；回放历史和持久化检查点仍然使用持久消息。调用将 `GenerateOptions.purpose` 设为 `compaction`；只有返回文本进入检查点，推理与工具调用都会被排除。图片输出会以 `UNSUPPORTED_CONTENT` 失败，而不是消失。替换 user 消息用 `<compacted-summary>` 标签框定摘要；原始摘要保留在 `compaction/summary` 事件上。 调用还携带 `Session.toolHistory()`，供运行时投影延迟和保留定义；若前缀缺少更新消息，则使用有效声明且不发送 developer 更新。
 
 ### 区域事务
 
 摘要请求失败后，后端先检查取消和选区稳定性，再触发同步的 `compaction/summary-error`。恢复监听器必须先记录持久的输入变更，才能请求重试。后端重新派生所选消息，更新 token 价格及判断摘要是否缩短输入的基准。图片省略插件负责选图；后续摘要失败或取消后，已经记录的省略仍然有效。
+
+在 shrink 检查之后、任何内容提交之前，后端派发同步的 `compaction/summary-review` waterfall，载荷包含已框定的摘要、其源范围以及实际使用的摘要路由。监听器调用 `next()` 表示接受，返回 false 表示拒绝；拒绝会被归类为摘要失败，因此事务恰好写入一条携带错误的 `compaction/end`，表层保持不变。该事务内不会运行异步评审；`/compact` 会把拒绝报告为其 `summary` 失败类别。
 
 事务验证表层范围与持久锁，追加 `compaction/start`，通过钩子生成摘要，重新验证稳定性（自动调用要求整个表层、手动调用只要求所选范围），拒绝不缩小源内容的摘要，追加 `compaction/summary` 与替换 `user/message`，并恰好进行一次 `compaction/end` 尝试。活动的未匹配 start 是持久锁：位于较新 `session/end-seed` 之前的未匹配标记是先前生命周期留下的陈旧证据，不会阻塞；位于该边界之后的标记报告 `busy`。闭合失败会有意留下阻塞性的未匹配标记。完成清理与持久化后，取消仍具有最终决定权。
 
@@ -199,13 +208,19 @@ interface CompactionPolicy {
 This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.
 ```
 
+##### 可选回读指针
+
+```markdown
+The original <shadowed-event-count> events remain in this session's event log (compaction id <compaction-id>; surface boundary seqs <start-seq> and <end-seq>). For exact prior wording, errors, or tool output, use session_event_search to locate content or session_event_read with one of those seqs for a bounded excerpt; request full: true only when the whole event is required. Do not guess details that can be read back.
+```
+
 #### Token 影响
 
 不依赖模型的剪枝可以完全避免辅助调用；否则它会在摘要替换较早范围之前缩减该调用的 transcript（文本记录）。替换会缩减未来输入历史，而非追加第二份副本。摘要会保留到后续压缩将其替换，但不可分的非工具单元仍可能超出预算。
 
 #### KV Cache 影响
 
-它是替换，而非仅追加。每个检查点都会使从第一个已替换历史 token 起的复用失效；该范围之前未更改的请求前缀仍可复用。
+它是替换，而非仅追加。每个检查点都会使从第一个已替换历史 token 起的复用失效；该范围之前未更改的请求前缀仍可复用。`checkpointReadback` 只改变替换文本，不改变工具声明；后续 `session_event_*` 的结果像其他工具结果一样追加工具消息。
 
 ### 辅助摘要器请求
 
@@ -218,7 +233,7 @@ This is an automatically generated checkpoint condensing an earlier span of the 
 ```markdown
 You are now acting as a compaction engine for this AI coding assistant. Condense the conversation ABOVE into a structured checkpoint that lets another model resume the work with no loss of essential context.
 
-Output EXACTLY the Markdown structure below: keep every section, in order. Use terse bullets, not prose paragraphs. Write "(none)" for an empty section — never drop a section.
+Output the Markdown structure below, in order. Use terse bullets and "(none)" for empty sections; never drop a section.
 
 ## Primary Request and Intent
 - [the user's original and evolving goals; quote verbatim where the exact wording matters]
@@ -244,11 +259,16 @@ Output EXACTLY the Markdown structure below: keep every section, in order. Use t
 ## Critical Context
 - [decisions and their rationale, constraints, user preferences, open questions, data needed to continue]
 
+## Rules and Conventions
+- [every rule, convention, checklist, or decision standard the user and assistant agreed on, quoted word for word, each with the scope it governs]
+
 Rules:
-- Write concise English engineering prose. Preserve exact file paths, commands, error strings, identifiers, numeric values, function signatures, and syntax fragments.
+- Write concise prose in the primary language of user messages, including headings. Preserve exact paths, commands, errors, identifiers, numbers, signatures, and syntax.
 - Capture user feedback and explicit instructions faithfully, especially corrections.
 - Do NOT mention this summarization request or that the context was compacted.
 - Output only the checkpoint text: do not call any tool or take any other action.
+- Reconcile Pending Jobs, Current Work, Next Step, and Critical Context with the latest messages: remove completed or duplicated items; use "(none)" when awaiting the user.
+- Copy every agreed rule into Rules and Conventions word for word. Never replace a rule with the file or line where it also lives, and never paraphrase it: the reader has no way to tell a paraphrase from the rule the user actually agreed to.
 - If the conversation already contains a <compacted-summary> block, it is a PRIOR checkpoint. Do not copy it forward verbatim: preserve still-true facts, drop stale ones, and merge newer information into a single consolidated summary under the same structure.
 ```
 

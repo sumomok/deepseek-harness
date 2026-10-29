@@ -15,8 +15,11 @@
   en: 9dde333b53c14f24
   zh: 8959aafefc55f9a4
 /compaction/the-service:
-  en: 75ce856c371cbc69
-  zh: b144a7c917aeb191
+  en: b14ac48ba1b38b92
+  zh: da9c0e2584f68aee
+/compaction/surface-recovery-helpers:
+  en: ae2c6534f64aa742
+  zh: 0309f5e94ce63689
 /compaction/tool-result-pruning-outcomes:
   en: 27091b0a3d454575
   zh: e22431e27e1349f2

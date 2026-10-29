@@ -22,6 +22,9 @@ const DEFAULT_THRESHOLD_RATIO = 0.8
 /** Default verbatim-tail fraction for every routed model. */
 const DEFAULT_RETAIN_RATIO = 0.16
 
+/** Default share of a selected span's route price a replacement may keep: any strictly smaller one. */
+const DEFAULT_SUMMARY_MAX_RATIO = 1
+
 /** Fields shared by top-level defaults and exact-target overrides. */
 const POLICY_CONFIG_KEYS = [
   'thresholdRatio',
@@ -32,7 +35,9 @@ const POLICY_CONFIG_KEYS = [
   'summarizationModel',
   'maxTokens',
   'compactionRetries',
+  'maxConsecutiveFailures',
   'maxOverflowRetries',
+  'summaryMaxRatio',
 ] as const
 
 /** Complete public top-level configuration key set. */
@@ -40,6 +45,7 @@ const BASIC_COMPACT_CONFIG_KEYS: ReadonlySet<string> = new Set([
   ...POLICY_CONFIG_KEYS,
   'modelPolicies',
   'auto',
+  'checkpointReadback',
 ])
 
 /** Complete exact-target override key set. */
@@ -70,6 +76,9 @@ export function resolveConfig(config: BasicCompactionConfig = {}): ResolvedConfi
   validatePolicy(config, 'BasicCompactionConfig')
   if (config.auto !== undefined && typeof config.auto !== 'boolean') {
     throw new Error('BasicCompactionConfig: auto must be a boolean')
+  }
+  if (config.checkpointReadback !== undefined && typeof config.checkpointReadback !== 'boolean') {
+    throw new Error('BasicCompactionConfig: checkpointReadback must be a boolean')
   }
 
   const headroomTokens = config.headroomTokens ?? 65_536
@@ -103,9 +112,12 @@ export function resolveConfig(config: BasicCompactionConfig = {}): ResolvedConfi
     summarizationModel: config.summarizationModel ?? '',
     maxTokens,
     compactionRetries: config.compactionRetries ?? 1,
+    maxConsecutiveFailures: config.maxConsecutiveFailures ?? 3,
     maxOverflowRetries: config.maxOverflowRetries ?? 1,
+    summaryMaxRatio: config.summaryMaxRatio ?? DEFAULT_SUMMARY_MAX_RATIO,
     modelPolicies,
     auto: config.auto ?? true,
+    checkpointReadback: config.checkpointReadback ?? false,
   })
 }
 
@@ -134,7 +146,9 @@ export function resolveTargetPolicy(
     summarizationModel: override?.summarizationModel ?? config.summarizationModel,
     maxTokens: override?.maxTokens ?? config.maxTokens,
     compactionRetries: override?.compactionRetries ?? config.compactionRetries,
+    maxConsecutiveFailures: override?.maxConsecutiveFailures ?? config.maxConsecutiveFailures,
     maxOverflowRetries: override?.maxOverflowRetries ?? config.maxOverflowRetries,
+    summaryMaxRatio: override?.summaryMaxRatio ?? config.summaryMaxRatio,
   })
 }
 
@@ -212,7 +226,9 @@ export function resolveCompactSpec(
     summarizationModel: policy.summarizationModel,
     maxTokens: policy.maxTokens,
     compactionRetries: policy.compactionRetries,
+    maxConsecutiveFailures: policy.maxConsecutiveFailures,
     maxOverflowRetries: policy.maxOverflowRetries,
+    summaryMaxRatio: policy.summaryMaxRatio,
   })
 }
 
@@ -284,7 +300,9 @@ function validatePolicy(
   const retainTokens = config.retainTokens
   const maxTokens = config.maxTokens
   const compactionRetries = config.compactionRetries
+  const maxConsecutiveFailures = config.maxConsecutiveFailures
   const maxOverflowRetries = config.maxOverflowRetries
+  const summaryMaxRatio = config.summaryMaxRatio
   if (thresholdRatio !== undefined) assertRatio(`${name}.thresholdRatio`, thresholdRatio)
   if (headroomTokens !== undefined) assertNonNegativeInteger(`${name}.headroomTokens`, headroomTokens)
   if (retainRatio !== undefined) assertRatio(`${name}.retainRatio`, retainRatio)
@@ -296,9 +314,13 @@ function validatePolicy(
   if (compactionRetries !== undefined) {
     assertNonNegativeInteger(`${name}.compactionRetries`, compactionRetries)
   }
+  if (maxConsecutiveFailures !== undefined) {
+    assertNonNegativeInteger(`${name}.maxConsecutiveFailures`, maxConsecutiveFailures)
+  }
   if (maxOverflowRetries !== undefined) {
     assertNonNegativeInteger(`${name}.maxOverflowRetries`, maxOverflowRetries)
   }
+  if (summaryMaxRatio !== undefined) assertRatio(`${name}.summaryMaxRatio`, summaryMaxRatio)
 
   validateSummarizationPair(config, name)
 }

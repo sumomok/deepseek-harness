@@ -6,6 +6,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import { ToolExecutionPipeline } from '@deepseek-ai/dsh-tools/pipeline'
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 
+import { createHash } from 'node:crypto'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import * as PtcToolExecutor from '@deepseek-ai/dsh-tool-executor-ptc'
 import { provideWorkingDirectoryFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -257,6 +258,10 @@ describe('read tool', () => {
       offset: 1,
       lines: [{ number: 1, text: 'hello' }, { number: 2, text: 'world' }],
       totalLines: 2,
+      version: 'v1',
+      size: 11,
+      read: 'full',
+      digest: createHash('sha256').update('hello\nworld', 'utf8').digest('hex'),
     })
     expect(text(result)).toBe(`<path>/abs/a.txt</path>
 <type>file</type>
@@ -273,7 +278,16 @@ describe('read tool', () => {
     fs.files.set('key:empty.txt', '')
     const result = await call(ctx, 'read', { file_path: 'empty.txt' })
     if (result.isError) throw new Error('expected empty read success')
-    expect(result.value).toEqual({ path: '/abs/empty.txt', offset: 1, lines: [], totalLines: 0 })
+    expect(result.value).toEqual({
+      path: '/abs/empty.txt',
+      offset: 1,
+      lines: [],
+      totalLines: 0,
+      version: 'v1',
+      size: 0,
+      read: 'full',
+      digest: createHash('sha256').update('', 'utf8').digest('hex'),
+    })
     expect(text(result)).toContain('(End of file - total 0 lines)')
   })
 
@@ -374,6 +388,29 @@ describe('read tool', () => {
     const result = await call(ctx, 'read', { file_path: 'big.txt' })
     expect(result.isError).toBe(false)
     expect(text(result)).toContain('Output capped.')
+    expect(result.meta).toMatchObject({ read: 'window' })
+  })
+
+  it('marks an offset read as a window, not a full-file read', async () => {
+    const { ctx, fs } = await setup()
+    fs.files.set('key:a.txt', 'one\ntwo\nthree')
+    const result = await call(ctx, 'read', { file_path: 'a.txt', offset: 2, limit: 1 })
+    if (result.isError) throw new Error('expected read success')
+    expect(result.meta).toMatchObject({
+      offset: 2,
+      totalLines: 3,
+      read: 'window',
+      lines: [{ number: 2, text: 'two' }],
+    })
+  })
+
+  it('marks a line-truncated read as a window', async () => {
+    const { ctx, fs } = await setup({ readMaxLineLength: 5 })
+    fs.files.set('key:a.txt', 'abcdefghij')
+    const result = await call(ctx, 'read', { file_path: 'a.txt' })
+    if (result.isError) throw new Error('expected read success')
+    expect(result.meta).toMatchObject({ read: 'window', totalLines: 1 })
+    expect(JSON.stringify(result.meta)).toContain('(line truncated to 5 chars)')
   })
 
   it('attaches the structured window as presentation meta, and presentResult narrows it into a read card', async () => {
@@ -388,6 +425,10 @@ describe('read tool', () => {
       offset: 1,
       lines: [{ number: 1, text: 'const x = 1' }, { number: 2, text: 'const y = 2' }],
       totalLines: 2,
+      version: 'v1',
+      size: 23,
+      read: 'full',
+      digest: createHash('sha256').update('const x = 1\nconst y = 2', 'utf8').digest('hex'),
       lang: 'ts',
     })
     const view = ctx.tools.get('read')?.presentResult?.({ file_path: 'a.ts' }, result)
@@ -407,7 +448,16 @@ describe('read tool', () => {
     fs.files.set('key:notes', 'plain')
     const result = await call(ctx, 'read', { file_path: 'notes' })
     if (result.isError) throw new Error('expected read success')
-    expect(result.meta).toEqual({ path: '/abs/notes', offset: 1, lines: [{ number: 1, text: 'plain' }], totalLines: 1 })
+    expect(result.meta).toEqual({
+      path: '/abs/notes',
+      offset: 1,
+      lines: [{ number: 1, text: 'plain' }],
+      totalLines: 1,
+      version: 'v1',
+      size: 5,
+      read: 'full',
+      digest: createHash('sha256').update('plain', 'utf8').digest('hex'),
+    })
   })
 })
 
@@ -990,6 +1040,24 @@ describe('sandbox escalation API (write/edit)', () => {
     expect(text(result)).toContain('retry this exact operation once with sandbox_permissions')
   })
 
+  it('keeps read-only denials when an ordinary write includes a blank reason', async () => {
+    const { ctx, fs } = await setupConfining({ approval: true })
+    try {
+      const approval = vi.fn(() => Promise.resolve('allowed-once' as const))
+      ctx.on('approval/request', approval)
+      fs.rejectWith = new FsError('denied', 'FS_SANDBOX_DENIED')
+      const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'x', justification: '' },
+        escalationAgent([{ type: 'sandbox/mode', data: { mode: 'read-only' } }]))
+      expect(result.isError).toBe(true)
+      expect(text(result)).toContain('[sandbox: file access denied under read-only mode]')
+      expect(fs.stamped[0]?.mode).toBe('read-only')
+      expect(fs.files.size).toBe(0)
+      expect(approval).not.toHaveBeenCalled()
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('a non-FS_SANDBOX_DENIED provider error passes through unchanged', async () => {
     const { ctx, fs } = await setupConfining()
     fs.rejectWith = new FsError('boom', 'FS_IO_ERROR')
@@ -1029,6 +1097,57 @@ describe('sandbox escalation API (write/edit)', () => {
     }])
   })
 
+  it.each(['workspace-write', 'danger-full-access'] as const)('writes and edits under %s with absent or blank unused reasons', async (mode) => {
+    const { ctx, fs } = await setupConfining({ approval: true })
+    try {
+      const approval = vi.fn(() => Promise.resolve('allowed-once' as const))
+      ctx.on('approval/request', approval)
+      const agent = escalationAgent([{ type: 'sandbox/mode', data: { mode } }])
+      for (const [index, justification] of ['', undefined, ' \t\n'].entries()) {
+        for (const repeatMode of [true, false]) {
+          const file_path = `unused-reason-${index}-${repeatMode}.txt`
+          const args = {
+            file_path,
+            ...repeatMode ? { sandbox_permissions: mode } : {},
+            ...justification === undefined ? {} : { justification },
+          }
+          const written = await call(ctx, 'write', { ...args, content: 'before' }, agent)
+          expect(written.isError, text(written)).toBe(false)
+          const edited = await call(ctx, 'edit', { ...args, old_string: 'before', new_string: 'after' }, agent)
+          expect(edited.isError, text(edited)).toBe(false)
+          expect(fs.files.get(`key:${file_path}`)).toBe('after')
+        }
+      }
+      expect(fs.stamped).toHaveLength(12)
+      expect(fs.stamped.every(policy => policy?.mode === mode && policy.workspaceRoot === '/session-project')).toBe(true)
+      expect(approval).not.toHaveBeenCalled()
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it.each(['write', 'edit'] as const)('rejects missing or blank widening reasons before %s mutates or requests approval', async (tool) => {
+    const { ctx, fs } = await setupConfining({ approval: true })
+    try {
+      const approval = vi.fn(() => Promise.resolve('allowed-once' as const))
+      ctx.on('approval/request', approval)
+      for (const justification of [undefined, '', ' \t\n']) {
+        const result = await call(ctx, tool, {
+          file_path: 'denied.txt', content: 'x', old_string: 'x', new_string: 'y',
+          sandbox_permissions: 'workspace-write',
+          ...justification === undefined ? {} : { justification },
+        }, escalationAgent([{ type: 'sandbox/mode', data: { mode: 'read-only' } }]))
+        expect(result.isError).toBe(true)
+        expect(text(result)).toContain(justification === undefined ? 'requires a justification' : 'expected a non-empty sentence')
+      }
+      expect(fs.stamped).toEqual([])
+      expect(fs.files.size).toBe(0)
+      expect(approval).not.toHaveBeenCalled()
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('a rejected escalation fails closed with its own text and never mutates', async () => {
     const { ctx, fs } = await setupConfining({ approval: true })
     ctx.on('approval/request', () => Promise.resolve('rejected' as const))
@@ -1054,9 +1173,12 @@ describe('sandbox escalation API (write/edit)', () => {
 
   it('rejects the escalation argument pairing (one field without the other)', async () => {
     const { ctx } = await setupConfining()
-    const missing = await call(ctx, 'write', { file_path: 'a.txt', content: 'x', sandbox_permissions: 'workspace-write' }, escalationAgent())
+    const missing = await call(ctx, 'write', { file_path: 'a.txt', content: 'x', sandbox_permissions: 'danger-full-access' }, escalationAgent())
     expect(missing.isError).toBe(true)
     expect(text(missing)).toContain('sandbox_permissions requires a justification')
+    const orphan = await call(ctx, 'write', { file_path: 'a.txt', content: 'x', justification: 'why' }, escalationAgent())
+    expect(orphan.isError).toBe(true)
+    expect(text(orphan)).toContain('justification is only valid together with sandbox_permissions')
   })
 
   it('sandbox_permissions under a non-confining backend fails closed (unadvertised field still reaches execute)', async () => {

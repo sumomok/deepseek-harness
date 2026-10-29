@@ -27,7 +27,11 @@ class CompactionAdapter extends LlmAdapter {
     else this.conversation.push(options)
     if (!summarizing && this.conversation.length === 1) {
       yield { type: 'block-start', index: 0, blockType: 'tool-call' }
-      yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: ToolCallId('work-call'), name: 'work', arguments: '{}' } }
+      yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: ToolCallId('work-a-call'), name: 'work-a', arguments: '{}' } }
+      yield { type: 'finish', reason: { kind: 'tool-calls' } }
+    } else if (!summarizing && this.conversation.length === 2) {
+      yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+      yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: ToolCallId('work-b-call'), name: 'work-b', arguments: '{}' } }
       yield { type: 'finish', reason: { kind: 'tool-calls' } }
     } else {
       const text = summarizing ? 'Earlier work completed.' : 'TASK COMPLETE'
@@ -49,7 +53,10 @@ it('retains required cwd in the first request after proactive compaction with op
     const adapter = new CompactionAdapter()
     ctx.llm.registerAdapter(['mock'], adapter)
     ctx.tools.register(defineContentToolFixture({
-      name: 'work', description: 'Do work.', parameters: {}, async execute() { return [{ type: 'text', text: 'work done' }] },
+      name: 'work-a', description: 'Do the first work.', parameters: {}, async execute() { return [{ type: 'text', text: 'work-a '.repeat(2_000) }] },
+    }))
+    ctx.tools.register(defineContentToolFixture({
+      name: 'work-b', description: 'Do the second work.', parameters: {}, async execute() { return [{ type: 'text', text: 'work-b done' }] },
     }))
     await ctx.plugin(BasicCompaction, {
       auto: true, thresholdRatio: 0.5, headroomTokens: 0, retainTokens: 20, maxTokens: 32, compactionRetries: 0,
@@ -57,7 +64,7 @@ it('retains required cwd in the first request after proactive compaction with op
     const harness = await mountAgentLoopTestHarness(ctx)
     const agent = await harness.create(SessionId('compaction-admission'), { provider: 'mock', model: 'mock' }, { cwd: root })
     agent.followup(createUserMessage({
-      content: [{ type: 'text', text: 'Old context evidence. '.repeat(700) + 'Do work once, then finish.' }], source: { kind: 'user' },
+      content: [{ type: 'text', text: 'Do work once, then finish.' }], source: { kind: 'user' },
     }))
     await agent.whenIdle()
     const events = agent.session.snapshotEvents()
@@ -66,7 +73,7 @@ it('retains required cwd in the first request after proactive compaction with op
     expect(summary?.data.shadowedSeqs).toContain(snapshots[0]?.seq)
     expect(snapshots).toHaveLength(2)
     expect(adapter.summaries).toHaveLength(1)
-    expect(adapter.conversation).toHaveLength(2)
+    expect(adapter.conversation).toHaveLength(3)
     for (const request of adapter.conversation) {
       expect(request.messages.some(message => message.role === 'user' && message.source?.kind === 'runtime-context'
         && message.content.some(block => block.type === 'text' && block.text.includes(JSON.stringify(root))))).toBe(true)

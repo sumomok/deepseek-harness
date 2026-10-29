@@ -72,3 +72,32 @@ export type Appearance = keyof typeof PALETTES
 export function resolveAppearance(): Appearance {
   return storedThemePreference(resolveHarnessHome()) ?? (nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
 }
+
+/**
+ * The appearance source this launch should declare to the OS: the user's
+ * explicit `light`/`dark`, or `system` when they chose to follow it.
+ *
+ * It is the preference rather than {@link resolveAppearance}'s resolved
+ * palette, because `nativeTheme.themeSource` also drives the renderer's
+ * `prefers-color-scheme`: pinning the resolved value would freeze the page at
+ * whatever the OS reported during boot, so switching the OS later — or the
+ * user's own `system` choice — could never take effect.
+ * @returns the source to hand to `nativeTheme.themeSource`.
+ */
+export function resolveAppearanceSource(): Appearance | 'system' {
+  return storedThemePreference(resolveHarnessHome()) ?? 'system'
+}
+
+/**
+ * Pin the native window chrome to the appearance the web UI will paint.
+ *
+ * macOS draws the title bar and its window controls from `nativeTheme`, which
+ * follows the OS unless a source is set. With an explicit `light` or `dark`
+ * preference the page is pinned but the title bar was not, so a dark OS drew a
+ * dark strip above a light page. An explicit preference becomes that source;
+ * `system` keeps following the OS, which is what the web UI does for it too.
+ * @param source - the preference source, not a resolved palette.
+ */
+export function applyNativeAppearance(source: Appearance | 'system'): void {
+  nativeTheme.themeSource = source
+}

@@ -191,9 +191,9 @@ export class FileSystemSkillProvider implements SkillProvider {
   /**
    * Discover local skill summaries for a cwd-sensitive workspace.
    * @param options - lookup options; `cwd` selects the project roots to scan.
-   * @returns local provider candidates with stable root ranks; watcher startup
-   *   failure and a root that cannot be scanned both return the readable
-   *   candidates as an incomplete observation.
+   * @returns candidates from readable roots with stable ranks. A root that cannot
+   *   be scanned is skipped rather than rejecting the whole lookup, and a root or
+   *   watcher failure makes the observation incomplete.
    */
   async list(options: SkillLookupOptions): Promise<SkillCandidate[] | SkillProviderObservation> {
     const roots = await this.roots(options.cwd)
@@ -210,10 +210,13 @@ export class FileSystemSkillProvider implements SkillProvider {
       // directory, a link that resolves to itself, a failing device — would
       // otherwise reject out of `list()`, and `dsh-skill` skips a rejecting
       // provider whole, taking every other root's skills with it.
+      options.signal?.throwIfAborted()
       let discovered: SkillCandidate[]
       try {
         discovered = await discoverRoot(root, this.ctx, this.name)
+        options.signal?.throwIfAborted()
       } catch (error) {
+        options.signal?.throwIfAborted()
         complete = false
         this.rootFailures.report(root.path, error, skippedRootMessage(root, error))
         continue

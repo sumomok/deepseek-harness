@@ -39,7 +39,7 @@ export type {
   CommandRowOwnerProps, CommandRowProps, MessageImagesProps, OpenFileOptions, PresentationInjected,
   QuotaNoticeCode, QuotaNoticeHostProps, QuotaNoticeInjected, QuotaNoticeOwnerProps, QuotaNoticeState,
   ReasoningBodyOwnerProps, ReasoningContentInput, RenderUserActions, StatsUsageOwnerProps,
-  UserActionOwnerProps, UserContentAttachment, UserContentData, UserContentInput,
+  UserActionOwnerProps, UserBeforeOwnerProps, UserContentAttachment, UserContentData, UserContentInput,
   TurnProcessOwnerProps, TurnTailOwnerProps, UseChat, UseChatNodeTurnData, UseDisclosure, UsePresentation, UseGroupAction,
 } from './contract/slots.ts'
 export type {

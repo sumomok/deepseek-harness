@@ -9,8 +9,8 @@
   en: b5808fddb3f84df3
   zh: becb2efb056e9db9
 /deepseek-ai-dsh-tool-session-query/summary:
-  en: 8f37f26ebcb6c746
-  zh: 63f2a7f393822280
+  en: 2187a118cd23453f
+  zh: b0bc41d8eeb2fa1b
 /deepseek-ai-dsh-tool-session-query/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
@@ -24,20 +24,20 @@
   en: 86517fff7b539e7d
   zh: 46a37ee4f8e81b22
 /deepseek-ai-dsh-tool-session-query/use-this-package/what-the-model-can-do:
-  en: 560d8d66f8301213
-  zh: f4f963d61df8d3a4
+  en: 8423e56c32c33ee9
+  zh: 72d194ada28d0343
 /deepseek-ai-dsh-tool-session-query/use-this-package/failures-and-recovery:
-  en: 58559adb3f089356
-  zh: eddd5dd65811901e
+  en: c79a5b1ce16f4c6e
+  zh: 549021118251209e
 /deepseek-ai-dsh-tool-session-query/understand-the-implementation:
   en: 32a36a3fe388e2c1
   zh: f4bd2866fff6fa8d
 /deepseek-ai-dsh-tool-session-query/understand-the-implementation/design-philosophy:
-  en: 842498241ae23c71
-  zh: 54d82883be3843bd
+  en: bf741aad89b01cfe
+  zh: b71731987c9a414d
 /deepseek-ai-dsh-tool-session-query/understand-the-implementation/source-map:
-  en: 605c35617d9555a6
-  zh: fe0b245ff86505ea
+  en: cf27303eb4964137
+  zh: bc081adc62d33823
 /deepseek-ai-dsh-tool-session-query/understand-the-implementation/operation-flow:
   en: 906e8fff04552ad3
   zh: a5ca1ae0f197186d
@@ -66,8 +66,8 @@
   en: 3039bc5e7a796b21
   zh: 6b7a9eaf69c9ea53
 /deepseek-ai-dsh-tool-session-query/model-experience/tool-schemas/what-the-model-sees:
-  en: 9399fc8822bcee2e
-  zh: ce83ad6a03d32992
+  en: 19380e4dd3d38668
+  zh: c08bd4d324cfd11e
 /deepseek-ai-dsh-tool-session-query/model-experience/tool-schemas/token-effect:
   en: 3c001ca824c5bc52
   zh: 314a8fdf37a470c1
@@ -78,17 +78,17 @@
   en: beaabb79f229692a
   zh: 8573891441963be4
 /deepseek-ai-dsh-tool-session-query/model-experience/tool-results/what-the-model-sees:
-  en: 8a5d8fda38ed6940
-  zh: 84c4047bb8127719
+  en: 19032723d6dff64f
+  zh: 45b2b7d76b41bef2
 /deepseek-ai-dsh-tool-session-query/model-experience/tool-results/token-effect:
-  en: 8078153192ce8c6b
-  zh: 839e94c31f741241
+  en: f39b6d7ffe99d672
+  zh: 9cceb00bf20431a1
 /deepseek-ai-dsh-tool-session-query/model-experience/tool-results/kv-cache-effect:
   en: 9dbeb5d10d26d110
   zh: 277d8574207bcb90
 /deepseek-ai-dsh-tool-session-query/known-limitations-and-deferred-work:
-  en: 6aaaf928811fde0d
-  zh: ee1735af14560915
+  en: 9a0479599b0fc1ac
+  zh: dfe7f7d316adbf97
 /deepseek-ai-dsh-tool-session-query/known-limitations-and-deferred-work/dev-note:
   en: d2f0d68fe29fb750
   zh: 323d21ee73a9e3f6

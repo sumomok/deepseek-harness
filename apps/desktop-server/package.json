@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-desktop-server",
   "description": "Dependency-only deploy root defining the desktop app's embedded `dsh web` server closure; `pnpm deploy` materializes this manifest and node_modules into the Electron bundle's resources (the python/sdk-runtime pattern).",
-  "version": "0.1.0-rc.7",
+  "version": "0.2.2-alpha.2",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -45,6 +45,7 @@
     "@deepseek-ai/dsh-commands": "workspace:*",
     "@deepseek-ai/dsh-compaction": "workspace:*",
     "@deepseek-ai/dsh-compaction-basic": "workspace:*",
+    "@deepseek-ai/dsh-compaction-microcompact": "workspace:*",
     "@deepseek-ai/dsh-compaction-tool-result-pruner": "workspace:*",
     "@deepseek-ai/dsh-cordis-host-runner": "workspace:*",
     "@deepseek-ai/dsh-credentials": "workspace:*",
@@ -140,11 +141,12 @@
     "@haoran/dsh-data-location": "file:./vendor/haoran-dsh-data-location-0.2.2.tgz",
     "@haoran/dsh-desktop-update": "file:./vendor/haoran-dsh-desktop-update-0.3.0.tgz",
     "@haoran/dsh-llm-permission-gateway": "file:./vendor/haoran-dsh-llm-permission-gateway-0.7.1.tgz",
-    "@haoran/dsh-mcp-servers": "file:./vendor/haoran-dsh-mcp-servers-0.3.0.tgz",
+    "@haoran/dsh-mcp-servers": "file:./vendor/haoran-dsh-mcp-servers-0.3.1.tgz",
     "@haoran/dsh-office-preview-notice": "file:./vendor/haoran-dsh-office-preview-notice-0.3.0.tgz",
     "@haoran/dsh-screenshot": "file:./vendor/haoran-dsh-screenshot-0.7.0.tgz",
     "@haoran/dsh-vision-switch": "file:./vendor/haoran-dsh-vision-switch-0.4.1.tgz",
-    "@sumomok/dsh-balance": "file:./vendor/sumomok-dsh-balance-0.8.0.tgz",
+    "@haoran/dsh-sidebar-autoscroll": "file:./vendor/haoran-dsh-sidebar-autoscroll-0.1.1.tgz",
+    "@sumomok/dsh-balance": "file:./vendor/sumomok-dsh-balance-0.9.4.tgz",
     "@sumomok/dsh-quote-message": "file:./vendor/sumomok-dsh-quote-message-0.6.0.tgz"
   }
 }

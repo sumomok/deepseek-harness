@@ -551,7 +551,7 @@
 
 ### `ask_user_question`
 
-继续操作前，如果需要确认、选择或缺失的信息，请向用户提出简明问题。
+继续操作前，如果需要确认、选择或缺失的信息，请向用户提出简明问题。如果回答项的 `selected` 为空且没有 `custom`，表示用户跳过了该问题：不带该回答继续执行，不要再次提问，也不要将跳过视为许可。
 
 ```json
 {
@@ -1884,7 +1884,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 ### `session_event_read`
 
-从一个已获授权的会话中读取一个完整且未删节的事件，以及可选的相邻原始事件概述。
+读取一个事件的有界摘录，或通过 full: true 读取完整事件。
 
 ```json
 {
@@ -1905,6 +1905,18 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
     "after": {
       "type": "integer",
       "description": "Number of following raw events to summarize. Omit for none."
+    },
+    "offset": {
+      "type": "integer",
+      "description": "Zero-based character offset into the formatted event JSON; use nextOffset from the previous page."
+    },
+    "maxChars": {
+      "type": "integer",
+      "description": "Characters per page (2–100000). Defaults to 16000."
+    },
+    "full": {
+      "type": "boolean",
+      "description": "Return the complete unabridged event. Cannot be combined with offset or maxChars."
     }
   },
   "required": [
@@ -2735,7 +2747,7 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
 
 ### `create_worktree`
 
-从本地提交、分支或标签创建新的 Git 分支与工作树，再将本 Session 的工作目录切换到该位置。默认使用 HEAD 和自动生成的名称。未提交文件保留在源检出目录中。名称已存在时失败。使用 working_directory 的 cd 参数离开；检出目录与分支仍然保留。
+从本地提交、分支或标签创建新的 Git 分支与工作树，再将本 Session 的工作目录切换到该位置。未提交文件保留在源检出目录中。名称已存在时失败。使用 working_directory 的 cd 参数离开；检出目录与分支仍然保留。
 
 ```json
 {
@@ -2743,7 +2755,7 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
   "properties": {
     "name": {
       "type": "string",
-      "description": "New branch name, also used as the checkout directory. Omit to generate a unique name."
+      "description": "New branch name, also used as the checkout directory: a few lowercase words joined by hyphens that describe the task, such as fix-login-retry. Omit to generate a unique name."
     },
     "from": {
       "type": "string",
