@@ -106,6 +106,12 @@ interface JobSpec {
    */
   outputLimitBytes?: number
   /**
+   * What the producer wants done with the settlement notice. `wake` (default)
+   * lets it open a turn on an idle owner; `quiet` leaves it in the inbox for
+   * the owner's next step, for work nobody is waiting on.
+   */
+  notify?: JobNotify
+  /**
    * Pull sources the registry pumps into the ring at its own cadence.
    * Producers that narrate their own progress use {@link JobHandle.append}
    * instead; a job may use both.
@@ -289,6 +295,8 @@ interface JobView {
   readonly owner?: SessionId
   /** Producer-owned cap for complete model-facing notices and reads, in UTF-8 bytes. */
   readonly outputLimitBytes?: number
+  /** Whether the producer's settlement notice may open a turn on an idle owner. */
+  readonly notify?: JobNotify
   /** Current lifecycle state. */
   readonly status: JobStatus
   /** The producer's live progress line (`3/10`, the current phase); cleared at settlement. */

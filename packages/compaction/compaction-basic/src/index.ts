@@ -145,6 +145,11 @@ const CHECKPOINT_REFERENCE_TEXT =
   + 'that governs the current question, read it before answering; if it cannot be read, say so rather than '
   + 'reconstructing it from the summary.'
 
+/**
+ * The compaction engine this preset runs: it measures a conversation against
+ * the configured ratios and, when it crosses the threshold, replaces the older
+ * span with a checkpoint summary the model reads as an index.
+ */
 export class BasicCompactionEngine extends CompactionEngine {
   static inject = ['llm', 'tokenMeter', 'sessions', 'sessionProjections']
 

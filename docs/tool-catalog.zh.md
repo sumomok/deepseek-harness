@@ -700,7 +700,7 @@ PTC 执行器只向模型公开 run_code，并在运行时语言生成的 SDK �
 
 ### `bash`
 
-执行 bash 命令（`bash -c`）并返回 stdout/stderr。每次调用都在新 shell 中运行；请传入 `workdir`，不要使用 `cd`。托管的 `$DSH_*` 变量公开当前 harness 环境信息。较长的输出会截断，只保留尾部；如可用，完整输出会保存到文件并报告其路径。请在参数中先提供 `description`，再提供 `command`。在任何删除或移动之前，请确认解析后的绝对目标路径正是预期路径；绝不要对未经检查的计算路径执行此类操作。未设置的变量会展开为空字符串，因此请用 `${VAR:?}` 保护此类路径中的变量。命令可能在文件沙箱中运行；被阻止的文件操作报告为 `[sandbox: file access denied under <mode> mode]`，这是策略拒绝：请勿换一种方式重试。
+执行 bash 命令（`bash -c`）并返回 stdout/stderr。每次调用都在新 shell 中运行；请传入 `workdir`，不要使用 `cd`。托管的 `$DSH_*` 变量公开当前 harness 环境信息。较长的输出会截断，只保留尾部；如可用，完整输出会保存到文件并报告其路径。请在参数中先提供 `description`，再提供 `command`。在任何删除或移动之前，请确认解析后的绝对目标路径正是预期路径；绝不要对未经检查的计算路径执行此类操作。对于无法撤销效果的命令——删除卷或容器、`docker system prune`、`rm -rf`、数据迁移、`git reset --hard`——先说清恢复点是什么，并先建立它：一份拷贝、一次 `docker commit`、一份数据库转储。Git 只覆盖已提交的文件；卷、容器、数据库和远程主机没有历史。如果你说不出恢复点，就不要执行这条命令。未设置的变量会展开为空字符串，因此请用 `${VAR:?}` 保护此类路径中的变量。命令可能在文件沙箱中运行；被阻止的文件操作报告为 `[sandbox: file access denied under <mode> mode]`，这是策略拒绝：请勿换一种方式重试。
 
 ```json
 {
@@ -725,6 +725,14 @@ PTC 执行器只向模型公开 run_code，并在运行时语言生成的 SDK �
     "run_in_background": {
       "type": "boolean",
       "description": "Run in the background and return a job id immediately (collect with job_output, stop with job_kill). No timeout applies."
+    },
+    "notify": {
+      "type": "string",
+      "description": "Whether the completion should reopen your turn: \"wake\" when the user's next step depends on the result, even if they did not ask to be told; \"quiet\" when you fired the work off and will collect it later. Defaults to quiet.",
+      "enum": [
+        "wake",
+        "quiet"
+      ]
     }
   },
   "required": [
@@ -813,6 +821,14 @@ bash 工具是 bash 执行器 seam 面向模型的消费方。组合中有 job �
     "run_in_background": {
       "type": "boolean",
       "description": "Run in the background and return a job id immediately (collect with job_output, stop with job_kill). No timeout applies."
+    },
+    "notify": {
+      "type": "string",
+      "description": "Whether the completion should reopen your turn: \"wake\" when the user's next step depends on the result, even if they did not ask to be told; \"quiet\" when you fired the work off and will collect it later. Defaults to quiet.",
+      "enum": [
+        "wake",
+        "quiet"
+      ]
     }
   },
   "required": [
@@ -1341,6 +1357,14 @@ glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn �
     "run_in_background": {
       "type": "boolean",
       "description": "Return a job id immediately; collect with job_output or stop with job_kill."
+    },
+    "notify": {
+      "type": "string",
+      "description": "Whether the completion should reopen your turn: \"wake\" when the user's next step depends on the result, even if they did not ask to be told; \"quiet\" when you fired the work off and will collect it later. Defaults to quiet.",
+      "enum": [
+        "wake",
+        "quiet"
+      ]
     }
   },
   "required": [
@@ -2347,7 +2371,7 @@ subagent_oar 工具在为外部提供方配置的别名之间选择。本目录�
 
 ### `job_output`
 
-读取后台任务：流式任务返回自上次读取以来的输出，已完成的最终输出任务返回其结果。
+读取后台任务：流式任务返回自上次读取以来的输出，已完成的最终输出任务返回其结果。运行中的任务返回它目前的输出；完成会以通知的形式自己到达。已结算的任务返回它捕获的输出与其 `[exit code: N]` 标记，所以重跑一次去读它们是把等待花第二遍。
 
 ```json
 {
@@ -2356,14 +2380,6 @@ subagent_oar 工具在为外部提供方配置的别名之间选择。本目录�
     "job_id": {
       "type": "string",
       "description": "Job id returned by the tool that started the background work."
-    },
-    "wait": {
-      "type": "boolean",
-      "description": "Block until the job finishes or the timeout expires; a timed-out wait leaves the job running. Defaults to false."
-    },
-    "timeout_ms": {
-      "type": "number",
-      "description": "Max wait in milliseconds with wait: true. Defaults to and is capped by configuration."
     }
   },
   "required": [

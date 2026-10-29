@@ -696,7 +696,7 @@ exit_plan_mode stays in the model-facing schema while planning is inactive so tr
 
 ### `bash`
 
-Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs in a fresh shell; pass `workdir` instead of using `cd`. Managed `$DSH_*` variables expose current harness environment facts. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. Provide `description` before `command` in the arguments. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]`, a policy denial: do not retry another way.
+Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs in a fresh shell; pass `workdir` instead of using `cd`. Managed `$DSH_*` variables expose current harness environment facts. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. Provide `description` before `command` in the arguments. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. Before a command whose effect you cannot undo — removing a volume or container, `docker system prune`, `rm -rf`, a migration, `git reset --hard` — say what the recovery point is and establish it first: a copy, a `docker commit`, a database dump. Git covers committed files only; volumes, containers, databases, and remote hosts have no history. If you cannot name one, do not run the command. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]`, a policy denial: do not retry another way.
 
 ```json
 {
@@ -721,6 +721,14 @@ Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs 
     "run_in_background": {
       "type": "boolean",
       "description": "Run in the background and return a job id immediately (collect with job_output, stop with job_kill). No timeout applies."
+    },
+    "notify": {
+      "type": "string",
+      "description": "Whether the completion should reopen your turn: \"wake\" when the user's next step depends on the result, even if they did not ask to be told; \"quiet\" when you fired the work off and will collect it later. Defaults to quiet.",
+      "enum": [
+        "wake",
+        "quiet"
+      ]
     }
   },
   "required": [
@@ -809,6 +817,14 @@ Execute a PowerShell command (`pwsh -Command`) and return its stdout/stderr. Eac
     "run_in_background": {
       "type": "boolean",
       "description": "Run in the background and return a job id immediately (collect with job_output, stop with job_kill). No timeout applies."
+    },
+    "notify": {
+      "type": "string",
+      "description": "Whether the completion should reopen your turn: \"wake\" when the user's next step depends on the result, even if they did not ask to be told; \"quiet\" when you fired the work off and will collect it later. Defaults to quiet.",
+      "enum": [
+        "wake",
+        "quiet"
+      ]
     }
   },
   "required": [
@@ -1335,6 +1351,14 @@ Send text to a persistent terminal. By default Enter is submitted and the call w
     "run_in_background": {
       "type": "boolean",
       "description": "Return a job id immediately; collect with job_output or stop with job_kill."
+    },
+    "notify": {
+      "type": "string",
+      "description": "Whether the completion should reopen your turn: \"wake\" when the user's next step depends on the result, even if they did not ask to be told; \"quiet\" when you fired the work off and will collect it later. Defaults to quiet.",
+      "enum": [
+        "wake",
+        "quiet"
+      ]
     }
   },
   "required": [
@@ -2341,7 +2365,7 @@ Source: [`packages/jobs/tool-jobs/src/index.ts`](../packages/jobs/tool-jobs/src/
 
 ### `job_output`
 
-Read a background job: output since the previous read for stream jobs, or the result of a finished final-output job.
+Read a background job without waiting: output since the previous read for stream jobs, or the result of a finished final-output job. A running job answers with its output so far; its completion arrives as a notice on its own. A settled job answers with its captured output and its `[exit code: N]` marker, so re-running it to read them spends the wait twice.
 
 ```json
 {
@@ -2350,14 +2374,6 @@ Read a background job: output since the previous read for stream jobs, or the re
     "job_id": {
       "type": "string",
       "description": "Job id returned by the tool that started the background work."
-    },
-    "wait": {
-      "type": "boolean",
-      "description": "Block until the job finishes or the timeout expires; a timed-out wait leaves the job running. Defaults to false."
-    },
-    "timeout_ms": {
-      "type": "number",
-      "description": "Max wait in milliseconds with wait: true. Defaults to and is capped by configuration."
     }
   },
   "required": [

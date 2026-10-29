@@ -179,6 +179,12 @@ export interface JobHooks {
 /** What a settlement notice may do to an idle owner. */
 export type JobNotify = 'wake' | 'quiet'
 
+/**
+ * Producer declaration passed to {@link JobRegistry.start}. The runtime
+ * preflights access and cleanup before invoking {@link run}; the producer owns
+ * execution resources while the runtime owns identity, lifecycle state, and
+ * the output ring.
+ */
 export interface JobSpec {
   /** Producer kind — also the id prefix (`bash`, …). */
   kind: JobKind
