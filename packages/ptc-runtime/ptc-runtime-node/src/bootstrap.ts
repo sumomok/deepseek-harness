@@ -213,9 +213,13 @@ export function prepareException(
 ): ProgramResult {
   let message: string
   try {
-    // A captured stack can be environment-sized; the message carries the cause.
+    // A trimmed stack carries the source position, so prefer it while it fits; a stack
+    // that alone would overflow the remaining budget keeps the message rather than
+    // turning the failure into an output-limit diagnostic.
     const detail: unknown = isNativeError(error)
-      ? (error.message.length > 0 ? error.message : error.stack)
+      ? (typeof error.stack === 'string' && jsonStringBytesUpTo(error.stack, remainingOutputBytes) === undefined
+        ? error.message
+        : error.stack ?? error.message)
       : error
     message = typeof detail === 'string' ? detail : String(detail)
   } catch {
