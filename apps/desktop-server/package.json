@@ -143,7 +143,7 @@
     "@haoran/dsh-llm-permission-gateway": "file:./vendor/haoran-dsh-llm-permission-gateway-0.7.1.tgz",
     "@haoran/dsh-mcp-servers": "file:./vendor/haoran-dsh-mcp-servers-0.3.1.tgz",
     "@haoran/dsh-office-preview-notice": "file:./vendor/haoran-dsh-office-preview-notice-0.3.0.tgz",
-    "@haoran/dsh-screenshot": "file:./vendor/haoran-dsh-screenshot-0.7.0.tgz",
+    "@haoran/dsh-screenshot": "file:./vendor/haoran-dsh-screenshot-0.8.0.tgz",
     "@haoran/dsh-vision-switch": "file:./vendor/haoran-dsh-vision-switch-0.4.1.tgz",
     "@haoran/dsh-sidebar-autoscroll": "file:./vendor/haoran-dsh-sidebar-autoscroll-0.1.1.tgz",
     "@sumomok/dsh-balance": "file:./vendor/sumomok-dsh-balance-0.9.4.tgz",

@@ -44,6 +44,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, w
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import { compareVersions } from './version-order.ts'
+import { ensurePathContainment, validateFeedFileName, validateFeedVersion, versionToCacheKey } from './feed-validation.ts'
 
 /** The subdirectory electron-updater takes a staged update from. */
 const PENDING = 'pending'
@@ -102,16 +103,26 @@ export function pendingDir(cacheDir: string): string {
 /**
  * Where the partial file of one artifact's transfer is kept.
  *
- * The name carries the version as well as the artifact name, so a feed that
- * moved on while a transfer was interrupted produces a different name and the
- * bytes of the version nobody will install are identifiable as stale.
+ * The name carries a digest of the version as well as the artifact name, so a
+ * feed that moved on while a transfer was interrupted produces a different
+ * name and the bytes of the version nobody will install are identifiable as
+ * stale. The version is hashed to a fixed-length key to prevent path traversal
+ * attacks through malicious version strings.
  * @param cacheDir - the updater cache directory.
  * @param version - the version being transferred.
  * @param fileName - the artifact's name in the feed.
  * @returns the `.part` file path.
+ * @throws when the version or file name is invalid or the path would escape
+ * the cache directory.
  */
 export function partFileFor(cacheDir: string, version: string, fileName: string): string {
-  return join(cacheDir, `${PART_PREFIX}${version}-${basename(fileName)}.part`)
+  const validatedVersion = validateFeedVersion(version)
+  const validatedFileName = validateFeedFileName(fileName)
+  const versionKey = versionToCacheKey(validatedVersion)
+  const safeName = basename(validatedFileName)
+  const partFile = join(cacheDir, `${PART_PREFIX}${versionKey.substring(0, 16)}-${safeName}.part`)
+  ensurePathContainment(cacheDir, partFile)
+  return partFile
 }
 
 /**
@@ -141,18 +152,25 @@ export function discardStaleParts(cacheDir: string, keep: string): void {
  * the final name.
  * @param placement - the cache directory, the finished file, and what it is.
  * @returns the path the artifact now occupies.
+ * @throws when the file name is invalid or paths would escape the cache directory.
  */
 export function placeInPendingCache(placement: PendingPlacement): string {
+  const validatedFileName = validateFeedFileName(placement.fileName)
   const directory = pendingDir(placement.cacheDir)
   mkdirSync(directory, { recursive: true })
-  const staged = join(directory, basename(placement.fileName))
+  const safeName = basename(validatedFileName)
+  const staged = join(directory, safeName)
+  ensurePathContainment(placement.cacheDir, staged)
+  ensurePathContainment(placement.cacheDir, placement.sourceFile)
   renameSync(placement.sourceFile, staged)
   const record: DownloadedUpdateInfo = {
-    fileName: basename(placement.fileName),
+    fileName: safeName,
     sha512: placement.sha512,
     isAdminRightsRequired: placement.isAdminRightsRequired,
   }
-  writeFileSync(join(directory, UPDATE_INFO), JSON.stringify(record))
+  const infoPath = join(directory, UPDATE_INFO)
+  ensurePathContainment(placement.cacheDir, infoPath)
+  writeFileSync(infoPath, JSON.stringify(record))
   return staged
 }
 
