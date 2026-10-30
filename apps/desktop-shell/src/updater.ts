@@ -79,6 +79,7 @@ import {
 } from './pending-cache.ts'
 import { discardPart, resumeDownload } from './resumable-download.ts'
 import type { UpdateServiceSpec } from './update-service.ts'
+import { validateFeedVersion } from './feed-validation.ts'
 
 /**
  * The published feed, and **the only URL literal this module may contain**.
@@ -367,10 +368,15 @@ function notesDetail(notes: string | undefined): string {
  * default, so a feed that failed and a feed that answered `404` were one
  * failure to every caller. It is the same code electron-updater's own manifest
  * read raises, so one status is named the same way whichever half met it.
+ *
+ * The version field is validated to prevent path traversal attacks: version
+ * strings are used in filesystem paths, so a malicious feed could attempt to
+ * write outside the cache directory through crafted version values like
+ * `../../etc/passwd` or `C:\Windows\System32\malware`.
  * @param url - the manifest to read.
- * @returns the parsed manifest.
- * @throws when the feed refuses the request, carrying [[httpErrorCode]], and
- * when the manifest carries no `version` field.
+ * @returns the parsed manifest with validated version field.
+ * @throws when the feed refuses the request, carrying [[httpErrorCode]], when
+ * the manifest carries no `version` field, or when the version is invalid.
  */
 async function fetchFeed(url: string): Promise<Feed> {
   const response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(MAC_FEED_TIMEOUT_MS) })
@@ -382,6 +388,25 @@ async function fetchFeed(url: string): Promise<Feed> {
   }
   const feed = load(await response.text()) as Feed | undefined
   if (feed?.version === undefined) throw new Error(`更新源缺少 version 字段(${url})`)
+
+  // Validate version to prevent path traversal attacks
+  try {
+    validateFeedVersion(feed.version)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`${message}(${url})`)
+  }
+
+  // Validate minimumVersion if present
+  if (feed.minimumVersion !== undefined) {
+    try {
+      validateFeedVersion(feed.minimumVersion)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(`更新源的 minimumVersion 无效:${message}(${url})`)
+    }
+  }
+
   return feed
 }
 

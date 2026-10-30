@@ -76,7 +76,6 @@ async function validate(cacheDir: string, sha512 = SHA512): Promise<string | nul
     // The cache check reads nothing off this argument — it compares the file
     // info's sha512 — so only the version carries anything; the other fields
     // are there because `UpdateInfo` requires them.
-    // oxlint-disable-next-line typescript/no-deprecated -- `UpdateInfo` still requires `path` and `sha512`.
     { version: VERSION, files: [], path: FILE_NAME, sha512, releaseDate: '' } satisfies UpdateInfo,
     { info: { url: FILE_NAME, sha512 }, url: new URL(`https://example.invalid/mac/${encodeURI(FILE_NAME)}`) },
     QUIET,
@@ -137,9 +136,10 @@ describe('partial files', () => {
     expect(part.includes(join('/cache/app', 'pending'))).toBe(false)
   })
 
-  it('name the artifact by its basename, so a manifest path cannot escape the directory', () => {
-    expect(partFileFor('/cache/app', VERSION, '../../etc/evil.zip'))
-      .toBe(join('/cache/app', `dsh-resume-${VERSION}-evil.zip.part`))
+  it('reject malicious file names with path separators', () => {
+    expect(() => partFileFor('/cache/app', VERSION, '../../etc/evil.zip')).toThrow('更新源的文件名不能包含路径分隔符')
+    expect(() => partFileFor('/cache/app', VERSION, '/etc/passwd')).toThrow('更新源的文件名不能包含路径分隔符')
+    expect(() => partFileFor('/cache/app', VERSION, 'C:\\Windows\\evil.zip')).toThrow('更新源的文件名不能包含路径分隔符')
   })
 
   it('are dropped once the feed has moved on, and the current one is not', () => {
