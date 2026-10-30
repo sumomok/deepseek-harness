@@ -39,7 +39,7 @@ async function startRedirectFixture(redirectStatus: number): Promise<RedirectFix
   const targetAddress = targetServer.address() as AddressInfo
   const targetUrl = `http://127.0.0.1:${targetAddress.port}/mcp`
 
-  const originServer = createServer((request: IncomingMessage, response: ServerResponse) => {
+  const originServer = createServer((_request: IncomingMessage, response: ServerResponse) => {
     originRequests.count++
     response.writeHead(redirectStatus, { Location: targetUrl })
     response.end()
@@ -110,7 +110,7 @@ describe('MCP client redirect policy (CVE regression)', () => {
     it('documents that same-origin policy blocks all HTTP redirects', async () => {
       let requestCount = 0
 
-      const server = createServer((request: IncomingMessage, response: ServerResponse) => {
+      const server = createServer((_request: IncomingMessage, response: ServerResponse) => {
         requestCount++
 
         if (requestCount === 1) {
