@@ -553,3 +553,64 @@ describe('web-fetch-http plugin registration', () => {
     await fiber.dispose()
   })
 })
+
+describe('undici DoS regression (CVE)', () => {
+  it('survives malformed chunked response and continues normal operation', async () => {
+    handler = (_req, res) => {
+      res.writeHead(200, { 'Transfer-Encoding': 'chunked' })
+      res.write('invalid-chunk-format')
+      res.end()
+    }
+
+    const ctx = new Context()
+    await ctx.plugin(WebRuntime, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
+    const fiber = await ctx.plugin(fetchPlugin, limits)
+
+    try {
+      await ctx.web.fetch({ url: `${base}/malicious` })
+    } catch {
+      // Expected to fail on malformed response
+    }
+
+    handler = (_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' })
+      res.end('ok')
+    }
+
+    const result = await ctx.web.fetch({ url: `${base}/normal` })
+    expect(result.statusCode).toBe(200)
+    expect(result.body).toEqual({ kind: 'text', content: 'ok' })
+
+    await fiber.dispose()
+  })
+
+  it('handles oversized response headers gracefully', async () => {
+    handler = (_req, res) => {
+      for (let i = 0; i < 1000; i++) {
+        res.setHeader(`X-Custom-${i}`, 'a'.repeat(1000))
+      }
+      res.writeHead(200)
+      res.end('body')
+    }
+
+    const ctx = new Context()
+    await ctx.plugin(WebRuntime, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
+    const fiber = await ctx.plugin(fetchPlugin, limits)
+
+    try {
+      await ctx.web.fetch({ url: `${base}/headers` })
+    } catch {
+      // May fail due to header size limits
+    }
+
+    handler = (_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' })
+      res.end('subsequent-ok')
+    }
+
+    const result = await ctx.web.fetch({ url: `${base}/after` })
+    expect(result.statusCode).toBe(200)
+
+    await fiber.dispose()
+  })
+})
