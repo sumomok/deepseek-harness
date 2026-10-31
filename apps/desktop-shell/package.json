@@ -28,7 +28,7 @@
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.0.0",
     "builder-util-runtime": "9.7.0",
-    "electron": "43.8.1",
+    "electron": "43.8.6",
     "electron-builder": "26.15.3",
     "esbuild": "^0.28.1",
     "tsx": "^4.19.0",

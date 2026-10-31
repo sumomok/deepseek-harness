@@ -1,6 +1,11 @@
 /** Validate the assembled application, including native Office conversion outside ASAR. */
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
+import {
+  DESKTOP_ELECTRON_MAJOR, DESKTOP_ELECTRON_MINIMUM,
+  assertRuntimeProbe, formatRuntimeProbe, probeRuntimeExecutable,
+} from '../../../scripts/runtime-version-gate.mjs'
 import { desktopArtifactOutput, resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
 import { readDesktopRuntime, verifyDesktopRuntime } from '../src/runtime-tree.ts'
 import { verifyWindowsCode } from './windows-runtime-signature.mjs'
@@ -18,5 +23,16 @@ const resources = join(application, windows ? 'resources' : 'Resources')
 const executable = windows ? join(application, 'DeepSeek Harness.exe') : join(application, 'MacOS', 'DeepSeek Harness')
 const descriptor = await verifyDesktopRuntime(paths.dsh, readDesktopRuntime(paths.dsh).release.version,
   resolveDesktopPackageTarget(target))
+const platform = windows ? 'win32' : 'darwin'
+const electronProbe = probeRuntimeExecutable(executable, { electron: true })
+assertRuntimeProbe(electronProbe, {
+  platform, electron: { minimum: DESKTOP_ELECTRON_MINIMUM, major: DESKTOP_ELECTRON_MAJOR },
+})
+console.log(`desktop packaged Electron runtime: ${formatRuntimeProbe(electronProbe)}`)
+const node = join(resources, 'runtime', 'primary-runtime', 'dependencies', 'node', 'bin', windows ? 'node.exe' : 'node')
+if (!existsSync(node)) throw new Error(`desktop packaged runtime is missing ${node}`)
+const nodeProbe = probeRuntimeExecutable(node)
+assertRuntimeProbe(nodeProbe, { platform })
+console.log(`desktop packaged Node runtime: ${formatRuntimeProbe(nodeProbe)}`)
 if (windows && !values.unsigned) await verifyWindowsCode(application)
 await smokePreparedRuntime(join(resources, 'app.asar', 'dsh'), executable, join(resources, 'runtime'), descriptor)

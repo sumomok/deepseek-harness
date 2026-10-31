@@ -12,6 +12,7 @@ import extractZip from 'extract-zip'
 import { x as extractTar } from 'tar'
 import { copyPrimaryRuntime, parsePrimaryRuntime, workspaceDependencyPaths, type PrimaryRuntimeManifest } from '@deepseek-ai/dsh-tool-workspace-dependencies'
 import { acceptsNpmPlatform } from '../npm-platform.ts'
+import { assertRuntimeProbe, formatRuntimeProbe, probeRuntimeExecutable } from '../runtime-version-gate.mjs'
 import lock from './lock.json' with { type: 'json' }
 import { prunePrimaryRuntimePythonTests } from './prune-python-tests.ts'
 
@@ -291,7 +292,14 @@ export function smokePrimaryRuntime(root: string, environment: NodeJS.ProcessEnv
   execFileSync(entries.python, ['-I', '-B', join(import.meta.dirname, 'smoke.py'), JSON.stringify(manifest.pythonPackages),
     manifest.python], options)
   execFileSync(entries.python, ['-I', '-B', '-m', 'pip', 'check'], options)
-  if (entries.node !== undefined) execFileSync(entries.node, ['-e', `if (process.versions.node !== ${JSON.stringify(manifest.node)}) process.exit(1)`], options)
+  if (entries.node !== undefined) {
+    if (manifest.node === undefined) throw new Error('primary runtime: payload carries a Node executable without a manifest version')
+    // Execute the staged interpreter, not its manifest: the bundled Undici
+    // version is what the packaging gate accepts or rejects.
+    const probe = probeRuntimeExecutable(entries.node, { env: environment })
+    assertRuntimeProbe(probe, { platform: manifest.platform, arch: manifest.arch, node: manifest.node })
+    console.log(`primary runtime: ${formatRuntimeProbe(probe)}`)
+  }
   if (entries.pnpm !== undefined && entries.node !== undefined) execFileSync(entries.node, [entries.pnpm, '--version'], options)
 }
 

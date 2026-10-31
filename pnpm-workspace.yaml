@@ -115,6 +115,7 @@ minimumReleaseAgeExclude:
   # must be exempt from the release-age window that guards other packages.
   - pnpm@11.28.5
   # Desktop packaging requires this Electron fingerprint with node-addon-require-builtin 0.1.9.
+  - electron@43.8.6
   - electron@44.7.0
 patchedDependencies:
   '@botiverse/oar@0.67.0': patches/@botiverse__oar@0.67.0.patch
