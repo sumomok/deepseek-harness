@@ -50,6 +50,53 @@ const { signMacApp } = require('./sign-mac.cjs')
 /** The scope that stays loose: its packages are what a release changes. */
 const OURS = '@deepseek-ai'
 
+/**
+ * Probe the Node and Electron binaries that actually landed in the bundle.
+ *
+ * The Node half is runnable on this host for a macOS package; a Windows package
+ * cross-built on macOS carries an executable this host cannot start, so only
+ * its official digest is checked and the native probe stays pending. The
+ * packaged Electron binary runs here only when its target platform is this
+ * host. Signing must follow this check so the probe never changes the sealed
+ * mac bundle.
+ * @param {object} context - electron-builder afterPack context.
+ * @param {string} appPath - macOS `.app` path.
+ * @param {string} resources - bundle resources directory.
+ * @param {boolean} isMac - whether the target is macOS.
+ */
+async function verifyRuntimeProbe(context, appPath, resources, isMac) {
+  const {
+    SHELL_ELECTRON_VERSION, WINDOWS_HOST_NODE_SHA256, WINDOWS_HOST_NODE_VERSION,
+    assertRuntimeProbe, formatRuntimeProbe, probeRuntimeExecutable, verifyFileSha256,
+  } = await import('../../../scripts/runtime-version-gate.mjs')
+  const node = join(resources, 'runtime', isMac ? 'node' : 'node.exe')
+  if (isMac) {
+    const probe = probeRuntimeExecutable(node)
+    assertRuntimeProbe(probe, { platform: 'darwin' })
+    console.log(`after-pack: bundled Node runtime ${formatRuntimeProbe(probe)}`)
+  } else {
+    verifyFileSha256(node, WINDOWS_HOST_NODE_SHA256)
+    console.log(`after-pack: bundled Windows Node runtime matches the official Node ${WINDOWS_HOST_NODE_VERSION} SHA-256`)
+    if (process.platform === 'win32') {
+      const probe = probeRuntimeExecutable(node)
+      assertRuntimeProbe(probe, { platform: 'win32', arch: 'x64', node: WINDOWS_HOST_NODE_VERSION })
+      console.log(`after-pack: bundled Node runtime ${formatRuntimeProbe(probe)}`)
+    } else {
+      console.log(`after-pack: Windows Node probe deferred: ${context.electronPlatformName} artifact built on ${process.platform}`)
+    }
+  }
+
+  const product = context.packager.appInfo.productFilename
+  const executable = isMac ? join(appPath, 'Contents', 'MacOS', product) : join(context.appOutDir, `${product}.exe`)
+  if (process.platform !== context.electronPlatformName) {
+    console.log(`after-pack: packaged Electron probe deferred: ${context.electronPlatformName} artifact built on ${process.platform}`)
+    return
+  }
+  const probe = probeRuntimeExecutable(executable, { electron: true })
+  assertRuntimeProbe(probe, { platform: context.electronPlatformName, electron: SHELL_ELECTRON_VERSION })
+  console.log(`after-pack: packaged Electron runtime ${formatRuntimeProbe(probe)}`)
+}
+
 /** Everything else in node_modules, as paths relative to it. */
 function thirdPartyIn(nodeModules) {
   const out = []
@@ -106,6 +153,9 @@ module.exports = async function afterPack(context) {
   execFileSync('cp', [launcherSource, launcher])
   if (isMac) chmodSync(launcher, 0o755)
   console.log(`after-pack: copied ${launcherSource} into ${launcher}`)
+
+  // Before macOS signing: the probe executes files that the signature seals.
+  await verifyRuntimeProbe(context, appPath, resources, isMac)
 
   if (isMac) {
     signMacApp({ appPath, log: line => { console.log(line) } })

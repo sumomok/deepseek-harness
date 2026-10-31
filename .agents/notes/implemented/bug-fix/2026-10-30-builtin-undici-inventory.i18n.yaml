@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for 2026-10-30-builtin-undici-inventory.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-10-30-builtin-undici-inventory.md
+/agent-note-builtin-undici-inventory-for-desktop-runtimes:
+  en: 6ace6da33cc371fe
+  zh: 955ca867fe52c356
+/agent-note-builtin-undici-inventory-for-desktop-runtimes/problem:
+  en: be49fab0eba4c941
+  zh: e7ed189a33454e36
+/agent-note-builtin-undici-inventory-for-desktop-runtimes/decision:
+  en: 92a69a1ef6ec0dab
+  zh: 846c02dc7b1296ec
+/agent-note-builtin-undici-inventory-for-desktop-runtimes/alternatives-considered:
+  en: d9b2533e8e20285b
+  zh: 740bcc1d369651e4
+/agent-note-builtin-undici-inventory-for-desktop-runtimes/consequences:
+  en: ce29e6e9da43f881
+  zh: a12de507de919572
+/agent-note-builtin-undici-inventory-for-desktop-runtimes/testing:
+  en: 87884023eea4a935
+  zh: 2e281c5653425dab
+/agent-note-builtin-undici-inventory-for-desktop-runtimes/references:
+  en: a7dd80a7c4b02fab
+  zh: d06b8ea1f6754dab

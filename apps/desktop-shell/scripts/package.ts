@@ -40,6 +40,10 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
 import { parseArgs } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { DEPLOY_PNPM, filteredDeployArgs, verifyStagedPatches } from '../../../scripts/filtered-deploy.ts'
+import {
+  SHELL_ELECTRON_VERSION, WINDOWS_HOST_NODE_SHA256, WINDOWS_HOST_NODE_VERSION,
+  assertRuntimeProbe, formatRuntimeProbe, probeRuntimeExecutable, verifyFileSha256,
+} from '../../../scripts/runtime-version-gate.mjs'
 import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, PLACEHOLDER_BUNDLES, seedBuiltinBundles } from '../src/profile-seed.ts'
 import { SERVER_LOG_ENV } from '../src/server.ts'
 import { auditArtifacts, expectedArtifacts, type ArtifactFile } from './artifact-names.ts'
@@ -72,8 +76,8 @@ const DEPLOY_ROOT_PACKAGE = '@deepseek-ai/dsh-desktop-server'
 const DEPLOY_SOURCE_NODE_MODULES = join(ROOT, 'apps', 'desktop-server', 'node_modules')
 const SERVER_ENTRY = join('node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
 const FRONTEND_DIST_INDEX = join('node_modules', '@deepseek-ai', 'dsh-web-frontend', 'dist', 'index.html')
-/** Bundled runtime: pinned to the repo's tested Node major (engines ^22.19 || >=24). */
-const NODE_VERSION = 'v24.15.0'
+/** Windows Host runtime: the Node release whose bundled Undici passes the packaging gate. */
+const NODE_VERSION = `v${WINDOWS_HOST_NODE_VERSION}`
 const NODE_WIN_X64_URL = `https://nodejs.org/dist/${NODE_VERSION}/win-x64/node.exe`
 const CACHE_DIR = join(APP_DIR, '.cache')
 /** Registry tarballs `npm pack` wrote, kept across runs ([[packedTarball]]). */
@@ -486,6 +490,35 @@ async function pnpmVersion(): Promise<string> {
 }
 
 /**
+ * Require the installed Electron package to be the pinned shell release and,
+ * when a requested target runs on this host, execute that binary's Node mode.
+ * A cross-built target's Electron runs only on its own host; its exact npm
+ * release is still checked here, and scripts/after-pack.cjs probes the bundled
+ * executable when the package is sealed on that host.
+ * @param cli - targets named on the command line.
+ * @throws when the installed Electron package is not the pinned release or its
+ * executable cannot pass the runtime gate.
+ */
+async function verifyElectronRuntime(cli: Cli): Promise<void> {
+  const manifest = JSON.parse(await readFile(join(APP_DIR, 'node_modules', 'electron', 'package.json'), 'utf8')) as { version?: unknown }
+  if (manifest.version !== SHELL_ELECTRON_VERSION) {
+    throw new Error(`package: installed Electron is ${String(manifest.version)}; the shell pins ${SHELL_ELECTRON_VERSION}.`)
+  }
+  const hostIsTarget = (cli.mac && process.platform === 'darwin') || (cli.win && process.platform === 'win32')
+  if (!hostIsTarget) {
+    console.log(`package: Electron ${SHELL_ELECTRON_VERSION} probe deferred to the target platform; the installed package pins the release.`)
+    return
+  }
+  const dist = join(APP_DIR, 'node_modules', 'electron', 'dist')
+  const executable = process.platform === 'darwin'
+    ? join(dist, 'Electron.app', 'Contents', 'MacOS', 'Electron')
+    : join(dist, 'electron.exe')
+  const probe = probeRuntimeExecutable(executable, { electron: true })
+  assertRuntimeProbe(probe, { platform: process.platform, arch: process.arch, electron: SHELL_ELECTRON_VERSION })
+  console.log(`package: host Electron runtime ${formatRuntimeProbe(probe)}`)
+}
+
+/**
  * Stage the package manager the shell lends the embedded server.
  *
  * The customers this product is for have no pnpm on PATH, so upstream's plugin
@@ -531,9 +564,21 @@ async function stageRuntime(platform: 'darwin' | 'win'): Promise<void> {
     }
     await copyFile(process.execPath, join(dir, 'node'))
     await chmod(join(dir, 'node'), 0o755)
+    // The copied binary, not the build host's manifest, is what ships and boots the server.
+    const probe = probeRuntimeExecutable(join(dir, 'node'))
+    assertRuntimeProbe(probe, { platform: 'darwin', arch: process.arch, node: process.versions.node })
+    console.log(`package: staged macOS Node runtime ${formatRuntimeProbe(probe)}`)
     return
   }
   const cached = join(CACHE_DIR, `node-${NODE_VERSION}-win-x64.exe`)
+  if (existsSync(cached)) {
+    try {
+      verifyFileSha256(cached, WINDOWS_HOST_NODE_SHA256)
+    } catch (error) {
+      console.log(`package: discarding cached Node runtime: ${(error as Error).message}`)
+      await rm(cached, { force: true })
+    }
+  }
   if (!existsSync(cached)) {
     console.log(`package: downloading ${NODE_WIN_X64_URL}`)
     await mkdir(CACHE_DIR, { recursive: true })
@@ -547,10 +592,20 @@ async function stageRuntime(platform: 'darwin' | 'win'): Promise<void> {
     // reaches this.
     const body = response.body as NodeReadableStream<Uint8Array>
     await pipeline(Readable.fromWeb(body), createWriteStream(`${cached}.part`))
+    verifyFileSha256(`${cached}.part`, WINDOWS_HOST_NODE_SHA256)
     await copyFile(`${cached}.part`, cached)
     await rm(`${cached}.part`)
   }
   await copyFile(cached, join(dir, 'node.exe'))
+  // A cross-built Windows package carries an executable this host cannot run;
+  // the official digest still proves which bytes it ships.
+  if (process.platform !== 'win32') {
+    console.log(`package: Windows Node ${WINDOWS_HOST_NODE_VERSION} probe deferred to a native Windows host; official SHA-256 verified.`)
+    return
+  }
+  const probe = probeRuntimeExecutable(join(dir, 'node.exe'))
+  assertRuntimeProbe(probe, { platform: 'win32', arch: 'x64', node: WINDOWS_HOST_NODE_VERSION })
+  console.log(`package: staged Windows Node runtime ${formatRuntimeProbe(probe)}`)
 }
 
 /** Verify the staged server answers the packaged layout's launch contract. */
@@ -1190,6 +1245,7 @@ async function main(buildHome: string): Promise<void> {
   // uploader at all, so the build must only ever emit the manifests.
   const builder = ['--filter', '@deepseek-ai/dsh-desktop-shell', 'exec', 'electron-builder', '--config', 'electron-builder.yml', '--publish', 'never']
   await stagePnpm()
+  await verifyElectronRuntime(cli)
   if (cli.mac) {
     await stageRuntime('darwin')
     await derivePayloadOnce('darwin')
