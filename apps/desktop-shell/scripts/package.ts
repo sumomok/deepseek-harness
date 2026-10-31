@@ -30,19 +30,16 @@
 
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { createWriteStream, existsSync, readFileSync } from 'node:fs'
-import { chmod, copyFile, cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { existsSync, readFileSync } from 'node:fs'
+import { chmod, cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve, sep } from 'node:path'
-import { Readable } from 'node:stream'
-import { pipeline } from 'node:stream/promises'
-import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
 import { parseArgs } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { DEPLOY_PNPM, filteredDeployArgs, verifyStagedPatches } from '../../../scripts/filtered-deploy.ts'
 import {
-  SHELL_ELECTRON_VERSION, WINDOWS_HOST_NODE_SHA256, WINDOWS_HOST_NODE_VERSION,
-  assertRuntimeProbe, formatRuntimeProbe, probeRuntimeExecutable, verifyFileSha256,
+  SHELL_ELECTRON_VERSION,
+  assertRuntimeProbe, formatRuntimeProbe, probeRuntimeExecutable,
 } from '../../../scripts/runtime-version-gate.mjs'
 import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, PLACEHOLDER_BUNDLES, seedBuiltinBundles } from '../src/profile-seed.ts'
 import { SERVER_LOG_ENV } from '../src/server.ts'
@@ -67,6 +64,7 @@ import {
   type PayloadPlatform, type PayloadSnapshot,
 } from './payload-gate.ts'
 import { isOfficeEngine, namesWindowsX64, officeEnginePackages, pinnedVariantVersion, platformDirRules, type PayloadTarget } from './platform-dir-rules.ts'
+import { stageRuntime } from './stage-runtime.ts'
 
 const APP_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const ROOT = resolve(APP_DIR, '..', '..')
@@ -76,9 +74,6 @@ const DEPLOY_ROOT_PACKAGE = '@deepseek-ai/dsh-desktop-server'
 const DEPLOY_SOURCE_NODE_MODULES = join(ROOT, 'apps', 'desktop-server', 'node_modules')
 const SERVER_ENTRY = join('node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
 const FRONTEND_DIST_INDEX = join('node_modules', '@deepseek-ai', 'dsh-web-frontend', 'dist', 'index.html')
-/** Windows Host runtime: the Node release whose bundled Undici passes the packaging gate. */
-const NODE_VERSION = `v${WINDOWS_HOST_NODE_VERSION}`
-const NODE_WIN_X64_URL = `https://nodejs.org/dist/${NODE_VERSION}/win-x64/node.exe`
 const CACHE_DIR = join(APP_DIR, '.cache')
 /** Registry tarballs `npm pack` wrote, kept across runs ([[packedTarball]]). */
 const NPM_PACK_DIR = join(CACHE_DIR, 'npm-pack')
@@ -550,62 +545,6 @@ async function stagePnpm(): Promise<void> {
   await mkdir(PNPM_STAGING, { recursive: true })
   await run(`extract ${basename(tarball)}`, 'tar', ['-xzf', tarball, '-C', PNPM_STAGING, '--strip-components', '1'], APP_DIR)
   if (!existsSync(join(PNPM_STAGING, PNPM_ENTRY))) throw new Error(`package: the staged ${spec} has no ${PNPM_ENTRY}.`)
-}
-
-/** Stage the bundled Node runtime for one platform; [[stagePnpm]] stages the pnpm that runs on it. */
-async function stageRuntime(platform: 'darwin' | 'win'): Promise<void> {
-  const dir = join(STAGING, 'runtime', platform)
-  await rm(dir, { recursive: true, force: true })
-  await mkdir(dir, { recursive: true })
-  if (platform === 'darwin') {
-    // The build machine's own Node is the tested engines match.
-    if (!process.version.startsWith('v24.')) {
-      throw new Error(`package: build Node is ${process.version}; the bundled runtime must be the tested v24 line.`)
-    }
-    await copyFile(process.execPath, join(dir, 'node'))
-    await chmod(join(dir, 'node'), 0o755)
-    // The copied binary, not the build host's manifest, is what ships and boots the server.
-    const probe = probeRuntimeExecutable(join(dir, 'node'))
-    assertRuntimeProbe(probe, { platform: 'darwin', arch: process.arch, node: process.versions.node })
-    console.log(`package: staged macOS Node runtime ${formatRuntimeProbe(probe)}`)
-    return
-  }
-  const cached = join(CACHE_DIR, `node-${NODE_VERSION}-win-x64.exe`)
-  if (existsSync(cached)) {
-    try {
-      verifyFileSha256(cached, WINDOWS_HOST_NODE_SHA256)
-    } catch (error) {
-      console.log(`package: discarding cached Node runtime: ${(error as Error).message}`)
-      await rm(cached, { force: true })
-    }
-  }
-  if (!existsSync(cached)) {
-    console.log(`package: downloading ${NODE_WIN_X64_URL}`)
-    await mkdir(CACHE_DIR, { recursive: true })
-    const response = await fetch(NODE_WIN_X64_URL)
-    if (!response.ok || response.body === null) {
-      throw new Error(`package: Node runtime download failed: ${String(response.status)} ${response.statusText}`)
-    }
-    // `fetch` types its body with the DOM lib's ReadableStream and
-    // `Readable.fromWeb` takes node:stream/web's; the two declare the same
-    // runtime object and neither is assignable to the other, so no narrowing
-    // reaches this.
-    const body = response.body as NodeReadableStream<Uint8Array>
-    await pipeline(Readable.fromWeb(body), createWriteStream(`${cached}.part`))
-    verifyFileSha256(`${cached}.part`, WINDOWS_HOST_NODE_SHA256)
-    await copyFile(`${cached}.part`, cached)
-    await rm(`${cached}.part`)
-  }
-  await copyFile(cached, join(dir, 'node.exe'))
-  // A cross-built Windows package carries an executable this host cannot run;
-  // the official digest still proves which bytes it ships.
-  if (process.platform !== 'win32') {
-    console.log(`package: Windows Node ${WINDOWS_HOST_NODE_VERSION} probe deferred to a native Windows host; official SHA-256 verified.`)
-    return
-  }
-  const probe = probeRuntimeExecutable(join(dir, 'node.exe'))
-  assertRuntimeProbe(probe, { platform: 'win32', arch: 'x64', node: WINDOWS_HOST_NODE_VERSION })
-  console.log(`package: staged Windows Node runtime ${formatRuntimeProbe(probe)}`)
 }
 
 /** Verify the staged server answers the packaged layout's launch contract. */
@@ -1247,12 +1186,12 @@ async function main(buildHome: string): Promise<void> {
   await stagePnpm()
   await verifyElectronRuntime(cli)
   if (cli.mac) {
-    await stageRuntime('darwin')
+    await stageRuntime({ platform: 'darwin', runtimeDirectory: join(STAGING, 'runtime', 'darwin'), cacheDirectory: CACHE_DIR })
     await derivePayloadOnce('darwin')
     await run('electron-builder (mac)', 'pnpm', [...builder, '--mac'])
   }
   if (cli.win) {
-    await stageRuntime('win')
+    await stageRuntime({ platform: 'win', runtimeDirectory: join(STAGING, 'runtime', 'win'), cacheDirectory: CACHE_DIR })
     await derivePayloadOnce('win')
     await run('electron-builder (win)', 'pnpm', [...builder, '--win'])
     for (const name of (await readdir(join(APP_DIR, 'dist-app'))).filter(file => file.endsWith('.exe'))) {

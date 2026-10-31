@@ -18,7 +18,7 @@ This repository builds these carriers with these bundled versions:
 | Shell Electron | 43.8.6 (`apps/desktop-shell/package.json`) | 24.22.1 | 7.30.1 | Electron `DEPS` source; Linux x64 binary executed. Target-platform binaries were not executed here. |
 | Desktop Electron | 44.10.0 (`apps/desktop/package.json`, `^44.10.0`) | 24.22.1 | 7.30.1 | Electron `DEPS` source; Linux x64 binary executed. Target-platform binaries were not executed here. |
 | Shell Windows Host | 24.22.1 | 24.22.1 | 7.30.1 | Official `node.exe` SHA-256 and Node source; native Windows probe pending. |
-| Shell macOS Host | Build host Node, 24.22.1 recommended | 24.22.1 | 7.30.1 | The copied binary is executed during packaging; any other host must pass the gate. |
+| Shell macOS Host | Build host Node, 24.22.1 recommended | Per copied binary | Per copied-binary probe | The copied binary is executed during packaging; any other host must pass the gate. |
 | Primary runtime | 24.22.1 (`scripts/primary-runtime/lock.json`) | 24.22.1 | 7.30.1 | Lockfile and official archive hashes; Linux x64 extracted and executed. Other target execution pending. |
 
 The npm copy tracks `undici` 8.12.2; the Node and Electron runtimes bundle the 7.x line. A package override cannot move the second number.
@@ -41,15 +41,18 @@ The user-facing `engines.node` remains `>=24.9.0`. `docs/development.md` recomme
 
 ## Consequences
 
-- New packages built after this change execute their bundled Node and Electron binaries and fail packaging when Undici is below the patched line, when `process.versions.undici` is absent, or when its major is unverified.
+- New packages built after this change execute the bundled Node and Electron binaries their build host can run, and fail packaging when Undici is below the patched line, when `process.versions.undici` is absent, or when its major is unverified.
 - Previously installed packages, user-provided Node, and plugins that bring their own runtime remain outside the gate. `engines.node >=24.9.0` still admits runtimes whose bundled Undici predates the fixes.
 - Shell `updater.ts`, `resumable-download.ts`, `notifications.ts`, the Host plugin-market, account, LLM and search-provider calls, and `apps/desktop/src/web-document.ts` still use the runtime's global `fetch`. The gate proves the runtime that executes them; it does not migrate those calls.
-- The TLS 1.2 renegotiation advisory ([GHSA-qrxm-fqhp-jwvm](https://github.com/advisories/GHSA-qrxm-fqhp-jwvm)) and the Content-Encoding advisory ([GHSA-xjj6-f33q-929c](https://github.com/advisories/GHSA-xjj6-f33q-929c)) are addressed by the upstream fixed release, not by a local dynamic reproduction in this batch.
+- The Content-Encoding advisory ([GHSA-xjj6-f33q-929c](https://github.com/advisories/GHSA-xjj6-f33q-929c)) is covered by an isolated subprocess regression: a response carrying six content encodings fails with `too many content-encodings in response: 6, maximum allowed is 5`, a response that declares more bytes than it sends before disconnecting fails, and a healthy request in the same child still returns 200. The TLS 1.2 renegotiation advisory ([GHSA-qrxm-fqhp-jwvm](https://github.com/advisories/GHSA-qrxm-fqhp-jwvm)) remains deferred: this batch does not swap certificates dynamically and relies on the upstream fixed release.
 - Cross-built Windows packages verify the official `node.exe` digest and defer both native probes; a macOS package cross-built elsewhere cannot be accepted without its native build and smoke.
 
 ## Testing
 
-- `vitest run scripts/runtime-version-gate.spec.ts scripts/primary-runtime/prepare.spec.ts` covers the patched minimums, missing and unknown versions, actual-binary probing, hash verification, and the packaging rejection path.
+- `vitest run scripts/runtime-version-gate.spec.ts scripts/primary-runtime/prepare.spec.ts` covers the patched minimums, missing and unknown versions, actual-binary probing, and hash verification.
+- Real-entry rejection tests stop before later packaging work: `apps/desktop/tests/runtime-preparation.spec.ts` rejects a below-line or missing Undici field, an unverified Electron major, and a bare version instead of a JSON probe before primary preparation, CLI resources, or `versions.json`; `apps/desktop-shell/tests/stage-runtime.spec.ts` discards a cached Windows `node.exe` that fails its official digest and stages no runtime; `apps/desktop-shell/tests/after-pack.spec.ts` stops macOS signing on a below-line or missing Undici field and stops Windows packaging at a bad Node digest before the third-party archive.
+- The isolated `scripts/undici-content-encoding.spec.ts` child reports, on Linux x64 Node 24.22.1 with Undici 7.30.1, that six content encodings fail with `too many content-encodings in response: 6, maximum allowed is 5`, that a mismatched length with an early disconnect fails the request, and that a healthy request in the same child still returns 200. The spec skips when the running Node bundles Undici below the patched line, as the 24.9 CI job does, so an unpatched runtime cannot fail that job.
+- Resume, cache and update suites pass: `apps/desktop-shell/tests/resumable-download.spec.ts`, `electron-updater-multipart.spec.ts`, `download-retry.spec.ts`, `update-service.spec.ts`, `apps/desktop/tests/update-http-executor.spec.ts`, `update-coordinator.spec.ts` and `installed-update-network.spec.ts`. `pending-cache.spec.ts` carries one stale assertion inherited from the baseline that expects the pre-hash partial-file name; the other 17 cache tests pass, and this change does not touch that naming.
 - The Linux x64 Electron 43.8.6 and 44.10.0 binaries report Node 24.22.1 and Undici 7.30.1; the extracted Node 24.22.1 primary-runtime binary reports the same Undici version.
 - Native Windows and macOS package smokes, and execution of their target binaries, remain pending.
 

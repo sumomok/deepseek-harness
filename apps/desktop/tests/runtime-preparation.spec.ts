@@ -11,6 +11,8 @@ const state = vi.hoisted(() => ({
   target: 'mac-arm64' as 'mac-arm64' | 'mac-x64' | 'win-x64',
   pnpm: '11.7.0' as string | undefined,
   failure: undefined as 'electron' | 'primary' | 'cli' | undefined,
+  probe: {} as Record<string, unknown>,
+  rawProbe: undefined as string | undefined,
   preparePrimary: vi.fn(),
   extractElectron: vi.fn(),
   commandLink: vi.fn(),
@@ -23,10 +25,21 @@ vi.mock('../scripts/desktop-build-paths.mjs', async importOriginal => ({
   }),
 }))
 vi.mock('@electron/get', () => ({ downloadArtifact: async () => 'electron.zip' }))
-vi.mock('extract-zip', () => ({ default: state.extractElectron }))
+vi.mock('../scripts/safe-extract-zip.ts', () => ({ safeExtractZip: state.extractElectron }))
 vi.mock('node:child_process', async importOriginal => ({
   ...await importOriginal<typeof import('node:child_process')>(),
-  execFileSync: (file: string) => file === '/usr/libexec/PlistBuddy' ? '12.0\n' : '24.18.1\n',
+  execFileSync: (file: string) => {
+    if (file === '/usr/libexec/PlistBuddy') return '12.0\n'
+    if (state.rawProbe !== undefined) return state.rawProbe
+    return JSON.stringify({
+      platform: state.target === 'win-x64' ? 'win32' : 'darwin',
+      arch: state.target === 'mac-arm64' ? 'arm64' : 'x64',
+      electron: '44.10.0',
+      node: '24.22.1',
+      undici: '7.30.1',
+      ...state.probe,
+    })
+  },
 }))
 vi.mock('../scripts/prepare-command-link.ts', () => ({ prepareCommandLink: state.commandLink }))
 // The compiled command manager is a build input; all source resource copies use real files.
@@ -51,6 +64,8 @@ beforeEach(() => {
   state.target = 'mac-arm64'
   state.pnpm = '11.7.0'
   state.failure = undefined
+  state.probe = {}
+  state.rawProbe = undefined
   process.argv = [process.execPath, 'prepare-runtime.ts']
   vi.stubEnv('DSH_DESKTOP_PACKAGING_RUN_DIR', undefined)
   state.extractElectron.mockImplementation(async () => {
@@ -90,7 +105,7 @@ it.each(['mac-arm64', 'mac-x64', 'win-x64'] as const)('prepares %s with one pnpm
   expect(readFileSync(join(runtime, 'cli', 'command-manager.js'), 'utf8')).toBe('command manager fixture')
   expect(existsSync(join(runtime, 'cli', 'command-path.ps1'))).toBe(true)
   expect(JSON.parse(readFileSync(join(runtime, 'versions.json'), 'utf8'))).toEqual({
-    schemaVersion: 1, node: '24.18.1', pnpm: '11.7.0',
+    schemaVersion: 1, node: '24.22.1', pnpm: '11.7.0',
   })
   expect(state.preparePrimary).toHaveBeenCalledWith({ deferSmoke: windows })
   if (windows) expect(state.commandLink).not.toHaveBeenCalled()
@@ -119,6 +134,33 @@ it.each([
   state.pnpm = pnpm
   await expect(import('../scripts/prepare-runtime.ts')).rejects.toThrow(error)
   expect(existsSync(join(state.root, 'runtime', 'versions.json'))).toBe(false)
+})
+
+it.each([
+  ['an Undici release below the patched line', { undici: '7.29.1' },
+    'process.versions.undici 7.29.1 is below the patched 7.30.1 for major 7'],
+  ['a missing Undici field', { undici: null }, 'process.versions.undici is missing'],
+  ['an Electron release outside the verified major', { electron: '43.8.6' }, 'expected major 44'],
+])('rejects %s before primary preparation, CLI resources, or versions', async (_name, probe, error) => {
+  state.probe = probe
+  const runtime = join(state.root, 'runtime')
+  mkdirSync(runtime)
+  writeFileSync(join(runtime, 'versions.json'), 'stale versions')
+  await expect(import('../scripts/prepare-runtime.ts')).rejects.toThrow(error)
+  expect(existsSync(join(runtime, 'versions.json'))).toBe(false)
+  expect(existsSync(join(runtime, 'cli'))).toBe(false)
+  expect(state.preparePrimary).not.toHaveBeenCalled()
+})
+
+it('rejects a bare version instead of a JSON probe record before primary preparation', async () => {
+  state.rawProbe = '24.18.1\n'
+  const runtime = join(state.root, 'runtime')
+  mkdirSync(runtime)
+  writeFileSync(join(runtime, 'versions.json'), 'stale versions')
+  await expect(import('../scripts/prepare-runtime.ts')).rejects.toThrow('printed no JSON record: 24.18.1')
+  expect(existsSync(join(runtime, 'versions.json'))).toBe(false)
+  expect(existsSync(join(runtime, 'cli'))).toBe(false)
+  expect(state.preparePrimary).not.toHaveBeenCalled()
 })
 
 it.each(['electron', 'primary'] as const)('overlaps Windows payloads and waits for %s to finish last before publishing CLI and versions', async (last) => {

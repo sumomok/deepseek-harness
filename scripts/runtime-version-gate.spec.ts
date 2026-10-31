@@ -28,7 +28,7 @@ describe('bundled Undici gate', () => {
     else expect(problem).toContain(expected)
   })
 
-  it('rejects missing, malformed, prerelease and unknown major versions', () => {
+  it('rejects missing, malformed, below-line prerelease, and unknown major versions', () => {
     expect(undiciVersionProblem(undefined)).toContain('missing')
     expect(undiciVersionProblem('')).toContain('missing')
     expect(undiciVersionProblem('7.x')).toContain('not a semantic version')
