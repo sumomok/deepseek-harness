@@ -28733,7 +28733,7 @@ snapshots:
 
   '@haoran/dsh-data-location@file:apps/desktop-server/vendor/haoran-dsh-data-location-0.2.2.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/dsh-workspace@packages+workspace+workspace)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)':
     dependencies:
-      zod: 4.4.3
+      zod: 4.6.7
     optionalDependencies:
       '@deepseek-ai/cordis': link:vendor/cordis
       '@deepseek-ai/dsh-api-remotes': link:packages/api/remotes
@@ -28750,7 +28750,7 @@ snapshots:
 
   '@haoran/dsh-desktop-update@file:apps/desktop-server/vendor/haoran-dsh-desktop-update-0.3.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-sidebar@packages+client+ui-sidebar)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)':
     dependencies:
-      zod: 4.4.3
+      zod: 4.6.7
     optionalDependencies:
       '@deepseek-ai/cordis': link:vendor/cordis
       '@deepseek-ai/dsh-api-remotes': link:packages/api/remotes
@@ -28794,7 +28794,7 @@ snapshots:
       '@deepseek-ai/dsh-tools': link:packages/core/tools
       '@deepseek-ai/dsh-typert-protocol': link:packages/typert/protocol
       '@deepseek-ai/schemastery': link:vendor/schemastery
-      zod: 4.4.3
+      zod: 4.6.7
     optionalDependencies:
       '@deepseek-ai/dsh-agent': link:packages/core/agent
       '@deepseek-ai/dsh-api-remotes': link:packages/api/remotes
@@ -28810,7 +28810,7 @@ snapshots:
 
   '@haoran/dsh-office-preview-notice@file:apps/desktop-server/vendor/haoran-dsh-office-preview-notice-0.3.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-api-session-controller@packages+api+session-controller)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-sidebar-documentpreview@packages+client+ui-sidebar-documentpreview)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)':
     dependencies:
-      zod: 4.4.3
+      zod: 4.6.7
     optionalDependencies:
       '@deepseek-ai/cordis': link:vendor/cordis
       '@deepseek-ai/dsh-api-remotes': link:packages/api/remotes
@@ -28834,7 +28834,7 @@ snapshots:
       '@deepseek-ai/dsh-tools': link:packages/core/tools
       '@deepseek-ai/schemastery': link:vendor/schemastery
       tldts: 7.4.11
-      zod: 4.4.3
+      zod: 4.6.7
     optionalDependencies:
       '@deepseek-ai/dsh-agent': link:packages/core/agent
       '@deepseek-ai/dsh-api-remotes': link:packages/api/remotes
@@ -28861,7 +28861,7 @@ snapshots:
       '@deepseek-ai/dsh-credentials': link:packages/credentials/credentials
       '@deepseek-ai/dsh-llm': link:packages/llm/llm
       '@deepseek-ai/schemastery': link:vendor/schemastery
-      zod: 4.4.3
+      zod: 4.6.7
     optionalDependencies:
       '@deepseek-ai/dsh-api-remotes': link:packages/api/remotes
       '@deepseek-ai/dsh-api-session-controller': link:packages/api/session-controller
@@ -30018,7 +30018,7 @@ snapshots:
 
   '@sumomok/dsh-balance@file:apps/desktop-server/vendor/sumomok-dsh-balance-0.9.4.tgz(ace084e4e55d60070436b42091544621)':
     dependencies:
-      zod: 4.4.3
+      zod: 4.6.7
     optionalDependencies:
       '@deepseek-ai/cordis': link:vendor/cordis
       '@deepseek-ai/dsh-api-remotes': link:packages/api/remotes
