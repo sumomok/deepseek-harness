@@ -506,6 +506,22 @@ describe('a build that cannot install where it stands', () => {
     expect(shell.instances).toHaveLength(0)
   })
 
+  it('refuses an HTTP download page and reports it without launching the OS', async () => {
+    bundle(false)
+    serveFeed()
+    const { host, lines, waitFor } = sink()
+    const { setupUpdates } = await import('../src/updater.ts')
+
+    setupUpdates(host)()
+    await waitFor('download page not opened')
+    await vi.waitFor(() => {
+      expect(shell.dialogs.at(-1)).toMatchObject({ message: '无法打开下载页面' })
+    })
+    expect(shell.opened).toEqual([])
+    // The log names the reason, not the feed URL or its credentials.
+    expect(lines.join('')).not.toContain('127.0.0.1')
+  })
+
   it('answers a click on a feed it could not reach with the message line and the code chain', async () => {
     bundle(false)
     // What Node's fetch raises for a host that does not resolve: a bare
