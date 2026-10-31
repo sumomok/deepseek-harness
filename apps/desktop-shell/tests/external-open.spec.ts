@@ -61,6 +61,16 @@ describe('openExternalTarget', () => {
     expect(native.open).not.toHaveBeenCalled()
   })
 
+  it('never calls the OS for a mailto target carrying credentials', async () => {
+    await expect(openExternalTarget('mailto://user:pass@example.com/', ['mailto:'])).resolves.toEqual({
+      kind: 'blocked', reason: 'credentials',
+    })
+    await expect(openExternalTarget('mailto://user@example.com/', ['mailto:'])).resolves.toEqual({
+      kind: 'blocked', reason: 'credentials',
+    })
+    expect(native.open).not.toHaveBeenCalled()
+  })
+
   it('turns an OS rejection into a failed result', async () => {
     native.open.mockRejectedValueOnce(new Error('browser refused https://example.com/?token=secret'))
     await expect(openExternalTarget('https://example.com/path?token=secret#frag', ['https:'])).resolves.toEqual({

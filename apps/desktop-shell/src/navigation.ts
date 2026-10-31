@@ -23,10 +23,16 @@ export interface NavigationContents {
   /**
    * Register a top-level navigation listener.
    * @param event - `will-navigate` or the redirect equivalent.
-   * @param listener - receives the cancellable event and its target.
+   * @param listener - receives the cancellable event, its target, whether the
+   * navigation is in place, and whether it belongs to the main frame.
    * @returns the value Electron returns for its registration.
    */
-  on(event: 'will-navigate' | 'will-redirect', listener: (event: { preventDefault(): void }, target: string) => void): unknown
+  on(event: 'will-navigate' | 'will-redirect', listener: (
+    event: { preventDefault(): void },
+    target: string,
+    isInPlace: boolean,
+    isMainFrame: boolean,
+  ) => void): unknown
 }
 
 /** What the navigation policy needs from the window's owner. */
@@ -93,9 +99,11 @@ function handOff(target: string, options: NavigationPolicyOptions): void {
  * A popup is always denied: an allowed target goes to the OS and a blocked one
  * goes nowhere. A top-level navigation stays only on the server origin;
  * everything else is cancelled before the policy decides whether the target is
- * one the OS may open. A redirect that leaves the server origin is cancelled
- * without opening the browser. Failures from the opener are logged and never
- * surface as unhandled rejections.
+ * one the OS may open. A redirect leaves the server origin only for a main
+ * frame, which is cancelled without opening the browser; a subframe redirect
+ * stays with Chromium, because embedded pages legitimately follow cross-site
+ * HTTP(S) redirects. Failures from the opener are logged and never surface as
+ * unhandled rejections.
  * @param contents - the boot window's web contents, real or faked.
  * @param options - server source, opener, and log sink.
  */
@@ -112,7 +120,8 @@ export function installNavigationPolicy(contents: NavigationContents, options: N
     event.preventDefault()
     handOff(target, options)
   })
-  contents.on('will-redirect', (event, target) => {
+  contents.on('will-redirect', (event, target, _isInPlace, isMainFrame) => {
+    if (!isMainFrame) return
     const serverUrl = options.serverUrl()
     if (serverUrl === undefined || !isServerNavigation(target, serverUrl)) event.preventDefault()
   })

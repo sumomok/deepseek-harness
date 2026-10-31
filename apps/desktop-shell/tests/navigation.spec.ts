@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { NavigationContents } from '../src/navigation.ts'
 import { installNavigationPolicy, isServerNavigation } from '../src/navigation.ts'
 
-type NavigationListener = (event: { preventDefault(): void }, target: string) => void
+type NavigationListener = (event: { preventDefault(): void }, target: string, isInPlace: boolean, isMainFrame: boolean) => void
 
 /** A cancellable event that records whether the policy stopped it. */
 interface FakeEvent {
@@ -47,10 +47,11 @@ class FakeContents implements NavigationContents {
    * Invoke every listener for one navigation event with a fresh cancellable event.
    * @param event - `will-navigate` or `will-redirect`.
    * @param target - navigation target.
+   * @param isMainFrame - whether the target belongs to the main frame.
    * @returns the event the listeners saw.
    */
-  emit(event: 'will-navigate' | 'will-redirect', target: string): FakeEvent {
-    return this.emitWith(event, { preventDefault: vi.fn() }, target)
+  emit(event: 'will-navigate' | 'will-redirect', target: string, isMainFrame = true): FakeEvent {
+    return this.emitWith(event, { preventDefault: vi.fn() }, target, isMainFrame)
   }
 
   /**
@@ -58,10 +59,11 @@ class FakeContents implements NavigationContents {
    * @param event - `will-navigate` or `will-redirect`.
    * @param target - the event object the listeners receive.
    * @param url - navigation target.
+   * @param isMainFrame - whether the target belongs to the main frame.
    * @returns the same event object.
    */
-  emitWith(event: 'will-navigate' | 'will-redirect', target: FakeEvent, url: string): FakeEvent {
-    for (const listener of this.listeners.get(event) ?? []) listener(target, url)
+  emitWith(event: 'will-navigate' | 'will-redirect', target: FakeEvent, url: string, isMainFrame = true): FakeEvent {
+    for (const listener of this.listeners.get(event) ?? []) listener(target, url, false, isMainFrame)
     return target
   }
 }
@@ -141,6 +143,8 @@ describe('installNavigationPolicy popups', () => {
     'https://',
     'https://user:pass@example.com/',
     'https://user@example.com/',
+    'mailto://user:pass@example.com/',
+    'mailto://user@example.com/',
     ' https://example.com',
     'https://exa\u0000mple.com',
     'https://example.com\\@evil.example/',
@@ -264,10 +268,35 @@ describe('installNavigationPolicy redirects', () => {
     'javascript:alert(1)',
     'file:///etc/passwd',
     'relative/path',
-  ])('cancels a redirect to %s without opening the OS', (target) => {
+  ])('cancels a main-frame redirect to %s without opening the OS', (target) => {
     const { contents, opened } = setup()
     const event = contents.emit('will-redirect', target)
     expect(event.preventDefault).toHaveBeenCalledOnce()
     expect(opened).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    'https://evil.example/',
+    'http://127.0.0.1:49322/',
+    'http://user:pass@127.0.0.1:49321/',
+    'https://127.0.0.1:49321/after-login',
+  ])('keeps a subframe redirect to %s out of the top-level policy', (target) => {
+    const { contents, opened } = setup()
+    const event = contents.emit('will-redirect', target, false)
+    expect(event.preventDefault).not.toHaveBeenCalled()
+    expect(opened).not.toHaveBeenCalled()
+  })
+
+  it('keeps subframe redirects before the server URL is known', () => {
+    const { contents, opened } = setup(() => undefined)
+    const event = contents.emit('will-redirect', 'https://evil.example/', false)
+    expect(event.preventDefault).not.toHaveBeenCalled()
+    expect(opened).not.toHaveBeenCalled()
+  })
+
+  it('cancels a main-frame redirect before the server URL is known', () => {
+    const { contents } = setup(() => undefined)
+    const event = contents.emit('will-redirect', 'https://evil.example/')
+    expect(event.preventDefault).toHaveBeenCalledOnce()
   })
 })

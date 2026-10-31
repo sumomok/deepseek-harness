@@ -50,6 +50,10 @@ const REFUSED: readonly RefusedCase[] = [
   { target: 'https://user:pass@example.com/', reason: 'credentials' },
   { target: 'http://user@example.com/', reason: 'credentials' },
   { target: 'https://:pass@example.com/', reason: 'credentials' },
+  // Credentials are refused on every allowed scheme, not only HTTP(S).
+  { target: 'mailto://user:pass@example.com/', reason: 'credentials' },
+  { target: 'mailto://user@example.com/', reason: 'credentials' },
+  { target: 'MAILTO://user:pass@example.com?subject=Hello', reason: 'credentials' },
   { target: '', reason: 'relative-url' },
   { target: 'example.com/path', reason: 'relative-url' },
   { target: '/etc/passwd', reason: 'relative-url' },

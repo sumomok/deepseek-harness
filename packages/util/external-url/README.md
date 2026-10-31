@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-external-url` turns a link, navigation, or configured destination into a canonical `URL.href` or a stable refusal reason before an application hands it to the operating system. Callers pass the protocols they accept; the library compares complete `URL.protocol` values, requires absolute credential-free HTTP(S) targets, and preserves encoded `mailto:` fields without decoding them. It registers nothing and has no runtime dependencies.
+`dsh-external-url` turns a link, navigation, or configured destination into a canonical `URL.href` or a stable refusal reason before an application hands it to the operating system. Callers pass the protocols they accept; the library compares complete `URL.protocol` values, requires absolute targets free of credentials, requires HTTP(S) targets to have a hostname, and preserves encoded `mailto:` fields without decoding them. It registers nothing and has no runtime dependencies.
 
 ## Table of Contents
 
@@ -51,7 +51,7 @@ if (result.kind === 'allowed') {
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-Resolution happens in this order: reject surrounding whitespace, ASCII control characters, and backslashes; reject anything without an absolute scheme; parse with `new URL(target)` without a base; require the parsed protocol to be one the caller listed; then require HTTP(S) to have a hostname and no credentials. `mailto:` keeps the parser's encoded path and query instead of being decoded or parsed as a mailbox.
+Resolution happens in this order: reject surrounding whitespace, ASCII control characters, and backslashes; reject anything without an absolute scheme; parse with `new URL(target)` without a base; require the parsed protocol to be one the caller listed; reject any target carrying credentials; then require HTTP(S) to have a hostname. `mailto:` keeps the parser's encoded path and query instead of being decoded or parsed as a mailbox.
 
 The order is part of the contract. The URL parser strips tabs and newlines, so those characters are checked on the raw target first. Backslashes are refused before parsing because Chromium and WHATWG URL parsing treat them as path separators. A prefix match cannot decide a protocol: `httpsfoo:` and `httpx:` are distinct schemes and are refused when only `https:` or `http:` is allowed.
 

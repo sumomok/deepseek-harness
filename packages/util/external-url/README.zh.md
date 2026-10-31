@@ -9,7 +9,7 @@ kind: "package-library"
 
 ## Summary
 
-`dsh-external-url` 把链接、导航或配置的目标转换为规范的 `URL.href` 或稳定的拒绝原因，之后才由应用交给操作系统。调用方声明接受的协议；该库比较完整的 `URL.protocol` 值，要求 HTTP(S) 为绝对地址且不含凭证，并保留 `mailto:` 的编码字段而不预先解码。它不注册任何内容，也没有运行时依赖。
+`dsh-external-url` 把链接、导航或配置的目标转换为规范的 `URL.href` 或稳定的拒绝原因，之后才由应用交给操作系统。调用方声明接受的协议；该库比较完整的 `URL.protocol` 值，要求目标为绝对地址且不含凭证，要求 HTTP(S) 具有主机名，并保留 `mailto:` 的编码字段而不预先解码。它不注册任何内容，也没有运行时依赖。
 
 ## Table of Contents
 
@@ -51,7 +51,7 @@ if (result.kind === 'allowed') {
 <details>
 <summary>实现细节 — 点击展开</summary>
 
-解析按以下顺序进行：拒绝首尾空白、ASCII 控制字符和反斜杠；拒绝没有绝对 scheme 的目标；使用不带 base 的 `new URL(target)` 解析；要求解析出的协议在调用方列表中；最后要求 HTTP(S) 具有主机名且不含凭证。`mailto:` 保留解析器给出的编码路径和查询，不预先解码，也不当作完整邮箱地址解析。
+解析按以下顺序进行：拒绝首尾空白、ASCII 控制字符和反斜杠；拒绝没有绝对 scheme 的目标；使用不带 base 的 `new URL(target)` 解析；要求解析出的协议在调用方列表中；拒绝任何携带凭证的目标；最后要求 HTTP(S) 具有主机名。`mailto:` 保留解析器给出的编码路径和查询，不预先解码，也不当作完整邮箱地址解析。
 
 顺序是契约的一部分。URL 解析器会清除制表符和换行符，因此这些字符先在原始目标上检查。反斜杠在解析前拒绝，因为 Chromium 和 WHATWG URL 解析会把它当作路径分隔符。协议不能靠前缀匹配判断：`httpsfoo:` 和 `httpx:` 是不同 scheme，在只允许 `https:` 或 `http:` 时会被拒绝。
 

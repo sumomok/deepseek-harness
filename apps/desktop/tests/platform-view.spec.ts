@@ -43,7 +43,7 @@ vi.mock('electron', () => ({
 beforeEach(() => { vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3') })
 afterEach(() => {
   state.views.length = 0; state.sessions.length = 0; state.loadFailure = undefined; state.loadBarrier = undefined
-  vi.clearAllMocks(); vi.unstubAllEnvs()
+  vi.clearAllMocks(); vi.restoreAllMocks(); vi.unstubAllEnvs()
 })
 function setup() {
   let blocked = false
@@ -193,6 +193,32 @@ it('opens HTTPS payment links in the system browser without an embedded child wi
     expect(handler({ url })).toEqual({ action: 'deny' })
   }
   expect(state.openExternal).not.toHaveBeenCalled()
+  manager.close()
+})
+
+it('logs a blocked Platform popup without calling the OS', async () => {
+  const { manager, owner } = setup()
+  await manager.open(owner, 'top-up', bounds)
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+  const handler = view().webContents.setWindowOpenHandler.mock.calls[0]![0] as (details: { url: string }) => { action: string }
+  expect(handler({ url: 'https://user:pass@payment.example/order?token=secret' })).toEqual({ action: 'deny' })
+  await vi.waitFor(() => { expect(error).toHaveBeenCalledWith('[external] blocked target: credentials\n') })
+  expect(JSON.stringify(error.mock.calls)).not.toContain('secret')
+  expect(state.openExternal).not.toHaveBeenCalled()
+  manager.close()
+})
+
+it('logs an OS refusal for a Platform popup without leaking the target', async () => {
+  const { manager, owner } = setup()
+  await manager.open(owner, 'top-up', bounds)
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+  state.openExternal.mockRejectedValueOnce(new Error('refused https://payment.example/order?token=secret'))
+  const handler = view().webContents.setWindowOpenHandler.mock.calls[0]![0] as (details: { url: string }) => { action: string }
+  expect(handler({ url: 'https://payment.example/order?token=secret' })).toEqual({ action: 'deny' })
+  await vi.waitFor(() => {
+    expect(error).toHaveBeenCalledWith('[external] operating system did not open the target: https:\n')
+  })
+  expect(JSON.stringify(error.mock.calls)).not.toContain('secret')
   manager.close()
 })
 

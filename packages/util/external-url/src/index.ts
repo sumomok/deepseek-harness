@@ -57,10 +57,11 @@ function blocked(reason: ExternalUrlBlockReason): ExternalUrlResolution {
  * The target is parsed with `new URL(target)`, without a base, so relative
  * references cannot inherit the application's origin. Leading or trailing
  * whitespace, ASCII control characters, and backslashes are refused before
- * parsing because the URL parser may strip or normalize them. HTTP(S) targets
- * require a hostname and no credentials; `mailto:` keeps its encoded path,
- * subject, and body instead of being decoded here. The returned href is the
- * parser's canonical form, which callers pass to the OS unchanged.
+ * parsing because the URL parser may strip or normalize them. Every target
+ * must be credential-free; HTTP(S) targets also require a hostname. `mailto:`
+ * keeps its encoded path, subject, and body instead of being decoded here. The
+ * returned href is the parser's canonical form, which callers pass to the OS
+ * unchanged.
  * @param target - URL reported by a link, navigation, or a configured destination.
  * @param allowedProtocols - protocols this caller accepts.
  * @returns the allowed canonical href, or a blocked result with a stable reason.
@@ -86,10 +87,11 @@ export function resolveExternalUrl(
   if (!isExternalProtocol(parsed.protocol) || !allowedProtocols.includes(parsed.protocol)) {
     return blocked('protocol-not-allowed')
   }
+  // Every scheme, `mailto:` included, can carry an authority with credentials.
+  if (parsed.username !== '' || parsed.password !== '') return blocked('credentials')
   if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
     /* v8 ignore next -- WHATWG URL refuses a special-scheme URL without a host before this point; the check remains the stated boundary. */
     if (parsed.hostname === '') return blocked('empty-hostname')
-    if (parsed.username !== '' || parsed.password !== '') return blocked('credentials')
   }
   return { kind: 'allowed', url: parsed.href, protocol: parsed.protocol }
 }
