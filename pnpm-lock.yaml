@@ -1419,8 +1419,8 @@ importers:
         specifier: file:./vendor/haoran-dsh-office-preview-notice-0.3.0.tgz
         version: file:apps/desktop-server/vendor/haoran-dsh-office-preview-notice-0.3.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-api-session-controller@packages+api+session-controller)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-sidebar-documentpreview@packages+client+ui-sidebar-documentpreview)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)
       '@haoran/dsh-screenshot':
-        specifier: file:./vendor/haoran-dsh-screenshot-0.8.0.tgz
-        version: file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.8.0.tgz(ed52a9a2fb0e4b76c77e0a59ec62d67c)
+        specifier: file:./vendor/haoran-dsh-screenshot-0.9.0.tgz
+        version: file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.9.0.tgz(ed52a9a2fb0e4b76c77e0a59ec62d67c)
       '@haoran/dsh-sidebar-autoscroll':
         specifier: file:./vendor/haoran-dsh-sidebar-autoscroll-0.1.1.tgz
         version: file:apps/desktop-server/vendor/haoran-dsh-sidebar-autoscroll-0.1.1.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-session-controller@packages+api+session-controller)
@@ -20735,9 +20735,9 @@ packages:
       react:
         optional: true
 
-  '@haoran/dsh-screenshot@file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.8.0.tgz':
-    resolution: {integrity: sha512-fKWbJL0W/su61fubQN309ddLBCD3zOrbP1nhnfZVchUXRMpIP/AJb/n0uzlLGaPiPspNtXSoJj4Uesyqcmf3VA==, tarball: file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.8.0.tgz}
-    version: 0.8.0
+  '@haoran/dsh-screenshot@file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.9.0.tgz':
+    resolution: {integrity: sha512-quLdQogq9KNQag9UgnQp/gBRBO0zVF98Y+R05fb/76VsazjcnyK8ITyEHsW8T2d22nHRhsboKZ2XieZlEuVH+Q==, tarball: file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.9.0.tgz}
+    version: 0.9.0
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.3
       '@deepseek-ai/dsh-agent': '>=0.2.0-rc.2 <0.3.0-0'
@@ -28824,7 +28824,7 @@ snapshots:
       '@deepseek-ai/schemastery': link:vendor/schemastery
       react: 18.3.1
 
-  '@haoran/dsh-screenshot@file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.8.0.tgz(ed52a9a2fb0e4b76c77e0a59ec62d67c)':
+  '@haoran/dsh-screenshot@file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.9.0.tgz(ed52a9a2fb0e4b76c77e0a59ec62d67c)':
     dependencies:
       '@deepseek-ai/cordis': link:vendor/cordis
       '@deepseek-ai/dsh-attachment': link:packages/attachment/attachment
