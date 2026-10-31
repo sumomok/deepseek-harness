@@ -25,6 +25,8 @@ import {
 import { resolveDesktopPaths } from './paths.ts'
 import { DesktopProjectManager } from './project-manager.ts'
 import { DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError } from './host-process.ts'
+import { externalOpenProblemLine, openExternalTarget, WEB_LINK_PROTOCOLS } from './external-open.ts'
+import { resolveExternalUrl } from '@deepseek-ai/dsh-external-url'
 import { DesktopPlatformView, PLATFORM_IPC, platformBounds } from './platform-view.ts'
 import { installDesktopFileDrag } from './file-drag.ts'
 import { installDesktopDirectoryPicker } from './directory-picker.ts'
@@ -242,15 +244,29 @@ function chromeFallbackFill(): string {
 }
 
 /**
+ * Hand one web target to the OS and report a refusal or launch failure on the
+ * console. The line carries no path, query, fragment, or credentials.
+ * @param target - navigation or popup target.
+ */
+function openWebExternal(target: string): void {
+  void openExternalTarget(target, WEB_LINK_PROTOCOLS).then((outcome) => {
+    if (outcome.kind === 'failed') console.error(externalOpenProblemLine(outcome))
+  })
+}
+
+/**
  * Add the effective Desktop palette to a Platform authorization URL so the
  * login page opens in the application's theme. `system` resolves through
  * `nativeTheme.shouldUseDarkColors`, which follows the theme source the
  * application preload publishes.
  * @param authorizeUrl - validated Platform authorization URL.
- * @returns the authorization URL carrying `theme=light` or `theme=dark`.
+ * @returns the authorization URL carrying `theme=light` or `theme=dark`, or
+ * undefined when the destination is not a credential-free HTTP(S) URL.
  */
-function platformLoginUrl(authorizeUrl: string): string {
-  const url = new URL(authorizeUrl)
+function platformLoginUrl(authorizeUrl: string): string | undefined {
+  const resolution = resolveExternalUrl(authorizeUrl, WEB_LINK_PROTOCOLS)
+  if (resolution.kind === 'blocked') return undefined
+  const url = new URL(resolution.url)
   url.searchParams.set('theme', nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
   return url.href
 }
@@ -289,7 +305,7 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
     },
   })
   window.webContents.setWindowOpenHandler(({ url }) => {
-    if (['http:', 'https:'].includes(new URL(url).protocol)) void shell.openExternal(url)
+    openWebExternal(url)
     return { action: 'deny' }
   })
   if (process.platform === 'darwin' || process.platform === 'win32') {
@@ -353,12 +369,27 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
     }
   })
   window.webContents.on('will-navigate', (event, url) => {
-    const destination = new URL(url)
-    const current = new URL(window.webContents.getURL())
-    if (destination.protocol !== `${SCHEME}:`
-      && !(destination.protocol === 'http:' && destination.origin === current.origin)) {
+    let destination: URL
+    try {
+      destination = new URL(url)
+    } catch {
+      // A target Chromium cannot parse is cancelled like any foreign one; the
+      // OS opener never receives it.
       event.preventDefault()
-      if (['http:', 'https:'].includes(destination.protocol)) void shell.openExternal(url)
+      return
+    }
+    let current: URL | undefined
+    try {
+      current = new URL(window.webContents.getURL())
+    } catch {
+      // The window can report an empty URL before its first load; that only
+      // means no HTTP navigation can be same-origin yet.
+      current = undefined
+    }
+    if (destination.protocol !== `${SCHEME}:`
+      && !(destination.protocol === 'http:' && current !== undefined && destination.origin === current.origin)) {
+      event.preventDefault()
+      openWebExternal(url)
     }
   })
   return window
@@ -543,7 +574,8 @@ async function main(): Promise<void> {
           const attempt = state.attempt
           if (attempt?.phase === 'waiting-browser' && attempt.authorizeUrl !== undefined && openedAttempt !== attempt.id) {
             openedAttempt = attempt.id
-            void shell.openExternal(platformLoginUrl(attempt.authorizeUrl)).catch(() => undefined)
+            const loginUrl = platformLoginUrl(attempt.authorizeUrl)
+            if (loginUrl !== undefined) openWebExternal(loginUrl)
           }
           if ((attempt?.phase === 'failed' || attempt?.phase === 'expired') && returnedAttempt !== attempt.id) {
             returnedAttempt = attempt.id
@@ -1264,7 +1296,9 @@ async function main(): Promise<void> {
           if (state?.attempt?.id !== id || state.attempt.phase !== 'waiting-browser' || state.attempt.authorizeUrl === undefined) {
             throw new Error('desktop welcome: login link is unavailable')
           }
-          await clipboard.writeText(platformLoginUrl(state.attempt.authorizeUrl))
+          const loginUrl = platformLoginUrl(state.attempt.authorizeUrl)
+          if (loginUrl === undefined) throw new Error('desktop welcome: login link is unavailable')
+          await clipboard.writeText(loginUrl)
         },
         saveApiKey: async (apiKey) => {
           if (backend.host === undefined || welcomeBackend === undefined) return { ok: false }

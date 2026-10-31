@@ -182,7 +182,14 @@ it('opens HTTPS payment links in the system browser without an embedded child wi
   expect(handler({ url: 'https://payment.example/order' })).toEqual({ action: 'deny' })
   expect(state.openExternal).toHaveBeenCalledWith('https://payment.example/order')
   vi.mocked(state.openExternal).mockClear()
-  for (const url of ['file:///tmp/test', 'javascript:alert(1)', 'https://user:pass@payment.example/order']) {
+  for (const url of [
+    'http://payment.example/order', 'mailto:dev@example.com', 'httpx://payment.example/order',
+    'file:///tmp/test', 'javascript:alert(1)', 'data:text/html,<script>alert(1)</script>',
+    'blob:https://payment.example/id', 'about:blank', 'ftp://payment.example/order', 'tel:+123',
+    'ms-settings:privacy', 'C:\\Windows', 'relative/path', 'https://',
+    'https://user:pass@payment.example/order', 'https://user@payment.example/order',
+    'https://payment\u0000.example/order', 'https://payment.example\\@evil.example/order',
+  ]) {
     expect(handler({ url })).toEqual({ action: 'deny' })
   }
   expect(state.openExternal).not.toHaveBeenCalled()

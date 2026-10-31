@@ -65,7 +65,9 @@ import { cloudRoots, iCloudSyncsDesktopAndDocuments, nodePreflightProbes, tempRo
 import { nodeMoveEffects, retireAbandonedCopies } from './move/run.ts'
 import { samePathText } from './path-text.ts'
 import { nodeLockProbes, nodeProcessProbes, stopServerTree, type TreeCheck } from './process-tree.ts'
-import { isExternalNavigationTarget, isServerNavigation } from './navigation.ts'
+import { installNavigationPolicy } from './navigation.ts'
+import { externalOpenProblemLine, openExternalTarget } from './external-open.ts'
+import { SHELL_LINK_PROTOCOLS } from './link-protocols.ts'
 import type { ListenHandoff } from './listen-socket.ts'
 import { setupNotifications, stopNotifications } from './notifications.ts'
 import { PNPM_LAUNCHER_ENV, pnpmInvocation, pnpmLauncherEnv } from './pnpm-launcher.ts'
@@ -1156,15 +1158,13 @@ function createBootWindow(receipt?: string): BootView {
       contextIsolation: true,
     },
   })
-  window.webContents.setWindowOpenHandler((details) => {
-    void shell.openExternal(details.url)
-    return { action: 'deny' }
-  })
-  window.webContents.on('will-navigate', (event, target) => {
-    if (server === undefined || !isServerNavigation(target, server.url)) {
-      event.preventDefault()
-      if (isExternalNavigationTarget(target)) void shell.openExternal(target)
-    }
+  installNavigationPolicy(window.webContents, {
+    serverUrl: () => server?.url,
+    openExternal: async (url) => {
+      const outcome = await openExternalTarget(url, SHELL_LINK_PROTOCOLS)
+      if (outcome.kind === 'failed') logLine(externalOpenProblemLine(outcome))
+    },
+    log: logLine,
   })
   guardWindowClose(window)
   attachDownloadHandling(window)

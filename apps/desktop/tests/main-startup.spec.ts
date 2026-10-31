@@ -1220,11 +1220,29 @@ describe('desktop main startup', () => {
     expect(openWindow({ url: source })).toEqual({ action: 'deny' })
     expect(harness.openExternal).toHaveBeenCalledWith(source)
     harness.openExternal.mockClear()
+    for (const url of [
+      'httpx://example.com', 'javascript:alert(1)', 'file:///etc/passwd', 'data:text/html,<script>alert(1)</script>',
+      'blob:https://example.com/id', 'about:blank', 'ftp://example.com/', 'tel:+123', 'ms-settings:privacy',
+      'C:\\Windows', 'relative/path', 'https://', 'https://user:pass@example.com/',
+    ]) {
+      expect(openWindow({ url })).toEqual({ action: 'deny' })
+    }
+    expect(harness.openExternal).not.toHaveBeenCalled()
     const external = { preventDefault: vi.fn() }
     window.webContents.emit('will-navigate', external, 'https://example.com/document')
     expect(external.preventDefault).toHaveBeenCalledOnce()
     expect(harness.openExternal).toHaveBeenCalledWith('https://example.com/document')
     harness.openExternal.mockClear()
+    for (const url of [
+      'httpx://example.com', 'javascript:alert(1)', 'file:///etc/passwd', 'data:text/html,<script>alert(1)</script>',
+      'blob:https://example.com/id', 'about:blank', 'ftp://example.com/', 'tel:+123', 'ms-settings:privacy',
+      'C:\\Windows', 'relative/path', 'https://', 'https://user:pass@example.com/', 'http://[::1',
+    ]) {
+      const blocked = { preventDefault: vi.fn() }
+      window.webContents.emit('will-navigate', blocked, url)
+      expect(blocked.preventDefault).toHaveBeenCalledOnce()
+    }
+    expect(harness.openExternal).not.toHaveBeenCalled()
     const internal = { preventDefault: vi.fn() }
     window.webContents.emit('will-navigate', internal, 'dsh-app://app/session/task-1')
     expect(internal.preventDefault).not.toHaveBeenCalled()

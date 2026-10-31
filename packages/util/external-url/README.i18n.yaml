@@ -1,0 +1,37 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/util/external-url/README.md
+/:
+  en: 7f009cb8438686fd
+  zh: 33fe77ca2c513533
+/deepseek-ai-dsh-external-url:
+  en: 3faab808a7a158a8
+  zh: 7ca0154d0ef2d16b
+/deepseek-ai-dsh-external-url/summary:
+  en: f3c2a059e0bcebf9
+  zh: c6c7d622fde03073
+/deepseek-ai-dsh-external-url/table-of-contents:
+  en: 80b31a934611cb4a
+  zh: 4ab2d2852e5054b8
+/deepseek-ai-dsh-external-url/use-this-package:
+  en: bbff250eba0f1b89
+  zh: 0a618f05cc88ee2b
+/deepseek-ai-dsh-external-url/use-this-package/when-to-use-it:
+  en: e17c33d0a1eec4d2
+  zh: c20296cc2237f002
+/deepseek-ai-dsh-external-url/use-this-package/entry-point:
+  en: 8e7d03b669dbea0f
+  zh: 9a93fa26310377dc
+/deepseek-ai-dsh-external-url/understand-the-implementation:
+  en: e8050b2119783435
+  zh: 45be155837f2d817
+/deepseek-ai-dsh-external-url/further-exploration:
+  en: d75cee806de3782c
+  zh: 4060514dd1060b71
+/deepseek-ai-dsh-external-url/known-limitations-and-deferred-work:
+  en: 1d1e2f27a5b990da
+  zh: 9df0a60cda42bc7c
+/deepseek-ai-dsh-external-url/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 8ec3e73528ddb1a6
