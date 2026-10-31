@@ -1,0 +1,36 @@
+{
+  "name": "@deepseek-ai/dsh-safe-binary-write",
+  "description": "Safe binary file write with symlink containment and TOCTOU mitigation for screenshot restore and artifact output",
+  "version": "0.2.2-alpha.2",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/util/safe-binary-write"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "test": "vitest"
+  },
+  "license": "MIT",
+  "files": [
+    "lib/**/*.js",
+    "lib/types/**/*.d.ts"
+  ],
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "fast-check": "^4.9.0"
+  }
+}
