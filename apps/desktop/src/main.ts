@@ -250,7 +250,8 @@ function chromeFallbackFill(): string {
  */
 function openWebExternal(target: string): void {
   void openExternalTarget(target, WEB_LINK_PROTOCOLS).then((outcome) => {
-    if (outcome.kind === 'failed') console.error(externalOpenProblemLine(outcome))
+    const line = externalOpenProblemLine(outcome)
+    if (line !== '') console.error(line)
   })
 }
 

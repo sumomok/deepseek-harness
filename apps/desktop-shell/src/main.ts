@@ -1162,7 +1162,8 @@ function createBootWindow(receipt?: string): BootView {
     serverUrl: () => server?.url,
     openExternal: async (url) => {
       const outcome = await openExternalTarget(url, SHELL_LINK_PROTOCOLS)
-      if (outcome.kind === 'failed') logLine(externalOpenProblemLine(outcome))
+      const line = externalOpenProblemLine(outcome)
+      if (line !== '') logLine(line)
     },
     log: logLine,
   })

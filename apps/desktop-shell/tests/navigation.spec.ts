@@ -154,6 +154,18 @@ describe('installNavigationPolicy popups', () => {
     expect(opened).not.toHaveBeenCalled()
   })
 
+  it('denies a credentialed mailto and logs only the refusal reason', () => {
+    const { contents, opened, log } = setup()
+    const target = 'mailto://user:hunter2@example.com/send?token=tok_live_123#fragment'
+    expect(contents.popup(target)).toEqual({ action: 'deny' })
+    expect(opened).not.toHaveBeenCalled()
+    expect(log).toHaveBeenCalledExactlyOnceWith('[external] blocked target: credentials\n')
+    const line = log.mock.calls[0]![0] as string
+    for (const secret of ['user', 'hunter2', 'example.com', '/send', 'token', 'tok_live_123', 'fragment']) {
+      expect(line).not.toContain(secret)
+    }
+  })
+
   it('logs an opener rejection without leaking the target query or credentials', async () => {
     const contents = new FakeContents()
     const opened = vi.fn(async () => { throw new Error('failed https://example.com/?token=secret') })

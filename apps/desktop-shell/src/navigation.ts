@@ -3,12 +3,12 @@
  * because they target the running server, which targets reach the OS's own
  * handler, and which are dropped. Every OS hand-off resolves through the
  * shared external-URL rules first, so a blocked target never reaches the
- * opener. The policy depends on no Electron type, so it is importable in a
- * unit test with a fake web contents.
+ * opener and writes one redacted log line instead. The policy depends on no
+ * Electron type, so it is importable in a unit test with a fake web contents.
  * @module @deepseek-ai/dsh-desktop-shell/navigation
  */
 
-import { resolveExternalUrl } from '@deepseek-ai/dsh-external-url'
+import { resolveExternalUrl, type ExternalUrlBlockReason } from '@deepseek-ai/dsh-external-url'
 import { SHELL_LINK_PROTOCOLS } from './link-protocols.ts'
 
 /** The part of Electron's `WebContents` the navigation policy installs on. */
@@ -52,6 +52,16 @@ export interface NavigationPolicyOptions {
 const OPEN_FAILED = '[external] opening the target failed\n'
 
 /**
+ * One refusal line. It names the resolver's stable reason, never the path,
+ * query, fragment, or credentials.
+ * @param reason - stable refusal category.
+ * @returns the redacted log line.
+ */
+function blockedLine(reason: ExternalUrlBlockReason): string {
+  return `[external] blocked target: ${reason}\n`
+}
+
+/**
  * Whether a navigation target is on the running server's origin. Both sides
  * are resolved with the shared external-URL rules and compared by parsed
  * origin: `http://127.0.0.1:P@evil.example/` starts with the server's origin
@@ -73,13 +83,17 @@ export function isServerNavigation(target: string, serverUrl: string): boolean {
 }
 
 /**
- * Resolve one navigation target and hand it to the OS only when allowed.
+ * Resolve one navigation target and hand it to the OS only when allowed. A
+ * refused target writes one redacted line instead.
  * @param target - URL the page asked to navigate to or open.
  * @param options - server source, opener, and log sink.
  */
 function handOff(target: string, options: NavigationPolicyOptions): void {
   const resolution = resolveExternalUrl(target, SHELL_LINK_PROTOCOLS)
-  if (resolution.kind === 'blocked') return
+  if (resolution.kind === 'blocked') {
+    options.log(blockedLine(resolution.reason))
+    return
+  }
   try {
     const opening = options.openExternal(resolution.url)
     if (opening !== undefined) {
@@ -97,13 +111,13 @@ function handOff(target: string, options: NavigationPolicyOptions): void {
  * Install the boot window's popup, navigation, and redirect rules.
  *
  * A popup is always denied: an allowed target goes to the OS and a blocked one
- * goes nowhere. A top-level navigation stays only on the server origin;
- * everything else is cancelled before the policy decides whether the target is
- * one the OS may open. A redirect leaves the server origin only for a main
- * frame, which is cancelled without opening the browser; a subframe redirect
- * stays with Chromium, because embedded pages legitimately follow cross-site
- * HTTP(S) redirects. Failures from the opener are logged and never surface as
- * unhandled rejections.
+ * writes one line naming only its refusal reason. A top-level navigation stays
+ * only on the server origin; everything else is cancelled before the policy
+ * decides whether the target is one the OS may open. A redirect leaves the
+ * server origin only for a main frame, which is cancelled without opening the
+ * browser; a subframe redirect stays with Chromium, because embedded pages
+ * legitimately follow cross-site HTTP(S) redirects. Failures from the opener are
+ * logged and never surface as unhandled rejections.
  * @param contents - the boot window's web contents, real or faked.
  * @param options - server source, opener, and log sink.
  */

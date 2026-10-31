@@ -1249,6 +1249,24 @@ describe('desktop main startup', () => {
     expect(harness.openExternal).not.toHaveBeenCalled()
   })
 
+  it('refuses a credentialed web link with one redacted log line', async () => {
+    await readyForUpdate()
+    const window = harness.windows[0]!
+    const openWindow = window.webContents.setWindowOpenHandler.mock.calls[0]![0] as
+      (details: { url: string }) => { action: string }
+    vi.mocked(console.error).mockClear()
+    expect(openWindow({ url: 'https://user:hunter2@example.com/send?token=tok_live_123#fragment' }))
+      .toEqual({ action: 'deny' })
+    expect(harness.openExternal).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(0)
+    const lines = vi.mocked(console.error).mock.calls.map(([line]) => String(line))
+    expect(lines).toContain('[external] blocked target: credentials\n')
+    const line = lines.find(value => value === '[external] blocked target: credentials\n') as string
+    for (const secret of ['user', 'hunter2', 'example.com', '/send', 'token', 'tok_live_123', 'fragment']) {
+      expect(line).not.toContain(secret)
+    }
+  })
+
   async function readyForUpdate() {
     await import('../src/main.ts')
     await harness.preparing.promise
