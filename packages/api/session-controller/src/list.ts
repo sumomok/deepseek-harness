@@ -19,7 +19,8 @@ import {
   SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
 } from './types.ts'
 import type {
-  SessionListMetadata, SessionProjectionHints, SessionSearchItem,
+  SessionListMetadata, SessionMessageSearchItem, SessionMessageSearchValue,
+  SessionProjectionHints, SessionSearchItem,
   SessionSearchValue, SessionSummary,
 } from './types.ts'
 
@@ -291,6 +292,121 @@ export class ApiSessionList {
           authorized.push({
             sessionId: hit.header.id,
             snippet: truncateUnicodeCodePoints(hit.bestMatch.snippet, SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS),
+          })
+        }
+        if (page.nextCursor !== undefined) {
+          if (seenCursors.has(page.nextCursor)) {
+            throw new Error('session search provider repeated a continuation cursor')
+          }
+          seenCursors.add(page.nextCursor)
+        }
+        if (authorized.length > SESSION_SEARCH_RESULT_LIMIT || page.nextCursor === undefined) break
+        cursor = page.nextCursor
+      }
+      return {
+        items: authorized.slice(0, SESSION_SEARCH_RESULT_LIMIT),
+        hasMore: authorized.length > SESSION_SEARCH_RESULT_LIMIT,
+      }
+    } catch (error: unknown) {
+      signal.throwIfAborted()
+      if (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_ABORTED') {
+        throw new RemoteError('gateway/cancelled', 'session search was aborted', {})
+      }
+      throw new RemoteError('gateway/internal', `session search failed: ${String(error)}`, {})
+    }
+  }
+
+  /**
+   * Search current visible message content and address each hit by its event.
+   *
+   * {@link search} answers "which Sessions match", which cannot open anything:
+   * its page groups events and keeps one strong hit per Session. This asks the
+   * provider for the events themselves, so a caller can open the message a
+   * snippet came from. The visibility and surface rules match {@link search},
+   * because a hit a Session list would not show must not surface here either.
+   * @param query - literal message-content query.
+   * @param signal - cancellation for list and search reads.
+   * @returns authorized bounded message search results.
+   */
+  async searchMessages(query: string, signal: AbortSignal): Promise<SessionMessageSearchValue> {
+    const normalizedQuery = normalizeSearchQuery(query)
+    signal.throwIfAborted()
+    const provider = this.ctx.get('sessionQuery')
+    if (provider === undefined) {
+      throw new RemoteError(
+        'gateway/internal',
+        'session search is unavailable: this deployment does not mount @deepseek-ai/dsh-session-query',
+        {},
+      )
+    }
+    try {
+      const visible = await provider.listSessions(signal)
+      signal.throwIfAborted()
+      const visibleIds = new Set(visible
+        .filter(record => record.header.cwd !== undefined)
+        .map(record => record.header.id))
+      if (visibleIds.size === 0) return { items: [], hasMore: false }
+      const authorized: SessionMessageSearchItem[] = []
+      const accepted = new Set<string>()
+      let cursor: SessionSearchCursor | undefined
+      const seenCursors = new Set<SessionSearchCursor>()
+      let pageLimit = SESSION_SEARCH_RESULT_LIMIT
+      let providerCalls = 0
+      while (authorized.length <= SESSION_SEARCH_RESULT_LIMIT) {
+        signal.throwIfAborted()
+        if (providerCalls >= SEARCH_PROVIDER_CALL_LIMIT) {
+          throw new Error(`session search provider exceeded the ${SEARCH_PROVIDER_CALL_LIMIT}-call work budget`)
+        }
+        providerCalls++
+        const requestedCursor = cursor
+        const requestedLimit = pageLimit
+        let page
+        try {
+          page = await provider.searchMessages({
+            query: normalizedQuery,
+            eventFilters: [
+              { kind: 'type', values: ['user/message', 'assistant/message'] },
+              { kind: 'surface', values: ['current'] },
+            ],
+            limit: requestedLimit,
+            ...(requestedCursor === undefined ? {} : { cursor: requestedCursor }),
+          }, { signal })
+          signal.throwIfAborted()
+        } catch (error: unknown) {
+          signal.throwIfAborted()
+          if (requestedCursor === undefined
+            && error instanceof SessionQueryError
+            && error.code === 'SESSION_QUERY_INVALID_LIMIT'
+            && requestedLimit > 1) {
+            pageLimit = Math.max(1, Math.floor(requestedLimit / 2))
+            continue
+          }
+          if (requestedCursor !== undefined
+            && error instanceof SessionQueryError
+            && error.code === 'SESSION_QUERY_STALE_CURSOR') {
+            authorized.length = 0
+            accepted.clear()
+            seenCursors.clear()
+            cursor = undefined
+            continue
+          }
+          throw error
+        }
+        if (page.items.length > requestedLimit) {
+          throw new Error(`session search provider returned ${String(page.items.length)} items; maximum is ${String(requestedLimit)}`)
+        }
+        for (const hit of page.items) {
+          if (authorized.length > SESSION_SEARCH_RESULT_LIMIT) continue
+          if (!visibleIds.has(hit.sessionId)
+            || hit.surface !== 'current'
+            || !MESSAGE_TYPES.has(hit.type)) continue
+          const address = `${hit.sessionId}:${String(hit.seq)}`
+          if (accepted.has(address)) continue
+          accepted.add(address)
+          authorized.push({
+            sessionId: hit.sessionId,
+            seq: hit.seq,
+            snippet: truncateUnicodeCodePoints(hit.snippet, SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS),
           })
         }
         if (page.nextCursor !== undefined) {

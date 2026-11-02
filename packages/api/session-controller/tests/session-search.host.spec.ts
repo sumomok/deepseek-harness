@@ -64,15 +64,14 @@ async function baseContext(): Promise<Context> {
 
 /** Real query core with a programmable full-text provider for Host search tests. */
 class SearchSessionQuery extends SessionQueryEngine {
-
-  override searchMessages(): Promise<never> {
-    throw new Error('this fake implements no message-granularity search')
-  }
   constructor(
     ctx: Context,
     private readonly search: (
       ...args: Parameters<SessionQueryEngine['searchSessions']>
     ) => Promise<unknown>,
+    private readonly searchMessage: (
+      ...args: Parameters<SessionQueryEngine['searchMessages']>
+    ) => Promise<unknown> = () => Promise.reject(new Error('message search is not configured in this test')),
   ) {
     super(ctx)
   }
@@ -81,6 +80,12 @@ class SearchSessionQuery extends SessionQueryEngine {
     ...args: Parameters<SessionQueryEngine['searchSessions']>
   ): ReturnType<SessionQueryEngine['searchSessions']> {
     return this.search(...args) as ReturnType<SessionQueryEngine['searchSessions']>
+  }
+
+  override searchMessages(
+    ...args: Parameters<SessionQueryEngine['searchMessages']>
+  ): ReturnType<SessionQueryEngine['searchMessages']> {
+    return this.searchMessage(...args) as ReturnType<SessionQueryEngine['searchMessages']>
   }
 
   override searchEvents(): Promise<never> {
@@ -93,9 +98,71 @@ function installSearchQuery(
   searchSessions: (
     ...args: Parameters<SessionQueryEngine['searchSessions']>
   ) => Promise<unknown>,
+  searchMessages?: (
+    ...args: Parameters<SessionQueryEngine['searchMessages']>
+  ) => Promise<unknown>,
 ): void {
-  new SearchSessionQuery(ctx, searchSessions)
+  new SearchSessionQuery(ctx, searchSessions, searchMessages)
 }
+
+describe('session.searchMessages', () => {
+  it('addresses every matching message by its Session and event position', async () => {
+    const ctx = await baseContext()
+    const live = ctx.sessions.create(sid('live'), { meta: header('live', '/live') })
+    ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
+      list: () => Promise.resolve([]),
+    }) as never)
+
+    const searchMessages = vi.fn(() => Promise.resolve({
+      items: [
+        { sessionId: live.id, seq: SessionSeq(3), type: 'user/message', time: 1, surface: 'current', snippet: 'alpha' },
+        { sessionId: live.id, seq: SessionSeq(7), type: 'assistant/message', time: 2, surface: 'current', snippet: 'beta' },
+      ],
+    }))
+    installSearchQuery(ctx, () => Promise.reject(new Error('session search is not used here')), searchMessages)
+    const list = new ApiSessionList(ctx, 8)
+    await list.initialize()
+
+    await expect(list.searchMessages('query', new AbortController().signal)).resolves.toEqual({
+      items: [
+        { sessionId: live.id, seq: SessionSeq(3), snippet: 'alpha' },
+        { sessionId: live.id, seq: SessionSeq(7), snippet: 'beta' },
+      ],
+      hasMore: false,
+    })
+    expect(searchMessages).toHaveBeenCalledOnce()
+    await ctx.fiber.dispose()
+  })
+
+  it('drops hits the caller cannot see, or that are not current conversation messages', async () => {
+    const ctx = await baseContext()
+    const live = ctx.sessions.create(sid('live'), { meta: header('live', '/live') })
+    ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
+      list: () => Promise.resolve([]),
+    }) as never)
+
+    installSearchQuery(
+      ctx,
+      () => Promise.reject(new Error('session search is not used here')),
+      () => Promise.resolve({
+        items: [
+          { sessionId: live.id, seq: SessionSeq(1), type: 'user/message', time: 1, surface: 'current', snippet: 'kept' },
+          { sessionId: live.id, seq: SessionSeq(2), type: 'user/message', time: 2, surface: 'shadowed', snippet: 'compacted away' },
+          { sessionId: live.id, seq: SessionSeq(3), type: 'tool/call', time: 3, surface: 'current', snippet: 'tool noise' },
+          { sessionId: sid('hidden'), seq: SessionSeq(4), type: 'user/message', time: 4, surface: 'current', snippet: 'other session' },
+        ],
+      }),
+    )
+    const list = new ApiSessionList(ctx, 8)
+    await list.initialize()
+
+    await expect(list.searchMessages('query', new AbortController().signal)).resolves.toEqual({
+      items: [{ sessionId: live.id, seq: SessionSeq(1), snippet: 'kept' }],
+      hasMore: false,
+    })
+    await ctx.fiber.dispose()
+  })
+})
 
 describe('session.search', () => {
   it('rejects search when the query service is absent', async () => {

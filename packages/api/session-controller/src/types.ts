@@ -8,7 +8,7 @@ import type {
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { LlmAttemptId, MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { LlmModelBadge, TextBlock } from '@deepseek-ai/dsh-llm'
-import type { SessionId, SessionSeqCursor } from '@deepseek-ai/dsh-session/types'
+import type { SessionId, SessionSeq, SessionSeqCursor } from '@deepseek-ai/dsh-session/types'
 import type { SessionProjectionMap, SessionProjectionSummaryExcluded, SessionProjectionSummaryValues } from '@deepseek-ai/dsh-session-projection/types'
 import type { Principal } from '@deepseek-ai/dsh-typert-protocol'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
@@ -260,6 +260,22 @@ export interface SessionSearchRequest {
 /** Session search response value. */
 export interface SessionSearchValue {
   readonly items: readonly SessionSearchItem[]
+  readonly hasMore: boolean
+}
+
+/** One message-content search result addressed by the Session and event it came from. */
+export interface SessionMessageSearchItem {
+  /** Session that owns the matching event. */
+  readonly sessionId: SessionId
+  /** Event position inside that Session, which is what opens the message. */
+  readonly seq: SessionSeq
+  /** Bounded plain-text excerpt around the match. */
+  readonly snippet: string
+}
+
+/** Message-level search response value, spanning Sessions and keeping every match. */
+export interface SessionMessageSearchValue {
+  readonly items: readonly SessionMessageSearchItem[]
   readonly hasMore: boolean
 }
 
