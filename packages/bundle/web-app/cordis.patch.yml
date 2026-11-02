@@ -394,6 +394,11 @@
     - id: ui-jobs
       name: '@deepseek-ai/dsh-client-ui-jobs'
 
+    # Workspace-wide message search: one overlay reading the Host's indexed
+    # message search page by page, opened from the page shortcut.
+    - id: ui-search
+      name: '@deepseek-ai/dsh-client-ui-search'
+
     # Task management and Session reminder catalog over the Host Schedule
     # service mounted above.
     - id: ui-schedule

@@ -83,6 +83,7 @@ function fakeSessions(ctx: Context): { sessions: ISessions; binding: SessionBind
   const sessions: ISessions = {
     list,
     searchResultLimit: 50,
+    searchMessages: async () => ({ ok: true, value: { items: [] } }),
     create: () => Promise.reject(new Error('unused fake Sessions operation')),
     retain: () => reference,
     using: async (_target, _options, operation) => await operation(reference),

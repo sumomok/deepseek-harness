@@ -19,7 +19,10 @@ import type { SessionReferenceSource } from '../index.ts'
 import { createScope, scopeIdentityOf, scopeOf as scopeTagOf } from '../scope.ts'
 import { SessionManager } from './manager.ts'
 import type { SessionRemotes } from './remotes.ts'
-import type { SessionListPhase, SessionSearchResultItem, SessionProjectionSnapshot } from './manager.ts'
+import type {
+  SessionListPhase, SessionSearchResultItem, SessionProjectionSnapshot,
+} from './manager.ts'
+import type { SessionMessageSearchRequest, SessionMessageSearchValue } from '../../types.ts'
 import type { Session } from './session.ts'
 import type { SessionListEntry } from './lineage.ts'
 
@@ -373,6 +376,19 @@ export class ClientSessions implements ISessions {
     signal: AbortSignal,
   ): Promise<RemoteResult<{ items: SessionSearchResultItem[]; hasMore: boolean }>> {
     return this.manager.search(query, signal)
+  }
+
+  /**
+   * Contract session.searchMessages; one page under the caller's cursor.
+   * @param request - phrase and continuation cursor.
+   * @param signal - cancellation for a superseded search.
+   * @returns the page or a business/transport error.
+   */
+  searchMessages(
+    request: SessionMessageSearchRequest,
+    signal: AbortSignal,
+  ): Promise<RemoteResult<SessionMessageSearchValue>> {
+    return this.manager.searchMessages(request, signal)
   }
 
   /**

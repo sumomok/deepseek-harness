@@ -15,6 +15,11 @@ import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/t
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-store'
+
+/** Message-search request as the client contract names it. */
+type SessionMessageSearchQuery = Parameters<ISessions['searchMessages']>[0]
+/** Message-search page as the client contract names it. */
+type SessionMessageSearchPage = Extract<Awaited<ReturnType<ISessions['searchMessages']>>, { ok: true }>['value']
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { sessionSnapshot } from './fixtures.ts'
 import type {
@@ -311,7 +316,7 @@ export class TestSessions implements ISessions {
 
   /** Calls observed on the service-level face, newest last. */
   readonly calls: {
-    method: 'create' | 'refreshProjections' | 'refresh' | 'search' | 'fork'
+    method: 'create' | 'refreshProjections' | 'refresh' | 'search' | 'searchMessages' | 'fork'
     args: unknown[]
   }[] = []
 
@@ -320,6 +325,7 @@ export class TestSessions implements ISessions {
 
   /** Replaceable search behavior (see {@link TestSessions.stubSearch}). */
   private searchStub: ((query: string, signal: AbortSignal) => { items: SessionSearchResultItem[]; hasMore: boolean }) | undefined
+  private messageSearchStub: ((request: SessionMessageSearchQuery) => SessionMessageSearchPage) | undefined
   private createStub: ((opts: Parameters<ISessions['create']>[0]) => Promise<SessionId>) | undefined
 
   /**
@@ -659,6 +665,14 @@ export class TestSessions implements ISessions {
   }
 
   /**
+   * Declare the page a message search answers with.
+   * @param impl - page builder, called with the request the client sent.
+   */
+  stubMessageSearch(impl: (request: SessionMessageSearchQuery) => SessionMessageSearchPage): void {
+    this.messageSearchStub = impl
+  }
+
+  /**
    * Content search over the fixture corpus (recorded). The default answers an
    * empty page: content ranking is Host behavior, so a scenario that asserts
    * hits declares them through {@link TestSessions.stubSearch}.
@@ -669,6 +683,22 @@ export class TestSessions implements ISessions {
   search(query: string, signal: AbortSignal): ReturnType<ISessions['search']> {
     this.calls.push({ method: 'search', args: [query, signal] })
     return Promise.resolve({ ok: true, value: this.searchStub?.(query, signal) ?? { items: [], hasMore: false } })
+  }
+
+  /**
+   * Message search over the fixture corpus (recorded). The default answers one
+   * empty page: hit ranking is Host behavior, so a scenario that asserts rows
+   * declares them through {@link TestSessions.stubMessageSearch}.
+   * @param request - phrase and the continuation cursor the caller forwards.
+   * @param signal - cancellation for a superseded read (recorded and forwarded).
+   * @returns the stubbed or empty page.
+   */
+  searchMessages(
+    request: SessionMessageSearchQuery,
+    signal: AbortSignal,
+  ): ReturnType<ISessions['searchMessages']> {
+    this.calls.push({ method: 'searchMessages', args: [request, signal] })
+    return Promise.resolve({ ok: true, value: this.messageSearchStub?.(request) ?? { items: [] } })
   }
 
   /**

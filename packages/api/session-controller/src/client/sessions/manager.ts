@@ -7,6 +7,8 @@ import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type {
   SessionControlBaseline,
   SessionControlFrame,
+  SessionMessageSearchRequest,
+  SessionMessageSearchValue,
   SessionProjectionHints,
   SessionRenameValue,
   SessionSummary,
@@ -501,6 +503,21 @@ export class SessionManager {
         hasMore: result.value.hasMore,
       },
     }
+  }
+
+  /**
+   * Read one page of the Host's visible message-content index, addressed by
+   * event rather than by Session. Results stay request-local; paging belongs to
+   * the caller's own cursor.
+   * @param request - literal phrase and the previous page's cursor, if any.
+   * @param signal - cancellation for a superseded search.
+   * @returns this page's authorized hits, or a business/transport error.
+   */
+  async searchMessages(
+    request: SessionMessageSearchRequest,
+    signal: AbortSignal,
+  ): Promise<RemoteResult<SessionMessageSearchValue>> {
+    return this.remote.session.searchMessages(request, signal)
   }
 
   /**

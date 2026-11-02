@@ -11,6 +11,7 @@ import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { AgentContext } from '../scope.ts'
 import type { SessionSearchResultItem } from '../sessions/manager.ts'
+import type { SessionMessageSearchRequest, SessionMessageSearchValue } from '../../types.ts'
 import type { SessionBinding, SessionListState } from '../sessions/service.ts'
 import type { SessionFace } from './session.ts'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
@@ -121,6 +122,18 @@ export interface ISessions {
     query: string,
     signal: AbortSignal,
   ): Promise<RemoteResult<{ items: SessionSearchResultItem[]; hasMore: boolean }>>
+  /**
+   * Read one page of the Host's visible message-content index. Each hit names
+   * the Session and the event it came from, so a caller can open the message
+   * rather than only its Session.
+   * @param request - literal phrase and the previous page's cursor, if any.
+   * @param signal - cancellation for a superseded search.
+   * @returns this page's hits with the cursor for the next one, or an error.
+   */
+  searchMessages(
+    request: SessionMessageSearchRequest,
+    signal: AbortSignal,
+  ): Promise<RemoteResult<SessionMessageSearchValue>>
   /**
    * Fork a session from an exact inclusive prefix of the source; on
    * resolution the child is catalogued and can be explicitly retained.
