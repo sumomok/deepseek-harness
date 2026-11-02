@@ -1217,7 +1217,17 @@ function createBootWindow(receipt?: string): BootView {
     },
   })
   const stopShortcuts = attachShortcuts(window)
-  window.once('closed', stopShortcuts)
+  // Prefer `close` so the keyboard disposer can detach while webContents still
+  // exists; `closed` is the fallback if something destroyed the window without
+  // a close (the disposer itself no-ops once destroyed).
+  let shortcutsStopped = false
+  const endShortcuts = (): void => {
+    if (shortcutsStopped) return
+    shortcutsStopped = true
+    stopShortcuts()
+  }
+  window.once('close', endShortcuts)
+  window.once('closed', endShortcuts)
   window.webContents.setWindowOpenHandler((details) => {
     void shell.openExternal(details.url)
     return { action: 'deny' }

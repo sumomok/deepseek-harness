@@ -10,9 +10,13 @@ import { SHORTCUT_CHANNELS } from '../src/shortcut-channels.ts'
 function fakeWindow() {
   const listeners: ((event: unknown, input: unknown) => void)[] = []
   const sent: unknown[] = []
+  let destroyed = false
   return {
     sent,
+    isDestroyed: () => destroyed,
+    destroy: () => { destroyed = true },
     webContents: {
+      isDestroyed: () => destroyed,
       on: (_channel: string, listener: (event: unknown, input: unknown) => void) => { listeners.push(listener) },
       off: (_channel: string, listener: (event: unknown, input: unknown) => void) => {
         const index = listeners.indexOf(listener)
@@ -53,6 +57,16 @@ describe('desktop shortcut bridge', () => {
     installKeyboard(window as never, () => undefined)
     window.press({ type: 'keyDown', code: 'KeyK', control: false, alt: false, shift: false, meta: true, isAutoRepeat: false, isComposing: false })
     expect(window.sent).toEqual([])
+  })
+
+
+  it('ignores send and dispose after the window is destroyed', () => {
+    const window = fakeWindow()
+    const stop = installKeyboard(window as never, () => 'rev-1' as never)
+    window.destroy()
+    window.press({ type: 'keyDown', code: 'KeyK', control: false, alt: false, shift: false, meta: true, isAutoRepeat: false, isComposing: false })
+    expect(window.sent).toEqual([])
+    expect(() => { stop() }).not.toThrow()
   })
 
   it('reads and edits the device configuration through one store', async () => {
