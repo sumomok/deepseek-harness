@@ -247,7 +247,14 @@ export interface SessionSearchPage<T> {
   items: readonly T[]
   /** Opaque continuation cursor, absent on the final page. */
   nextCursor?: SessionSearchCursor
-  /** Coverage of the indexed generation this page was read from. */
+  /**
+   * Coverage of the indexed generation this page was read from.
+   *
+   * Absent means the provider reported nothing about it, which is not
+   * `complete`; a caller that needs the distinction must read absence as
+   * unknown. The count covers the whole observed corpus, not the Sessions this
+   * particular caller may see.
+   */
   coverage?: SessionSearchCoverage
 }
 

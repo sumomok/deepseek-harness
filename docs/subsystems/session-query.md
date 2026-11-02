@@ -188,12 +188,35 @@ interface SessionEventSearchRequest {
 ```
 
 ```ts type-equiv
+/** How much of the logical corpus the indexed generation behind one page covers. */
+interface SessionSearchCoverage {
+  /**
+   * `complete` when every Session in the observed corpus is indexed, `partial`
+   * when at least one could not be read. A partial page cannot answer "this
+   * does not exist", only "this was not found where it could be looked for".
+   */
+  status: 'complete' | 'partial'
+  /** Sessions the indexed generation could not read. */
+  skippedSessions: number
+}
+```
+
+```ts type-equiv
 /** One cursor-paginated result page. */
 interface SessionSearchPage<T> {
   /** Results for this page in contract-defined order. */
   items: readonly T[]
   /** Opaque continuation cursor, absent on the final page. */
   nextCursor?: SessionSearchCursor
+  /**
+   * Coverage of the indexed generation this page was read from.
+   *
+   * Absent means the provider reported nothing about it, which is not
+   * `complete`; a caller that needs the distinction must read absence as
+   * unknown. The count covers the whole observed corpus, not the Sessions this
+   * particular caller may see.
+   */
+  coverage?: SessionSearchCoverage
 }
 ```
 
@@ -208,10 +231,28 @@ interface SessionEventSearchPage extends SessionSearchPage<SessionEventSearchHit
 ```
 
 ```ts type-equiv
+/** One matched span inside a search excerpt, in UTF-16 code units of that excerpt. */
+interface SessionEventMatchRange {
+  /** Offset of the first matched code unit. */
+  start: number
+  /** Length of the match in code units. */
+  length: number
+}
+```
+
+```ts type-equiv
 /** One event full-text search hit with a bounded plain-text excerpt. */
 interface SessionEventSearchHit extends SessionEventRecord {
   /** Plain text excerpt selected around the match. */
   snippet: string
+  /**
+   * Matched spans inside `snippet`, in UTF-16 code units of that string.
+   *
+   * The provider reports them because it is the only layer that sees the
+   * index's own marking; a renderer cannot recover the spans from the excerpt
+   * after whitespace normalization and case folding.
+   */
+  matches?: readonly SessionEventMatchRange[]
 }
 ```
 
