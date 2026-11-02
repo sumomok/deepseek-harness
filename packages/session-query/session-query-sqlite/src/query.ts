@@ -7,9 +7,11 @@ import {
 } from '@deepseek-ai/dsh-session-query'
 import type {
   SessionAvailability,
+  SessionEventMatchRange,
   SessionEventMetadataFilter,
   SessionEventResultFilter,
   SessionEventSearchRequest,
+  SessionEventSnippet,
   SessionResultFilter,
   SessionSearchCursor,
   SessionSearchRequest,
@@ -266,11 +268,23 @@ export function requestFingerprint(request: NormalizedSessionRequest | Normalize
  * @param maxChars - maximum result length in Unicode code points.
  * @returns bounded plain-text snippet.
  */
-export function makeSnippet(markedText: string, maxChars: number): string {
-  const { text: clean, matchStart } = normalizeMarkedText(markedText)
+export function makeSnippet(markedText: string, maxChars: number): SessionEventSnippet {
+  const { text: clean, matches } = normalizeMarkedText(markedText)
   const characters = Array.from(clean)
-  if (characters.length <= maxChars) return clean
-  if (maxChars === 1) return '…'
+  const matchStart = matches[0]?.start ?? 0
+  const window = (start: number, end: number): SessionEventSnippet => ({
+    snippet: `${start > 0 ? '…' : ''}${characters.slice(start, end).join('')}${end < characters.length ? '…' : ''}`,
+    matches: matches
+      .filter(match => match.start >= start && match.start < end)
+      .map(match => ({
+        // Positions are reported in UTF-16 code units of the returned snippet,
+        // which is what a renderer slicing that string needs.
+        start: (start > 0 ? 1 : 0) + characters.slice(start, match.start).join('').length,
+        length: characters.slice(match.start, match.start + match.length).join('').length,
+      })),
+  })
+  if (characters.length <= maxChars) return window(0, characters.length)
+  if (maxChars === 1) return { snippet: '…', matches: [] }
   const matchedIndex = Math.min(matchStart, characters.length - 1)
   let start = Math.max(0, matchedIndex - Math.floor(maxChars / 3))
   const prefix = start > 0 ? '…' : ''
@@ -290,28 +304,41 @@ export function makeSnippet(markedText: string, maxChars: number): string {
     start = Math.max(0, end - contentLength)
   }
   end = Math.min(characters.length, start + contentLength)
-  return `${prefix}${characters.slice(start, end).join('')}${suffix}`
+  const trimmed = window(start, end)
+  return suffix === '' && end === characters.length
+    ? trimmed
+    : { snippet: trimmed.snippet, matches: trimmed.matches }
 }
 
-function normalizeMarkedText(markedText: string): { text: string; matchStart: number } {
+function normalizeMarkedText(markedText: string): { text: string; matches: SessionEventMatchRange[] } {
   const characters: string[] = []
-  let matchStart: number | undefined
+  const matches: SessionEventMatchRange[] = []
+  let opening: number | undefined
   for (const character of markedText) {
     if (character === FTS_HIGHLIGHT_START) {
-      matchStart ??= characters.length
+      opening = characters.length
       continue
     }
-    if (character === FTS_HIGHLIGHT_END) continue
+    if (character === FTS_HIGHLIGHT_END) {
+      if (opening !== undefined && characters.length > opening) {
+        matches.push({ start: opening, length: characters.length - opening })
+      }
+      opening = undefined
+      continue
+    }
     if (/\s/u.test(character)) {
       if (characters.length > 0 && characters.at(-1) !== ' ') characters.push(' ')
     } else {
       characters.push(character)
     }
   }
+  if (opening !== undefined && characters.length > opening) {
+    matches.push({ start: opening, length: characters.length - opening })
+  }
   if (characters.at(-1) === ' ') characters.pop()
   return {
     text: characters.join(''),
-    matchStart: matchStart ?? 0,
+    matches,
   }
 }
 

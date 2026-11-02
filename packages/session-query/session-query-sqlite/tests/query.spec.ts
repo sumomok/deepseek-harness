@@ -249,14 +249,36 @@ describe('SQLite query identity and presentation', () => {
   })
 
   it('normalizes, bounds, and positions snippets by Unicode code point', () => {
-    expect(makeSnippet('  short\ntext  ', 20)).toBe('short text')
-    expect(makeSnippet(`abcde${FTS_HIGHLIGHT_START}f${FTS_HIGHLIGHT_END}`, 1)).toBe('…')
-    expect(makeSnippet('abcdefghij', 5)).toBe('abcd…')
-    expect(makeSnippet(`ab${FTS_HIGHLIGHT_START}c${FTS_HIGHLIGHT_END}defghij`, 5)).toBe('…bcd…')
-    expect(makeSnippet(`ab${FTS_HIGHLIGHT_START}c${FTS_HIGHLIGHT_END}defghij`, 3)).toBe('…c…')
-    expect(makeSnippet(`abcde${FTS_HIGHLIGHT_START}f${FTS_HIGHLIGHT_END}`, 2)).toBe('…f')
-    expect(makeSnippet(`abcde${FTS_HIGHLIGHT_START}f${FTS_HIGHLIGHT_END}`, 5)).toBe('…cdef')
-    expect(makeSnippet(`  x—${FTS_HIGHLIGHT_START}café${FTS_HIGHLIGHT_END}\n y  `, 20))
-      .toBe('x—café y')
+    const text = (marked: string, maxChars: number): string => makeSnippet(marked, maxChars).snippet
+    expect(text('  short\ntext  ', 20)).toBe('short text')
+    expect(text(`abcde${FTS_HIGHLIGHT_START}f${FTS_HIGHLIGHT_END}`, 1)).toBe('…')
+    expect(text('abcdefghij', 5)).toBe('abcd…')
+    expect(text(`ab${FTS_HIGHLIGHT_START}c${FTS_HIGHLIGHT_END}defghij`, 5)).toBe('…bcd…')
+    expect(text(`ab${FTS_HIGHLIGHT_START}c${FTS_HIGHLIGHT_END}defghij`, 3)).toBe('…c…')
+    expect(text(`abcde${FTS_HIGHLIGHT_START}f${FTS_HIGHLIGHT_END}`, 2)).toBe('…f')
+    expect(text(`abcde${FTS_HIGHLIGHT_START}f${FTS_HIGHLIGHT_END}`, 5)).toBe('…cdef')
+    expect(text(`  x—${FTS_HIGHLIGHT_START}café${FTS_HIGHLIGHT_END}\n y  `, 20))
+      .toBe('x—café y')
+  })
+
+  it('reports every matched span inside the excerpt it returns', () => {
+    const excerpt = makeSnippet(
+      `${FTS_HIGHLIGHT_START}Ab${FTS_HIGHLIGHT_END} and ${FTS_HIGHLIGHT_START}cd${FTS_HIGHLIGHT_END} tail`,
+      40,
+    )
+    expect(excerpt.snippet).toBe('Ab and cd tail')
+    // Offsets index the returned string, so a renderer can slice it directly.
+    expect(excerpt.matches.map(range => excerpt.snippet.slice(range.start, range.start + range.length)))
+      .toEqual(['Ab', 'cd'])
+
+    // An excerpt that starts mid-text keeps the prefix ellipsis out of the
+    // matched text, and a match outside the window drops out entirely.
+    const clipped = makeSnippet(
+      `0123456789 ${FTS_HIGHLIGHT_START}needle${FTS_HIGHLIGHT_END} tail ${FTS_HIGHLIGHT_START}late${FTS_HIGHLIGHT_END}`,
+      16,
+    )
+    const shown = clipped.matches.map(range => clipped.snippet.slice(range.start, range.start + range.length))
+    expect(shown).toEqual(['needle'])
+    expect(clipped.snippet).toContain('needle')
   })
 })

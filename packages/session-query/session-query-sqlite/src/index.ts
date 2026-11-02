@@ -33,6 +33,7 @@ import type {
   SessionEventSearchPage,
   SessionEventSearchRequest,
   SessionMessageSearchRequest,
+  SessionSearchCoverage,
   SessionSearchExecContext,
   SessionSearchHit,
   SessionSearchCursor as SessionSearchCursorValue,
@@ -389,15 +390,33 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       const { offset, generation, fingerprint, persistenceBinding } =
         await this._beginCrossSessionPage(normalized, 'messages', signal)
       const rows = this._queryMessages(normalized, offset, persistenceBinding)
-      return page(rows, normalized.limit, row => this._eventHit(row), cursorOffset => encodeCursor({
-        version: 1,
-        instance: this._instance,
-        scope: 'messages',
-        fingerprint,
-        generation,
-        offset: cursorOffset,
-      }), offset)
+      return {
+        ...page(rows, normalized.limit, row => this._eventHit(row), cursorOffset => encodeCursor({
+          version: 1,
+          instance: this._instance,
+          scope: 'messages',
+          fingerprint,
+          generation,
+          offset: cursorOffset,
+        }), offset),
+        coverage: this._coverage(),
+      }
     })
+  }
+
+  /**
+   * Report how much of the observed corpus this indexed generation covers.
+   *
+   * A Session the read or extraction failed on is skipped rather than failing
+   * the whole page, so a caller that only sees items cannot distinguish "no
+   * match" from "not looked at". This is the only place that can.
+   * @returns complete coverage, or the count that made it partial.
+   */
+  private _coverage(): SessionSearchCoverage {
+    const skipped = this._unreadable.size
+    return skipped === 0
+      ? { status: 'complete', skippedSessions: 0 }
+      : { status: 'partial', skippedSessions: skipped }
   }
 
   /** Close the database after every accepted operation reaches quiescence. */
@@ -916,13 +935,15 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
   }
 
   private _eventHit(row: SearchRow): SessionEventSearchHit {
+    const { snippet, matches } = makeSnippet(row.marked_text, this.config.snippetChars)
     return {
       sessionId: row.session_id as SessionId,
       seq: SessionSeq(row.seq),
       type: row.type as SessionEventSearchHit['type'],
       time: row.time,
       surface: row.surface as SessionEventSearchHit['surface'],
-      snippet: makeSnippet(row.marked_text, this.config.snippetChars),
+      snippet,
+      matches,
     }
   }
 

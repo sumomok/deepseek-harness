@@ -407,6 +407,53 @@ describe('SQLite session search', () => {
     })).rejects.toMatchObject({ code: 'SESSION_QUERY_INVALID_CURSOR' })
   })
 
+  it('reports a message page as partial while a stored Session stays unreadable', async () => {
+    const readable = header('readable-log')
+    const broken = header('broken-log')
+    TestPersistence.reset([
+      { meta: readable, events: messageEvents('readable needle') },
+      { meta: broken, events: messageEvents('broken needle') },
+    ])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    TestPersistence.readFailures.set(broken.id, new Error('torn record at line 7'))
+
+    const page = await ctx.sessionQuery.searchMessages({ query: 'needle' })
+    expect(page.items.map(item => item.sessionId)).toEqual([readable.id])
+    // "No match" and "not looked at" read identically in `items`; only this
+    // field separates them.
+    expect(page.coverage).toEqual({ status: 'partial', skippedSessions: 1 })
+  })
+
+  it('refuses a message cursor in another scope or under a changed request', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('cursor-scope'))
+    for (const text of ['needle a', 'needle bb', 'needle ccc']) {
+      session.append(
+        'user/message',
+        createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }),
+        { surfaceOp: 'append' },
+      )
+    }
+
+    const first = await ctx.sessionQuery.searchMessages({ query: 'needle', limit: 1 })
+    const cursor = first.nextCursor
+    if (cursor === undefined) throw new Error('a one-item page of three matches must offer a continuation')
+
+    // The scope, the query, and the page size are all part of the cursor's
+    // identity: continuing under a different one would silently mix pages.
+    await expect(ctx.sessionQuery.searchEvents({
+      sessionId: session.id, query: 'needle', limit: 1, cursor,
+    })).rejects.toMatchObject({ code: 'SESSION_QUERY_INVALID_CURSOR' })
+    await expect(ctx.sessionQuery.searchMessages({
+      query: 'other', limit: 1, cursor,
+    })).rejects.toMatchObject({ code: 'SESSION_QUERY_INVALID_CURSOR' })
+    await expect(ctx.sessionQuery.searchMessages({
+      query: 'needle', limit: 2, cursor,
+    })).rejects.toMatchObject({ code: 'SESSION_QUERY_INVALID_CURSOR' })
+  })
+
   it('searches two-character Unicode61 tokens in live-only sessions', async () => {
     const ctx = await liveContext({ path: ':memory:', snippetChars: 20 })
     const session = ctx.sessions.create(SessionId('live'), {

@@ -229,12 +229,26 @@ export interface SessionEventSearchDocument extends SessionEventRecord {
   text: string
 }
 
+/** How much of the logical corpus the indexed generation behind one page covers. */
+export interface SessionSearchCoverage {
+  /**
+   * `complete` when every Session in the observed corpus is indexed, `partial`
+   * when at least one could not be read. A partial page cannot answer "this
+   * does not exist", only "this was not found where it could be looked for".
+   */
+  status: 'complete' | 'partial'
+  /** Sessions the indexed generation could not read. */
+  skippedSessions: number
+}
+
 /** One cursor-paginated result page. */
 export interface SessionSearchPage<T> {
   /** Results for this page in contract-defined order. */
   items: readonly T[]
   /** Opaque continuation cursor, absent on the final page. */
   nextCursor?: SessionSearchCursor
+  /** Coverage of the indexed generation this page was read from. */
+  coverage?: SessionSearchCoverage
 }
 
 /** Event-search results bound to the indexed target-session observation. */
@@ -277,10 +291,34 @@ export interface SessionEventSearchRequest {
   cursor?: SessionSearchCursor
 }
 
+/** One matched span inside a search excerpt, in UTF-16 code units of that excerpt. */
+export interface SessionEventMatchRange {
+  /** Offset of the first matched code unit. */
+  start: number
+  /** Length of the match in code units. */
+  length: number
+}
+
 /** One event full-text search hit with a bounded plain-text excerpt. */
 export interface SessionEventSearchHit extends SessionEventRecord {
   /** Plain text excerpt selected around the match. */
   snippet: string
+  /**
+   * Matched spans inside `snippet`, in UTF-16 code units of that string.
+   *
+   * The provider reports them because it is the only layer that sees the
+   * index's own marking; a renderer cannot recover the spans from the excerpt
+   * after whitespace normalization and case folding.
+   */
+  matches?: readonly SessionEventMatchRange[]
+}
+
+/** A bounded excerpt and the spans inside it that matched. */
+export interface SessionEventSnippet {
+  /** Plain text excerpt selected around the match. */
+  snippet: string
+  /** Matched spans inside `snippet`, in UTF-16 code units of that string. */
+  matches: readonly SessionEventMatchRange[]
 }
 
 /**
