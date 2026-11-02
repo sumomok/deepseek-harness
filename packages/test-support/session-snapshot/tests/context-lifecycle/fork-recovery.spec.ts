@@ -17,6 +17,10 @@ import { Microcompact } from '../../../../compaction/compaction-microcompact/src
 
 const MODEL = 'fork-recovery'
 class Query extends SessionQueryEngine {
+
+  override searchMessages(): Promise<never> {
+    throw new Error('this fake implements no message-granularity search')
+  }
   override searchSessions(): Promise<{ items: never[] }> { return Promise.resolve({ items: [] }) }
   override searchEvents(
     request: SessionEventSearchRequest,

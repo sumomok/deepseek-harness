@@ -24,6 +24,10 @@ export interface CatalogReport {
 }
 
 class CatalogQuery extends SessionQueryEngine {
+
+  override searchMessages(): Promise<never> {
+    throw new Error('this fake implements no message-granularity search')
+  }
   override searchSessions(): Promise<never> {
     return Promise.reject(new Error('search is outside the child-catalog benchmark'))
   }

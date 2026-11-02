@@ -10,6 +10,10 @@ import type {
 
 /** Test-only concrete query service for backend-independent behavior. */
 export class TestSessionQueryEngine extends SessionQueryEngine {
+
+  override searchMessages(): Promise<never> {
+    throw new Error('this fake implements no message-granularity search')
+  }
   override searchSessions(
     _request: SessionSearchRequest,
     _exec?: SessionSearchExecContext,

@@ -19,6 +19,10 @@ import { ToolCallId as CallId } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it } from 'vitest'
 
 class Query extends SessionQueryEngine {
+
+  override searchMessages(): Promise<never> {
+    throw new Error('this fake implements no message-granularity search')
+  }
   override searchSessions(): Promise<{ items: never[] }> { return Promise.resolve({ items: [] }) }
   override searchEvents(_request: SessionEventSearchRequest, _exec?: SessionSearchExecContext): Promise<SessionEventSearchPage> {
     return Promise.resolve({ session: { version: 4, id: SessionId('missing'), createdAt: 1, isSeeded: false }, items: [] })

@@ -25,6 +25,10 @@ import { Microcompact } from '../../../../compaction/compaction-microcompact/src
 const MODEL = 'test-model'
 
 class Query extends SessionQueryEngine {
+
+  override searchMessages(): Promise<never> {
+    throw new Error('this fake implements no message-granularity search')
+  }
   override searchSessions(
     _request: SessionSearchRequest,
     _exec?: SessionSearchExecContext,

@@ -393,7 +393,7 @@ describe('SQLite session search', () => {
     const rest = await ctx.sessionQuery.searchMessages({
       query: 'needle',
       limit: 2,
-      cursor: first.nextCursor,
+      ...first.nextCursor === undefined ? {} : { cursor: first.nextCursor },
     })
     expect(rest.items.map(hit => hit.seq)).toEqual([SessionSeq(2)])
     expect(rest.nextCursor).toBeUndefined()
@@ -403,7 +403,7 @@ describe('SQLite session search', () => {
     await expect(ctx.sessionQuery.searchSessions({
       query: 'needle',
       limit: 2,
-      cursor: first.nextCursor,
+      ...first.nextCursor === undefined ? {} : { cursor: first.nextCursor },
     })).rejects.toMatchObject({ code: 'SESSION_QUERY_INVALID_CURSOR' })
   })
 

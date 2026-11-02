@@ -77,6 +77,10 @@ export interface SessionOpenWorkerReport {
 }
 
 class BenchmarkSessionQuery extends SessionQueryEngine {
+
+  override searchMessages(): Promise<never> {
+    throw new Error('this fake implements no message-granularity search')
+  }
   override searchSessions(
     _request: SessionSearchRequest,
     _exec?: SessionSearchExecContext,
