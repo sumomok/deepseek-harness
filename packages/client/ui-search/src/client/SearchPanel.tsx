@@ -19,6 +19,8 @@ export interface SearchPanelInjected {
   moveActive: (delta: number) => void
   /** Open the selected result. */
   openActive: () => void
+  /** Open the result at one row index. */
+  openAt: (index: number) => void
   /** Read the next page, if any. */
   loadMore: () => void
   /** Repeat the last read after a failure. */
@@ -58,7 +60,7 @@ function runs(row: SearchResultRow): { text: string; hit: boolean }[] {
  * @returns the overlay while open, otherwise nothing.
  */
 export function SearchPanel({
-  useSearch, setQuery, moveActive, openActive, loadMore, retry, close, t,
+  useSearch, setQuery, moveActive, openActive, openAt, loadMore, retry, close, t,
 }: SearchPanelProps) {
   const state = useSearch(snapshot => snapshot)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -71,13 +73,23 @@ export function SearchPanel({
   }, [state.open])
 
   useEffect(() => {
-    listRef.current?.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView({ block: 'nearest' })
+    const active = listRef.current?.querySelector<HTMLElement>('[data-active="true"]')
+    // jsdom has no layout engine and no scrollIntoView; the guard keeps the
+    // component spec from failing on a browser API that has nothing to scroll.
+    active?.scrollIntoView?.({ block: 'nearest' })
   }, [state.active, state.rows.length])
 
   if (!state.open) return null
 
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
-    if (event.key === 'Escape') { event.preventDefault(); close(); return }
+  // Escape belongs to the dialog rather than the field, so it still dismisses
+  // after Tab moves focus into the result list.
+  const onEscape = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key !== 'Escape') return
+    event.preventDefault()
+    close()
+  }
+
+  const onFieldKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
     if (event.key === 'ArrowDown') { event.preventDefault(); moveActive(1); return }
     if (event.key === 'ArrowUp') { event.preventDefault(); moveActive(-1); return }
     if (event.key === 'Enter') {
@@ -101,17 +113,16 @@ export function SearchPanel({
         ? t('result.count', { count: String(count) })
         : t('result.countMore', { count: String(count) })
 
+  const settled = state.phase !== 'loading' && state.phase !== 'loadingMore' && state.phase !== 'error'
   const notice = state.query.trim() === ''
     ? t('panel.idle')
-    : state.phase === 'error'
-      ? undefined
-      : state.phase === 'loading' || state.phase === 'loadingMore'
-        ? undefined
-        : t('panel.empty')
+    : settled && state.rows.length === 0 && state.nextCursor === undefined
+      ? t('panel.empty')
+      : undefined
 
   return (
     <div className={css.backdrop} onPointerDown={(event) => { if (event.target === event.currentTarget) close() }}>
-      <div className={css.panel} role="dialog" aria-modal="true" aria-label={t('panel.aria')}>
+      <div className={css.panel} role="dialog" aria-modal="true" aria-label={t('panel.aria')} onKeyDown={onEscape}>
         <div className={css.field}>
           <span className={css.icon} aria-hidden="true">⌕</span>
           <input
@@ -122,7 +133,7 @@ export function SearchPanel({
             aria-label={t('panel.aria')}
             spellCheck={false}
             onChange={(event) => { setQuery(event.currentTarget.value) }}
-            onKeyDown={onKeyDown}
+            onKeyDown={onFieldKeyDown}
           />
           <span className={css.escape} aria-hidden="true">{t('panel.escape')}</span>
         </div>
@@ -134,7 +145,7 @@ export function SearchPanel({
               className={css.row}
               data-active={index === state.active}
               aria-label={t('result.openAria', { title: row.title ?? t('result.untitled') })}
-              onPointerDown={(event) => { event.preventDefault(); openActive() }}
+              onClick={() => { openAt(index) }}
               onPointerEnter={() => { moveActive(index - state.active) }}
             >
               <span className={css.title}>{row.title ?? t('result.untitled')}</span>
@@ -148,12 +159,15 @@ export function SearchPanel({
           {state.phase === 'error' && (
             <div className={css.failure}>
               <span className={css.failureText}>{t('panel.error')}</span>
-              <button type="button" className={css.retry} onPointerDown={(event) => { event.preventDefault(); retry() }}>
+              <button type="button" className={css.retry} onClick={retry}>
                 {t('panel.retry')}
               </button>
             </div>
           )}
           {notice !== undefined && <p className={css.notice}>{notice}</p>}
+          {settled && state.rows.length > 0 && state.nextCursor !== undefined && (
+            <button type="button" className={css.more} onClick={loadMore}>{t('panel.loadMore')}</button>
+          )}
         </div>
         <footer className={css.footer}>
           <span>{status}</span>

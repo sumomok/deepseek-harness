@@ -22,7 +22,9 @@ const opened: string[] = []
 const registered: { id: string; defaults: Record<string, { code: string; modifiers: string[] }>; resolve: () => unknown }[] = []
 
 /** What the next stub read answers with. */
-let answer: 'page' | 'failure' = 'page'
+let answer: 'page' | 'failure' | 'deferred' = 'page'
+/** Settles the read parked by `answer = 'deferred'`. */
+let release: (() => void) | undefined
 
 /** Boot the browser half over a real slot tree that declares the overlay list. */
 async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugin']> }> {
@@ -30,6 +32,7 @@ async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugi
   opened.length = 0
   registered.length = 0
   answer = 'page'
+  release = undefined
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
   ctx.slots.register({
@@ -44,6 +47,7 @@ async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugi
     searchMessages: async (request: { query: string; cursor?: string }) => {
       reads.push(request.cursor === undefined ? { query: request.query } : { query: request.query, cursor: request.cursor })
       if (answer === 'failure') return { ok: false, error: { code: 'transport/failed', message: 'gone' } }
+      if (answer === 'deferred') await new Promise<void>((resolve) => { release = resolve })
       return {
         ok: true,
         value: {
@@ -135,6 +139,21 @@ describe('ui-search browser half', () => {
     expect(reads).toEqual([{ query: '分页' }, { query: '分页', cursor: 'page-2' }])
   })
 
+  it('drops the previous cursor as soon as the phrase changes', async () => {
+    const { ctx } = await bench()
+    const injected = face(ctx)
+    injected.setQuery('分页')
+    await settle()
+    expect(injected.hooks.search.getSnapshot().nextCursor).toBe('page-2')
+    injected.setQuery('游标')
+    expect(injected.hooks.search.getSnapshot().nextCursor).toBeUndefined()
+    injected.loadMore()
+    await settle()
+    // The pending first page for the new phrase still runs; no read resumes
+    // from the dropped cursor.
+    expect(reads.map(read => read.cursor)).toEqual([undefined, undefined])
+  })
+
   it('clears the sequence when the field goes blank', async () => {
     const { ctx } = await bench()
     const injected = face(ctx)
@@ -168,7 +187,7 @@ describe('ui-search browser half', () => {
     injected.setQuery('分页')
     await settle()
     injected.moveActive(1)
-    injected.openActive()
+    injected.openAt(0)
     expect(opened).toEqual(['sess-a'])
     expect(injected.hooks.search.getSnapshot().open).toBe(false)
   })
@@ -184,6 +203,38 @@ describe('ui-search browser half', () => {
     expect(injected.hooks.search.getSnapshot().active).toBe(0)
     injected.moveActive(1)
     expect(injected.hooks.search.getSnapshot().active).toBe(0)
+  })
+
+  it('drops a page that arrives after the panel closed', async () => {
+    const { ctx } = await bench()
+    const injected = face(ctx)
+    answer = 'deferred'
+    injected.setQuery('分页')
+    await settle()
+    expect(release).toBeDefined()
+    injected.close()
+    release?.()
+    await settle()
+    const page = injected.hooks.search.getSnapshot()
+    expect(page.open).toBe(false)
+    expect(page.rows).toEqual([])
+  })
+
+  it('keeps only the newest page when a slower earlier read lands last', async () => {
+    const { ctx } = await bench()
+    const injected = face(ctx)
+    answer = 'deferred'
+    injected.setQuery('分页')
+    await settle()
+    const first = release
+    answer = 'page'
+    injected.setQuery('游标')
+    await settle()
+    first?.()
+    await settle()
+    const page = injected.hooks.search.getSnapshot()
+    expect(page.rows).toHaveLength(1)
+    expect(page.phase).toBe('ready')
   })
 
   it('leaves the node half inert', () => {

@@ -36,6 +36,7 @@ function props(current: SearchPanelState, calls: {
   setQuery?: (value: string) => void
   moveActive?: (delta: number) => void
   openActive?: () => void
+  openAt?: (index: number) => void
   loadMore?: () => void
   retry?: () => void
   close?: () => void
@@ -48,6 +49,7 @@ function props(current: SearchPanelState, calls: {
     setQuery: calls.setQuery ?? (() => {}),
     moveActive: calls.moveActive ?? (() => {}),
     openActive: calls.openActive ?? (() => {}),
+    openAt: calls.openAt ?? (() => {}),
     loadMore: calls.loadMore ?? (() => {}),
     retry: calls.retry ?? (() => {}),
     close: calls.close ?? (() => {}),
@@ -108,10 +110,20 @@ describe('SearchPanel results', () => {
     expect(screen.getByText(zh['panel.idle'])).toBeTruthy()
     rerender(<SearchPanel {...props(state({ rows: [], active: -1 }))} />)
     expect(screen.getByText(zh['panel.empty'])).toBeTruthy()
+    rerender(<SearchPanel {...props(state())} />)
+    expect(screen.queryByText(zh['panel.empty'])).toBeNull()
   })
 })
 
 describe('SearchPanel keyboard', () => {
+  it('dismisses from anywhere inside the dialog, not only the field', () => {
+    const close = vi.fn()
+    const { container } = render(<SearchPanel {...props(state(), { close })} />)
+    const list = container.querySelector('[class*="list"]') as HTMLDivElement
+    fireEvent.keyDown(list.firstElementChild!, { key: 'Escape' })
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
   it('closes on Escape without opening anything', () => {
     const close = vi.fn()
     const openActive = vi.fn()
@@ -173,11 +185,26 @@ describe('SearchPanel paging', () => {
     expect(loadMore).not.toHaveBeenCalled()
   })
 
-  it('opens the row the pointer pressed', () => {
-    const openActive = vi.fn()
-    render(<SearchPanel {...props(state(), { openActive })} />)
-    fireEvent.pointerDown(screen.getByRole('button', { name: /重构消息级全文搜索/ }))
-    expect(openActive).toHaveBeenCalledTimes(1)
+  it('opens the row the pointer selected, not the keyboard selection', () => {
+    const openAt = vi.fn()
+    render(<SearchPanel {...props(state({
+      rows: [
+        row(),
+        row({ seq: 4, snippet: '另一条分页记录', matches: [{ start: 3, length: 2 }] }),
+      ],
+      active: 0,
+    }), { openAt })} />)
+    fireEvent.click(screen.getAllByRole('button')[1]!)
+    expect(openAt).toHaveBeenCalledWith(1)
+  })
+
+  it('offers the next page whenever the Host minted a cursor', () => {
+    const loadMore = vi.fn()
+    const { rerender } = render(<SearchPanel {...props(state({ nextCursor: 'cursor' as never }), { loadMore })} />)
+    fireEvent.click(screen.getByRole('button', { name: zh['panel.loadMore'] }))
+    expect(loadMore).toHaveBeenCalledTimes(1)
+    rerender(<SearchPanel {...props(state(), { loadMore })} />)
+    expect(screen.queryByRole('button', { name: zh['panel.loadMore'] })).toBeNull()
   })
 
   it('closes when the pressed backdrop is the target itself', () => {
@@ -209,7 +236,7 @@ describe('SearchPanel status', () => {
   it('offers a retry after a failed read', () => {
     const retry = vi.fn()
     render(<SearchPanel {...props(state({ phase: 'error', rows: [] }), { retry })} />)
-    fireEvent.pointerDown(screen.getByRole('button', { name: zh['panel.retry'] }))
+    fireEvent.click(screen.getByRole('button', { name: zh['panel.retry'] }))
     expect(retry).toHaveBeenCalledTimes(1)
     expect(screen.queryByText(zh['panel.empty'])).toBeNull()
   })

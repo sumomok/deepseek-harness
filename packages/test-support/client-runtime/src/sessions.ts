@@ -690,7 +690,9 @@ export class TestSessions implements ISessions {
    * empty page: hit ranking is Host behavior, so a scenario that asserts rows
    * declares them through {@link TestSessions.stubMessageSearch}.
    * @param request - phrase and the continuation cursor the caller forwards.
-   * @param signal - cancellation for a superseded read (recorded and forwarded).
+   * @param signal - cancellation for a superseded read; recorded with the call
+   *   so a bench can assert what the caller passed, but not forwarded to the
+   *   stub, which answers synchronously.
    * @returns the stubbed or empty page.
    */
   searchMessages(

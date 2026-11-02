@@ -43,7 +43,7 @@ kind: "package-reference"
 - [会话控制器](../../api/session-controller/README.zh.md) 持有 `session.searchMessages` Remote 及其游标信封。
 - [Web 客户端](../../../docs/subsystems/web-client.zh.md) 说明本包遵循的插槽与 inject 约定。
 
-<a id="dev-note"></a>
+<a id="model-experience"></a>
 ## 模型体验
 
 无。本包只为人渲染搜索结果，不触碰提示词、消息、模式、流或工具结果；它展示的已索引内容本就存在于模型已经读到的会话记录中。
@@ -58,9 +58,9 @@ kind: "package-reference"
 - 打开一条结果只打开它所属的会话。要落到命中的那条消息并高亮，需要有「事件 → 节点」的映射，而会话视图目前不暴露它；助手消息会合并进分组节点，一个 `seq` 并不对应某一个节点。
 - 面板读取的是 Host 当前的索引状态。未被索引的会话由 coverage 字段报告，并呈现为「结果可能不全」的提示，而不会安静地漏掉。
 - 结果是平铺的，没有按会话分组；分组方案已出图，暂缓。
+- 只有在 Host 的消息索引打开时本面板才挂载。现成的 Web profile 让索引保持关闭，因此该 profile 中这一行被禁用；要启用内容检索的部署，在覆盖 `openAt` 的同时加上这一行。
 
+<a id="dev-note"></a>
 ### 开发说明
 
 所有可见文案由字典持有，面板内没有字面文案。行内高亮来自 Host 返回的命中区间，那些区间已裁剪到摘要窗口之内；面板只负责把摘要切成片段，不会二次检索。
-
-<a id="model-experience"></a>

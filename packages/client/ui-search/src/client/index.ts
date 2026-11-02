@@ -121,9 +121,22 @@ export function apply(ctx: ClientContext): void {
     store.set({ ...IDLE_STATE })
   }
 
+  /** Open one row's Session and dismiss the panel. */
+  const openRow = (index: number): void => {
+    const row = store.getSnapshot().rows[index]
+    if (row === undefined) return
+    ctx.uiWorkspace.openSession(row.sessionId)
+    close()
+  }
+
   const injected: SearchPanelInjected = {
     hooks: { search: store },
-    setQuery: (value) => { setState({ query: value, active: -1 }); search(value) },
+    setQuery: (value) => {
+      // Drop the previous sequence's cursor before the debounce fires: a page
+      // read against the new phrase would otherwise resume from the old one.
+      setState({ query: value, active: -1, nextCursor: undefined })
+      search(value)
+    },
     moveActive: (delta) => {
       const { rows, active } = store.getSnapshot()
       if (rows.length === 0) return
@@ -131,12 +144,9 @@ export function apply(ctx: ClientContext): void {
       setState({ active: next })
     },
     openActive: () => {
-      const { rows, active } = store.getSnapshot()
-      const row = rows[active < 0 ? 0 : active]
-      if (row === undefined) return
-      ctx.uiWorkspace.openSession(row.sessionId)
-      close()
+      openRow(store.getSnapshot().active < 0 ? 0 : store.getSnapshot().active)
     },
+    openAt: (index) => { openRow(index) },
     loadMore: () => {
       const { query, nextCursor, phase } = store.getSnapshot()
       if (nextCursor === undefined || phase !== 'ready') return

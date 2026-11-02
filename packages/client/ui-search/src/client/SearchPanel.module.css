@@ -21,7 +21,6 @@
   max-width: 680px;
   max-height: min(64vh, 560px);
   overflow: hidden;
-  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: var(--dsw-radius-lg);
   background: var(--dsw-alias-bg-layer-2);
   box-shadow: var(--dsw-elevation-prominent);
@@ -33,7 +32,7 @@
   gap: 10px;
   align-items: center;
   padding: 15px 18px;
-  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
 }
 
 .icon {
@@ -87,8 +86,10 @@
   cursor: pointer;
 }
 
-.row:not([data-active='true']):hover {
-  background: color-mix(in srgb, var(--dsw-alias-label-primary) 4%, transparent);
+@media (hover: hover) {
+  .row:not([data-active='true']):hover {
+    background: color-mix(in srgb, var(--dsw-alias-label-primary) 4%, transparent);
+  }
 }
 
 .row[data-active='true'] {
@@ -142,17 +143,31 @@
 }
 
 .failureText {
-  color: var(--dsw-alias-label-error);
+  color: var(--dsw-alias-state-error-primary);
   font-size: 13px;
   line-height: 1.5;
 }
 
 .retry {
   padding: 6px 14px;
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: var(--dsw-radius-md);
   background: transparent;
   color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.more {
+  display: block;
+  width: calc(100% - 24px);
+  margin: 4px 12px 8px;
+  padding: 7px 0;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
@@ -164,7 +179,7 @@
   gap: 12px;
   align-items: center;
   padding: 8px 14px;
-  border-top: 1px solid var(--dsw-alias-border-l1);
+  border-top: 0.5px solid var(--dsw-alias-border-l1);
   color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
 }

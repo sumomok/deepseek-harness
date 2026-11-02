@@ -53,6 +53,7 @@ None; the package never assembles or sends provider requests.
 - Opening a result opens its Session. Landing on the matched message and highlighting it needs an event-to-node mapping the Conversation does not expose yet; assistant messages merge into grouped nodes, so a `seq` does not name one.
 - The panel reads the Host's index as it stands. Sessions the Host never indexed are reported through the coverage field and surface as an incomplete-result warning, never as a silent omission.
 - Results are flat rather than grouped by Session; the grouping alternative was drawn and deferred.
+- The panel mounts only where the Host's message index is open. The stock Web profile keeps it closed, so the bundle row is disabled there; a deployment that enables content search adds the row beside its `openAt` override.
 
 ### Dev Note
 
