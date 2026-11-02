@@ -14,8 +14,8 @@ import type {} from '@deepseek-ai/dsh-session-projection-cache'
 import type SessionQueryEngine from '@deepseek-ai/dsh-session-query'
 import {
   SessionQueryError,
+  SessionSearchCursor,
   type SessionRecord,
-  type SessionSearchCursor,
   type SessionSearchHit,
   type SessionSearchPage,
   type SessionSearchRequest,
@@ -32,6 +32,55 @@ import type {
   SessionProjectionHints, SessionSearchItem,
   SessionSearchValue, SessionSummary,
 } from './types.ts'
+
+/** What one Host-issued message-search continuation carries. */
+interface MessageContinuation {
+  /** Provider continuation, absent on the first page. */
+  readonly cursor: SessionSearchCursor | undefined
+  /**
+   * Page size the provider accepted for this sequence.
+   *
+   * The provider's cursor is bound to the page size it was issued under, so a
+   * later page must ask with the same one. Carrying it here is what lets the
+   * first page degrade to a smaller size without stranding every page after it.
+   */
+  readonly limit: number
+}
+
+/**
+ * Wrap a provider continuation together with the page size it belongs to.
+ * @param cursor - provider continuation for the next page.
+ * @param limit - page size the provider accepted.
+ * @returns the opaque cursor handed back to the caller.
+ */
+function encodeMessageContinuation(cursor: SessionSearchCursor, limit: number): SessionSearchCursor {
+  return SessionSearchCursor(Buffer.from(JSON.stringify({ cursor, limit }), 'utf8').toString('base64url'))
+}
+
+/**
+ * Read a continuation this Host issued, or start a new sequence.
+ * @param raw - cursor the caller sent back, if any.
+ * @returns the provider continuation and the page size to ask with.
+ * @throws {RemoteError} `gateway/bad-request` when the value is not one of ours.
+ */
+function decodeMessageContinuation(raw: SessionSearchCursor | undefined): MessageContinuation {
+  if (raw === undefined) return { cursor: undefined, limit: SESSION_SEARCH_RESULT_LIMIT }
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as Partial<Record<'cursor' | 'limit', unknown>>
+    const cursor = parsed.cursor
+    const limit = parsed.limit
+    if (typeof cursor !== 'string' || typeof limit !== 'number' || !Number.isSafeInteger(limit) || limit < 1) {
+      throw new Error('continuation does not carry a cursor and a page size')
+    }
+    return { cursor: SessionSearchCursor(cursor), limit }
+  } catch {
+    throw new RemoteError(
+      'gateway/bad-request',
+      'message search cursor is not a cursor this Host issued; restart from the first page',
+      {},
+    )
+  }
+}
 
 /**
  * Keep only the matched spans that still index the excerpt after truncation.
@@ -292,10 +341,10 @@ export class ApiSessionList {
     const { provider, visibleIds } = await this.searchContext(signal)
     if (visibleIds.size === 0) return { items: [] }
     const normalizedQuery = normalizeSearchQuery(request.query)
-    const cursor = request.cursor
+    const continuation = decodeMessageContinuation(request.cursor)
     signal.throwIfAborted()
     try {
-      let pageLimit = SESSION_SEARCH_RESULT_LIMIT
+      let pageLimit = continuation.limit
       while (true) {
         signal.throwIfAborted()
         let page
@@ -307,12 +356,12 @@ export class ApiSessionList {
               { kind: 'surface', values: ['current'] },
             ],
             limit: pageLimit,
-            ...(cursor === undefined ? {} : { cursor }),
+            ...continuation.cursor === undefined ? {} : { cursor: continuation.cursor },
           }, { signal })
           signal.throwIfAborted()
         } catch (error: unknown) {
           signal.throwIfAborted()
-          if (cursor === undefined
+          if (continuation.cursor === undefined
             && error instanceof SessionQueryError
             && error.code === 'SESSION_QUERY_INVALID_LIMIT'
             && pageLimit > 1) {
@@ -334,18 +383,19 @@ export class ApiSessionList {
           if (accepted.has(address)) continue
           accepted.add(address)
           const snippet = truncateUnicodeCodePoints(hit.snippet, SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS)
+          const matches = boundedMatches(snippet, hit.matches)
           items.push({
             sessionId: hit.sessionId,
             seq: hit.seq,
             snippet,
-            ...boundedMatches(snippet, hit.matches) === undefined
-              ? {}
-              : { matches: boundedMatches(snippet, hit.matches) ?? [] },
+            ...matches === undefined ? {} : { matches },
           })
         }
         return {
           items,
-          ...page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor },
+          ...page.nextCursor === undefined
+            ? {}
+            : { nextCursor: encodeMessageContinuation(page.nextCursor, pageLimit) },
           ...page.coverage === undefined
             ? {}
             : { coverage: { status: page.coverage.status, skippedSessions: page.coverage.skippedSessions } },
@@ -358,11 +408,10 @@ export class ApiSessionList {
           throw new RemoteError('gateway/cancelled', 'session search was aborted', {})
         }
         if (error.code === 'SESSION_QUERY_STALE_CURSOR') {
-          throw new RemoteError(
-            'gateway/bad-request',
-            'session search cursor outlived its index generation; restart from the first page',
-            {},
-          )
+          throw new RemoteError('session/search-cursor-stale', 'restart message search from its first page', {})
+        }
+        if (error.code === 'SESSION_QUERY_INVALID_CURSOR') {
+          throw new RemoteError('gateway/bad-request', 'message search cursor is not a cursor this Host issued', {})
         }
       }
       throw new RemoteError('gateway/internal', `session search failed: ${String(error)}`, {})
@@ -400,9 +449,11 @@ export class ApiSessionList {
   /**
    * Collect bounded hits from one cursor-paged provider search.
    *
-   * Both entry points share one work budget, one limit-degradation ladder, one
-   * stale-cursor restart, and one repetition check; only the provider call and
-   * the per-hit admission differ, so those arrive as arguments.
+   * The grouped session read is the caller: it collects across pages until the
+   * result boundary is known, under one work budget, one limit-degradation
+   * ladder, one stale-cursor restart, and one repetition check. Message search
+   * returns a single page under its own cursor, so it does not come through
+   * here. The provider call and the per-hit admission arrive as arguments.
    * @param query - literal message-content query.
    * @param signal - cancellation for the reads behind this page sequence.
    * @param fetchPage - calls the provider method this search reads from.
