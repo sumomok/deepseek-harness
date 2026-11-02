@@ -272,18 +272,24 @@ export function makeSnippet(markedText: string, maxChars: number): SessionEventS
   const { text: clean, matches } = normalizeMarkedText(markedText)
   const characters = Array.from(clean)
   const matchStart = matches[0]?.start ?? 0
-  const window = (start: number, end: number): SessionEventSnippet => ({
-    snippet: `${start > 0 ? '…' : ''}${characters.slice(start, end).join('')}${end < characters.length ? '…' : ''}`,
-    matches: matches
-      .filter(match => match.start >= start && match.start < end)
-      .map(match => ({
-        // Positions are reported in UTF-16 code units of the returned snippet,
-        // which is what a renderer slicing that string needs.
-        start: (start > 0 ? 1 : 0) + characters.slice(start, match.start).join('').length,
-        length: characters.slice(match.start, match.start + match.length).join('').length,
-      })),
+  const window = (start: number, end: number, prefix: string, suffix: string): SessionEventSnippet => ({
+    snippet: `${prefix}${characters.slice(start, end).join('')}${suffix}`,
+    matches: matches.flatMap((match) => {
+      // A match that only overlaps the window is cut to it: the returned excerpt
+      // holds part of the match, and highlighting must stop at the excerpt's
+      // edge instead of running into the ellipsis or past the string.
+      const from = Math.max(match.start, start)
+      const to = Math.min(match.start + match.length, end)
+      if (to <= from) return []
+      return [{
+        // Positions are UTF-16 code units of the returned snippet, which is what
+        // a renderer slicing that string needs.
+        start: prefix.length + characters.slice(start, from).join('').length,
+        length: characters.slice(from, to).join('').length,
+      }]
+    }),
   })
-  if (characters.length <= maxChars) return window(0, characters.length)
+  if (characters.length <= maxChars) return window(0, characters.length, '', '')
   if (maxChars === 1) return { snippet: '…', matches: [] }
   const matchedIndex = Math.min(matchStart, characters.length - 1)
   let start = Math.max(0, matchedIndex - Math.floor(maxChars / 3))
@@ -304,10 +310,9 @@ export function makeSnippet(markedText: string, maxChars: number): SessionEventS
     start = Math.max(0, end - contentLength)
   }
   end = Math.min(characters.length, start + contentLength)
-  const trimmed = window(start, end)
-  return suffix === '' && end === characters.length
-    ? trimmed
-    : { snippet: trimmed.snippet, matches: trimmed.matches }
+  // The prefix and suffix were budgeted above; the window must not re-derive
+  // them from its own bounds, or a cleared suffix comes back and overshoots.
+  return window(start, end, prefix, end === characters.length ? '' : suffix)
 }
 
 function normalizeMarkedText(markedText: string): { text: string; matches: SessionEventMatchRange[] } {
