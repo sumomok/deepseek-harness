@@ -23,7 +23,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在桌面窗口中任意位置按 ⌘F（Windows / Linux 为 Ctrl+F）。Web 端保留 ⌘⌥K，因为那里 ⌘F 属于浏览器的查找栏；两个入口是同一个命令 `search.messages`，改键位即同时生效。
+在桌面窗口中任意位置按 ⌘F（Windows / Linux 为 Ctrl+F）。Web 端用 ⌘⌥F，因为那里 ⌘F 与 ⌘⇧F 分别属于浏览器的查找栏和既有的会话搜索；两个入口是同一个命令 `search.messages`，改键位即同时生效。
 
 浮层只持有三样状态：查询词、已读各页累积的结果行、以及选中项。它不持有传输状态——每次读取都走会话数据层，失败的调用被折成结果，面板据此渲染失败态并提供重试。
 

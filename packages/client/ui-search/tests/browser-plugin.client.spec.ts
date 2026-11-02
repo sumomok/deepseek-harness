@@ -101,7 +101,7 @@ describe('ui-search browser half', () => {
     const definition = registered.find(candidate => candidate.id === 'search.messages')
     if (definition === undefined) throw new Error('ui-search registered no search shortcut')
     expect(definition.defaults['desktop:macos']).toEqual({ code: 'KeyF', modifiers: ['primary'] })
-    expect(definition.defaults['web:macos']).toEqual({ code: 'KeyK', modifiers: ['primary', 'alt'] })
+    expect(definition.defaults['web:macos']).toEqual({ code: 'KeyF', modifiers: ['primary', 'alt'] })
     const injected = face(ctx)
     expect(injected.hooks.search.getSnapshot().open).toBe(false)
     const verdict = definition.resolve() as { status: string; run: () => void }

@@ -22,7 +22,7 @@ English | [中文](README.zh.md)
 
 ## Use this package
 
-Press ⌘F on macOS, or Ctrl+F on Windows and Linux, anywhere in the desktop window. The browser build keeps ⌘⌥K, because ⌘F belongs to the browser's own find bar there; both entry points are the same command, `search.messages`, so remapping one remaps the other.
+Press ⌘F on macOS, or Ctrl+F on Windows and Linux, anywhere in the desktop window. The browser build uses ⌘⌥F, because ⌘F and ⌘⇧F belong to the browser and to the existing Session search there; both entry points are the same command, `search.messages`, so remapping one remaps the other.
 
 The overlay owns three pieces of state: the query, the rows accumulated from every page read so far, and the selection. It never owns transport state — every read goes through the session data layer, which folds a failed call into a result the panel renders as a failure with a retry.
 
