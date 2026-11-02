@@ -6,7 +6,7 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { SESSION_FORMAT_VERSION, SessionSeq } from '@deepseek-ai/dsh-session'
-import type { DatabaseSync } from 'node:sqlite'
+import type { DatabaseSync, SQLOutputValue } from 'node:sqlite'
 import { Context, Service, type Fiber } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Session, SessionEvent, SessionHeader, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
@@ -189,6 +189,42 @@ interface SessionHeaderRow {
   agent_preset: string | null
 }
 
+/**
+ * Project one reported SQLite row onto the columns the search SQL selects.
+ *
+ * `StatementSync.all()` reports `Record<string, SQLOutputValue>`, and this
+ * index cannot narrow that at the call site: the statements build their column
+ * list in generated CTEs. Projecting each field keeps the conversion explicit
+ * rather than asserting the whole row across the boundary.
+ * @param row - one row reported by a search statement.
+ * @returns the same values under the types those statements guarantee.
+ */
+function toSearchRow(row: Record<string, SQLOutputValue>): SearchRow {
+  const optionalText = (value: SQLOutputValue | undefined): string | null =>
+    value === null || value === undefined ? null : String(value)
+  const optionalNumber = (value: SQLOutputValue | undefined): number | null =>
+    value === null || value === undefined ? null : Number(value)
+  return {
+    session_id: String(row.session_id),
+    version: Number(row.version),
+    created_at: Number(row.created_at),
+    cwd: optionalText(row.cwd),
+    parent_session: optionalText(row.parent_session),
+    seed_length: optionalNumber(row.seed_length),
+    delegation_depth: optionalNumber(row.delegation_depth),
+    agent_preset: optionalText(row.agent_preset),
+    live: Number(row.live),
+    persisted: Number(row.persisted),
+    seq: Number(row.seq),
+    type: String(row.type),
+    time: Number(row.time),
+    surface: String(row.surface),
+    marked_text: String(row.marked_text),
+    match_count: Number(row.match_count),
+    document_length: Number(row.document_length),
+  }
+}
+
 interface SearchRow extends SessionHeaderRow {
   live: number
   persisted: number
@@ -286,14 +322,8 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     const normalized = normalizeSessionRequest(request, this.config)
     const signal = exec?.signal
     return this._serialized(signal, async () => {
-      await this._ensureReady(signal)
-      const persistenceBinding = await this._reconcile(signal)
-      assertNotAborted(signal)
-      const generation = String(this._globalGeneration)
-      const fingerprint = requestFingerprint(normalized)
-      const offset = normalized.cursor === undefined
-        ? 0
-        : decodeCursor(normalized.cursor, this._instance, 'sessions', fingerprint, generation)
+      const { offset, generation, fingerprint, persistenceBinding } =
+        await this._beginCrossSessionPage(normalized, 'sessions', signal)
       const rows = this._querySessions(normalized, offset, persistenceBinding)
       return page(rows, normalized.limit, row => this._sessionHit(row), cursorOffset => encodeCursor({
         version: 1,
@@ -356,14 +386,8 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     const normalized = normalizeSessionRequest(request, this.config)
     const signal = exec?.signal
     return this._serialized(signal, async () => {
-      await this._ensureReady(signal)
-      const persistenceBinding = await this._reconcile(signal)
-      assertNotAborted(signal)
-      const generation = String(this._globalGeneration)
-      const fingerprint = requestFingerprint(normalized)
-      const offset = normalized.cursor === undefined
-        ? 0
-        : decodeCursor(normalized.cursor, this._instance, 'messages', fingerprint, generation)
+      const { offset, generation, fingerprint, persistenceBinding } =
+        await this._beginCrossSessionPage(normalized, 'messages', signal)
       const rows = this._queryMessages(normalized, offset, persistenceBinding)
       return page(rows, normalized.limit, row => this._eventHit(row), cursorOffset => encodeCursor({
         version: 1,
@@ -741,26 +765,43 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     }
   }
 
+  /**
+   * Prepare one cross-session page: wait for the index, reconcile sources, and
+   * resolve the cursor offset inside this indexed generation.
+   * @param normalized - request already normalized against this backend's limits.
+   * @param scope - cursor scope this call pages within.
+   * @param signal - caller cancellation.
+   * @returns offset, generation, request fingerprint, and the binding being read.
+   */
+  private async _beginCrossSessionPage(
+    normalized: NormalizedSessionRequest,
+    scope: 'sessions' | 'messages',
+    signal: AbortSignal | undefined,
+  ): Promise<{
+    offset: number
+    generation: string
+    fingerprint: string
+    persistenceBinding: PersistenceBinding
+  }> {
+    await this._ensureReady(signal)
+    const persistenceBinding = await this._reconcile(signal)
+    assertNotAborted(signal)
+    const generation = String(this._globalGeneration)
+    const fingerprint = requestFingerprint(normalized)
+    const offset = normalized.cursor === undefined
+      ? 0
+      : decodeCursor(normalized.cursor, this._instance, scope, fingerprint, generation)
+    return { offset, generation, fingerprint, persistenceBinding }
+  }
+
   private _querySessions(
     request: NormalizedSessionRequest,
     offset: number,
     persistenceBinding: PersistenceBinding,
   ): SearchRow[] {
-    const selected = selectedDocumentsSql()
-    const sessionWhere = buildSessionWhere(request.sessionFilters)
-    const eventWhere = buildEventWhere(request.eventFilters)
-    assertFts5OuterPredicateCount(sessionWhere.predicateCount + eventWhere.predicateCount)
-    const where = [sessionWhere.sql, eventWhere.sql].filter(Boolean).join(' AND ')
-    const bindings = [
-      ...selectedDocumentsParams(request.query, persistenceBinding.service !== undefined),
-      ...sessionWhere.params,
-      ...eventWhere.params,
-      request.limit + 1,
-      offset,
-    ]
-    assertPortableBindingCount(bindings.length)
+    const { sql, where, bindings } = crossSessionQuery(request, offset, persistenceBinding)
     return this._requireDb().prepare(`
-      ${selected.sql},
+      ${sql},
       filtered AS (
         SELECT * FROM matched ${where.length === 0 ? '' : `WHERE ${where}`}
       ),
@@ -775,7 +816,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       WHERE event_rank = 1
       ORDER BY match_count DESC, document_length ASC, time DESC, session_id ASC, seq DESC
       LIMIT ? OFFSET ?
-    `).all(...bindings) as unknown as SearchRow[]
+    `).all(...bindings).map(toSearchRow)
   }
 
   /**
@@ -795,26 +836,14 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     offset: number,
     persistenceBinding: PersistenceBinding,
   ): SearchRow[] {
-    const selected = selectedDocumentsSql()
-    const sessionWhere = buildSessionWhere(request.sessionFilters)
-    const eventWhere = buildEventWhere(request.eventFilters)
-    assertFts5OuterPredicateCount(sessionWhere.predicateCount + eventWhere.predicateCount)
-    const where = [sessionWhere.sql, eventWhere.sql].filter(Boolean).join(' AND ')
-    const bindings = [
-      ...selectedDocumentsParams(request.query, persistenceBinding.service !== undefined),
-      ...sessionWhere.params,
-      ...eventWhere.params,
-      request.limit + 1,
-      offset,
-    ]
-    assertPortableBindingCount(bindings.length)
+    const { sql, where, bindings } = crossSessionQuery(request, offset, persistenceBinding)
     return this._requireDb().prepare(`
-      ${selected.sql}
+      ${sql}
       SELECT * FROM matched
       ${where === '' ? '' : `WHERE ${where}`}
       ORDER BY match_count DESC, document_length ASC, time DESC, session_id ASC, seq DESC
       LIMIT ? OFFSET ?
-    `).all(...bindings) as unknown as SearchRow[]
+    `).all(...bindings).map(toSearchRow)
   }
 
   private _queryEvents(
@@ -840,7 +869,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       WHERE ${where}
       ORDER BY match_count DESC, document_length ASC, time DESC, seq DESC
       LIMIT ? OFFSET ?
-    `).all(...bindings) as unknown as SearchRow[]
+    `).all(...bindings).map(toSearchRow)
   }
 
   private _targetObservation(
@@ -985,6 +1014,38 @@ function selectedDocumentsSql(): { sql: string } {
       FROM candidates
     )`,
   }
+}
+
+/**
+ * Build the SQL that both cross-session reads share.
+ *
+ * `_querySessions` and `_queryMessages` differ only in what they select from
+ * `matched`; the CTE, the predicate compilation, and the binding order are the
+ * same, and every safety assertion runs here before either statement prepares.
+ * @param request - normalized cross-session request.
+ * @param offset - page offset already validated against the cursor.
+ * @param persistenceBinding - binding for the indexed generation being read.
+ * @returns the CTE text, the combined predicate, and its ordered bindings.
+ */
+function crossSessionQuery(
+  request: NormalizedSessionRequest,
+  offset: number,
+  persistenceBinding: PersistenceBinding,
+): { sql: string; where: string; bindings: Array<string | number> } {
+  const selected = selectedDocumentsSql()
+  const sessionWhere = buildSessionWhere(request.sessionFilters)
+  const eventWhere = buildEventWhere(request.eventFilters)
+  assertFts5OuterPredicateCount(sessionWhere.predicateCount + eventWhere.predicateCount)
+  const where = [sessionWhere.sql, eventWhere.sql].filter(Boolean).join(' AND ')
+  const bindings = [
+    ...selectedDocumentsParams(request.query, persistenceBinding.service !== undefined),
+    ...sessionWhere.params,
+    ...eventWhere.params,
+    request.limit + 1,
+    offset,
+  ]
+  assertPortableBindingCount(bindings.length)
+  return { sql: selected.sql, where, bindings }
 }
 
 function selectedDocumentsParams(query: string, persistenceVisible: boolean): Array<string | number> {
