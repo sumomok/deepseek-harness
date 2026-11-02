@@ -27,8 +27,15 @@
  * `--no-tag` turns the step off, preflight included.
  *
  * Usage: pnpm exec tsx apps/desktop-shell/scripts/publish-update.ts --notes <file>
- *        [--minimum-version <version>] [--republish] [--no-prune] [--no-tag]
- *        [--dry-run]
+ *        [--channel <mac|win|all>] [--minimum-version <version>] [--republish]
+ *        [--no-prune] [--no-tag] [--dry-run]
+ *
+ * `--channel` publishes one platform's feed by itself, default `all`. The two
+ * channels are otherwise uploaded together and read back together, which is
+ * what keeps them on one version; publishing one at a time deliberately lets
+ * the feed serve different versions until the other platform follows. Pass the
+ * same version again for the second platform, with `--republish` when the feed
+ * already serves it.
  *
  * `--republish` allows overwriting the version the feed already serves, which
  * is how a publish cut short by a dropped transfer is repaired: uploads skip
@@ -111,6 +118,8 @@ interface Manifest {
 
 interface Cli {
   notes: string
+  /** The channels this publish touches, in CHANNELS order. */
+  channels: readonly Channel[]
   minimumVersion: string | undefined
   republish: boolean
   /** Whether the published channels are pruned to the retention windows afterwards. */
@@ -125,6 +134,7 @@ function parseCli(argv: string[]): Cli {
     args: argv,
     options: {
       notes: { type: 'string' },
+      channel: { type: 'string', default: 'all' },
       'minimum-version': { type: 'string' },
       republish: { type: 'boolean', default: false },
       'no-prune': { type: 'boolean', default: false },
@@ -135,8 +145,14 @@ function parseCli(argv: string[]): Cli {
   if (values.notes === undefined) {
     throw new Error('publish: --notes <file> is required; it carries the release notes shown in the update dialog.')
   }
+  const selected = values.channel ?? 'all'
+  const channels = selected === 'all' ? CHANNELS : CHANNELS.filter(channel => channel.name === selected)
+  if (channels.length === 0) {
+    throw new Error(`publish: --channel ${selected} names no channel; use mac, win, or all.`)
+  }
   return {
     notes: values.notes,
+    channels,
     minimumVersion: values['minimum-version'],
     republish: values.republish,
     prune: !values['no-prune'],
@@ -732,7 +748,7 @@ async function main(): Promise<void> {
   }
 
   const plan = new Map<Channel, string[]>()
-  for (const channel of CHANNELS) {
+  for (const channel of cli.channels) {
     const manifest = await readManifest(channel, version)
     const artifacts = artifactsOf(channel, manifest)
     plan.set(channel, artifacts)
@@ -774,13 +790,13 @@ async function main(): Promise<void> {
   for (const [channel, artifacts] of plan) {
     for (const artifact of artifacts) await upload(artifact, channel)
   }
-  for (const channel of CHANNELS) await upload(join(DIST, channel.manifest), channel)
+  for (const channel of cli.channels) await upload(join(DIST, channel.manifest), channel)
 
   // Ordering keeps each channel self-consistent, but a transfer that dies
   // between the two manifests leaves the platforms on different versions.
   // Reading both back is what turns that into a failure instead of a feed
   // nobody notices is split.
-  for (const channel of CHANNELS) {
+  for (const channel of cli.channels) {
     const url = `${FEED_BASE}/${channel.name}/${channel.manifest}`
     const serving = load(await capture('curl', ['-fsS', url]), { schema: CORE_SCHEMA }) as Manifest
     if (serving.version !== version) {
