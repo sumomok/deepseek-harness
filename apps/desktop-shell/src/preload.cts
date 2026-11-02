@@ -1,0 +1,50 @@
+/**
+ * Product-window bridge: marks the document as a desktop surface and carries
+ * the native input and keybinding preferences the shared client expects from
+ * `window.dshDesktop`. A sandboxed preload may only require `electron`.
+ */
+import { contextBridge, ipcRenderer } from 'electron'
+import type { IpcRendererEvent } from 'electron'
+/** Mirrors `shortcut-channels.ts`; a sandboxed preload cannot import it. */
+const SHORTCUT_CHANNELS = {
+  input: 'dsh-desktop:shortcuts-input',
+  get: 'dsh-desktop:shortcuts-get',
+  edit: 'dsh-desktop:shortcuts-edit',
+  changed: 'dsh-desktop:shortcuts-changed',
+  closeWindow: 'dsh-desktop:shortcuts-close-window',
+} as const
+
+/** Marks `<html data-platform>` before the page's first script reads it. */
+function markPlatform(): void {
+  const mark = (): void => { document.documentElement.dataset.platform = process.platform }
+  // A preload runs before the document root exists; `documentElement` is null then.
+  const root = document.documentElement as HTMLElement | null
+  if (root === null) window.addEventListener('DOMContentLoaded', mark)
+  else mark()
+}
+
+markPlatform()
+
+contextBridge.exposeInMainWorld('dshDesktop', {
+  keyboard: {
+    subscribe: (listener: (input: unknown) => void): (() => void) => {
+      const handle = (_event: IpcRendererEvent, input: unknown): void => { listener(input) }
+      ipcRenderer.on(SHORTCUT_CHANNELS.input, handle)
+      return () => { ipcRenderer.off(SHORTCUT_CHANNELS.input, handle) }
+    },
+    closeWindow: (revision: string): Promise<void> =>
+      ipcRenderer.invoke(SHORTCUT_CHANNELS.closeWindow, revision) as Promise<void>,
+  },
+  shortcuts: {
+    get: (definitions: readonly unknown[]): Promise<unknown> =>
+      ipcRenderer.invoke(SHORTCUT_CHANNELS.get, definitions) as Promise<unknown>,
+    edit: (edit: unknown, revision: string): Promise<unknown> =>
+      ipcRenderer.invoke(SHORTCUT_CHANNELS.edit, edit, revision) as Promise<unknown>,
+    recording: async (): Promise<void> => {},
+    subscribe: (listener: (snapshot: unknown) => void): (() => void) => {
+      const handle = (_event: IpcRendererEvent, snapshot: unknown): void => { listener(snapshot) }
+      ipcRenderer.on(SHORTCUT_CHANNELS.changed, handle)
+      return () => { ipcRenderer.off(SHORTCUT_CHANNELS.changed, handle) }
+    },
+  },
+})

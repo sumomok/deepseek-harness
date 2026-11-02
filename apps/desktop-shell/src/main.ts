@@ -2,9 +2,11 @@
  * Electron main process of the DSH desktop client: start the embedded
  * `dsh web` server from the app resources (bundled Node runtime + deployed
  * server closure), open the served UI in a native window, and tear the
- * server down with the app. The window is a plain browser surface — no
- * preload, no Node integration; everything the UI can do goes through the
- * same `/api` transport the browser uses.
+ * server down with the app. The window loads the same `/api` transport the
+ * browser uses and adds one narrow preload: it marks the document as a
+ * desktop surface and carries native key presses and the device's keybinding
+ * preferences, which is the contract the shared client reads from
+ * `window.dshDesktop`. No Node integration reaches the page.
  *
  * The window opens immediately on a boot page that names the three startup
  * phases and how long the current one has taken, and — on the first launch
@@ -24,8 +26,13 @@
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { app, BrowserWindow, dialog, Notification, powerMonitor, session, shell, systemPreferences, type DownloadItem } from 'electron'
+import { fileURLToPath } from 'node:url'
+import { app, BrowserWindow, dialog, ipcMain, Notification, powerMonitor, session, shell, systemPreferences, type DownloadItem } from 'electron'
 import { appBootCss, restateAppBootPage } from './app-boot-text.ts'
+import { desktopKeybindings } from './keybindings.ts'
+import { installKeyboard } from './keyboard.ts'
+import { SHORTCUT_CHANNELS } from './shortcut-channels.ts'
+import type { ShortcutConfigSnapshot, ShortcutDefinition, ShortcutEdit, ShortcutPlatform, ShortcutRevision } from '@deepseek-ai/dsh-client-shortcuts/protocol'
 import { pinAppIdentity } from './app-identity.ts'
 import { KEPT_REPORTS, LOG_ROTATE_BYTES, pruneReports, rotateLog } from './log-retention.ts'
 import { bootPage } from './boot-page.ts'
@@ -1131,6 +1138,58 @@ function attachDownloadHandling(window: BrowserWindow): void {
   window.once('closed', () => { windowSession.off('will-download', onWillDownload) })
 }
 
+/** The window whose page owns the keybinding table, while it exists. */
+let shortcutWindow: BrowserWindow | undefined
+/** Identity of the accepted keybinding configuration; absent until the page reads one. */
+let shortcutRevision: ShortcutRevision | undefined
+/** Whether the process-wide keybinding IPC handlers are already installed. */
+let shortcutIpcInstalled = false
+
+/** Platform token the shared client stores its per-OS defaults under. */
+function shortcutPlatform(): ShortcutPlatform {
+  if (process.platform === 'darwin') return 'macos'
+  if (process.platform === 'win32') return 'windows'
+  return 'linux'
+}
+
+/**
+ * Serve the window's keybinding preferences and forward its key presses.
+ *
+ * The store lives here rather than in the page so the configuration survives a
+ * reload and a second window reads the same file. The handlers are installed
+ * once and route to whichever window is current: macOS recreates the window
+ * through the Dock, and a handler registered per window would collide.
+ * @param window - product window to serve.
+ * @returns disposer releasing this window's input forwarding.
+ */
+function attachShortcuts(window: BrowserWindow): () => void {
+  shortcutWindow = window
+  shortcutRevision = undefined
+  const store = desktopKeybindings(app.getPath('userData'), shortcutPlatform(), (snapshot: ShortcutConfigSnapshot): void => {
+    shortcutRevision = snapshot.revision
+    if (!window.isDestroyed()) window.webContents.send(SHORTCUT_CHANNELS.changed, snapshot)
+  })
+  if (!shortcutIpcInstalled) {
+    shortcutIpcInstalled = true
+    ipcMain.handle(SHORTCUT_CHANNELS.get, async (_event, definitions: readonly ShortcutDefinition[]) => {
+      store.setDefinitions(definitions)
+      return await store.readCurrent()
+    })
+    ipcMain.handle(SHORTCUT_CHANNELS.edit,
+      async (_event, edit: ShortcutEdit, revision: ShortcutRevision) => await store.edit(edit, revision))
+    ipcMain.handle(SHORTCUT_CHANNELS.closeWindow, (_event, revision: ShortcutRevision) => {
+      if (shortcutRevision !== revision) return
+      shortcutWindow?.close()
+    })
+  }
+  const stopInput = installKeyboard(window, () => shortcutRevision)
+  return () => {
+    stopInput()
+    store.dispose()
+    if (shortcutWindow === window) shortcutWindow = undefined
+  }
+}
+
 /**
  * Open the window on the boot page and return its update handle.
  * @param receipt - the update confirmation line, when there is one to show.
@@ -1154,8 +1213,11 @@ function createBootWindow(receipt?: string): BootView {
     webPreferences: {
       sandbox: true,
       contextIsolation: true,
+      preload: fileURLToPath(new URL('preload.cjs', import.meta.url)),
     },
   })
+  const stopShortcuts = attachShortcuts(window)
+  window.once('closed', stopShortcuts)
   window.webContents.setWindowOpenHandler((details) => {
     void shell.openExternal(details.url)
     return { action: 'deny' }
