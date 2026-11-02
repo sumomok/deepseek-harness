@@ -21,6 +21,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import type SessionController from '../src/index.ts'
 import { ApiSessionList } from '../src/list.ts'
+import { SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import type { SessionControlFrame, SessionMessageSearchValue, SessionRequestId, SessionSearchValue } from '../src/types.ts'
 import { createSessionTestController } from './test-remote.ts'
 
@@ -232,17 +233,20 @@ describe('Session Controller access', () => {
     const { ctx, as } = await harness()
     await ctx.plugin(TypertGatewayService)
     guestPolicy(ctx, MESSAGE_SEARCH_CALLS, MESSAGE_SEARCHES_SHARED)
+    const nextCursor = SessionSearchCursor('page-two')
     const hits: SessionMessageSearchValue = {
       items: [
         { sessionId: PRIVATE, seq: SessionSeq(1), snippet: 'private hit' },
         { sessionId: SHARED, seq: SessionSeq(2), snippet: 'shared hit' },
       ],
-      hasMore: true,
+      nextCursor,
+      coverage: { status: 'partial', skippedSessions: 1 },
     }
     vi.spyOn(ApiSessionList.prototype, 'searchMessages').mockResolvedValue(hits)
     await expect(guestCall(ctx, 'searchMessages', { request: { query: 'hit' } })).resolves.toEqual({
       items: [{ sessionId: SHARED, seq: SessionSeq(2), snippet: 'shared hit' }],
-      hasMore: true,
+      nextCursor,
+      coverage: { status: 'partial', skippedSessions: 1 },
     })
     await expect(as(OWNER, 'searchMessages').sessionController.searchMessages({ query: 'hit' }, new AbortController().signal)).resolves.toEqual(hits)
   })

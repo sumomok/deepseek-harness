@@ -67,6 +67,7 @@ import type {
   SessionWaitValue,
   SessionPromptRequest,
   SessionPromptValue,
+  SessionMessageSearchRequest,
   SessionMessageSearchValue,
   SessionRenameRequest,
   SessionRenameValue,
@@ -312,15 +313,18 @@ export class SessionController extends TypertRemoteService {
   /**
    * Search visible Session content at message granularity, addressing every hit
    * by the Session and event it came from. Unlike {@link search}, which reports
-   * matching Sessions, each item names one message so a client can open it.
-   * @param request - literal message-content query.
+   * matching Sessions, each item names one message so a client can open it, and
+   * paging continues through the cursor this returns.
+   * @param request - literal message-content query and an optional continuation cursor.
    * @param signal - cancellation for list and search reads.
-   * @returns authorized bounded message search results.
+   * @returns this page's authorized hits and the cursor for the next one.
    */
   @Remote('searchMessages')
-  async searchMessages(request: SessionSearchRequest, signal: AbortSignal): Promise<SessionMessageSearchValue> {
-    const result = await this.listState.searchMessages(request.query, signal)
-    return { ...result, items: result.items.filter(item => this.ctx.remoteAccess.allows({ kind: 'session', id: item.sessionId })) }
+  searchMessages(request: SessionMessageSearchRequest, signal: AbortSignal): Promise<SessionMessageSearchValue> {
+    return this.listState.searchMessages(request, signal).then(result => ({
+      ...result,
+      items: result.items.filter(item => this.ctx.remoteAccess.allows({ kind: 'session', id: item.sessionId })),
+    }))
   }
 
   /**

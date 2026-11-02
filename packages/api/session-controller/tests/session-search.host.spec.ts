@@ -14,6 +14,7 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import {
   SessionQueryEngine,
   SessionQueryError,
+  SessionSearchCursor,
   type SessionSearchHit,
   type SessionSearchRequest,
 } from '@deepseek-ai/dsh-session-query'
@@ -123,12 +124,11 @@ describe('session.searchMessages', () => {
     const list = new ApiSessionList(ctx, 8)
     await list.initialize()
 
-    await expect(list.searchMessages('query', new AbortController().signal)).resolves.toEqual({
+    await expect(list.searchMessages({ query: 'query' }, new AbortController().signal)).resolves.toEqual({
       items: [
         { sessionId: live.id, seq: SessionSeq(3), snippet: 'alpha' },
         { sessionId: live.id, seq: SessionSeq(7), snippet: 'beta' },
       ],
-      hasMore: false,
     })
     expect(searchMessages).toHaveBeenCalledOnce()
     await ctx.fiber.dispose()
@@ -156,9 +156,8 @@ describe('session.searchMessages', () => {
     const list = new ApiSessionList(ctx, 8)
     await list.initialize()
 
-    await expect(list.searchMessages('query', new AbortController().signal)).resolves.toEqual({
+    await expect(list.searchMessages({ query: 'query' }, new AbortController().signal)).resolves.toEqual({
       items: [{ sessionId: live.id, seq: SessionSeq(1), snippet: 'kept' }],
-      hasMore: false,
     })
     await ctx.fiber.dispose()
   })
@@ -186,13 +185,75 @@ describe('session.searchMessages', () => {
 
     // A page is addressed by Session and position together; one Session's
     // fourth event must not shadow another's.
-    await expect(list.searchMessages('query', new AbortController().signal)).resolves.toEqual({
+    await expect(list.searchMessages({ query: 'query' }, new AbortController().signal)).resolves.toEqual({
       items: [
         { sessionId: first.id, seq: SessionSeq(4), snippet: 'first four' },
         { sessionId: second.id, seq: SessionSeq(4), snippet: 'second four' },
       ],
-      hasMore: false,
     })
+    await ctx.fiber.dispose()
+  })
+
+  it('continues from the cursor the previous page returned and reports a stale one', async () => {
+    const ctx = await baseContext()
+    const live = ctx.sessions.create(sid('live'), { meta: header('live', '/live') })
+    ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
+      list: () => Promise.resolve([]),
+    }) as never)
+
+    const next = SessionSearchCursor('page-two')
+    const seen: Array<string | undefined> = []
+    installSearchQuery(
+      ctx,
+      () => Promise.reject(new Error('session search is not used here')),
+      (request) => {
+        seen.push(request.cursor)
+        if (request.cursor === undefined) {
+          return Promise.resolve({
+            items: [{ sessionId: live.id, seq: SessionSeq(1), type: 'user/message', time: 1, surface: 'current', snippet: 'first' }],
+            nextCursor: next,
+          })
+        }
+        return Promise.resolve({
+          items: [{ sessionId: live.id, seq: SessionSeq(9), type: 'user/message', time: 2, surface: 'current', snippet: 'last' }],
+        })
+      },
+    )
+    const list = new ApiSessionList(ctx, 8)
+    await list.initialize()
+
+    const first = await list.searchMessages({ query: 'q' }, new AbortController().signal)
+    expect(first).toEqual({
+      items: [{ sessionId: live.id, seq: SessionSeq(1), snippet: 'first' }],
+      nextCursor: next,
+    })
+    const second = await list.searchMessages({ query: 'q', cursor: next }, new AbortController().signal)
+    expect(second).toEqual({ items: [{ sessionId: live.id, seq: SessionSeq(9), snippet: 'last' }] })
+    expect(seen).toEqual([undefined, next])
+    await ctx.fiber.dispose()
+  })
+
+  it('tells the caller to restart when its continuation cursor outlived the index', async () => {
+    const ctx = await baseContext()
+    ctx.sessions.create(sid('live'), { meta: header('live', '/live') })
+    ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
+      list: () => Promise.resolve([]),
+    }) as never)
+
+    installSearchQuery(
+      ctx,
+      () => Promise.reject(new Error('session search is not used here')),
+      () => Promise.reject(new SessionQueryError('cursor is stale', 'SESSION_QUERY_STALE_CURSOR')),
+    )
+    const list = new ApiSessionList(ctx, 8)
+    await list.initialize()
+
+    // A continuation the Host cannot resume must not read as an internal
+    // failure: the client needs the one action it can take.
+    await expect(list.searchMessages(
+      { query: 'q', cursor: SessionSearchCursor('stale') },
+      new AbortController().signal,
+    )).rejects.toMatchObject({ code: 'gateway/bad-request' })
     await ctx.fiber.dispose()
   })
 })

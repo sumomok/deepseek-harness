@@ -14,7 +14,6 @@ import type {} from '@deepseek-ai/dsh-session-projection-cache'
 import type SessionQueryEngine from '@deepseek-ai/dsh-session-query'
 import {
   SessionQueryError,
-  type SessionEventSearchHit,
   type SessionRecord,
   type SessionSearchCursor,
   type SessionSearchHit,
@@ -28,10 +27,30 @@ import {
   SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
 } from './types.ts'
 import type {
-  SessionListMetadata, SessionMessageSearchItem, SessionMessageSearchValue,
+  SessionListMetadata, SessionMessageMatchRange, SessionMessageSearchItem, SessionMessageSearchRequest,
+  SessionMessageSearchValue,
   SessionProjectionHints, SessionSearchItem,
   SessionSearchValue, SessionSummary,
 } from './types.ts'
+
+/**
+ * Keep only the matched spans that still index the excerpt after truncation.
+ *
+ * The provider reports offsets into the excerpt it returned; the Host bounds
+ * that excerpt again, so a span past the cut would index past the string.
+ * @param snippet - the excerpt this response will carry.
+ * @param matches - spans the provider reported against its own excerpt.
+ * @returns the surviving spans, or undefined when there were none to begin with.
+ */
+function boundedMatches(
+  snippet: string,
+  matches: readonly SessionMessageMatchRange[] | undefined,
+): readonly SessionMessageMatchRange[] | undefined {
+  if (matches === undefined) return undefined
+  return matches
+    .map(range => ({ start: range.start, length: Math.min(range.length, snippet.length - range.start) }))
+    .filter(range => range.start >= 0 && range.length > 0)
+}
 
 const SEARCH_PROVIDER_CALL_LIMIT = 100
 
@@ -255,38 +274,99 @@ export class ApiSessionList {
   }
 
   /**
-   * Search current visible message content and address each hit by its event.
+   * Return one page of current visible message content, addressed by event.
    *
    * {@link search} answers "which Sessions match", which cannot open anything:
-   * its page groups events and keeps one strong hit per Session. This asks the
-   * provider for the events themselves, so a caller can open the message a
-   * snippet came from. The visibility and surface rules match {@link search},
-   * because a hit a Session list would not show must not surface here either.
-   * @param query - literal message-content query.
+   * its page groups events and keeps one strong hit per Session. This returns
+   * the events themselves under the provider's own continuation cursor, so a
+   * caller can open the message a snippet came from and ask for the next page
+   * without the Host holding a result set it cannot bound.
+   *
+   * Admission runs after the provider page is read, so a page can arrive with
+   * fewer items than it asked for while still carrying a continuation cursor.
+   * @param request - literal message-content query and an optional cursor.
    * @param signal - cancellation for list and search reads.
-   * @returns authorized bounded message search results.
+   * @returns this page's authorized hits and the cursor for the next one.
    */
-  async searchMessages(query: string, signal: AbortSignal): Promise<SessionMessageSearchValue> {
+  async searchMessages(request: SessionMessageSearchRequest, signal: AbortSignal): Promise<SessionMessageSearchValue> {
     const { provider, visibleIds } = await this.searchContext(signal)
-    if (visibleIds.size === 0) return { items: [], hasMore: false }
-    return this.collectSearchHits(
-      query,
-      signal,
-      (request, exec) => provider.searchMessages(request, exec),
-      (hit: SessionEventSearchHit): AdmittedHit<SessionMessageSearchItem> | undefined => {
-        if (!visibleIds.has(hit.sessionId)
-          || hit.surface !== 'current'
-          || !MESSAGE_TYPES.has(hit.type)) return undefined
-        return {
-          key: `${hit.sessionId}:${String(hit.seq)}`,
-          item: {
+    if (visibleIds.size === 0) return { items: [] }
+    const normalizedQuery = normalizeSearchQuery(request.query)
+    const cursor = request.cursor
+    signal.throwIfAborted()
+    try {
+      let pageLimit = SESSION_SEARCH_RESULT_LIMIT
+      while (true) {
+        signal.throwIfAborted()
+        let page
+        try {
+          page = await provider.searchMessages({
+            query: normalizedQuery,
+            eventFilters: [
+              { kind: 'type', values: ['user/message', 'assistant/message'] },
+              { kind: 'surface', values: ['current'] },
+            ],
+            limit: pageLimit,
+            ...(cursor === undefined ? {} : { cursor }),
+          }, { signal })
+          signal.throwIfAborted()
+        } catch (error: unknown) {
+          signal.throwIfAborted()
+          if (cursor === undefined
+            && error instanceof SessionQueryError
+            && error.code === 'SESSION_QUERY_INVALID_LIMIT'
+            && pageLimit > 1) {
+            pageLimit = Math.max(1, Math.floor(pageLimit / 2))
+            continue
+          }
+          throw error
+        }
+        if (page.items.length > pageLimit) {
+          throw new Error(`session search provider returned ${String(page.items.length)} items; maximum is ${String(pageLimit)}`)
+        }
+        const items: SessionMessageSearchItem[] = []
+        const accepted = new Set<string>()
+        for (const hit of page.items) {
+          if (!visibleIds.has(hit.sessionId)
+            || hit.surface !== 'current'
+            || !MESSAGE_TYPES.has(hit.type)) continue
+          const address = `${hit.sessionId}:${String(hit.seq)}`
+          if (accepted.has(address)) continue
+          accepted.add(address)
+          const snippet = truncateUnicodeCodePoints(hit.snippet, SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS)
+          items.push({
             sessionId: hit.sessionId,
             seq: hit.seq,
-            snippet: truncateUnicodeCodePoints(hit.snippet, SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS),
-          },
+            snippet,
+            ...boundedMatches(snippet, hit.matches) === undefined
+              ? {}
+              : { matches: boundedMatches(snippet, hit.matches) ?? [] },
+          })
         }
-      },
-    )
+        return {
+          items,
+          ...page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor },
+          ...page.coverage === undefined
+            ? {}
+            : { coverage: { status: page.coverage.status, skippedSessions: page.coverage.skippedSessions } },
+        }
+      }
+    } catch (error: unknown) {
+      signal.throwIfAborted()
+      if (error instanceof SessionQueryError) {
+        if (error.code === 'SESSION_QUERY_ABORTED') {
+          throw new RemoteError('gateway/cancelled', 'session search was aborted', {})
+        }
+        if (error.code === 'SESSION_QUERY_STALE_CURSOR') {
+          throw new RemoteError(
+            'gateway/bad-request',
+            'session search cursor outlived its index generation; restart from the first page',
+            {},
+          )
+        }
+      }
+      throw new RemoteError('gateway/internal', `session search failed: ${String(error)}`, {})
+    }
   }
 
   /**

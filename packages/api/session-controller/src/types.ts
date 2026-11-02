@@ -202,6 +202,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     /** `openWorkspacePath` resolved a path that does not exist on the Host filesystem. */
     'session/path-not-found': { readonly path: string }
     'session/queue-item-not-found': { readonly itemId: MessageId }
+    /** The continuation cursor outlived the indexed generation it was issued against. */
+    'session/search-cursor-stale': Record<string, never>
     'session/steer-unavailable': { readonly itemId: MessageId }
     'session/title-invalid': { readonly sessionId: SessionId }
     'session/fork-unavailable': { readonly sessionId: SessionId }
@@ -263,6 +265,14 @@ export interface SessionSearchValue {
   readonly hasMore: boolean
 }
 
+/** One matched span inside a search excerpt, in UTF-16 code units of that excerpt. */
+export interface SessionMessageMatchRange {
+  /** Offset of the first matched code unit. */
+  readonly start: number
+  /** Length of the match in code units. */
+  readonly length: number
+}
+
 /** One message-content search result addressed by the Session and event it came from. */
 export interface SessionMessageSearchItem {
   /** Session that owns the matching event. */
@@ -271,12 +281,31 @@ export interface SessionMessageSearchItem {
   readonly seq: SessionSeq
   /** Bounded plain-text excerpt around the match. */
   readonly snippet: string
+  /** Matched spans inside `snippet`, so a renderer need not re-find them. */
+  readonly matches?: readonly SessionMessageMatchRange[]
 }
 
-/** Message-level search response value, spanning Sessions and keeping every match. */
+/** Message-level search request, paged by the provider's own continuation cursor. */
+export interface SessionMessageSearchRequest {
+  /** Literal message-content query. */
+  readonly query: string
+  /** Continuation cursor returned by an earlier page of the same query. */
+  readonly cursor?: Branded<'SessionSearchCursor'>
+}
+
+/** One message-level search page, spanning Sessions and keeping every match it admits. */
 export interface SessionMessageSearchValue {
   readonly items: readonly SessionMessageSearchItem[]
-  readonly hasMore: boolean
+  /** Continuation cursor for the next page, absent when the provider finished. */
+  readonly nextCursor?: Branded<'SessionSearchCursor'>
+  /**
+   * Coverage of the index behind this page. `partial` means at least one
+   * Session could not be read, so an empty page is not proof of absence.
+   */
+  readonly coverage?: {
+    readonly status: 'complete' | 'partial'
+    readonly skippedSessions: number
+  }
 }
 
 /** Request for a Session for a new conversation. */
