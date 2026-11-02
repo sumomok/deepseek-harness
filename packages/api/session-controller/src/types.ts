@@ -301,7 +301,8 @@ export interface SessionMessageSearchValue {
   /**
    * Coverage of the index behind this page. `partial` means at least one
    * Session could not be read, so an empty page is not proof of absence.
-   * Absent means the provider reported nothing, which is not `complete`.
+   * Absent means the provider reported nothing, which is not `complete`. The
+   * count covers the whole observed corpus, not the Sessions this caller sees.
    */
   readonly coverage?: {
     readonly status: 'complete' | 'partial'

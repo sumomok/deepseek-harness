@@ -303,6 +303,41 @@ describe('session.searchMessages', () => {
     await ctx.fiber.dispose()
   })
 
+  it('refuses a continuation whose page size was raised past the Host bound', async () => {
+    const ctx = await baseContext()
+    const live = ctx.sessions.create(sid('live'), { meta: header('live', '/live') })
+    ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
+      list: () => Promise.resolve([]),
+    }) as never)
+
+    const limits: number[] = []
+    installSearchQuery(
+      ctx,
+      () => Promise.reject(new Error('session search is not used here')),
+      (request) => {
+        limits.push(request.limit ?? 0)
+        return Promise.resolve({
+          items: [{ sessionId: live.id, seq: SessionSeq(1), type: 'user/message', time: 1, surface: 'current', snippet: 'hit' }],
+          nextCursor: SessionSearchCursor('provider-next'),
+        })
+      },
+    )
+    const list = new ApiSessionList(ctx, 8)
+    await list.initialize()
+
+    const first = await list.searchMessages({ query: 'q' }, new AbortController().signal)
+    if (first.nextCursor === undefined) throw new Error('a page with more must hand back a cursor')
+    const forged = SessionSearchCursor(Buffer.from(JSON.stringify({
+      cursor: 'provider-next',
+      limit: 100,
+    }), 'utf8').toString('base64url'))
+    await expect(list.searchMessages({ query: 'q', cursor: forged }, new AbortController().signal))
+      .rejects.toMatchObject({ code: 'gateway/bad-request' })
+    // The envelope is the Host's own bound; a caller cannot widen it.
+    expect(limits).toEqual([20])
+    await ctx.fiber.dispose()
+  })
+
   it('rejects a continuation this Host did not issue', async () => {
     const ctx = await baseContext()
     ctx.sessions.create(sid('live'), { meta: header('live', '/live') })

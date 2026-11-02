@@ -40,7 +40,7 @@ kind: "package-reference"
 | `readEvent(request)` | 一个完整事件加其周围有界的原始日志窗口 |
 | `traceSession(id)` | 已知祖先链与递归后代树 |
 | `traceEvent(request)` | 一个事件的位置替换与被引用源事件关系 |
-| `searchSessions(request)` / `searchEvents(request)` / `searchMessages(request)` | 全文搜索分页结果，由挂载的后端实现。会话页按会话归组、每个会话只保留一个最强命中；消息页则逐事件返回，每条命中自带所属会话与 seq，并报告命中片段内的匹配范围与背后索引的覆盖情况。不带 `coverage` 的分页不对索引作任何声明：缺省表示未知，而不是完整 |
+| `searchSessions(request)` / `searchEvents(request)` / `searchMessages(request)` | 全文搜索分页结果，由挂载的后端实现。会话页按会话归组、每个会话只保留一个最强命中；消息页则逐事件返回，每条命中自带所属会话与 seq，并报告命中片段内的匹配范围与背后索引的覆盖情况。不带 `coverage` 的分页不对索引作任何声明：缺省表示未知，而不是完整；计数针对观察到的整个 corpus，不是某个调用者可见的会话子集 |
 
 不带正文的记录只公开 `SessionHeader.isSeeded`。返回事件正文的读取（`readSession`、`readSurface`、`readEvent`）与保留的 `SessionObservation` 值还携带精确 `inheritedEventCount`，因此调用方无需从日志推断切点即可区分继承事件与自有事件。
 

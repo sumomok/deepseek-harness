@@ -454,6 +454,24 @@ describe('SQLite session search', () => {
     })).rejects.toMatchObject({ code: 'SESSION_QUERY_INVALID_CURSOR' })
   })
 
+  it('rejects a cursor that decodes to something other than an object', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('cursor-shape'))
+    session.append(
+      'user/message',
+      createUserMessage({ content: [{ type: 'text', text: 'needle' }], source: { kind: 'user' } }),
+      { surfaceOp: 'append' },
+    )
+
+    for (const body of ['null', '7', '"text"', '[]']) {
+      const cursor = SessionSearchCursor(Buffer.from(body, 'utf8').toString('base64url'))
+      // A JSON document that is not an object must fail as a typed cursor error,
+      // not as a TypeError read off a primitive.
+      await expect(ctx.sessionQuery.searchMessages({ query: 'needle', cursor }))
+        .rejects.toMatchObject({ code: 'SESSION_QUERY_INVALID_CURSOR' })
+    }
+  })
+
   it('searches two-character Unicode61 tokens in live-only sessions', async () => {
     const ctx = await liveContext({ path: ':memory:', snippetChars: 20 })
     const session = ctx.sessions.create(SessionId('live'), {

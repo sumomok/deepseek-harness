@@ -1203,7 +1203,12 @@ function decodeCursor(
 ): number {
   let decoded: Partial<CursorPayload>
   try {
-    decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as Partial<CursorPayload>
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as Partial<CursorPayload> | null
+    // A well-formed JSON document need not be an object: `null`, a string, or a
+    // number would reach the field checks below and fail as a TypeError instead
+    // of the typed cursor error a caller can act on.
+    if (parsed === null || typeof parsed !== 'object') throw new Error('cursor is not an object')
+    decoded = parsed
   } catch (error: unknown) {
     throw invalidCursor(error)
   }

@@ -69,8 +69,12 @@ function decodeMessageContinuation(raw: SessionSearchCursor | undefined): Messag
     const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as Partial<Record<'cursor' | 'limit', unknown>>
     const cursor = parsed.cursor
     const limit = parsed.limit
-    if (typeof cursor !== 'string' || typeof limit !== 'number' || !Number.isSafeInteger(limit) || limit < 1) {
-      throw new Error('continuation does not carry a cursor and a page size')
+    if (typeof cursor !== 'string'
+      || typeof limit !== 'number'
+      || !Number.isSafeInteger(limit)
+      || limit < 1
+      || limit > SESSION_SEARCH_RESULT_LIMIT) {
+      throw new Error('continuation does not carry a cursor and a permitted page size')
     }
     return { cursor: SessionSearchCursor(cursor), limit }
   } catch {
@@ -338,10 +342,12 @@ export class ApiSessionList {
    * @returns this page's authorized hits and the cursor for the next one.
    */
   async searchMessages(request: SessionMessageSearchRequest, signal: AbortSignal): Promise<SessionMessageSearchValue> {
+    const normalizedQuery = normalizeSearchQuery(request.query)
+    // Reject a cursor this Host did not issue before any listing runs, so an
+    // empty corpus cannot turn a malformed continuation into a silent empty page.
+    const continuation = decodeMessageContinuation(request.cursor)
     const { provider, visibleIds } = await this.searchContext(signal)
     if (visibleIds.size === 0) return { items: [] }
-    const normalizedQuery = normalizeSearchQuery(request.query)
-    const continuation = decodeMessageContinuation(request.cursor)
     signal.throwIfAborted()
     try {
       let pageLimit = continuation.limit
@@ -410,8 +416,8 @@ export class ApiSessionList {
         if (error.code === 'SESSION_QUERY_STALE_CURSOR') {
           throw new RemoteError('session/search-cursor-stale', 'restart message search from its first page', {})
         }
-        if (error.code === 'SESSION_QUERY_INVALID_CURSOR') {
-          throw new RemoteError('gateway/bad-request', 'message search cursor is not a cursor this Host issued', {})
+        if (error.code === 'SESSION_QUERY_INVALID_CURSOR' || error.code === 'SESSION_QUERY_INVALID_LIMIT') {
+          throw new RemoteError('gateway/bad-request', 'message search cursor is not one this Host issued for this query', {})
         }
       }
       throw new RemoteError('gateway/internal', `session search failed: ${String(error)}`, {})
@@ -451,7 +457,7 @@ export class ApiSessionList {
    *
    * The grouped session read is the caller: it collects across pages until the
    * result boundary is known, under one work budget, one limit-degradation
-   * ladder, one stale-cursor restart, and one repetition check. Message search
+   * ladder, the restarts its budget allows, and one repetition check. Message search
    * returns a single page under its own cursor, so it does not come through
    * here. The provider call and the per-hit admission arrive as arguments.
    * @param query - literal message-content query.
