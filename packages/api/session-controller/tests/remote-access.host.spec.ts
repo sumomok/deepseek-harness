@@ -14,14 +14,14 @@ import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deep
 import TypertGatewayService from '@deepseek-ai/dsh-api-gateway'
 import type { RemoteAccessBinding, RemoteAccessRole } from '@deepseek-ai/dsh-api-remote-access'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import { remoteMethods, type PeerId, type PeerScope, type Principal, type RemoteInvocation } from '@deepseek-ai/dsh-typert-protocol'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import type SessionController from '../src/index.ts'
 import { ApiSessionList } from '../src/list.ts'
-import type { SessionControlFrame, SessionRequestId, SessionSearchValue } from '../src/types.ts'
+import type { SessionControlFrame, SessionMessageSearchValue, SessionRequestId, SessionSearchValue } from '../src/types.ts'
 import { createSessionTestController } from './test-remote.ts'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
@@ -50,6 +50,14 @@ const SEARCH_CALLS: RemoteAccessBinding = {
 }
 const SEARCHES_SHARED: RemoteAccessBinding = {
   role: { name: 'test:session-search-reader', resource: 'session', actions: ['session/search'] },
+  resource: { kind: 'session', id: SHARED },
+}
+const MESSAGE_SEARCH_CALLS: RemoteAccessBinding = {
+  role: { name: 'test:session-message-searcher', resource: 'global', actions: ['session/searchMessages'] },
+  resource: { kind: 'global' },
+}
+const MESSAGE_SEARCHES_SHARED: RemoteAccessBinding = {
+  role: { name: 'test:session-message-search-reader', resource: 'session', actions: ['session/searchMessages'] },
   resource: { kind: 'session', id: SHARED },
 }
 
@@ -218,6 +226,25 @@ describe('Session Controller access', () => {
       hasMore: true,
     })
     await expect(as(OWNER, 'search').sessionController.search({ query: 'hit' }, new AbortController().signal)).resolves.toEqual(hits)
+  })
+
+  it('returns a non-owner only the session/searchMessages hits whose Session a Session role admits', async () => {
+    const { ctx, as } = await harness()
+    await ctx.plugin(TypertGatewayService)
+    guestPolicy(ctx, MESSAGE_SEARCH_CALLS, MESSAGE_SEARCHES_SHARED)
+    const hits: SessionMessageSearchValue = {
+      items: [
+        { sessionId: PRIVATE, seq: SessionSeq(1), snippet: 'private hit' },
+        { sessionId: SHARED, seq: SessionSeq(2), snippet: 'shared hit' },
+      ],
+      hasMore: true,
+    }
+    vi.spyOn(ApiSessionList.prototype, 'searchMessages').mockResolvedValue(hits)
+    await expect(guestCall(ctx, 'searchMessages', { request: { query: 'hit' } })).resolves.toEqual({
+      items: [{ sessionId: SHARED, seq: SessionSeq(2), snippet: 'shared hit' }],
+      hasMore: true,
+    })
+    await expect(as(OWNER, 'searchMessages').sessionController.searchMessages({ query: 'hit' }, new AbortController().signal)).resolves.toEqual(hits)
   })
 
   it('filters session/control baselines and projection frames for a non-owner', async () => {

@@ -162,6 +162,39 @@ describe('session.searchMessages', () => {
     })
     await ctx.fiber.dispose()
   })
+
+  it('keeps the same event position in two Sessions apart', async () => {
+    const ctx = await baseContext()
+    const first = ctx.sessions.create(sid('first'), { meta: header('first', '/first') })
+    const second = ctx.sessions.create(sid('second'), { meta: header('second', '/second') })
+    ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
+      list: () => Promise.resolve([]),
+    }) as never)
+
+    installSearchQuery(
+      ctx,
+      () => Promise.reject(new Error('session search is not used here')),
+      () => Promise.resolve({
+        items: [
+          { sessionId: first.id, seq: SessionSeq(4), type: 'user/message', time: 1, surface: 'current', snippet: 'first four' },
+          { sessionId: second.id, seq: SessionSeq(4), type: 'user/message', time: 2, surface: 'current', snippet: 'second four' },
+        ],
+      }),
+    )
+    const list = new ApiSessionList(ctx, 8)
+    await list.initialize()
+
+    // A page is addressed by Session and position together; one Session's
+    // fourth event must not shadow another's.
+    await expect(list.searchMessages('query', new AbortController().signal)).resolves.toEqual({
+      items: [
+        { sessionId: first.id, seq: SessionSeq(4), snippet: 'first four' },
+        { sessionId: second.id, seq: SessionSeq(4), snippet: 'second four' },
+      ],
+      hasMore: false,
+    })
+    await ctx.fiber.dispose()
+  })
 })
 
 describe('session.search', () => {
