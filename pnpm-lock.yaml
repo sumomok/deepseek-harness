@@ -768,6 +768,9 @@ importers:
       '@deepseek-ai/dsh-deepseek-account':
         specifier: workspace:*
         version: link:../../packages/credentials/deepseek-account
+      '@deepseek-ai/dsh-external-url':
+        specifier: workspace:*
+        version: link:../../packages/util/external-url
       '@deepseek-ai/dsh-home-paths':
         specifier: workspace:*
         version: link:../../packages/util/home-paths
@@ -1436,6 +1439,9 @@ importers:
 
   apps/desktop-shell:
     dependencies:
+      '@deepseek-ai/dsh-external-url':
+        specifier: workspace:*
+        version: link:../../packages/util/external-url
       electron-updater:
         specifier: 6.8.9
         version: 6.8.9(patch_hash=9c7aaae2529b512b4ad2207268768b25bbe04aa04a0501a4ed21754770258b56)(supports-color@9.4.0)
@@ -17872,6 +17878,12 @@ importers:
         version: link:../../../vendor/cordis
 
   packages/util/deque:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+
+  packages/util/external-url:
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:~

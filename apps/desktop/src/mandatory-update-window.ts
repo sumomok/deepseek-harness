@@ -1,6 +1,7 @@
 /** Shell-owned modal policy UI; only explicit actions authorize downloads or browser navigation. */
 
-import { app, type BrowserWindow, clipboard, dialog, ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
+import { app, type BrowserWindow, clipboard, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron'
+import { HTTPS_ONLY_PROTOCOLS, openExternalTarget } from './external-open.ts'
 import type { DesktopLocale } from './locale.ts'
 import { assertDesktopSender, type DesktopUpdateState } from './ipc.ts'
 import { desktopPolicyPage, type DesktopPolicyState } from './mandatory-update-policy.ts'
@@ -384,7 +385,10 @@ export class DesktopMandatoryUpdateWindow {
         await clipboard.writeText(url)
         if (await clipboard.readText() !== url) throw new Error('desktop policy: clipboard did not retain download address')
       }
-      else await shell.openExternal(url)
+      else {
+        const outcome = await openExternalTarget(url, HTTPS_ONLY_PROTOCOLS)
+        if (outcome.kind !== 'opened') throw new Error('desktop policy: download page was not opened')
+      }
       if (epoch !== this.navigationEpoch || this.disposed) return
       if (action === 'copy') this.navigation = { page: this.navigation?.page ?? 'requested', copy: 'copied' }
     } catch {

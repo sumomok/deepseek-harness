@@ -59,10 +59,12 @@
 
 import { existsSync, readFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
-import { app, BrowserWindow, dialog, Menu, shell, type MenuItemConstructorOptions, type MessageBoxOptions } from 'electron'
+import { app, BrowserWindow, dialog, Menu, type MenuItemConstructorOptions, type MessageBoxOptions } from 'electron'
 import { load } from 'js-yaml'
 import { MacUpdater, NsisUpdater, type AppUpdater, type UpdateCheckResult } from 'electron-updater'
 import { mainWindow } from './main-window.ts'
+import { externalOpenProblemLine, openExternalTarget } from './external-open.ts'
+import { HTTPS_ONLY_PROTOCOLS, SHELL_LINK_PROTOCOLS } from './link-protocols.ts'
 import { menuText } from './menu-text.ts'
 import { compareVersions } from './version-order.ts'
 import { closeInstalling, showInstalling } from './progress-window.ts'
@@ -489,7 +491,7 @@ export function setupUpdates(host: UpdateHost): () => void {
   const manual = (): void => { check('manual') }
   // Built before the packaged check: 「查看日志」 is exactly as useful in a
   // development launch, where startup problems are just as likely.
-  buildMenu(manual, host.openLog)
+  buildMenu(manual, host.openLog, host.log)
   if (!app.isPackaged) return manual
   // Before the first check, so no download of this run can be staged yet.
   sweepAfterInstall(host)
@@ -877,8 +879,21 @@ async function blockOnDownloadPage(host: UpdateHost): Promise<void> {
  */
 async function openDownloadPage(host: UpdateHost, artifact: string): Promise<void> {
   const target = feedFileUrl(FEED_MAC, artifact)
-  host.log(`[updater] opening ${target}\n`)
-  await shell.openExternal(target)
+  // A release download is the narrowest caller: HTTPS only, no credentials.
+  const outcome = await openExternalTarget(target, HTTPS_ONLY_PROTOCOLS)
+  if (outcome.kind !== 'opened') {
+    host.log(`[updater] download page not opened: ${outcome.kind === 'blocked' ? outcome.reason : 'the operating system refused it'}\n`)
+    await ask({
+      type: 'error',
+      message: '无法打开下载页面',
+      detail: outcome.kind === 'blocked'
+        ? '更新源给出的下载地址不是允许的 HTTPS 地址,已阻止打开。'
+        : '系统浏览器没有接受这个下载地址,请稍后重试。',
+      buttons: ['好'],
+    })
+    return
+  }
+  host.log('[updater] opened the download page\n')
   await ask({
     type: 'info',
     message: '下载完成后替换应用',
@@ -1391,8 +1406,9 @@ async function reportUpToDate(): Promise<void> {
  * for directly.
  * @param onCheck - runs the manual update check.
  * @param onOpenLog - opens the server log file.
+ * @param log - appends a safe line when an active menu open fails.
  */
-function buildMenu(onCheck: () => void, onOpenLog: () => void): void {
+function buildMenu(onCheck: () => void, onOpenLog: () => void, log: (line: string) => void): void {
   const text = menuText()
   const onAbout = (): void => { void showAbout(text.about) }
   const appName = app.getName()
@@ -1460,7 +1476,12 @@ function buildMenu(onCheck: () => void, onOpenLog: () => void): void {
       submenu: [
         { label: text.checkUpdate, click: onCheck },
         { label: text.openLog, click: onOpenLog },
-        { label: text.reportIssue, click: () => { void shell.openExternal(ISSUE_NEW_URL) } },
+        { label: text.reportIssue, click: () => {
+          void openExternalTarget(ISSUE_NEW_URL, SHELL_LINK_PROTOCOLS).then((outcome) => {
+            const line = externalOpenProblemLine(outcome)
+            if (line !== '') log(line)
+          })
+        } },
         { type: 'separator' },
         { label: text.about, click: onAbout },
       ],

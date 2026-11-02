@@ -43,7 +43,7 @@ vi.mock('electron', () => ({
 beforeEach(() => { vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3') })
 afterEach(() => {
   state.views.length = 0; state.sessions.length = 0; state.loadFailure = undefined; state.loadBarrier = undefined
-  vi.clearAllMocks(); vi.unstubAllEnvs()
+  vi.clearAllMocks(); vi.restoreAllMocks(); vi.unstubAllEnvs()
 })
 function setup() {
   let blocked = false
@@ -182,10 +182,43 @@ it('opens HTTPS payment links in the system browser without an embedded child wi
   expect(handler({ url: 'https://payment.example/order' })).toEqual({ action: 'deny' })
   expect(state.openExternal).toHaveBeenCalledWith('https://payment.example/order')
   vi.mocked(state.openExternal).mockClear()
-  for (const url of ['file:///tmp/test', 'javascript:alert(1)', 'https://user:pass@payment.example/order']) {
+  for (const url of [
+    'http://payment.example/order', 'mailto:dev@example.com', 'httpx://payment.example/order',
+    'file:///tmp/test', 'javascript:alert(1)', 'data:text/html,<script>alert(1)</script>',
+    'blob:https://payment.example/id', 'about:blank', 'ftp://payment.example/order', 'tel:+123',
+    'ms-settings:privacy', 'C:\\Windows', 'relative/path', 'https://',
+    'https://user:pass@payment.example/order', 'https://user@payment.example/order',
+    'https://payment\u0000.example/order', 'https://payment.example\\@evil.example/order',
+  ]) {
     expect(handler({ url })).toEqual({ action: 'deny' })
   }
   expect(state.openExternal).not.toHaveBeenCalled()
+  manager.close()
+})
+
+it('logs a blocked Platform popup without calling the OS', async () => {
+  const { manager, owner } = setup()
+  await manager.open(owner, 'top-up', bounds)
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+  const handler = view().webContents.setWindowOpenHandler.mock.calls[0]![0] as (details: { url: string }) => { action: string }
+  expect(handler({ url: 'https://user:pass@payment.example/order?token=secret' })).toEqual({ action: 'deny' })
+  await vi.waitFor(() => { expect(error).toHaveBeenCalledWith('[external] blocked target: credentials\n') })
+  expect(JSON.stringify(error.mock.calls)).not.toContain('secret')
+  expect(state.openExternal).not.toHaveBeenCalled()
+  manager.close()
+})
+
+it('logs an OS refusal for a Platform popup without leaking the target', async () => {
+  const { manager, owner } = setup()
+  await manager.open(owner, 'top-up', bounds)
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+  state.openExternal.mockRejectedValueOnce(new Error('refused https://payment.example/order?token=secret'))
+  const handler = view().webContents.setWindowOpenHandler.mock.calls[0]![0] as (details: { url: string }) => { action: string }
+  expect(handler({ url: 'https://payment.example/order?token=secret' })).toEqual({ action: 'deny' })
+  await vi.waitFor(() => {
+    expect(error).toHaveBeenCalledWith('[external] operating system did not open the target: https:\n')
+  })
+  expect(JSON.stringify(error.mock.calls)).not.toContain('secret')
   manager.close()
 })
 

@@ -1,9 +1,10 @@
 /** Isolated Platform documents owned by the desktop account lifetime. */
 import type { EventEmitter } from 'node:events'
 import { createHash, randomUUID } from 'node:crypto'
-import { WebContentsView, session, shell, type Session, type View, type WebFrameMain } from 'electron'
+import { WebContentsView, session, type Session, type View, type WebFrameMain } from 'electron'
 import { mergePlatformCookies, platformClientHeaders, type PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
 import { desktopClientMetadata } from './client-metadata.ts'
+import { externalOpenProblemLine, HTTPS_ONLY_PROTOCOLS, openExternalTarget } from './external-open.ts'
 
 import { PLATFORM_IPC, type PlatformLocale } from './platform-ipc.ts'
 
@@ -147,12 +148,13 @@ export class DesktopPlatformView {
     this.view = view
     // External payment and documentation pages open without the embedded session or token.
     view.webContents.setWindowOpenHandler(({ url }) => {
-      const destination = new URL(url)
-      if (destination.protocol === 'https:' && !destination.username && !destination.password) {
-        void shell.openExternal(url).catch(() => {
-          // An OS browser-launch failure leaves the embedded page available for retry.
-        })
-      }
+      // HTTPS-only and credential-free; a blocked target or an OS refusal
+      // leaves the embedded page available for retry and writes one line that
+      // names only the stable reason or protocol.
+      void openExternalTarget(url, HTTPS_ONLY_PROTOCOLS).then((outcome) => {
+        const line = externalOpenProblemLine(outcome)
+        if (line !== '') console.error(line)
+      })
       return { action: 'deny' }
     })
     const allowNavigation = (url: string): boolean => {

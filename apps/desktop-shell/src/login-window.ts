@@ -50,8 +50,76 @@
  */
 
 import { BrowserWindow, session } from 'electron'
+import { resolveExternalUrl, type ExternalProtocol } from '@deepseek-ai/dsh-external-url'
 import { LOGIN_WINDOW, loginPartitionDomain } from './render-service.ts'
 import type { ClearLoginSession, LoginOpener } from './render-service.ts'
+
+/** The only protocols a sign-in page may navigate or popup to. */
+const LOGIN_PROTOCOLS = ['http:', 'https:'] as const satisfies readonly ExternalProtocol[]
+
+/** The part of Electron's `WebContents` the sign-in policy installs on. */
+export interface LoginNavigationContents {
+  /**
+   * Register the handler for a page's request to open another window.
+   * @param handler - receives the requested URL and returns the deny decision.
+   * @returns the value Electron returns for its registration.
+   */
+  setWindowOpenHandler(handler: (details: { url: string }) => { action: 'deny' }): unknown
+
+  /**
+   * Register a top-level navigation or redirect listener.
+   * @param event - `will-navigate` or the redirect equivalent.
+   * @param listener - receives the cancellable event and its target.
+   * @returns the value Electron returns for its registration.
+   */
+  on(event: 'will-navigate' | 'will-redirect', listener: (event: { preventDefault(): void }, target: string) => void): unknown
+}
+
+/**
+ * Resolve one sign-in navigation target.
+ * @param target - URL a popup, navigation, or redirect named.
+ * @returns the canonical credential-free HTTP(S) href, or undefined when refused.
+ */
+export function loginNavigationTarget(target: string): string | undefined {
+  const resolution = resolveExternalUrl(target, LOGIN_PROTOCOLS)
+  return resolution.kind === 'allowed' ? resolution.url : undefined
+}
+
+/**
+ * Install the sign-in window's popup, navigation, and redirect rules.
+ *
+ * OAuth hand-offs legitimately cross HTTP(S) origins, so those continue in
+ * this same window. Every other protocol, credentials, a malformed target, or
+ * a relative reference is cancelled in place and never handed to the OS.
+ * @param contents - the sign-in window's web contents, real or faked.
+ * @param load - loads one allowed URL in the sign-in window.
+ */
+export function installLoginNavigationPolicy(
+  contents: LoginNavigationContents,
+  load: (url: string) => Promise<unknown>,
+): void {
+  contents.setWindowOpenHandler(({ url }) => {
+    const target = loginNavigationTarget(url)
+    if (target !== undefined) {
+      try {
+        void load(target).catch(() => {
+          // A hand-off target that refuses to load leaves the user on the page
+          // they were on, with the strip still naming it; there is nothing to
+          // report to, the window being the whole interface here.
+        })
+      } catch {
+        // A synchronous load failure has the same observable outcome as a
+        // rejected load: the current page stays in place.
+      }
+    }
+    return { action: 'deny' }
+  })
+  const allow = (event: { preventDefault(): void }, target: string): void => {
+    if (loginNavigationTarget(target) === undefined) event.preventDefault()
+  }
+  contents.on('will-navigate', allow)
+  contents.on('will-redirect', allow)
+}
 
 /**
  * The origin the title strip names, for a URL Chromium reports mid-flight.
@@ -156,14 +224,10 @@ export const openLoginWindow: LoginOpener = async (request, signal) => {
     // this window. A second window would carry no title strip and would be
     // indistinguishable from the app's own window by `isResizable()`, so the
     // hand-off is followed here instead of being opened beside us — which is
-    // also what keeps one origin on screen at a time.
-    window.webContents.setWindowOpenHandler(({ url }) => {
-      if (!window.isDestroyed()) void window.loadURL(url).catch(() => {
-        // A hand-off target that refuses to load leaves the user on the page
-        // they were on, with the strip still naming it; there is nothing to
-        // report to, the window being the whole interface here.
-      })
-      return { action: 'deny' }
+    // also what keeps one origin on screen at a time. Only credential-free
+    // HTTP(S) targets are followed; anything else is cancelled, not opened.
+    installLoginNavigationPolicy(window.webContents, async (url) => {
+      if (!window.isDestroyed()) await window.loadURL(url)
     })
     lockTitleToOrigin(window)
     const closed = new Promise<void>((resolve) => { window.once('closed', () => { resolve() }) })

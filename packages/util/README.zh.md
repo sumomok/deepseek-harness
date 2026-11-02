@@ -9,7 +9,7 @@ kind: "package-group"
 
 ## 概述
 
-`util/` 组为能力包提供共享的机制原语，避免重复实现。它涵盖原子写入、品牌化 id、双端队列、无损 JSON 值、UUID、Harness home 路径、启动环境、出站代理策略、原生命令、输出保留、时区、时刻与时间段词汇，以及超时处理。这里的每个根入口都是库：它不注册产品服务或事件，业务语义仍由消费它的能力负责。例外是 `official-bundles`：它不是机制原语，而是以纯数据形式保存安装方和插件管理器的官方包列表，由各自的消费方应用。
+`util/` 组为能力包提供共享的机制原语，避免重复实现。它涵盖原子写入、品牌化 id、双端队列、外部 URL 解析、无损 JSON 值、UUID、Harness home 路径、启动环境、出站代理策略、原生命令、输出保留、时区、时刻与时间段词汇，以及超时处理。这里的每个根入口都是库：它不注册产品服务或事件，业务语义仍由消费它的能力负责。例外是 `official-bundles`：它不是机制原语，而是以纯数据形式保存安装方和插件管理器的官方包列表，由各自的消费方应用。
 
 ## 目录
 
@@ -39,6 +39,7 @@ kind: "package-group"
 | [`http-proxy/`](http-proxy/README.zh.md) | 解析出唯一的出站代理策略，并为 `fetch`、SDK agent（智能体）与 spawn 的子进程安装它 |
 | [`launch-environment/`](launch-environment/README.zh.md) | 冻结的启动环境，记住每个值来自哪一层 |
 | [`atomic-write/`](atomic-write/README.zh.md) | 原子文件替换与跨进程写锁 |
+| [`external-url/`](external-url/README.zh.md) | 在交给操作系统前，按调用方指定的协议白名单解析外部 URL |
 | [`lazy-require/`](lazy-require/README.zh.md) | 在首次使用时按调用方位置加载兼容 CommonJS 的 Host 依赖 |
 | [`native-command/`](native-command/README.zh.md) | 直接运行宿主原生命令，绝不拼 shell 字符串 |
 | [`workspace-path/`](workspace-path/README.zh.md) | 提供浏览器安全的 Workspace 路径与显示辅助函数 |
