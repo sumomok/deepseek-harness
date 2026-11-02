@@ -11,7 +11,16 @@ import type {} from '@deepseek-ai/dsh-commands/types'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
-import { SessionQueryError, type SessionRecord, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
+import type SessionQueryEngine from '@deepseek-ai/dsh-session-query'
+import {
+  SessionQueryError,
+  type SessionEventSearchHit,
+  type SessionRecord,
+  type SessionSearchCursor,
+  type SessionSearchHit,
+  type SessionSearchPage,
+  type SessionSearchRequest,
+} from '@deepseek-ai/dsh-session-query'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { z } from 'zod'
 import {
@@ -25,6 +34,14 @@ import type {
 } from './types.ts'
 
 const SEARCH_PROVIDER_CALL_LIMIT = 100
+
+/** One admitted search hit and the key that keeps it unique across pages. */
+interface AdmittedHit<TItem> {
+  /** Identity of the provider row this item came from. */
+  readonly key: string
+  /** The item this search returns for that row. */
+  readonly item: TItem
+}
 const SESSION_SEARCH_QUERY_MAX_CHARS = 500
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
 
@@ -215,105 +232,26 @@ export class ApiSessionList {
    * @returns authorized bounded Session search results.
    */
   async search(query: string, signal: AbortSignal): Promise<SessionSearchValue> {
-    const normalizedQuery = normalizeSearchQuery(query)
-    signal.throwIfAborted()
-    const provider = this.ctx.get('sessionQuery')
-    if (provider === undefined) {
-      throw new RemoteError(
-        'gateway/internal',
-        'session search is unavailable: this deployment does not mount @deepseek-ai/dsh-session-query',
-        {},
-      )
-    }
-    try {
-      const visible = await provider.listSessions(signal)
-      signal.throwIfAborted()
-      const visibleIds = new Set(visible
-        .filter(record => record.header.cwd !== undefined)
-        .map(record => record.header.id))
-      if (visibleIds.size === 0) return { items: [], hasMore: false }
-      const authorized: SessionSearchItem[] = []
-      const acceptedIds = new Set<SessionId>()
-      const seenCursors = new Set<SessionSearchCursor>()
-      let cursor: SessionSearchCursor | undefined
-      let providerCalls = 0
-      let pageLimit = SESSION_SEARCH_RESULT_LIMIT
-      while (authorized.length <= SESSION_SEARCH_RESULT_LIMIT) {
-        signal.throwIfAborted()
-        if (providerCalls >= SEARCH_PROVIDER_CALL_LIMIT) {
-          throw new Error(`session search provider exceeded the ${SEARCH_PROVIDER_CALL_LIMIT}-call work budget`)
-        }
-        providerCalls++
-        const requestedCursor = cursor
-        const requestedLimit = pageLimit
-        let page
-        try {
-          page = await provider.searchSessions({
-            query: normalizedQuery,
-            eventFilters: [
-              { kind: 'type', values: ['user/message', 'assistant/message'] },
-              { kind: 'surface', values: ['current'] },
-            ],
-            limit: requestedLimit,
-            ...(requestedCursor === undefined ? {} : { cursor: requestedCursor }),
-          }, { signal })
-          signal.throwIfAborted()
-        } catch (error: unknown) {
-          signal.throwIfAborted()
-          if (requestedCursor === undefined
-            && error instanceof SessionQueryError
-            && error.code === 'SESSION_QUERY_INVALID_LIMIT'
-            && requestedLimit > 1) {
-            pageLimit = Math.max(1, Math.floor(requestedLimit / 2))
-            continue
-          }
-          if (requestedCursor !== undefined
-            && error instanceof SessionQueryError
-            && error.code === 'SESSION_QUERY_STALE_CURSOR') {
-            authorized.length = 0
-            acceptedIds.clear()
-            seenCursors.clear()
-            cursor = undefined
-            continue
-          }
-          throw error
-        }
-        if (page.items.length > requestedLimit) {
-          throw new Error(`session search provider returned ${String(page.items.length)} items; maximum is ${String(requestedLimit)}`)
-        }
-        for (const hit of page.items) {
-          if (authorized.length > SESSION_SEARCH_RESULT_LIMIT) continue
-          if (!visibleIds.has(hit.header.id)
-            || hit.bestMatch.sessionId !== hit.header.id
-            || hit.bestMatch.surface !== 'current'
-            || !MESSAGE_TYPES.has(hit.bestMatch.type)
-            || acceptedIds.has(hit.header.id)) continue
-          acceptedIds.add(hit.header.id)
-          authorized.push({
+    const { provider, visibleIds } = await this.searchContext(signal)
+    if (visibleIds.size === 0) return { items: [], hasMore: false }
+    return this.collectSearchHits(
+      query,
+      signal,
+      (request, exec) => provider.searchSessions(request, exec),
+      (hit: SessionSearchHit): AdmittedHit<SessionSearchItem> | undefined => {
+        if (!visibleIds.has(hit.header.id)
+          || hit.bestMatch.sessionId !== hit.header.id
+          || hit.bestMatch.surface !== 'current'
+          || !MESSAGE_TYPES.has(hit.bestMatch.type)) return undefined
+        return {
+          key: hit.header.id,
+          item: {
             sessionId: hit.header.id,
             snippet: truncateUnicodeCodePoints(hit.bestMatch.snippet, SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS),
-          })
+          },
         }
-        if (page.nextCursor !== undefined) {
-          if (seenCursors.has(page.nextCursor)) {
-            throw new Error('session search provider repeated a continuation cursor')
-          }
-          seenCursors.add(page.nextCursor)
-        }
-        if (authorized.length > SESSION_SEARCH_RESULT_LIMIT || page.nextCursor === undefined) break
-        cursor = page.nextCursor
-      }
-      return {
-        items: authorized.slice(0, SESSION_SEARCH_RESULT_LIMIT),
-        hasMore: authorized.length > SESSION_SEARCH_RESULT_LIMIT,
-      }
-    } catch (error: unknown) {
-      signal.throwIfAborted()
-      if (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_ABORTED') {
-        throw new RemoteError('gateway/cancelled', 'session search was aborted', {})
-      }
-      throw new RemoteError('gateway/internal', `session search failed: ${String(error)}`, {})
-    }
+      },
+    )
   }
 
   /**
@@ -329,7 +267,37 @@ export class ApiSessionList {
    * @returns authorized bounded message search results.
    */
   async searchMessages(query: string, signal: AbortSignal): Promise<SessionMessageSearchValue> {
-    const normalizedQuery = normalizeSearchQuery(query)
+    const { provider, visibleIds } = await this.searchContext(signal)
+    if (visibleIds.size === 0) return { items: [], hasMore: false }
+    return this.collectSearchHits(
+      query,
+      signal,
+      (request, exec) => provider.searchMessages(request, exec),
+      (hit: SessionEventSearchHit): AdmittedHit<SessionMessageSearchItem> | undefined => {
+        if (!visibleIds.has(hit.sessionId)
+          || hit.surface !== 'current'
+          || !MESSAGE_TYPES.has(hit.type)) return undefined
+        return {
+          key: `${hit.sessionId}:${String(hit.seq)}`,
+          item: {
+            sessionId: hit.sessionId,
+            seq: hit.seq,
+            snippet: truncateUnicodeCodePoints(hit.snippet, SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS),
+          },
+        }
+      },
+    )
+  }
+
+  /**
+   * Resolve the mounted query service and the Sessions this caller may see.
+   * @param signal - cancellation for the listing read.
+   * @returns the provider and the ids every hit is checked against.
+   */
+  private async searchContext(signal: AbortSignal): Promise<{
+    provider: SessionQueryEngine
+    visibleIds: Set<SessionId>
+  }> {
     signal.throwIfAborted()
     const provider = this.ctx.get('sessionQuery')
     if (provider === undefined) {
@@ -339,19 +307,46 @@ export class ApiSessionList {
         {},
       )
     }
-    try {
-      const visible = await provider.listSessions(signal)
-      signal.throwIfAborted()
-      const visibleIds = new Set(visible
+    const visible = await provider.listSessions(signal)
+    signal.throwIfAborted()
+    return {
+      provider,
+      visibleIds: new Set(visible
         .filter(record => record.header.cwd !== undefined)
-        .map(record => record.header.id))
-      if (visibleIds.size === 0) return { items: [], hasMore: false }
-      const authorized: SessionMessageSearchItem[] = []
+        .map(record => record.header.id)),
+    }
+  }
+
+  /**
+   * Collect bounded hits from one cursor-paged provider search.
+   *
+   * Both entry points share one work budget, one limit-degradation ladder, one
+   * stale-cursor restart, and one repetition check; only the provider call and
+   * the per-hit admission differ, so those arrive as arguments.
+   * @param query - literal message-content query.
+   * @param signal - cancellation for the reads behind this page sequence.
+   * @param fetchPage - calls the provider method this search reads from.
+   * @param admit - projects one provider hit, or rejects it with undefined.
+   * @returns admitted items and whether the provider held more than the limit.
+   */
+  private async collectSearchHits<TRow, TItem>(
+    query: string,
+    signal: AbortSignal,
+    fetchPage: (
+      request: SessionSearchRequest,
+      exec: { signal: AbortSignal },
+    ) => Promise<SessionSearchPage<TRow>>,
+    admit: (row: TRow) => AdmittedHit<TItem> | undefined,
+  ): Promise<{ items: TItem[]; hasMore: boolean }> {
+    const normalizedQuery = normalizeSearchQuery(query)
+    signal.throwIfAborted()
+    try {
+      const authorized: TItem[] = []
       const accepted = new Set<string>()
-      let cursor: SessionSearchCursor | undefined
       const seenCursors = new Set<SessionSearchCursor>()
-      let pageLimit = SESSION_SEARCH_RESULT_LIMIT
+      let cursor: SessionSearchCursor | undefined
       let providerCalls = 0
+      let pageLimit = SESSION_SEARCH_RESULT_LIMIT
       while (authorized.length <= SESSION_SEARCH_RESULT_LIMIT) {
         signal.throwIfAborted()
         if (providerCalls >= SEARCH_PROVIDER_CALL_LIMIT) {
@@ -362,7 +357,7 @@ export class ApiSessionList {
         const requestedLimit = pageLimit
         let page
         try {
-          page = await provider.searchMessages({
+          page = await fetchPage({
             query: normalizedQuery,
             eventFilters: [
               { kind: 'type', values: ['user/message', 'assistant/message'] },
@@ -395,19 +390,12 @@ export class ApiSessionList {
         if (page.items.length > requestedLimit) {
           throw new Error(`session search provider returned ${String(page.items.length)} items; maximum is ${String(requestedLimit)}`)
         }
-        for (const hit of page.items) {
+        for (const row of page.items) {
           if (authorized.length > SESSION_SEARCH_RESULT_LIMIT) continue
-          if (!visibleIds.has(hit.sessionId)
-            || hit.surface !== 'current'
-            || !MESSAGE_TYPES.has(hit.type)) continue
-          const address = `${hit.sessionId}:${String(hit.seq)}`
-          if (accepted.has(address)) continue
-          accepted.add(address)
-          authorized.push({
-            sessionId: hit.sessionId,
-            seq: hit.seq,
-            snippet: truncateUnicodeCodePoints(hit.snippet, SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS),
-          })
+          const admitted = admit(row)
+          if (admitted === undefined || accepted.has(admitted.key)) continue
+          accepted.add(admitted.key)
+          authorized.push(admitted.item)
         }
         if (page.nextCursor !== undefined) {
           if (seenCursors.has(page.nextCursor)) {
