@@ -21,12 +21,14 @@ import type {
   SessionEventReadRequest,
   SessionEventRecord,
   SessionEventSearchDocument,
+  SessionEventSearchHit,
   SessionEventSearchRequest,
   SessionEventTraceObservation,
   SessionEventTraceRequest,
   SessionEventWindow,
   SessionLineageTrace,
   SessionLogSnapshot,
+  SessionMessageSearchRequest,
   SessionRecord,
   SessionResultFilter,
   SessionSearchExecContext,
@@ -165,6 +167,22 @@ export abstract class SessionQueryEngine extends Service {
     request: SessionEventSearchRequest,
     exec?: SessionSearchExecContext,
   ): Promise<SessionEventSearchPage>
+
+  /**
+   * Search the live-preferred logical corpus at message granularity.
+   *
+   * Where {@link searchSessions} keeps one strong event per session, this
+   * returns the matching events themselves, so a caller that needs to address
+   * a specific message reads `sessionId` and `seq` off each hit instead of a
+   * session-level summary.
+   * @param request - query text, metadata filters, page size, and cursor.
+   * @param exec - optional cancellation control.
+   * @returns matching event hits in contract-defined order.
+   */
+  abstract searchMessages(
+    request: SessionMessageSearchRequest,
+    exec?: SessionSearchExecContext,
+  ): Promise<SessionSearchPage<SessionEventSearchHit>>
 
   /**
    * List the complete logical corpus using live-preferred records.

@@ -25,6 +25,10 @@ function cut(
 
 /** Session query implementation whose search faces are outside these tests. */
 export class TestSessionQuery extends SessionQueryEngine {
+
+  override searchMessages(): Promise<never> {
+    throw new Error('this fake implements no message-granularity search')
+  }
   static override inject = ['sessions', 'sessionPersistence']
 
   /** Live-preferred observation backed directly by a short-lived persistence read handle. */

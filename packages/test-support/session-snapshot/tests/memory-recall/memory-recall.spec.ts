@@ -63,6 +63,10 @@ function traceFor(
 }
 
 class FakeSessionQuery extends SessionQueryEngine {
+
+  override searchMessages(): Promise<never> {
+    throw new Error('this fake implements no message-granularity search')
+  }
   searchCalls = 0
   traceCalls = 0
   hang = false

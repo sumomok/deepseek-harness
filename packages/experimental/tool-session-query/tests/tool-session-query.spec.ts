@@ -130,6 +130,10 @@ function eventHit(sessionId: SessionIdValue, seq: SessionSeq, text = 'needle exc
 }
 
 class FakeQuery extends SessionQueryEngine {
+
+  override searchMessages(): Promise<never> {
+    throw new Error('this fake implements no message-granularity search')
+  }
   static sessionSearch: (
     request: SessionSearchRequest,
     exec?: SessionSearchExecContext,

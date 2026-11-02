@@ -64,6 +64,10 @@ async function baseContext(): Promise<Context> {
 
 /** Real query core with a programmable full-text provider for Host search tests. */
 class SearchSessionQuery extends SessionQueryEngine {
+
+  override searchMessages(): Promise<never> {
+    throw new Error('this fake implements no message-granularity search')
+  }
   constructor(
     ctx: Context,
     private readonly search: (

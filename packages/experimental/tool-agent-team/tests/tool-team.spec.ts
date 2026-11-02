@@ -55,6 +55,10 @@ let callNumber = 0
 
 /** Session query implementation whose search faces are outside these tests. */
 class TestSessionQuery extends SessionQueryEngine {
+
+  override searchMessages(): Promise<never> {
+    throw new Error('this fake implements no message-granularity search')
+  }
   override searchSessions(): Promise<never> {
     return Promise.reject(new Error('session search is not configured in this test'))
   }

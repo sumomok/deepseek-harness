@@ -283,6 +283,17 @@ export interface SessionEventSearchHit extends SessionEventRecord {
   snippet: string
 }
 
+/**
+ * Cross-session message-level full-text search request.
+ *
+ * Carries the same normalized inputs as {@link SessionSearchRequest}; the two
+ * differ in what one page spans. A session page groups events and keeps the
+ * strongest event per session, while a message page is the events themselves,
+ * so one session can occupy many entries and each hit is addressed by its own
+ * `sessionId` and `seq`.
+ */
+export type SessionMessageSearchRequest = SessionSearchRequest
+
 /** One grouped cross-session hit, ranked by its strongest matching event. */
 export interface SessionSearchHit extends SessionRecord {
   /** Strongest matching event for this session. */

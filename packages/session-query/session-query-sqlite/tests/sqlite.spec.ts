@@ -343,6 +343,70 @@ describe('SQLite session search', () => {
     expect(open).toHaveBeenCalledOnce()
   })
 
+  it('returns every matching message across sessions instead of one strong hit per session', async () => {
+    const ctx = await liveContext()
+    const first = ctx.sessions.create(SessionId('messages-first'))
+    const second = ctx.sessions.create(SessionId('messages-second'))
+    // Distinct lengths keep the length tiebreaker decisive, so the expected
+    // order does not depend on the wall clock the appends happen to share.
+    for (const [session, text] of [
+      [first, 'needle a'],
+      [first, 'needle bb'],
+      [second, 'needle ccc'],
+    ] as const) {
+      session.append(
+        'user/message',
+        createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }),
+        { surfaceOp: 'append' },
+      )
+    }
+
+    // The grouped read is what a session list needs, and it keeps one row each.
+    const grouped = await ctx.sessionQuery.searchSessions({ query: 'needle' })
+    expect(grouped.items.map(hit => hit.header.id)).toEqual([first.id, second.id])
+
+    // Message granularity keeps all three, so a caller can address each one.
+    const page = await ctx.sessionQuery.searchMessages({ query: 'needle' })
+    expect(page.items.map(hit => [hit.sessionId, hit.seq, hit.snippet])).toEqual([
+      [first.id, SessionSeq(0), 'needle a'],
+      [first.id, SessionSeq(1), 'needle bb'],
+      [second.id, SessionSeq(0), 'needle ccc'],
+    ])
+    expect(page.nextCursor).toBeUndefined()
+  })
+
+  it('pages messages with a cursor that the session and event scopes reject', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('messages-paged'))
+    for (const text of ['needle a', 'needle bb', 'needle ccc']) {
+      session.append(
+        'user/message',
+        createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }),
+        { surfaceOp: 'append' },
+      )
+    }
+
+    const first = await ctx.sessionQuery.searchMessages({ query: 'needle', limit: 2 })
+    expect(first.items.map(hit => hit.seq)).toEqual([SessionSeq(0), SessionSeq(1)])
+    expect(first.nextCursor).toBeDefined()
+
+    const rest = await ctx.sessionQuery.searchMessages({
+      query: 'needle',
+      limit: 2,
+      cursor: first.nextCursor,
+    })
+    expect(rest.items.map(hit => hit.seq)).toEqual([SessionSeq(2)])
+    expect(rest.nextCursor).toBeUndefined()
+
+    // One cursor names one scope and one request; a page read here must not
+    // continue a session-grouped read.
+    await expect(ctx.sessionQuery.searchSessions({
+      query: 'needle',
+      limit: 2,
+      cursor: first.nextCursor,
+    })).rejects.toMatchObject({ code: 'SESSION_QUERY_INVALID_CURSOR' })
+  })
+
   it('searches two-character Unicode61 tokens in live-only sessions', async () => {
     const ctx = await liveContext({ path: ':memory:', snippetChars: 20 })
     const session = ctx.sessions.create(SessionId('live'), {

@@ -28,6 +28,10 @@ declare module '@deepseek-ai/dsh-llm' {
 }
 
 class TestSessionQueryEngine extends SessionQueryEngine {
+
+  override searchMessages(): Promise<never> {
+    throw new Error('this fake implements no message-granularity search')
+  }
   override searchSessions(
     ..._args: Parameters<SessionQueryEngine['searchSessions']>
   ): ReturnType<SessionQueryEngine['searchSessions']> {

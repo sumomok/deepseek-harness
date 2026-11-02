@@ -222,6 +222,10 @@ export function testSessionPersistence(
 
 /** Concrete point-read query used by Session Controller tests that do not exercise search. */
 class TestSessionQuery extends SessionQueryEngine {
+
+  override searchMessages(): Promise<never> {
+    throw new Error('this fake implements no message-granularity search')
+  }
   override searchSessions(): Promise<never> {
     return Promise.reject(new Error('session search is not configured in this test'))
   }

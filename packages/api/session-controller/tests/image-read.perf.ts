@@ -44,6 +44,10 @@ interface Timings {
 
 /** Production point reads; full-text search is outside this diagnostic. */
 class ImageReadSessionQuery extends SessionQueryEngine {
+
+  override searchMessages(): Promise<never> {
+    throw new Error('this fake implements no message-granularity search')
+  }
   override searchSessions(): Promise<never> {
     return Promise.reject(new Error('image read diagnostic does not search sessions'))
   }

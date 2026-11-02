@@ -32,6 +32,7 @@ import type {
   SessionEventSearchHit,
   SessionEventSearchPage,
   SessionEventSearchRequest,
+  SessionMessageSearchRequest,
   SessionSearchExecContext,
   SessionSearchHit,
   SessionSearchCursor as SessionSearchCursorValue,
@@ -203,7 +204,7 @@ interface SearchRow extends SessionHeaderRow {
 interface CursorPayload {
   version: 1
   instance: string
-  scope: 'sessions' | 'events'
+  scope: 'sessions' | 'events' | 'messages'
   fingerprint: string
   generation: string
   offset: number
@@ -344,6 +345,34 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
           offset: cursorOffset,
         }), offset),
       }
+    })
+  }
+
+  override async searchMessages(
+    request: SessionMessageSearchRequest,
+    exec?: SessionSearchExecContext,
+  ): Promise<SessionSearchPage<SessionEventSearchHit>> {
+    this._assertSearchEnabled()
+    const normalized = normalizeSessionRequest(request, this.config)
+    const signal = exec?.signal
+    return this._serialized(signal, async () => {
+      await this._ensureReady(signal)
+      const persistenceBinding = await this._reconcile(signal)
+      assertNotAborted(signal)
+      const generation = String(this._globalGeneration)
+      const fingerprint = requestFingerprint(normalized)
+      const offset = normalized.cursor === undefined
+        ? 0
+        : decodeCursor(normalized.cursor, this._instance, 'messages', fingerprint, generation)
+      const rows = this._queryMessages(normalized, offset, persistenceBinding)
+      return page(rows, normalized.limit, row => this._eventHit(row), cursorOffset => encodeCursor({
+        version: 1,
+        instance: this._instance,
+        scope: 'messages',
+        fingerprint,
+        generation,
+        offset: cursorOffset,
+      }), offset)
     })
   }
 
@@ -744,6 +773,45 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       )
       SELECT * FROM ranked
       WHERE event_rank = 1
+      ORDER BY match_count DESC, document_length ASC, time DESC, session_id ASC, seq DESC
+      LIMIT ? OFFSET ?
+    `).all(...bindings) as unknown as SearchRow[]
+  }
+
+  /**
+   * Select matching events across sessions, keeping every hit.
+   *
+   * `_querySessions` collapses each session to its strongest event; this reads
+   * the ranked rows before that collapse so a page can address individual
+   * messages. `session_id` joins the ORDER BY tiebreakers because rows from
+   * different sessions can otherwise share every preceding key.
+   * @param request - normalized query, session filters, event filters, and limit.
+   * @param offset - page offset already validated against the cursor.
+   * @param persistenceBinding - binding for the indexed generation being read.
+   * @returns one row per matching event, plus the row that proves a next page.
+   */
+  private _queryMessages(
+    request: NormalizedSessionRequest,
+    offset: number,
+    persistenceBinding: PersistenceBinding,
+  ): SearchRow[] {
+    const selected = selectedDocumentsSql()
+    const sessionWhere = buildSessionWhere(request.sessionFilters)
+    const eventWhere = buildEventWhere(request.eventFilters)
+    assertFts5OuterPredicateCount(sessionWhere.predicateCount + eventWhere.predicateCount)
+    const where = [sessionWhere.sql, eventWhere.sql].filter(Boolean).join(' AND ')
+    const bindings = [
+      ...selectedDocumentsParams(request.query, persistenceBinding.service !== undefined),
+      ...sessionWhere.params,
+      ...eventWhere.params,
+      request.limit + 1,
+      offset,
+    ]
+    assertPortableBindingCount(bindings.length)
+    return this._requireDb().prepare(`
+      ${selected.sql}
+      SELECT * FROM matched
+      ${where === '' ? '' : `WHERE ${where}`}
       ORDER BY match_count DESC, document_length ASC, time DESC, session_id ASC, seq DESC
       LIMIT ? OFFSET ?
     `).all(...bindings) as unknown as SearchRow[]
