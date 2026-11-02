@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-safe-binary-write",
   "description": "Safe binary file write with symlink containment and TOCTOU mitigation for screenshot restore and artifact output",
-  "version": "0.2.2-alpha.2",
+  "version": "0.2.2-alpha.2.1",
   "publishConfig": {
     "access": "public"
   },
