@@ -191,6 +191,29 @@ describe('resolveChatRevealTarget', () => {
     expect(resolveChatRevealTarget(snapshot, 25)?.key).toBe(answer.key)
   })
 
+  it('lands on the compaction row for both its checkpoint and its cited summary', () => {
+    const owner = turn(1, 10, 40, [step(1, 1, 12, 39)])
+    const card: ChatConversationViewNode = {
+      key: 'compaction:30',
+      id: '30',
+      kind: 'compaction',
+      target: 'chat',
+      anchorSeq: 30,
+      location: { kind: 'turn', turn: owner },
+      visibility: 'visible',
+      data: {
+        kind: 'compaction', seq: 30, time: 30, summary: 'summary text',
+        summaryEventSeq: 29, shadowedItemCount: 4, shadowedTokenCount: 120,
+      },
+    }
+    const snapshot = snapshotOf({ rows: [card], turns: [owner] })
+
+    // The card presents the checkpoint message it landed (`seq`) and the
+    // summary it cites (`summaryEventSeq`); a hit on either belongs here.
+    expect(resolveChatRevealTarget(snapshot, 30)?.key).toBe(card.key)
+    expect(resolveChatRevealTarget(snapshot, 29)?.key).toBe(card.key)
+  })
+
   it('reports the Turn-process fold that hides the row it lands on', () => {
     const answer = assistantRow({ anchorSeq: 20, messageSeq: 30, owner: answering, number: 1 })
     const snapshot = snapshotOf({ rows: [answer], turns: [answering], folded: answer, foldedProcessStep: 1 })

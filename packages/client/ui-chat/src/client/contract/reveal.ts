@@ -31,6 +31,21 @@ export type ChatRevealFailure =
   /** The row resolved but is not mounted, so it cannot be scrolled to. */
   | 'unmounted'
 
+/**
+ * Whether one Chat row presents the content of an event position.
+ *
+ * A compaction row presents two events: the checkpoint `user/message` it landed
+ * (`seq`) and the `compaction/summary` it cites (`summaryEventSeq`). Searching
+ * either must reach that card, because the card is where the text is shown.
+ * @param node - visible Chat row.
+ * @param seq - durable event position a search hit names.
+ * @returns whether this row presents that position.
+ */
+function ownsSeq(node: ChatNode, seq: number): boolean {
+  if (node.kind === 'compaction') return node.data.seq === seq || node.data.summaryEventSeq === seq
+  return messageSeqOf(node) === seq
+}
+
 /** The Chat row one message position resolves to, and the process fold hiding it. */
 export interface ChatRevealTarget {
   /** Stable Conversation Context key of the row that renders the message. */
@@ -114,7 +129,7 @@ export function resolveChatRevealTarget(snapshot: ChatSnapshot, seq: number): Ch
     if (node !== undefined && isVisibleChatNode(node as ChatNode)) rows.push(node as ChatNode)
   }
   const byKey = new Map(rows.map(row => [row.key, row]))
-  const direct = rows.find(row => messageSeqOf(row) === seq)
+  const direct = rows.find(row => ownsSeq(row, seq))
   const node = direct ?? rows.find(row => row.anchorSeq === seq) ?? intervalRow(snapshot, byKey, seq)
   if (node === undefined) return undefined
   const presentation = snapshot.nodes.processSource(node.key).getSnapshot()
