@@ -50,6 +50,10 @@ describe('pinnedUserDataPath', () => {
     expect(PINNED_APP_NAME).toBe('@deepseek-ai/dsh-desktop')
     expect(pinnedUserDataPath('/root').endsWith('-shell')).toBe(false)
   })
+
+  it('moves aside for an isolated test installation', () => {
+    expect(pinnedUserDataPath('/root', '-test')).toBe(join('/root', '@deepseek-ai', 'dsh-desktop-test'))
+  })
 })
 
 describe('pinAppIdentity', () => {
@@ -66,6 +70,17 @@ describe('pinAppIdentity', () => {
     expect(existsSync(join(appData, '@deepseek-ai', 'dsh-desktop'))).toBe(false)
     pinAppIdentity(app)
     expect(existsSync(join(appData, '@deepseek-ai', 'dsh-desktop'))).toBe(true)
+  })
+
+  it('keeps an isolated installation off the shipped name and directories', () => {
+    const { app, recorded } = recordingApp(appData)
+    pinAppIdentity(app, '-test')
+    expect(recorded.name).toBe('@deepseek-ai/dsh-desktop-test')
+    expect(recorded.paths).toEqual([
+      ['userData', join(appData, '@deepseek-ai', 'dsh-desktop-test')],
+      ['sessionData', join(appData, '@deepseek-ai', 'dsh-desktop-test')],
+    ])
+    expect(existsSync(join(appData, '@deepseek-ai', 'dsh-desktop-test'))).toBe(true)
   })
 
   it('leaves an existing user-data directory in place', () => {

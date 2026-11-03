@@ -38,6 +38,24 @@ import { join } from 'node:path'
  */
 export const PINNED_APP_NAME = '@deepseek-ai/dsh-desktop'
 
+/**
+ * Names a suffix that moves this installation's per-user directories beside
+ * the shipped ones, so a test build runs its own copy of the application
+ * without taking the single-instance lock an installed build holds. Unset
+ * leaves every shipped build on the pinned directories.
+ */
+export const IDENTITY_SUFFIX_ENV = 'DSH_DESKTOP_IDENTITY_SUFFIX'
+
+/**
+ * Read the isolation suffix for this launch.
+ * @returns the sanitized suffix, or an empty string when the launch is not isolated.
+ */
+function identitySuffix(): string {
+  const raw = process.env[IDENTITY_SUFFIX_ENV] ?? ''
+  const trimmed = raw.replace(/[^A-Za-z0-9._-]/gu, '')
+  return trimmed === '' ? '' : `-${trimmed}`
+}
+
 /** The `app` members the pin needs, so the pin can be exercised without Electron. */
 export interface AppIdentityHost {
   /** Overrides the name Electron reports and derives paths from. */
@@ -53,10 +71,13 @@ export interface AppIdentityHost {
  * roaming application-data directory. The name's `/` is a directory separator
  * here, which is how Electron itself lays a scoped name out.
  * @param appData - the platform's roaming application-data directory.
+ * @param suffix - isolation suffix appended to the name; empty for a shipped build.
  * @returns the absolute user-data directory.
  */
-export function pinnedUserDataPath(appData: string): string {
-  return join(appData, ...PINNED_APP_NAME.split('/'))
+export function pinnedUserDataPath(appData: string, suffix = identitySuffix()): string {
+  const segments = PINNED_APP_NAME.split('/')
+  const last = segments.pop() ?? PINNED_APP_NAME
+  return join(appData, ...segments, `${last}${suffix}`)
 }
 
 /**
@@ -66,10 +87,11 @@ export function pinnedUserDataPath(appData: string): string {
  * there — a fresh installation reaches this before Electron would have created
  * it.
  * @param app - the Electron `app` module, or a stand-in with the same members.
+ * @param suffix - isolation suffix for a test installation; defaults to the launch's environment.
  */
-export function pinAppIdentity(app: AppIdentityHost): void {
-  app.setName(PINNED_APP_NAME)
-  const userData = pinnedUserDataPath(app.getPath('appData'))
+export function pinAppIdentity(app: AppIdentityHost, suffix = identitySuffix()): void {
+  app.setName(`${PINNED_APP_NAME}${suffix}`)
+  const userData = pinnedUserDataPath(app.getPath('appData'), suffix)
   mkdirSync(userData, { recursive: true })
   app.setPath('userData', userData)
   app.setPath('sessionData', userData)
