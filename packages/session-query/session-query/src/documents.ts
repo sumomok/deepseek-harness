@@ -39,18 +39,7 @@ export function buildSessionEventSearchDocuments(
 ): SessionEventSearchDocument[] {
   const surfaceBySeq = classifySurface(events)
   const documents: SessionEventSearchDocument[] = []
-  // A compaction injects the summary as an ordinary user message so the model
-  // can read it back. That text is scaffolding, not something the person wrote
-  // or the transcript renders as a row, so indexing it would offer a match no
-  // view can show.
-  let inCompaction = false
   for (const event of events) {
-    // Compaction types arrive through a merge-extensible event map this program
-    // does not pull in, so the check reads the tag as text.
-    const kind: string = event.type
-    if (kind === 'compaction/start') inCompaction = true
-    else if (kind === 'compaction/end') inCompaction = false
-    if (inCompaction && kind === 'user/message') continue
     const text = extractSessionEventText(event)
     if (text.length === 0) continue
     documents.push({
