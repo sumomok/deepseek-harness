@@ -227,7 +227,12 @@ export function history(observation: SessionObservation, request: Omit<SessionPa
     cursor,
     request.turnWindow,
   )
-  return { cursor, records: pageRecords(page.events), hasMore: page.hasMore, hasNewer: false }
+  return {
+    cursor,
+    records: pageRecords(page.events),
+    hasMore: page.hasMore,
+    hasNewer: cursor < observation.cursor,
+  }
 }
 
 /**

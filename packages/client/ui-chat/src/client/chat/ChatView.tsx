@@ -215,9 +215,23 @@ export function ChatView({
     if (element.scrollHeight - element.scrollTop - element.clientHeight > 240) return
     void scroll.loadNewer()
   }, [hasNewer, scroll.loadNewer])
+  const newerSentinelRef = useRef<HTMLDivElement>(null)
   const interactionSurfaceRef = useRef<HTMLDivElement>(null)
   const interactionIds = useInteractionIds(ids => ids)
   const textInteraction = useTextInteraction(scroll.columnRef, interactionSurfaceRef, dispatchInteraction, interactionIds)
+  // A window that ends before the present has nothing to scroll into; watching
+  // the end sentinel is what turns a stuck bottom into the next page.
+  useEffect(() => {
+    const sentinel = newerSentinelRef.current
+    const root = scroll.listRef.current
+    if (!hasNewer || sentinel === null || root === null || typeof IntersectionObserver !== 'function') return
+    const observer = new IntersectionObserver((records) => {
+      if (records.some(record => record.isIntersecting)) void scroll.loadNewer()
+    }, { root, rootMargin: '240px' })
+    observer.observe(sentinel)
+    return () => { observer.disconnect() }
+  }, [hasNewer, scroll.loadNewer, scroll.listRef])
+
   const flowContext = useMemo<ChatFlowHookContext>(() => ({ motion: scroll.motion }), [scroll.motion])
 
   return (
@@ -262,6 +276,7 @@ export function ChatView({
                 </button>
               </div>
             )}
+            {hasNewer && <div ref={newerSentinelRef} data-chat-newer-sentinel="" />}
             <div ref={interactionSurfaceRef} className={css.textInteraction} data-text-interaction-surface=""
               aria-hidden={textInteraction.active === null}>
               {textInteraction.active !== null && renderSlot('conversation.chat.text-interaction', {
