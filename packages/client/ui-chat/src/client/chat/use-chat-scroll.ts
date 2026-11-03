@@ -54,6 +54,9 @@ const REVEAL_LANDING_FRAMES = 20
 /** Extra history requests a reveal makes before it degrades to the closest row. */
 const REVEAL_HISTORY_ATTEMPTS = 3
 
+/** Frames a landed row re-aligns for, covering the layout the page commit shifts. */
+const REVEAL_ALIGN_FRAMES = 2
+
 interface ChatScrollState extends ChatReadingState {
   readonly listRef: RefObject<HTMLDivElement>
   readonly columnRef: RefObject<HTMLDivElement>
@@ -222,6 +225,17 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
       if (landing !== null) {
         reading.acceptNavigation(landing)
         settle(true)
+        // The page a reveal just asked for can lay out on the frame after this
+        // one; aligning again on the next frames keeps the row where the reader
+        // was sent instead of one screen off after the shift.
+        let corrections = REVEAL_ALIGN_FRAMES
+        const correct = (): void => {
+          if (cancelled || corrections <= 0) return
+          corrections -= 1
+          viewport.revealNode(target.key)
+          frame = requestAnimationFrame(correct)
+        }
+        if (typeof requestAnimationFrame === 'function') frame = requestAnimationFrame(correct)
         return
       }
       // The row is not mounted yet: a fold this request opened hides it until React commits.
