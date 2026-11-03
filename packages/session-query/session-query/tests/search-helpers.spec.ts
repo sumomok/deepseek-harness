@@ -25,6 +25,7 @@ import { TestSessionQueryEngine } from './test-service.ts'
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     'test': { kind: 'test' } & ContextFormed
+    'compact-checkpoint': { kind: 'compact-checkpoint' } & ContextFormed
   }
 }
 
@@ -99,8 +100,10 @@ describe('session-query semantic extraction', () => {
       { type: 'todo/write', seq: SessionSeq(6), time: 8, data: { todos: [{ status: 'in_progress', content: 'ship search' }] } },
     ]
 
+    // Message bodies index their prose only: a tool call inside a reply is the
+    // model's plumbing, not the answer the reader searched for.
     for (const event of events.slice(0, 3)) {
-      expect(extractSessionEventText(event)).toBe('visible\nread\n{"path":"a"}\nnested')
+      expect(extractSessionEventText(event)).toBe('visible\nnested')
     }
     expect(extractSessionEventText({
       type: 'assistant/message',
@@ -193,6 +196,31 @@ describe('session-query document and filter helpers', () => {
       [2, 'replacement', 'current'],
       [3, 'interrupted', 'log-only'],
     ])
+  })
+
+  it('omits a compaction checkpoint from searchable prose', () => {
+    const events: SessionEvent[] = [
+      {
+        type: 'user/message',
+        seq: SessionSeq(0),
+        time: 1,
+        data: createUserMessage({ content: [{ type: 'text', text: 'typed by hand' }], source: { kind: 'user' } }),
+        surfaceOp: 'append',
+      },
+      {
+        type: 'user/message',
+        seq: SessionSeq(1),
+        time: 2,
+        data: createUserMessage({
+          content: [{ type: 'text', text: 'This is an automatically generated checkpoint' }],
+          source: { kind: 'compact-checkpoint' },
+        }),
+        surfaceOp: 'append',
+      },
+    ]
+    // The checkpoint is injected so the next turn can read it back; the reader
+    // sees a compaction card, never this text as a message they wrote.
+    expect(buildSessionEventSearchDocuments(id, events).map(document => document.text)).toEqual(['typed by hand'])
   })
 
   it('applies every session clause with OR values and validates closed values', () => {

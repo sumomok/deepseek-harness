@@ -40,6 +40,10 @@ export function buildSessionEventSearchDocuments(
   const surfaceBySeq = classifySurface(events)
   const documents: SessionEventSearchDocument[] = []
   for (const event of events) {
+    // A compaction injects its checkpoint as a user message so the next turn can
+    // read it back. The person never wrote it and the transcript shows it as a
+    // compaction card rather than their message, so it is not searchable prose.
+    if (event.type === 'user/message' && isCheckpointSource(event.data.source)) continue
     const text = extractSessionEventText(event)
     if (text.length === 0) continue
     documents.push({
@@ -52,6 +56,18 @@ export function buildSessionEventSearchDocuments(
     })
   }
   return documents
+}
+
+/**
+ * Whether one message source marks a compaction checkpoint.
+ *
+ * `MessageSourceMap` is merge-extensible and this program does not load the
+ * compaction declaration, so the tag is read as its own discriminant text.
+ * @param source - message source of one `user/message` event.
+ * @returns whether the event was injected by a compaction rather than written.
+ */
+function isCheckpointSource(source: { readonly kind: string }): boolean {
+  return source.kind === 'compact-checkpoint'
 }
 
 function classifySurface(events: readonly SessionEvent[]): Map<SessionSeq, SessionEventSurface> {
