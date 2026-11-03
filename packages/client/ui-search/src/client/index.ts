@@ -6,6 +6,7 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { brandString } from '@deepseek-ai/dsh-brand'
+import { SessionSeq } from '@deepseek-ai/dsh-session/types'
 import type { ShortcutCommandId } from '@deepseek-ai/dsh-client-shortcuts/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -154,16 +155,21 @@ export function apply(ctx: ClientContext): void {
     store.set({ ...IDLE_STATE })
   }
 
-  /** Open one row's Session and dismiss the panel. */
+  /**
+   * Open the Session one result came from at the message it names, then
+   * dismiss the panel. Paging history and landing belong to that Session's
+   * Chat view; the target travels with the selection, so it outlives the
+   * Session opening and still works while that Session is already showing.
+   */
   const openRow = (index: number): void => {
     const row = store.getSnapshot().rows[index]
     if (row === undefined) return
-    ctx.uiWorkspace.openSession(row.sessionId)
+    ctx.uiWorkspace.openSession(row.sessionId, { revealSeq: SessionSeq(row.seq) })
     close()
   }
 
   const injected: SearchPanelInjected = {
-    hooks: { search: store },
+    hooks: { search: store, searchIndex: ctx.sessions.searchIndex },
     setQuery: (value) => {
       // The old rows and cursor belong to the old phrase: clear them before the
       // debounce fires so Enter cannot open a result the field no longer names.

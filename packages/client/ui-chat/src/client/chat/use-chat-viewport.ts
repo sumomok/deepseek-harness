@@ -70,6 +70,8 @@ interface PagingPosition {
 
 const READING_INTENTS = ['wheel', 'touchstart', 'pointerdown', 'keydown', 'beforematch'] as const
 const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '])
+/** Arrival wash after landing on a message a navigation asked for; the design holds it for 1.2s. */
+const LANDING_WASH_MS = 1200
 
 /** Owns one Chat scrollport's DOM operations, event listeners, and size observer. */
 export class ChatViewport {
@@ -92,6 +94,8 @@ export class ChatViewport {
   private tailInput = false
   /** Switches the running batch to a tail landing; null while no batch runs. */
   private retarget: (() => void) | null = null
+  /** Row carrying the arrival wash, and the timer that clears it. */
+  private landing: { readonly element: HTMLElement; readonly timer: ReturnType<typeof setTimeout> } | null = null
   /** Transition state and row callbacks owned by this viewport's attachment. */
   readonly motion = createFlowMotion(
     () => this.foldDriver(),
@@ -137,6 +141,7 @@ export class ChatViewport {
   /** Disconnect DOM resources and clear observations for the detached view. */
   detach(): void {
     this.stopPreserving()
+    this.clearLanding()
     this.motion.clear()
     if (this.elements !== null) this.elements.scroller.style.overflowAnchor = ''
     this.dropClosing()
@@ -741,6 +746,57 @@ export class ChatViewport {
     if (item === undefined) return null
     const row = this.anchor(item.anchorKey, 'node')
     return row === null ? null : this.align(row, 24, turn)
+  }
+
+  /**
+   * Land on one mounted Chat row and wash it as the arrival.
+   *
+   * A row inside a process group is clipped by that group's capped body, a
+   * scrollport of its own, so the body scrolls to the row before the outer
+   * column aligns the group itself. A row that is not mounted, or that a Turn
+   * fold hides, resolves to null: the caller opens the fold and retries.
+   * @param key - stable Chat row anchor key.
+   * @returns the actual landing, or null when no visible row carries that key.
+   */
+  revealNode(key: string): ViewportLanding | null {
+    const row = this.anchor(key, 'node')
+    if (row === null) return null
+    const body = row.closest<HTMLElement>('[data-step-process-body]')
+    if (body !== null) {
+      const within = row.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop
+      const target = Math.max(0, Math.min(body.scrollHeight - body.clientHeight, within - 8))
+      if (Math.abs(body.scrollTop - target) > 0.5) body.scrollTop = target
+    }
+    const outer = body?.closest<HTMLElement>('[data-chat-group-key]') ?? row
+    const turn = Number(outer.dataset.chatTurn)
+    const landing = this.align(outer, 24, Number.isSafeInteger(turn) ? turn : null)
+    if (landing !== null) this.wash(row)
+    return landing
+  }
+
+  /** Wash the landed row, restarting it when the same row lands twice. */
+  private wash(row: HTMLElement): void {
+    this.clearLanding()
+    delete row.dataset.chatLanded
+    // Committing the removal starts the same animation again on the next frame.
+    void row.offsetWidth
+    row.dataset.chatLanded = ''
+    this.landing = {
+      element: row,
+      timer: setTimeout(() => {
+        this.landing = null
+        delete row.dataset.chatLanded
+      }, LANDING_WASH_MS),
+    }
+  }
+
+  /** Release the arrival wash and its timer. */
+  private clearLanding(): void {
+    const landing = this.landing
+    if (landing === null) return
+    clearTimeout(landing.timer)
+    this.landing = null
+    delete landing.element.dataset.chatLanded
   }
 
   /**

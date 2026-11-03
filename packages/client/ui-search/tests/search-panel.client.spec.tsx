@@ -33,6 +33,7 @@ function state(over: Partial<SearchPanelState> = {}): SearchPanelState {
 
 /** Props over one fixed state; the callbacks record what the panel asked for. */
 function props(current: SearchPanelState, calls: {
+  index?: { phase: 'opening' | 'reconciling' | 'ready'; examined: number; total: number; skipped: number } | undefined
   setQuery?: (value: string) => void
   moveActive?: (delta: number) => void
   openActive?: () => void
@@ -44,8 +45,12 @@ function props(current: SearchPanelState, calls: {
   function useSearch<T>(select: (value: SearchPanelState) => T): T {
     return select(current)
   }
+  function useSearchIndex<T>(select: (value: typeof calls.index) => T): T {
+    return select(calls.index)
+  }
   return {
     useSearch,
+    useSearchIndex,
     setQuery: calls.setQuery ?? (() => {}),
     moveActive: calls.moveActive ?? (() => {}),
     openActive: calls.openActive ?? (() => {}),
@@ -236,6 +241,14 @@ describe('SearchPanel status', () => {
     expect(screen.getByText(makeTranslate(zh)('result.countMore', { count: '1' }))).toBeTruthy()
     rerender(<SearchPanel {...props(state())} />)
     expect(screen.getByText(makeTranslate(zh)('result.count', { count: '1' }))).toBeTruthy()
+  })
+
+  it('reports index preparation ahead of the running read', () => {
+    render(<SearchPanel {...props(state({ phase: 'loading', rows: [] }), {
+      index: { phase: 'reconciling', examined: 73, total: 208, skipped: 40 },
+    })} />)
+    expect(screen.getByText(makeTranslate(zh)('panel.preparing', { examined: '73', total: '208' }))).toBeTruthy()
+    expect(screen.queryByText(zh['panel.loading'])).toBeNull()
   })
 
   it('names the running read instead of counting', () => {

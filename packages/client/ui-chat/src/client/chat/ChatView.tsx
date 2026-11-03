@@ -62,6 +62,7 @@ export function ChatView({
   useSession, useChat, useConversation, useSessions, renderSlot,
   sessionId, openFile, openExternalLink, loadOlder, loadThrough, loadImage, inspectCall, chatScroll, forkAt, fileMentions,
   referents, usePresentation, useProjection, useInteractionIds, dispatchInteraction, t, fileDrag,
+  useReveal, locateReveal, settleReveal, notifyRevealFailure, actions,
 }: ChatViewSlotProps) {
   const order = useChat(s => s.order)
   const groupedEntries = useConversation(snapshot => snapshot.views.grouped('chat')?.entries)
@@ -195,6 +196,11 @@ export function ChatView({
     submissionSteers: visibleSubmissions.at(-1)?.placement === 'steering',
     loadedTurns: turnNavigationItems,
     transcriptView,
+    reveal: useReveal(request => request),
+    locateReveal,
+    settleReveal,
+    notifyRevealFailure,
+    setTurnProcessOpen: actions.setTurnProcessOpen,
   })
   const interactionSurfaceRef = useRef<HTMLDivElement>(null)
   const interactionIds = useInteractionIds(ids => ids)

@@ -19,6 +19,19 @@ afterEach(async () => {
   }
 })
 
+/**
+ * Absent-reveal defaults: no message landing is pending and no row is
+ * addressed. Cases that exercise a landing override these fields.
+ */
+const revealDefaults: Pick<ChatScrollInput,
+  'reveal' | 'locateReveal' | 'settleReveal' | 'notifyRevealFailure' | 'setTurnProcessOpen'> = {
+  reveal: null,
+  locateReveal: () => undefined,
+  settleReveal: () => {},
+  notifyRevealFailure: () => {},
+  setTurnProcessOpen: () => {},
+}
+
 function ScrollHarness({ input, onMotion }: {
   readonly input: ChatScrollInput
   readonly onMotion: (motion: FlowMotionRows) => void
@@ -53,6 +66,7 @@ function mountScroll(deferCompletedTurns = true, initial: Partial<ChatScrollInpu
     loadOlder: vi.fn(),
     loadThrough: vi.fn(async () => {}),
     chatScroll: { read: () => null, save: vi.fn() },
+    ...revealDefaults,
     ...initial,
   }
   const callbacks: { motion?: FlowMotionRows; resize?: () => void } = {}
@@ -120,6 +134,7 @@ function mountRows(heights: readonly number[]) {
     steeringId: null, submissionId: null, submissionSteers: false, running: false, deferCompletedTurns: false,
     transcriptView: 'standard', loadedTurns: [], hasMore: false, loadingOlder: false,
     loadOlder: vi.fn(), loadThrough: vi.fn(async () => {}), chatScroll: { read: () => null, save: vi.fn() },
+    ...revealDefaults,
   }
   const view = render(<ScrollHarness input={input} onMotion={(motion) => { callbacks.motion = motion }}
   />)
@@ -291,6 +306,7 @@ function mountVisibleFold(test: typeof visibleFoldCases[number], reduced: boolea
     steeringId: null, submissionId: null, submissionSteers: false, running: false, deferCompletedTurns: true,
     transcriptView: 'detailed', loadedTurns: [], hasMore: false, loadingOlder: false,
     loadOlder: vi.fn(), loadThrough: vi.fn(async () => {}), chatScroll: { read: () => null, save: vi.fn() },
+    ...revealDefaults,
   }
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: reduced })))
   const view = render(<ScrollHarness input={input} onMotion={onMotion} />)

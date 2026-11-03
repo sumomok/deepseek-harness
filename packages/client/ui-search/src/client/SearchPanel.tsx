@@ -1,7 +1,7 @@
 import { useEffect, useRef, type KeyboardEvent } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { NS } from './locales.ts'
-import type { SearchPanelState, SearchResultRow } from './state.ts'
+import type { SearchIndexProgress, SearchPanelState, SearchResultRow } from './state.ts'
 import css from './SearchPanel.module.css'
 
 /** Registration-side business face for the search panel. */
@@ -10,6 +10,11 @@ export interface SearchPanelInjected {
     /** Client panel snapshot bound by the renderer as useSearch. */
     search: {
       getSnapshot(): SearchPanelState
+      subscribe(listener: () => void): () => void
+    }
+    /** Index preparation the Host reports while a read is outstanding. */
+    searchIndex: {
+      getSnapshot(): SearchIndexProgress | undefined
       subscribe(listener: () => void): () => void
     }
   }
@@ -60,9 +65,10 @@ function runs(row: SearchResultRow): { text: string; hit: boolean }[] {
  * @returns the overlay while open, otherwise nothing.
  */
 export function SearchPanel({
-  useSearch, setQuery, moveActive, openActive, openAt, loadMore, retry, close, t,
+  useSearch, useSearchIndex, setQuery, moveActive, openActive, openAt, loadMore, retry, close, t,
 }: SearchPanelProps) {
   const state = useSearch(snapshot => snapshot)
+  const index = useSearchIndex(snapshot => snapshot)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -109,13 +115,20 @@ export function SearchPanel({
   }
 
   const count = state.rows.length
-  const status = state.phase === 'loading'
-    ? t('panel.loading')
-    : state.phase === 'loadingMore'
-      ? t('panel.loadingMore')
-      : state.nextCursor === undefined
-        ? t('result.count', { count: String(count) })
-        : t('result.countMore', { count: String(count) })
+  // The Host opens and reconciles the index on the first search; until it is
+  // ready the wait is preparation, not ranking, and saying so is the only
+  // feedback the person gets for the minutes it can take.
+  const preparing = state.phase === 'loading' && index !== undefined && index.phase !== 'ready'
+    ? t('panel.preparing', { examined: String(index.examined), total: String(index.total) })
+    : undefined
+  const status = preparing
+    ?? (state.phase === 'loading'
+      ? t('panel.loading')
+      : state.phase === 'loadingMore'
+        ? t('panel.loadingMore')
+        : state.nextCursor === undefined
+          ? t('result.count', { count: String(count) })
+          : t('result.countMore', { count: String(count) }))
 
   const settled = state.phase !== 'loading' && state.phase !== 'loadingMore' && state.phase !== 'error'
   const notice = state.query.trim() === ''

@@ -8,7 +8,8 @@ import {
   createScope, MutableSessionEventSource,
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import type {
-  ISessions, SessionBinding, SessionEventLike, SessionFace, SessionListState, SessionSnapshot,
+  ISessions, SessionBinding, SessionEventLike, SessionFace, SessionListState,
+  SessionSearchIndexProgress, SessionSnapshot,
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import {
   ConversationEventRegistry, ConversationNodeAssembler, ConversationViewRegistry, UiConversation,
@@ -82,6 +83,7 @@ function fakeSessions(ctx: Context): { sessions: ISessions; binding: SessionBind
   }
   const sessions: ISessions = {
     list,
+    searchIndex: createSnapshotStore<SessionSearchIndexProgress | undefined>(undefined),
     searchResultLimit: 50,
     searchMessages: async () => ({ ok: true, value: { items: [] } }),
     create: () => Promise.reject(new Error('unused fake Sessions operation')),

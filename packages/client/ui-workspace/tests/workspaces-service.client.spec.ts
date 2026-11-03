@@ -3,7 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import type {
-  ISessions, SessionListState, SessionReference, SessionSummary,
+  ISessions, SessionListState, SessionReference, SessionSearchIndexProgress, SessionSummary,
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import { SessionCreateError } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
@@ -13,7 +13,7 @@ import type {
 import type { ClientRemote, DirectoryListing } from '@deepseek-ai/dsh-api-remotes/client'
 import { RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import type { RemoteResult } from '@deepseek-ai/dsh-api-remotes/client'
-import { SessionId } from '@deepseek-ai/dsh-session/types'
+import { SessionId, SessionSeq } from '@deepseek-ai/dsh-session/types'
 import { LayoutController } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
@@ -137,6 +137,7 @@ interface RetainedSession {
 
 class FakeSessions implements ISessions {
   readonly list: MutableSource<SessionListState>
+  readonly searchIndex = createSnapshotStore<SessionSearchIndexProgress | undefined>(undefined)
   readonly create: ReturnType<typeof vi.fn<ISessions['create']>>
   readonly fork = vi.fn<ISessions['fork']>(async () => sid('forked'))
   readonly searchMessages = vi.fn<ISessions['searchMessages']>(async () => ({ ok: true, value: { items: [] } }))
@@ -429,6 +430,41 @@ describe('UiWorkspaceService', () => {
     expect(b.selectPanel).toHaveBeenCalledWith(null)
     expect(b.sessions.retain).toHaveBeenCalledWith(sid('target'), { source: 'mainView' })
     expect(b.sessions.refreshProjections).not.toHaveBeenCalled()
+  })
+
+  it('carries a message target with the Session navigation and settles it on request', () => {
+    const b = bench()
+    const source = b.uiWorkspace.revealSource(sid('target'))
+    expect(source.getSnapshot()).toBeNull()
+
+    b.uiWorkspace.openSession(sid('target'), { revealSeq: SessionSeq(42) })
+
+    const request = source.getSnapshot()
+    expect(request?.sessionId).toBe(sid('target'))
+    expect(request?.seq).toBe(SessionSeq(42))
+    if (request === null) throw new Error('navigation raised no reveal request')
+    b.uiWorkspace.settleReveal(sid('target'), request.id)
+    expect(source.getSnapshot()).toBeNull()
+  })
+
+  it('raises a new reveal identity when the same Session is opened at the same message again', () => {
+    const b = bench()
+    const source = b.uiWorkspace.revealSource(sid('target'))
+    b.uiWorkspace.openSession(sid('target'), { revealSeq: SessionSeq(42) })
+    const first = source.getSnapshot()?.id
+    b.uiWorkspace.openSession(sid('target'), { revealSeq: SessionSeq(42) })
+
+    expect(source.getSnapshot()?.id).not.toBe(first)
+  })
+
+  it('withdraws a pending reveal when a later navigation names no message', () => {
+    const b = bench()
+    const source = b.uiWorkspace.revealSource(sid('target'))
+    b.uiWorkspace.openSession(sid('target'), { revealSeq: SessionSeq(42) })
+
+    b.uiWorkspace.openSession(sid('other'))
+
+    expect(source.getSnapshot()).toBeNull()
   })
 
   it('keeps the current panel when retaining the target fails', () => {

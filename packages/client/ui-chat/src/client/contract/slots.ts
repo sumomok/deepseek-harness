@@ -18,6 +18,8 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { ConnectionStateSource } from '@deepseek-ai/dsh-client-connection/client'
+// Type-only: the navigation request a Session open carries to the transcript.
+import type { SessionRevealRequest } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {
   MarkdownFileMentions, MarkdownLabels, MarkdownProseReferents,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -29,6 +31,7 @@ import type { ChatPresentationPolicy } from '../presentation-policy.ts'
 import type { FlowMotionRows } from '../chat/flow-motion.ts'
 import type { ToolCallId } from './store.ts'
 import type { ChatConversationViewNode, ChatNode, ChatNodeKind } from './chat-nodes.ts'
+import type { ChatRevealTarget } from './reveal.ts'
 import type {
   ChatNodeProcessSource, ChatNodeSource, ChatSnapshot, ChatTurnProcessPresentation,
 } from './snapshot.ts'
@@ -464,6 +467,11 @@ export interface ChatViewInjected {
     interactionIds: ObservableSnapshot<readonly string[]>
     /** Live presentation policy derived from the accepted work-details mode. */
     presentation: ObservableSnapshot<ChatPresentationPolicy>
+    /**
+     * Message this Session's navigation asked the transcript to show; null
+     * once the view consumed the request. Bound as `useReveal`.
+     */
+    reveal: HostObservable<SessionRevealRequest | null>
   }
   keyedHooks: {
     /** Resolve the stable source for one Chat Node key. */
@@ -481,6 +489,21 @@ export interface ChatViewInjected {
   loadOlder: () => void
   /** Jump loader: page history back through seq; resolves when the window covers it. */
   loadThrough: (seq: SessionSeq) => Promise<void>
+  /**
+   * Resolve one durable message position to the visible row that renders it,
+   * read from the live Chat snapshot rather than the render's copy: the page
+   * history this Session just prepended is already in the snapshot.
+   * @param seq - durable event position a navigation asked to show.
+   * @returns the row to land on, or undefined when the loaded window cannot place it.
+   */
+  locateReveal: (seq: SessionSeq) => ChatRevealTarget | undefined
+  /**
+   * Consume a reveal request once this view landed on it or refused it.
+   * @param id - request identity the view handled.
+   */
+  settleReveal: (id: number) => void
+  /** Report one reveal this view could not place; the copy names the outcome, not a code. */
+  notifyRevealFailure: () => void
   loadImage: MessageImageLoader
   chatScroll: {
     save: (position: ChatScrollPosition | null) => void

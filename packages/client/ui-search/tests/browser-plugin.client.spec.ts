@@ -18,6 +18,8 @@ import { en, NS, zh } from '../src/client/locales.ts'
 const reads: { query: string; cursor?: string }[] = []
 /** Identities the stubbed workspace was asked to open. */
 const opened: string[] = []
+/** Message positions each open asked the Session's transcript to land on. */
+const revealed: (number | undefined)[] = []
 /** Shortcut definitions the stubbed registry admitted. */
 const registered: { id: string; defaults: Record<string, { code: string; modifiers: string[] }>; resolve: () => unknown }[] = []
 
@@ -35,6 +37,7 @@ let release: (() => void) | undefined
 async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugin']> }> {
   reads.length = 0
   opened.length = 0
+  revealed.length = 0
   registered.length = 0
   answer = 'page'
   release = undefined
@@ -70,7 +73,12 @@ async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugi
       return () => {}
     },
   } as never)
-  ctx.provide('uiWorkspace', { openSession: (id: string) => { opened.push(id) } } as never)
+  ctx.provide('uiWorkspace', {
+    openSession: (id: string, options?: { revealSeq?: number }) => {
+      opened.push(id)
+      revealed.push(options?.revealSeq)
+    },
+  } as never)
   const archiveListeners = new Set<() => void>()
   archiveEmit = () => { for (const listener of archiveListeners) listener() }
   ctx.provide('workspaces', {
@@ -206,6 +214,9 @@ describe('ui-search browser half', () => {
     injected.moveActive(1)
     injected.openAt(0)
     expect(opened).toEqual(['sess-a'])
+    // The hit's own message position travels with the open, so the Chat view
+    // lands on the message instead of only opening its Session.
+    expect(revealed).toEqual([7])
     expect(injected.hooks.search.getSnapshot().open).toBe(false)
   })
 

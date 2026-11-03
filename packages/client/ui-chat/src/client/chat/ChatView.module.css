@@ -98,6 +98,36 @@
   min-width: 0;
 }
 
+/* Arrival wash: a row a navigation landed on holds a 6% foreground tint and
+   clears it. A foreground percentage keeps the same weight relation in both
+   themes, the way the search panel's 14% match mark does. The duration pairs
+   with LANDING_WASH_MS, which removes the attribute the animation hangs on. */
+.flowItem[data-chat-landed] {
+  border-radius: var(--dsw-radius-md);
+  animation: chat-landing-wash 1200ms ease-out;
+}
+
+/* No `background` shorthand: the wash composites over whatever row chrome the
+   kind already paints. */
+@keyframes chat-landing-wash {
+  0%,
+  70% {
+    background-color: color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
+  }
+
+  100% {
+    background-color: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flowItem[data-chat-landed] {
+    /* Still marks the arrival, without a fade the reader asked not to see. */
+    animation: none;
+    background-color: color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
+  }
+}
+
 /* Bottom room: sized by the viewport owner while rows above the reader close,
    given back only as later content grows into it. */
 .turnSpacer {

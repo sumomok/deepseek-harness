@@ -31,6 +31,7 @@ import type {
   ChatFlowDataInjected, ChatFlowInjected, ChatNodeInjected, ChatScrollPosition, ChatViewInjected, ProseReferentSpan,
   QuotaNoticeInjected, QuotaNoticeState, TurnTailOwnerProps,
 } from './contract/slots.ts'
+import { resolveChatRevealTarget } from './contract/reveal.ts'
 import type { ChatSnapshot } from './contract/snapshot.ts'
 import { EMPTY_CHAT_SNAPSHOT } from './contract/snapshot.ts'
 import { ApprovalCommand } from './chat/ApprovalCommand.tsx'
@@ -136,7 +137,6 @@ function buildProseReferents(
   // `this`-bound instance methods; extracting them here is what lets
   // TypeScript narrow "defined" through the conditional spreads below and
   // into their closures.
-  // oxlint-disable-next-line typescript/unbound-method
   const { resolveLink: providerResolveLink, subscribe: providerSubscribe } = provider
   return {
     scan: (text, inlineCode) => provider.scan(text, {
@@ -412,8 +412,23 @@ export function apply(ctx: Context): void {
         return {
           ...nodeSources(binding),
           fileDrag: ctx.fileDrag.actions,
-          hooks: { presentation, interactionIds: ctx.uiConversation.interactions },
+          hooks: {
+            presentation,
+            interactionIds: ctx.uiConversation.interactions,
+            reveal: ctx.uiWorkspace.revealSource(sessionId),
+          },
           dispatchInteraction: gesture => ctx.uiConversation.interactions.dispatch(sessionId, gesture),
+          // Resolve against the live snapshot: the history page a reveal just
+          // loaded is published before React re-renders this view.
+          locateReveal: seq => resolveChatRevealTarget(chat.getSnapshot(), seq),
+          settleReveal: (id) => { ctx.uiWorkspace.settleReveal(sessionId, id) },
+          notifyRevealFailure: () => {
+            const actx = ctx.sessions.scope(sessionId)
+            const conversation = actx?.get('conversation')
+            if (actx !== undefined && conversation !== undefined) {
+              conversation.input.for(actx).notify('error', t('reveal.missing'))
+            }
+          },
           fileMentions: (owner: TurnTailOwnerProps) => ctx.get('chatFileMentions')?.forClosing(owner, sessionId),
           referents: buildProseReferents(
             ctx, ctx.sessions, connection, sessionId,

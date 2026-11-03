@@ -1,6 +1,11 @@
 /** Panel state shared by the plugin body and its presentation component. */
-import type { SessionMessageSearchValue } from '@deepseek-ai/dsh-api-session-controller/client'
+import type {
+  SessionMessageSearchValue, SessionSearchIndexProgress,
+} from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+
+/** Index preparation the Host reports while a read is outstanding. */
+export type SearchIndexProgress = SessionSearchIndexProgress
 
 /** Continuation handle the Host minted for the next page. */
 export type SearchCursor = NonNullable<SessionMessageSearchValue['nextCursor']>

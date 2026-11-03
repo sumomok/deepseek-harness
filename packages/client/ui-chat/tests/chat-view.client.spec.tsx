@@ -55,6 +55,8 @@ import { formatRunDuration as durationParts } from '../src/client/chat/message-c
 import { ChatSnapshotBuilder } from '../src/client/conversation-nodes/chat-snapshot-builder.ts'
 import { ProcessState } from '../src/client/conversation-nodes/process-groups.ts'
 import type { TurnProcessSpec } from '../src/client/contract/turn-process.ts'
+import { resolveChatRevealTarget, type ChatRevealTarget } from '../src/client/contract/reveal.ts'
+import type { SessionRevealRequest } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { chatSnapshotFixture } from './chat-snapshot-fixture.client.ts'
 import { installTurnNavigatorObserver } from './turn-navigator-fixture.ts'
 import { renderReasoningSlot } from './reasoning-component-fixture.tsx'
@@ -405,6 +407,13 @@ function makeHarness(
   const session = makeSessionSource({ ...sessionInit, ...sessionOverrides })
   const useTestSession = bindSnapshotSelector(session.source)
   const chatSource = makeChatSource(chatSlice, initialChat ?? chatSnapshot)
+  // Message landings a navigation raises for this Session; a test replaces the
+  // source value to drive one.
+  const revealSource = createSnapshotStore<SessionRevealRequest | null>(null)
+  const settleReveal = vi.fn<(id: number) => void>()
+  const notifyRevealFailure = vi.fn<() => void>()
+  const locateReveal = (seq: SessionSeq): ChatRevealTarget | undefined =>
+    resolveChatRevealTarget(chatSource.source.getSnapshot(), seq)
   const useChatNode = bindKeyedSnapshotSelector(
     key => chatSource.source.getSnapshot().nodes.source(key),
   )
@@ -542,6 +551,10 @@ function makeHarness(
     },
     useStore: bindSnapshotSelector(chat),
     actions: chat.actions,
+    useReveal: bindSnapshotSelector(revealSource),
+    locateReveal,
+    settleReveal,
+    notifyRevealFailure,
     useInteractionIds: bindSnapshotSelector(createSnapshotStore<readonly string[]>([])),
     dispatchInteraction: () => null,
     usePresentation: bindSnapshotSelector(derivePresentationPolicy(transcriptView, collapseTiming, foldedReplies)),
@@ -585,6 +598,8 @@ function makeHarness(
   }
   return {
     set, setSession: session.set, setChat: chatSource.set, ChatView, props,
+    setReveal: (request: SessionRevealRequest | null) => { revealSource.set(request) },
+    revealSource, settleReveal, notifyRevealFailure,
     setConnection: (state: ConnectionState) => { connection.set(state) },
     openFile, openUserFile, loadOlder, loadThrough, openView,
     setOutline: (value: unknown) => { outlineValue = value },

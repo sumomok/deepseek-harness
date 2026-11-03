@@ -1,6 +1,9 @@
 /** Composes viewport operations, reading policy, and history navigation for Chat. */
-import { useCallback, useLayoutEffect, useMemo, useRef, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type RefObject } from 'react'
+import type { SessionSeq } from '@deepseek-ai/dsh-session/types'
+import type { SessionRevealRequest } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { TranscriptViewMode } from '../../chat-settings.ts'
+import type { ChatRevealTarget } from '../contract/reveal.ts'
 import type { ChatSnapshot } from '../contract/snapshot.ts'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
 import { useChatNavigation, type ChatNavigation, type ChatNavigationInput } from './use-chat-navigation.ts'
@@ -25,7 +28,20 @@ export interface ChatScrollInput extends ChatNavigationInput {
   /** A changed work-details preference resets fold reservations after the layout settles. */
   readonly transcriptView: TranscriptViewMode
   readonly loadedTurns: ReturnType<ChatSnapshot['navigation']['items']>
+  /** Message the Session's navigation asked the transcript to show; null when none is pending. */
+  readonly reveal: SessionRevealRequest | null
+  /** Resolve a durable message position against the live Chat snapshot. */
+  readonly locateReveal: (seq: SessionSeq) => ChatRevealTarget | undefined
+  /** Consume one handled reveal request. */
+  readonly settleReveal: (id: number) => void
+  /** Report a reveal the loaded window could not place. */
+  readonly notifyRevealFailure: () => void
+  /** Open the Turn-process disclosure that folds the landed row. */
+  readonly setTurnProcessOpen: ChatViewSlotProps['actions']['setTurnProcessOpen']
 }
+
+/** Animation frames a landing retries while the fold it opened commits. */
+const REVEAL_LANDING_FRAMES = 4
 
 interface ChatScrollState extends ChatReadingState {
   readonly listRef: RefObject<HTMLDivElement>
@@ -48,6 +64,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
   const {
     ready, order, firstSeq, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running,
     deferCompletedTurns, loadedTurns, chatScroll, hasMore, loadingOlder, loadOlder, loadThrough, transcriptView,
+    reveal, locateReveal, settleReveal, notifyRevealFailure, setTurnProcessOpen,
   } = input
   const { viewport, listRef, columnRef } = useChatViewport()
   const { reading, state } = useChatReading(viewport, chatScroll, loadedTurns.at(-1)?.turn ?? null)
@@ -143,6 +160,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
     content.current.input = {
       ready, order, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running, loadedTurns,
       chatScroll, deferCompletedTurns, transcriptView, ...navigationInput,
+      reveal, locateReveal, settleReveal, notifyRevealFailure, setTurnProcessOpen,
     }
     if (!deferCompletedTurns) {
       cancelPendingFollow()
@@ -157,7 +175,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
   }, [
     viewport, reading, processContent, navigationInput, ready, order, lastKey, lastIsUser,
     steeringId, submissionId, submissionSteers, running, loadedTurns, chatScroll, deferCompletedTurns, transcriptView,
-    cancelPendingFollow,
+    cancelPendingFollow, reveal, locateReveal, settleReveal, notifyRevealFailure, setTurnProcessOpen,
   ])
 
   const previousView = useRef(transcriptView)
@@ -171,6 +189,62 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
       if (content.current.opened) reading.onResize()
     })
   }, [transcriptView, viewport, reading, cancelPendingFollow])
+
+  // A reveal is a reading gesture from another surface, so it takes reading ownership the
+  // way a turn jump does: history paging keeps the current content still, and the landing
+  // releases tail follow so the next streaming growth cannot take the reader back to it.
+  // Nothing marks the request handled locally: settling it upstream is what stops this
+  // run, so a re-mounted view (StrictMode, HMR) lands a still-pending request again.
+  useEffect(() => {
+    if (!ready || reveal === null) return
+    let cancelled = false
+    let frame: number | null = null
+    const settle = (landed: boolean): void => {
+      viewport.stopPreserving()
+      if (!landed) notifyRevealFailure()
+      settleReveal(reveal.id)
+    }
+    const land = (key: string, remaining: number): void => {
+      if (cancelled) return
+      const landing = viewport.revealNode(key)
+      if (landing !== null) {
+        reading.acceptNavigation(landing)
+        settle(true)
+        return
+      }
+      // The row is not mounted yet: a fold this request opened hides it until React commits.
+      if (remaining <= 0 || typeof requestAnimationFrame !== 'function') {
+        settle(false)
+        return
+      }
+      frame = requestAnimationFrame(() => {
+        frame = null
+        land(key, remaining - 1)
+      })
+    }
+    const arrive = (): void => {
+      if (cancelled) return
+      const target = locateReveal(reveal.seq)
+      if (target === undefined) {
+        settle(false)
+        return
+      }
+      if (target.process !== null) setTurnProcessOpen(target.process.turn, target.process.answerStep, true)
+      land(target.key, REVEAL_LANDING_FRAMES)
+    }
+    navigation.cancel()
+    viewport.beginPreserving()
+    reading.pauseFollowing()
+    // The jump loader settles rather than rejects; a refusal still ends this landing.
+    void loadThrough(reveal.seq).then(arrive, () => { if (!cancelled) settle(false) })
+    return () => {
+      cancelled = true
+      if (frame !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame)
+    }
+  }, [
+    ready, reveal, loadThrough, locateReveal, settleReveal, notifyRevealFailure, setTurnProcessOpen,
+    viewport, reading, navigation,
+  ])
 
   const returnToBottom = useCallback(() => {
     cancelPendingFollow()
