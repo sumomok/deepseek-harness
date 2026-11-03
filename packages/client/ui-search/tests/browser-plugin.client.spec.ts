@@ -21,6 +21,9 @@ const opened: string[] = []
 /** Shortcut definitions the stubbed registry admitted. */
 const registered: { id: string; defaults: Record<string, { code: string; modifiers: string[] }>; resolve: () => unknown }[] = []
 
+/** Session ids the stubbed Workspace projection reports as archived. */
+let archived: string[] = []
+
 /** What the next stub read answers with. */
 let answer: 'page' | 'failure' | 'deferred' = 'page'
 /** Settles the read parked by `answer = 'deferred'`. */
@@ -33,6 +36,7 @@ async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugi
   registered.length = 0
   answer = 'page'
   release = undefined
+  archived = []
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
   ctx.slots.register({
@@ -65,6 +69,9 @@ async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugi
     },
   } as never)
   ctx.provide('uiWorkspace', { openSession: (id: string) => { opened.push(id) } } as never)
+  ctx.provide('workspaces', {
+    list: { getSnapshot: () => ({ archivedSessionIds: archived }), subscribe: () => () => {} },
+  } as never)
   ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
   ctx.provide('remote', { $on: () => () => {} } as never)
   ctx.provide('configForms', { developerTools: { enabled: { getSnapshot: () => true, subscribe: () => () => {} } }, get: () => stubConfigForm().scope } as never)
@@ -90,7 +97,7 @@ async function settle(): Promise<void> {
 
 describe('ui-search browser half', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['sessions', 'slots', 'locale', 'shortcuts', 'uiWorkspace'])
+    expect(inject).toEqual(['sessions', 'workspaces', 'slots', 'locale', 'shortcuts', 'uiWorkspace'])
   })
 
   it('registers the overlay and removes it with the fiber (HMR safety)', async () => {
@@ -234,6 +241,17 @@ describe('ui-search browser half', () => {
     await settle()
     const page = injected.hooks.search.getSnapshot()
     expect(page.rows).toHaveLength(1)
+    expect(page.phase).toBe('ready')
+  })
+
+  it('hides a hit whose Session the person archived', async () => {
+    const { ctx } = await bench()
+    const injected = face(ctx)
+    archived = ['sess-a']
+    injected.setQuery('分页')
+    await settle()
+    const page = injected.hooks.search.getSnapshot()
+    expect(page.rows).toEqual([])
     expect(page.phase).toBe('ready')
   })
 

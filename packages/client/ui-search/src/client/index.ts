@@ -29,7 +29,7 @@ export type { SearchPanelInjected, SearchPanelProps } from './SearchPanel.tsx'
 export type { SearchPanelState, SearchResultRow } from './state.ts'
 
 /** Required services: the session data layer, the slot registry, dictionaries, and shortcuts. */
-export const inject = ['sessions', 'slots', 'locale', 'shortcuts', 'uiWorkspace']
+export const inject = ['sessions', 'workspaces', 'slots', 'locale', 'shortcuts', 'uiWorkspace']
 
 /** Debounce between the last keystroke and the Host read. */
 const QUERY_DEBOUNCE_MS = 250
@@ -56,6 +56,9 @@ export function apply(ctx: ClientContext): void {
     store.set({ ...store.getSnapshot(), ...patch })
   }
 
+  /** Sessions the person archived; the search index does not know about archiving. */
+  const archived = (): ReadonlySet<string> => new Set(ctx.workspaces.list.getSnapshot().archivedSessionIds)
+
   const titleOf = (sessionId: SearchResultRow['sessionId']): string | undefined => {
     const row = ctx.sessions.list.getSnapshot().byId[sessionId]
     const title = row?.title?.trim()
@@ -78,13 +81,16 @@ export function apply(ctx: ClientContext): void {
       setState({ phase: 'error', nextCursor: undefined })
       return
     }
-    const rows: SearchResultRow[] = result.value.items.map(item => ({
-      sessionId: item.sessionId,
-      seq: Number(item.seq),
-      title: titleOf(item.sessionId),
-      snippet: item.snippet,
-      matches: item.matches ?? [],
-    }))
+    const hidden = archived()
+    const rows: SearchResultRow[] = result.value.items
+      .filter(item => !hidden.has(item.sessionId))
+      .map(item => ({
+        sessionId: item.sessionId,
+        seq: Number(item.seq),
+        title: titleOf(item.sessionId),
+        snippet: item.snippet,
+        matches: item.matches ?? [],
+      }))
     const previous = cursor === undefined ? [] : store.getSnapshot().rows
     const seen = new Set(previous.map(row => `${row.sessionId}:${String(row.seq)}`))
     const appended = [...previous, ...rows.filter(row => !seen.has(`${row.sessionId}:${String(row.seq)}`))]
