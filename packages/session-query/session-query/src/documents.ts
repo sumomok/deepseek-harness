@@ -40,10 +40,11 @@ export function buildSessionEventSearchDocuments(
   const surfaceBySeq = classifySurface(events)
   const documents: SessionEventSearchDocument[] = []
   for (const event of events) {
-    // A compaction injects its checkpoint as a user message so the next turn can
-    // read it back. The person never wrote it and the transcript shows it as a
-    // compaction card rather than their message, so it is not searchable prose.
-    if (event.type === 'user/message' && isCheckpointSource(event.data.source)) continue
+    // Most `user/message` events are context the harness injects for the next
+    // turn — time, runtime, skills, subagent settlements, compaction
+    // checkpoints. Only `source.kind === 'user'` is prose the person wrote and
+    // the transcript shows as their message, so the rest is not searchable.
+    if (event.type === 'user/message' && !isHumanMessage(event.data.source)) continue
     const text = extractSessionEventText(event)
     if (text.length === 0) continue
     documents.push({
@@ -59,15 +60,17 @@ export function buildSessionEventSearchDocuments(
 }
 
 /**
- * Whether one message source marks a compaction checkpoint.
+ * Whether one message source records text a person wrote.
  *
- * `MessageSourceMap` is merge-extensible and this program does not load the
- * compaction declaration, so the tag is read as its own discriminant text.
+ * `MessageSourceMap` is merge-extensible and this program does not load every
+ * declaration, so the tag is read as its own discriminant text. An unknown tag
+ * falls on the non-human side: indexing scaffolding is what produced hits no
+ * transcript row could show.
  * @param source - message source of one `user/message` event.
- * @returns whether the event was injected by a compaction rather than written.
+ * @returns whether the event carries the person's own message.
  */
-function isCheckpointSource(source: { readonly kind: string }): boolean {
-  return source.kind === 'compact-checkpoint'
+function isHumanMessage(source: { readonly kind: string }): boolean {
+  return source.kind === 'user'
 }
 
 function classifySurface(events: readonly SessionEvent[]): Map<SessionSeq, SessionEventSurface> {

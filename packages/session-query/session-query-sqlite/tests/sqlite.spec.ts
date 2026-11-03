@@ -682,7 +682,7 @@ describe('SQLite session search', () => {
         },
       },
       { type: 'user/message', seq: SessionSeq(2), time: 12, data: createUserMessage({
-        content: [{ type: 'text', text: 'needle summary' }], source: { kind: 'test' },
+        content: [{ type: 'text', text: 'needle summary' }], source: { kind: 'user' },
       }), surfaceOp: { op: 'replace', startSeq: SessionSeq(0), endSeq: SessionSeq(0) }, sourceEventSeqs: [SessionSeq(0)] },
       { type: 'turn/end', seq: SessionSeq(3), time: 13, data: { turn: 1, reason: { kind: 'error', error: { message: 'needle failure', code: 'UNKNOWN' } } } },
     ]

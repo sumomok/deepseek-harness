@@ -10,9 +10,10 @@ import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
  *
  * Version 9 records the narrowed document set: only message prose is indexed,
  * so rows written by older extraction (tool calls, compaction checkpoints)
- * must not survive reconciliation.
+ * must not survive reconciliation. Version 10 narrows the user side to
+ * `source.kind === 'user'`, dropping the context the harness injects.
  */
-export const SESSION_QUERY_SQLITE_SCHEMA_VERSION = 9
+export const SESSION_QUERY_SQLITE_SCHEMA_VERSION = 10
 
 /**
  * Identity stamped in `PRAGMA user_version`: the schema version above in the

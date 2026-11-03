@@ -180,7 +180,7 @@ describe('session-query document and filter helpers', () => {
     { type: 'user/message', seq: SessionSeq(2), time: 12, data:
       createUserMessage({
         content: [{ type: 'text', text: 'replacement' }],
-        source: { kind: 'test' },
+        source: { kind: 'user' },
       }),
     surfaceOp: { op: 'replace', startSeq: SessionSeq(0), endSeq: SessionSeq(0) },
     sourceEventSeqs: [SessionSeq(0)] },
