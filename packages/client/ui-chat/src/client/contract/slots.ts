@@ -3,6 +3,7 @@ import type { ReactNode, RefObject } from 'react'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { ReferentKind } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId, SessionSeq } from '@deepseek-ai/dsh-session/types'
+import type { ChatRevealFailureReport } from './reveal.ts'
 import type { PendingSubmission } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { InboxState } from '@deepseek-ai/dsh-agent/types'
@@ -497,13 +498,15 @@ export interface ChatViewInjected {
    * @returns the row to land on, or undefined when the loaded window cannot place it.
    */
   locateReveal: (seq: SessionSeq) => ChatRevealTarget | undefined
+  /** Resolve a position the loaded window cannot place to the nearest visible row. */
+  locateNearest: (seq: SessionSeq) => ChatRevealTarget | undefined
   /**
    * Consume a reveal request once this view landed on it or refused it.
    * @param id - request identity the view handled.
    */
   settleReveal: (id: number) => void
-  /** Report one reveal this view could not place; the copy names the outcome, not a code. */
-  notifyRevealFailure: () => void
+  /** Report one reveal this view could not place; the reason is diagnostic, not copy. */
+  notifyRevealFailure: (failure: ChatRevealFailureReport) => void
   loadImage: MessageImageLoader
   chatScroll: {
     save: (position: ChatScrollPosition | null) => void

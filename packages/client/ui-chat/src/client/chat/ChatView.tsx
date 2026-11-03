@@ -62,7 +62,7 @@ export function ChatView({
   useSession, useChat, useConversation, useSessions, renderSlot,
   sessionId, openFile, openExternalLink, loadOlder, loadThrough, loadImage, inspectCall, chatScroll, forkAt, fileMentions,
   referents, usePresentation, useProjection, useInteractionIds, dispatchInteraction, t, fileDrag,
-  useReveal, locateReveal, settleReveal, notifyRevealFailure, actions,
+  useReveal, locateReveal, locateNearest, settleReveal, notifyRevealFailure, actions,
 }: ChatViewSlotProps) {
   const order = useChat(s => s.order)
   const groupedEntries = useConversation(snapshot => snapshot.views.grouped('chat')?.entries)
@@ -198,6 +198,7 @@ export function ChatView({
     transcriptView,
     reveal: useReveal(request => request),
     locateReveal,
+    locateNearest,
     settleReveal,
     notifyRevealFailure,
     setTurnProcessOpen: actions.setTurnProcessOpen,

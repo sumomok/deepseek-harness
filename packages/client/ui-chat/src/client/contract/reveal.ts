@@ -9,9 +9,27 @@
  * (Turn, then Step) had already opened — the interval that event falls in.
  */
 import type { TurnLocation } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { SessionSeq } from '@deepseek-ai/dsh-session/types'
 import type { ChatNode } from './chat-nodes.ts'
 import { isVisibleChatNode } from './chat-visibility.ts'
 import type { ChatSnapshot } from './snapshot.ts'
+
+/** One reveal this view could not place, and why. */
+export interface ChatRevealFailureReport {
+  /** Which stage failed. */
+  readonly reason: ChatRevealFailure
+  /** Durable position the navigation asked for. */
+  readonly seq: SessionSeq
+}
+
+/** Why one reveal could not place its message. */
+export type ChatRevealFailure =
+  /** The history page holding the message never arrived. */
+  | 'history'
+  /** The loaded window has no row for the position. */
+  | 'unlocated'
+  /** The row resolved but is not mounted, so it cannot be scrolled to. */
+  | 'unmounted'
 
 /** The Chat row one message position resolves to, and the process fold hiding it. */
 export interface ChatRevealTarget {
@@ -102,6 +120,42 @@ export function resolveChatRevealTarget(snapshot: ChatSnapshot, seq: number): Ch
   const presentation = snapshot.nodes.processSource(node.key).getSnapshot()
   return {
     key: node.key,
+    process: presentation === undefined
+      ? null
+      : { turn: presentation.spec.turn, answerStep: presentation.spec.answerStep ?? 0 },
+  }
+}
+
+/**
+ * Resolve a position the loaded window cannot place to the nearest visible row.
+ *
+ * This runs only after the exact resolution refused, which means the Turn
+ * holding the position is not in the window at all: the Session's history page
+ * never arrived, or this view cannot page to it. Opening the Session is still
+ * the reader's intent, so the transcript lands at the last row at or before the
+ * position rather than staying where it was and reporting nothing.
+ * @param snapshot - live Chat target snapshot.
+ * @param seq - durable event position a search hit names.
+ * @returns the closest visible row, or undefined when the transcript has none.
+ */
+export function resolveNearestChatRow(snapshot: ChatSnapshot, seq: number): ChatRevealTarget | undefined {
+  let before: ChatNode | undefined
+  let after: ChatNode | undefined
+  for (const key of snapshot.order) {
+    const node = snapshot.nodes.get(key)
+    if (node === undefined || !isVisibleChatNode(node as ChatNode)) continue
+    if (node.kind === 'turn-process') continue
+    if (node.anchorSeq > seq) {
+      after = node as ChatNode
+      break
+    }
+    before = node as ChatNode
+  }
+  const row = before ?? after
+  if (row === undefined) return undefined
+  const presentation = snapshot.nodes.processSource(row.key).getSnapshot()
+  return {
+    key: row.key,
     process: presentation === undefined
       ? null
       : { turn: presentation.spec.turn, answerStep: presentation.spec.answerStep ?? 0 },

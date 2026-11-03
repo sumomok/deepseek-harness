@@ -553,6 +553,7 @@ function makeHarness(
     actions: chat.actions,
     useReveal: bindSnapshotSelector(revealSource),
     locateReveal,
+    locateNearest: () => undefined,
     settleReveal,
     notifyRevealFailure,
     useInteractionIds: bindSnapshotSelector(createSnapshotStore<readonly string[]>([])),

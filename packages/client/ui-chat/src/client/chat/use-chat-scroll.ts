@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type RefObjec
 import type { SessionSeq } from '@deepseek-ai/dsh-session/types'
 import type { SessionRevealRequest } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { TranscriptViewMode } from '../../chat-settings.ts'
-import type { ChatRevealTarget } from '../contract/reveal.ts'
+import type { ChatRevealFailure, ChatRevealFailureReport, ChatRevealTarget } from '../contract/reveal.ts'
 import type { ChatSnapshot } from '../contract/snapshot.ts'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
 import { useChatNavigation, type ChatNavigation, type ChatNavigationInput } from './use-chat-navigation.ts'
@@ -32,10 +32,12 @@ export interface ChatScrollInput extends ChatNavigationInput {
   readonly reveal: SessionRevealRequest | null
   /** Resolve a durable message position against the live Chat snapshot. */
   readonly locateReveal: (seq: SessionSeq) => ChatRevealTarget | undefined
+  /** Resolve a position the loaded window cannot place to the nearest visible row. */
+  readonly locateNearest: (seq: SessionSeq) => ChatRevealTarget | undefined
   /** Consume one handled reveal request. */
   readonly settleReveal: (id: number) => void
-  /** Report a reveal the loaded window could not place. */
-  readonly notifyRevealFailure: () => void
+  /** Report a reveal the loaded window could not place, with the reason. */
+  readonly notifyRevealFailure: (failure: ChatRevealFailureReport) => void
   /** Open the Turn-process disclosure that folds the landed row. */
   readonly setTurnProcessOpen: ChatViewSlotProps['actions']['setTurnProcessOpen']
 }
@@ -64,7 +66,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
   const {
     ready, order, firstSeq, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running,
     deferCompletedTurns, loadedTurns, chatScroll, hasMore, loadingOlder, loadOlder, loadThrough, transcriptView,
-    reveal, locateReveal, settleReveal, notifyRevealFailure, setTurnProcessOpen,
+    reveal, locateReveal, locateNearest, settleReveal, notifyRevealFailure, setTurnProcessOpen,
   } = input
   const { viewport, listRef, columnRef } = useChatViewport()
   const { reading, state } = useChatReading(viewport, chatScroll, loadedTurns.at(-1)?.turn ?? null)
@@ -160,7 +162,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
     content.current.input = {
       ready, order, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running, loadedTurns,
       chatScroll, deferCompletedTurns, transcriptView, ...navigationInput,
-      reveal, locateReveal, settleReveal, notifyRevealFailure, setTurnProcessOpen,
+      reveal, locateReveal, locateNearest, settleReveal, notifyRevealFailure, setTurnProcessOpen,
     }
     if (!deferCompletedTurns) {
       cancelPendingFollow()
@@ -199,9 +201,9 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
     if (!ready || reveal === null) return
     let cancelled = false
     let frame: number | null = null
-    const settle = (landed: boolean): void => {
+    const settle = (landed: boolean, reason: ChatRevealFailure = 'unlocated'): void => {
       viewport.stopPreserving()
-      if (!landed) notifyRevealFailure()
+      if (!landed) notifyRevealFailure({ reason, seq: reveal.seq })
       settleReveal(reveal.id)
     }
     const land = (key: string, remaining: number): void => {
@@ -214,7 +216,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
       }
       // The row is not mounted yet: a fold this request opened hides it until React commits.
       if (remaining <= 0 || typeof requestAnimationFrame !== 'function') {
-        settle(false)
+        settle(false, 'unmounted')
         return
       }
       frame = requestAnimationFrame(() => {
@@ -224,7 +226,10 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
     }
     const arrive = (): void => {
       if (cancelled) return
-      const target = locateReveal(reveal.seq)
+      // An exact resolution can only refuse when the Turn holding the position
+      // is absent from the window; landing at the closest row still opens the
+      // Session where the reader asked, instead of reporting nothing.
+      const target = locateReveal(reveal.seq) ?? locateNearest(reveal.seq)
       if (target === undefined) {
         settle(false)
         return
@@ -236,13 +241,14 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
     viewport.beginPreserving()
     reading.pauseFollowing()
     // The jump loader settles rather than rejects; a refusal still ends this landing.
-    void loadThrough(reveal.seq).then(arrive, () => { if (!cancelled) settle(false) })
+    void loadThrough(reveal.seq).then(arrive, () => { if (!cancelled) settle(false, 'history') })
     return () => {
       cancelled = true
       if (frame !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame)
     }
   }, [
-    ready, reveal, loadThrough, locateReveal, settleReveal, notifyRevealFailure, setTurnProcessOpen,
+    ready, reveal, loadThrough, locateReveal, locateNearest, settleReveal, notifyRevealFailure,
+    setTurnProcessOpen,
     viewport, reading, navigation,
   ])
 
