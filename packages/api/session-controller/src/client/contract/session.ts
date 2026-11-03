@@ -154,6 +154,25 @@ export interface ISession {
    */
   loadThrough(seq: SessionSeq): Promise<void>
   /**
+   * Replace the display window with one direct read ending at `seq`.
+   *
+   * This is the historical-entry loader: the window becomes the contiguous
+   * page that contains the position, so reaching a message near the start of a
+   * long Session costs one read rather than one read per page. While such a
+   * window is displayed the live journal keeps its own cursor but does not
+   * append to it; reopening the Session restores the live, tail-following
+   * window.
+   * @param seq - durable event seq the window must contain.
+   * @param signal - optional cancellation for the read.
+   * @returns whether the window now covers `seq`.
+   */
+  openAt(seq: SessionSeq, signal?: AbortSignal): Promise<boolean>
+  /**
+   * Restore the live, tail-following window after {@link openAt}.
+   * @returns completion once the live window is installed again.
+   */
+  openTail(): Promise<void>
+  /**
    * Execute one slash-command line against this session's agent — pure
    * admission semantics (the host executor durably logs the lifecycle).
    * @param line - the full command line, leading slash included.

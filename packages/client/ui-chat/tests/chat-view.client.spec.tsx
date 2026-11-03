@@ -436,6 +436,7 @@ function makeHarness(
   const openUserFile = vi.fn<(path: string) => void>()
   const renderUserContent = createUserContentFixture({ openFile: openUserFile })
   const loadOlder = vi.fn()
+  const openAt = vi.fn<(seq: number) => Promise<boolean>>().mockResolvedValue(false)
   const loadThrough = vi.fn<(seq: number) => Promise<void>>().mockResolvedValue(undefined)
   // Mutable outline holder: tests swap the value and drive a re-render via set().
   let outlineValue: unknown
@@ -569,6 +570,8 @@ function makeHarness(
     openExternalLink: vi.fn(),
     loadOlder,
     loadThrough,
+    openAt,
+    openTail: vi.fn(async () => {}),
     loadImage: vi.fn(() => Promise.reject(new Error('not used'))),
     chatScroll,
     forkAt,

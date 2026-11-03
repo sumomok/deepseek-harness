@@ -259,6 +259,52 @@ describe('paging', () => {
     ])
   })
 
+  it('openAt replaces the window with one direct read at the position', async ({ mock, start }) => {
+    const oldest = plainTurn(SessionSeq(0), 0, '最旧问', '最旧答')
+    const newest = plainTurn(SessionSeq(100), 2, '新问', '新答')
+    const session = await sessionBench(mock, start, SID)
+    mock.stream(FOLLOW, followScript(history(newest, true)))
+    await session.open()
+    mock.remote.session.page.mockImplementation(pageRule(history(oldest, true)))
+
+    await expect(session.openAt(SessionSeq(3))).resolves.toBe(true)
+
+    // `throughSeq` is an inclusive cut: the page ends at the position, so the
+    // newer part of the fixture Turn is not part of this window.
+    expect(eventSeqs(session)).toEqual([0, 1, 2, 3])
+    expect(mock.log.requests(PAGE)).toMatchObject([{ throughSeq: 3, maxMessages: 200 }])
+    expect(session.getSnapshot()).toMatchObject({ loadingOlder: false, hasMore: true })
+  })
+
+  it('openAt leaves the window alone when it already covers the position', async ({ mock, start }) => {
+    const newest = plainTurn(SessionSeq(100), 2, '新问', '新答')
+    const session = await sessionBench(mock, start, SID)
+    mock.stream(FOLLOW, followScript(history(newest, true)))
+    await session.open()
+    const sent = mock.log.requests().length
+
+    await expect(session.openAt(SessionSeq(103))).resolves.toBe(true)
+
+    expect(mock.log.requests()).toHaveLength(sent)
+    expect(eventSeqs(session)).toEqual(newest.map(event => event.seq))
+  })
+
+  it('drops live growth while a direct history window is displayed', async ({ mock, start }) => {
+    const oldest = plainTurn(SessionSeq(0), 0, '最旧问', '最旧答')
+    const newest = plainTurn(SessionSeq(100), 2, '新问', '新答')
+    const session = await sessionBench(mock, start, SID)
+    mock.stream(FOLLOW, followScript(history(newest, true)))
+    await session.open()
+    mock.remote.session.page.mockImplementation(pageRule(history(oldest, true)))
+    await session.openAt(SessionSeq(3))
+
+    await pushEvent(mock, ev.turnStart(SessionSeq(120), 3))
+
+    // The window is not contiguous with the live tail, so appending would
+    // fabricate a gap the reader would scroll through.
+    expect(eventSeqs(session)).toEqual([0, 1, 2, 3])
+  })
+
   it('loadThrough is a no-op when the window already covers the target or the session is not open', async ({ mock, start }) => {
     const session = await sessionBench(mock, start, SID)
     await session.loadThrough(SessionSeq(0)) // cold: no-op

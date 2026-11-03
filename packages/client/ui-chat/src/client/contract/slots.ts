@@ -490,6 +490,10 @@ export interface ChatViewInjected {
   loadOlder: () => void
   /** Jump loader: page history back through seq; resolves when the window covers it. */
   loadThrough: (seq: SessionSeq) => Promise<void>
+  /** Replace the display window with one direct read ending at the position. */
+  openAt: (seq: SessionSeq) => Promise<boolean>
+  /** Restore the live, tail-following window after a direct history read. */
+  openTail: () => Promise<void>
   /**
    * Resolve one durable message position to the visible row that renders it,
    * read from the live Chat snapshot rather than the render's copy: the page

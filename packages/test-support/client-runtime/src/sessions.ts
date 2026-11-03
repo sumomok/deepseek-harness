@@ -176,6 +176,20 @@ export class FixtureSession implements SessionFace {
   }
 
   /**
+   * Fail-loud stub; supply `openAt` on the fixture's session face to exercise it.
+   */
+  openAt(): never {
+    throw new Error(`test session "${this.sessionId}": openAt is not stubbed — supply it on the fixture's session face`)
+  }
+
+  /**
+   * Fail-loud stub; supply `openTail` on the fixture's session face to exercise it.
+   */
+  openTail(): never {
+    throw new Error(`test session "${this.sessionId}": openTail is not stubbed — supply it on the fixture's session face`)
+  }
+
+  /**
    * Fail-loud stub; supply `rename` on the fixture's session face to exercise it.
    * @returns never — always throws.
    */

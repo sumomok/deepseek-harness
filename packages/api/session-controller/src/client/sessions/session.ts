@@ -33,6 +33,7 @@ import { isRemoteFailure } from '@deepseek-ai/dsh-api-gateway/client'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import type { RemoteFailure, RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { SessionRemotes } from './remotes.ts'
+import { historyEntries } from './history-records.ts'
 import { ProjectionValueStore } from './projection-store.ts'
 import type { ProjectionsBaseline } from './projection-store.ts'
 import { resolvedClientTimeZone } from '../time-zone.ts'
@@ -55,6 +56,15 @@ const HISTORY_PAGE_OPTIONS = { maxMessages: 500, turnWindow: { minMessages: PAGE
 
 /** Minimum messages per page while a turn jump loops backwards. */
 export const JUMP_PAGE_MESSAGES = 200
+
+/**
+ * Messages one direct history read returns around a target position.
+ *
+ * A search hit far from the tail is opened by replacing the display window with
+ * one read at that position; paging from the tail to reach it would load — and
+ * render — every message in between.
+ */
+export const HISTORY_WINDOW_MESSAGES = 200
 
 const JUMP_PAGE_OPTIONS = {
   ...HISTORY_PAGE_OPTIONS,
@@ -98,6 +108,8 @@ export class Session implements SessionFace {
   private baseSeq = SessionLogOffset(0)
   private hasMore = false
   private openState: OpenState = 'cold'
+  /** True while the window was installed from a direct read at a historical position. */
+  private liveHistory = false
   private openError: RemoteFailure | null = null
   private openPromise: Promise<void> | null = null
   /** Bumped by stream replacement to invalidate an in-flight doOpen. Stale
@@ -267,6 +279,9 @@ export class Session implements SessionFace {
     requestId?: SessionRequestId,
     references: readonly PromptReference[] = [],
   ): Promise<RemoteResult<{ accepted: true }>> {
+    // A prompt belongs to the live tail; never send it while an older window is
+    // displayed, or its echo would land outside the reader's window.
+    if (this.liveHistory) await this.openTail()
     this.promptError = null
     this.lastAgentError = null
     // Before the first await, so a turn observed ahead of the receipt clears it.
@@ -638,10 +653,55 @@ export class Session implements SessionFace {
     await events?.dispose()
   }
 
+  /**
+   * Replace the display window with one direct read at a historical position.
+   *
+   * Unlike {@link loadThrough} this does not page from the tail: the window
+   * becomes the contiguous page ending at `seq`, so opening a hit near the
+   * start of a long Session costs one read instead of one per page.
+   * @param seq - durable event position the window must contain.
+   * @param signal - optional cancellation for the read.
+   * @returns whether the window now covers `seq`.
+   */
+  async openAt(seq: SessionSeq, signal?: AbortSignal): Promise<boolean> {
+    if (this.openState !== 'open' || this.events === undefined) return false
+    if (this.baseSeq <= seq) return true
+    const generation = this.openGeneration
+    try {
+      const result = await this.remote.session.page({
+        address: this.sessionAddress(),
+        throughSeq: Number(seq),
+        maxMessages: HISTORY_WINDOW_MESSAGES,
+      }, signal ?? new AbortController().signal)
+      if (!result.ok) return false
+      if (generation !== this.openGeneration || this.events === undefined) return false
+      const entries = historyEntries(result.value.records)
+      if (entries.length === 0) return false
+      this.liveHistory = true
+      this.loadingOlder = false
+      this.installWindow(entries, result.value.hasMore)
+      this.notifier.markDirty()
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Restore the live, tail-following window after a direct history read.
+   * @returns completion once the live window is installed again.
+   */
+  async openTail(): Promise<void> {
+    if (!this.liveHistory) return
+    this.liveHistory = false
+    await this.resync()
+  }
+
   // ---- Private ----
 
   /** @param generation - openGeneration at launch; stale passes cannot publish after replacement. */
   private async doOpen(generation: number): Promise<void> {
+    this.liveHistory = false
     this.openState = 'loading'
     this.openError = null
     this.notifier.markDirty()
@@ -672,6 +732,10 @@ export class Session implements SessionFace {
 
   /** Apply one contiguous journal update already reconciled by the Remote stream. */
   private acceptEventChange(change: SessionJournalChange): void {
+    // A direct history window is not contiguous with the live tail, so durable
+    // and assistant-stream growth cannot be appended to it. The journal keeps
+    // its own cursor; reopening the Session restores the live window.
+    if (this.liveHistory && (change.type === 'append' || change.type === 'assistant-stream')) return
     switch (change.type) {
       case 'replace':
         this.installWindow(

@@ -30,6 +30,10 @@ export interface ChatScrollInput extends ChatNavigationInput {
   readonly loadedTurns: ReturnType<ChatSnapshot['navigation']['items']>
   /** Message the Session's navigation asked the transcript to show; null when none is pending. */
   readonly reveal: SessionRevealRequest | null
+  /** Replace the display window with one direct read ending at the position. */
+  readonly openAt: (seq: SessionSeq) => Promise<boolean>
+  /** Restore the live, tail-following window after a direct history read. */
+  readonly openTail: () => Promise<void>
   /** Resolve a durable message position against the live Chat snapshot. */
   readonly locateReveal: (seq: SessionSeq) => ChatRevealTarget | undefined
   /** Consume one handled reveal request. */
@@ -75,14 +79,14 @@ interface ChatScrollState extends ChatReadingState {
 export function useChatScroll(input: ChatScrollInput): ChatScrollState {
   const {
     ready, order, firstSeq, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running,
-    deferCompletedTurns, loadedTurns, chatScroll, hasMore, loadingOlder, loadOlder, loadThrough, transcriptView,
+    deferCompletedTurns, loadedTurns, chatScroll, hasMore, loadingOlder, loadOlder, loadThrough, openAt, openTail, transcriptView,
     reveal, locateReveal, settleReveal, notifyRevealFailure, setTurnProcessOpen,
   } = input
   const { viewport, listRef, columnRef } = useChatViewport()
   const { reading, state } = useChatReading(viewport, chatScroll, loadedTurns.at(-1)?.turn ?? null)
   const navigationInput = useMemo(() => ({
-    firstSeq, loadingOlder, hasMore, loadOlder, loadThrough,
-  }), [firstSeq, loadingOlder, hasMore, loadOlder, loadThrough])
+    firstSeq, loadingOlder, hasMore, loadOlder, loadThrough, openAt,
+  }), [firstSeq, loadingOlder, hasMore, loadOlder, loadThrough, openAt])
   const { navigation, busyTurn } = useChatNavigation(viewport, reading, navigationInput)
   const content = useRef<{ input: ChatScrollInput; applied: ChatScrollInput | null; opened: boolean }>({
     input, applied: null, opened: false,
@@ -172,7 +176,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
     content.current.input = {
       ready, order, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running, loadedTurns,
       chatScroll, deferCompletedTurns, transcriptView, ...navigationInput,
-      reveal, locateReveal, settleReveal, notifyRevealFailure, setTurnProcessOpen,
+      reveal, openAt, openTail, locateReveal, settleReveal, notifyRevealFailure, setTurnProcessOpen,
     }
     if (!deferCompletedTurns) {
       cancelPendingFollow()
@@ -262,8 +266,10 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
       // The window does not hold the Turn. The jump loader can decline to page
       // — another page pull owns the flag, or it was asked before the Session
       // opened — so ask again rather than land somewhere the reader did not ask for.
-      if (attempts > 0 && hasMore && (firstSeq === null || reveal.seq < firstSeq)) {
-        await loadThrough(reveal.seq)
+      if (attempts > 0 && (firstSeq === null || reveal.seq < firstSeq)) {
+        // One direct read at the position replaces the window; paging from the
+        // tail would load every message between here and the live end.
+        await openAt(reveal.seq)
         await nextFrame()
         return arrive(attempts - 1)
       }
@@ -274,8 +280,8 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
     navigation.cancel()
     viewport.beginPreserving()
     reading.pauseFollowing()
-    // The jump loader settles rather than rejects; a refusal still ends this landing.
-    void loadThrough(reveal.seq)
+    // A direct history read settles rather than rejects; a refusal still ends this landing.
+    void openAt(reveal.seq)
       .then(() => arrive(REVEAL_HISTORY_ATTEMPTS))
       .catch(() => { if (!cancelled) settle(false, 'history') })
     return () => {
@@ -283,7 +289,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
       if (frame !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame)
     }
   }, [
-    ready, reveal, loadThrough, locateReveal, settleReveal, notifyRevealFailure,
+    ready, reveal, loadThrough, openAt, locateReveal, settleReveal, notifyRevealFailure,
     setTurnProcessOpen, hasMore, firstSeq,
     viewport, reading, navigation,
   ])
@@ -291,8 +297,10 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
   const returnToBottom = useCallback(() => {
     cancelPendingFollow()
     navigation.cancel()
-    reading.followTail()
-  }, [navigation, reading, cancelPendingFollow])
+    // A direct history window is not the tail; followTail would scroll to the
+    // bottom of the old page instead of the live end.
+    void openTail().then(() => { reading.followTail() }, () => undefined)
+  }, [navigation, reading, cancelPendingFollow, openTail])
 
   return {
     listRef, columnRef, ...state, busyTurn, motion: viewport.motion,

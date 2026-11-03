@@ -60,7 +60,7 @@ const MOTION_TAIL_MS = 800
  */
 export function ChatView({
   useSession, useChat, useConversation, useSessions, renderSlot,
-  sessionId, openFile, openExternalLink, loadOlder, loadThrough, loadImage, inspectCall, chatScroll, forkAt, fileMentions,
+  sessionId, openFile, openExternalLink, loadOlder, loadThrough, openAt, openTail, loadImage, inspectCall, chatScroll, forkAt, fileMentions,
   referents, usePresentation, useProjection, useInteractionIds, dispatchInteraction, t, fileDrag,
   useReveal, locateReveal, settleReveal, notifyRevealFailure, actions,
 }: ChatViewSlotProps) {
@@ -189,7 +189,7 @@ export function ChatView({
     ? latestSteering.source.rpcId : latestSteering?.id ?? null
   const scroll = useChatScroll({
     ready: openState === 'open',
-    order, firstSeq, lastKey, running, loadingOlder, hasMore, chatScroll, loadOlder, loadThrough, deferCompletedTurns,
+    order, firstSeq, lastKey, running, loadingOlder, hasMore, chatScroll, loadOlder, loadThrough, openAt, openTail, deferCompletedTurns,
     lastIsUser: lastKey !== null && nodeStore.get(lastKey)?.kind === 'user',
     steeringId,
     submissionId: visibleSubmissions.at(-1)?.requestId ?? null,

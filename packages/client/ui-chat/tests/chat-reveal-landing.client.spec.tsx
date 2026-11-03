@@ -48,6 +48,7 @@ function mountLanding(count = 10) {
   }
   vi.stubGlobal('ResizeObserver', Observer)
   const loadThrough = vi.fn<(seq: number) => Promise<void>>(async () => {})
+  const openAt = vi.fn<(seq: number) => Promise<boolean>>(async () => false)
   const settleReveal = vi.fn<(id: number) => void>()
   const notifyRevealFailure = vi.fn<() => void>()
   const setTurnProcessOpen = vi.fn<(turn: number, answerStep: number, open: boolean) => void>()
@@ -67,6 +68,8 @@ function mountLanding(count = 10) {
     loadedTurns: [],
     hasMore: false,
     loadingOlder: false,
+    openAt,
+    openTail: vi.fn(async () => {}),
     loadOlder: vi.fn(),
     loadThrough,
     chatScroll: { read: () => null, save: vi.fn() },
