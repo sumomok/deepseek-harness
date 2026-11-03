@@ -467,7 +467,6 @@ async function prompt(root: Context, scope: Scope): Promise<string> {
 function evaluateWithEnv(value: unknown, env: Record<string, string>): unknown {
   const expression = (value as { __jsExpr?: unknown } | undefined)?.__jsExpr
   if (typeof expression !== 'string') throw new Error(`not a !!js value: ${JSON.stringify(value)}`)
-  // oxlint-disable-next-line typescript/no-implied-eval -- evaluates this repository's own layer, as the Loader does
   return (new Function('process', `return (${expression})`) as (process: { env: Record<string, string> }) => unknown)({ env })
 }
 
