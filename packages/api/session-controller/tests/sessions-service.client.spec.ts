@@ -1170,3 +1170,24 @@ describe('coverage tails (branch duals)', () => {
     expect(b.svc.binding(sid('s1'))).toBe(reference.binding)
   })
 })
+
+describe('index preparation', () => {
+  it('publishes the control stream preparation on the sessions face, clearing it on a baseline that omits it', async ({ bench }) => {
+    const b = bench()
+    expect(b.svc.searchIndex.getSnapshot()).toBeUndefined()
+
+    const opening = { phase: 'opening', examined: 0, total: 0, skipped: 0 } as const
+    b.svc.handleControlFrame({ type: 'baseline', value: { projections: {}, searchIndex: opening } })
+    await Promise.resolve()
+    expect(b.svc.searchIndex.getSnapshot()).toEqual(opening)
+
+    const reconciling = { phase: 'reconciling', examined: 6, total: 12, skipped: 2 } as const
+    b.svc.handleControlFrame({ type: 'search-index', value: reconciling })
+    await Promise.resolve()
+    expect(b.svc.searchIndex.getSnapshot()).toEqual(reconciling)
+
+    b.svc.handleControlFrame({ type: 'baseline', value: { projections: {} } })
+    await Promise.resolve()
+    expect(b.svc.searchIndex.getSnapshot()).toBeUndefined()
+  })
+})

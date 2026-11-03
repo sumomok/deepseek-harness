@@ -31,7 +31,9 @@ export { createScope, scopeOf } from './scope.ts'
 export type { AgentContext, AgentScopeHandle } from './scope.ts'
 export { SessionCreateError, SessionForkError } from './sessions/service.ts'
 export type { SessionBinding, SessionListState, SessionSummary } from './sessions/service.ts'
-export type { SessionMessageSearchRequest, SessionMessageSearchValue } from '../types.ts'
+export type {
+  SessionMessageSearchRequest, SessionMessageSearchValue, SessionSearchIndexProgress,
+} from '../types.ts'
 export type {
   SessionListPhase,
   SessionListSnapshot,

@@ -22,7 +22,9 @@ import type { SessionRemotes } from './remotes.ts'
 import type {
   SessionListPhase, SessionSearchResultItem, SessionProjectionSnapshot,
 } from './manager.ts'
-import type { SessionMessageSearchRequest, SessionMessageSearchValue } from '../../types.ts'
+import type {
+  SessionMessageSearchRequest, SessionMessageSearchValue, SessionSearchIndexProgress,
+} from '../../types.ts'
 import type { Session } from './session.ts'
 import type { SessionListEntry } from './lineage.ts'
 
@@ -248,6 +250,8 @@ export class ClientSessions implements ISessions {
   readonly searchResultLimit = SESSION_SEARCH_RESULT_LIMIT
   /** Catalog metadata and local reference-source projection. */
   readonly list: SnapshotStore<SessionListState>
+  /** Host full-text index preparation the control stream last reported. */
+  readonly searchIndex: SnapshotStore<SessionSearchIndexProgress | undefined>
   /** The object-layer instance cluster and frame dispatch entry. */
   private readonly manager: SessionManager
   private readonly scopes = new Map<SessionId, ScopeRecord>()
@@ -268,7 +272,11 @@ export class ClientSessions implements ISessions {
     this.list = createSnapshotStore<SessionListState>({
       ids: [], byId: {}, phase: 'pending', projectionsBySession: {},
     })
-    const disposeManagerProjection = this.manager.subscribe(() => { this.projectList() })
+    this.searchIndex = createSnapshotStore<SessionSearchIndexProgress | undefined>(undefined)
+    const disposeManagerProjection = this.manager.subscribe(() => {
+      this.projectList()
+      this.projectSearchIndex()
+    })
     rootCtx.effect(() => async () => {
       this.closed = true
       disposeManagerProjection()
@@ -709,6 +717,16 @@ export class ClientSessions implements ISessions {
       }
     }
     this.list.set({ ids, byId, phase, projectionsBySession })
+  }
+
+  /**
+   * Publish the manager's latest index preparation, if the connection reported
+   * a different one than the published snapshot holds.
+   */
+  private projectSearchIndex(): void {
+    const next = this.manager.getSearchIndexProgress()
+    if (next === this.searchIndex.getSnapshot()) return
+    this.searchIndex.set(next)
   }
 
   private startScopeDrop(

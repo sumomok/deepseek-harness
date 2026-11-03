@@ -2,6 +2,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { Deque } from '@deepseek-ai/dsh-deque'
+import type {} from '@deepseek-ai/dsh-session-query'
 import type {
   Session, SessionId,
 } from '@deepseek-ai/dsh-session'
@@ -27,6 +28,11 @@ export class SessionControlController {
         value: value as JsonValue,
         seq,
       })
+    })
+    // A search waits for this index preparation, so its progress reaches the
+    // same subscribers while the search request is still unanswered.
+    ctx.on('session-query/index-progress', (progress) => {
+      this.broadcast({ type: 'search-index', value: progress })
     })
     ctx.effect(() => () => {
       for (const stream of this.streams) stream.end()
@@ -54,8 +60,10 @@ export class SessionControlController {
 
   private baseline(): SessionControlBaseline {
     const sessions = this.ctx.sessions.list()
+    const searchIndex = this.ctx.get('sessionQuery')?.searchIndexProgress()
     return {
       projections: this.projectionBaseline(sessions),
+      ...searchIndex === undefined ? {} : { searchIndex },
     }
   }
 

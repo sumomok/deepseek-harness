@@ -229,6 +229,37 @@ export interface SessionEventSearchDocument extends SessionEventRecord {
   text: string
 }
 
+/**
+ * Observable preparation of the full-text index that a search reads through.
+ *
+ * Every search first opens the index and compares the stored corpus with what
+ * the index already holds. That wait, not the query, is what a caller otherwise
+ * has to report as one undifferentiated "searching" state.
+ *
+ * This counts preparation work; it is not {@link SessionSearchCoverage}, which
+ * reports how much of the observed corpus the finished generation covers. A
+ * completed pass here can still end with unreadable Sessions left out.
+ */
+export interface SessionSearchIndexProgress {
+  /**
+   * `opening` while the backend module and handle open, `reconciling` while the
+   * observed corpus is compared with the index, and `ready` once the pass
+   * finished. A pass that fails reports nothing further, so the last value
+   * stays published until the next search starts another pass.
+   */
+  phase: 'opening' | 'reconciling' | 'ready'
+  /**
+   * Stored Sessions this pass finished deciding, skipped ones included. Live
+   * Sessions are observed in memory and are not part of a pass, so this counts
+   * the stored corpus only.
+   */
+  examined: number
+  /** Stored Sessions the persistence backend listed for this pass; `0` until that listing returns. */
+  total: number
+  /** Examined Sessions whose stored revision matched the indexed one, so their logs were not read again. */
+  skipped: number
+}
+
 /** How much of the logical corpus the indexed generation behind one page covers. */
 export interface SessionSearchCoverage {
   /**

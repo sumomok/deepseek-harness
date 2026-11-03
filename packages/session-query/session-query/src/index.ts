@@ -33,6 +33,7 @@ import type {
   SessionResultFilter,
   SessionSearchExecContext,
   SessionSearchHit,
+  SessionSearchIndexProgress,
   SessionSearchPage,
   SessionSearchRequest,
   SessionSurfaceSnapshot,
@@ -88,6 +89,15 @@ declare module '@deepseek-ai/cordis' {
   interface Context {
     sessionQuery: SessionQueryEngine
   }
+
+  interface Events {
+    /**
+     * Preparation of the full-text index behind session search advanced.
+     * @mode emit
+     * @param progress - phase and counters after the advance.
+     */
+    'session-query/index-progress'(progress: SessionSearchIndexProgress): void
+  }
 }
 
 /**
@@ -103,6 +113,7 @@ export abstract class SessionQueryEngine extends Service {
   private readonly _readWindowMax: number
   private readonly _corpus: SessionCorpus
   private readonly _observations: SessionObservationReader
+  private _searchIndexProgress: SessionSearchIndexProgress | undefined
 
   constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'sessionQuery')
@@ -144,6 +155,33 @@ export abstract class SessionQueryEngine extends Service {
     options: SessionObservationOptions = {},
   ): Promise<SessionObservation> {
     return this._observations.read(sessionId, options)
+  }
+
+  /**
+   * Read the last preparation state this backend published, without starting one.
+   *
+   * A search waits for this preparation before it queries, so a caller that can
+   * observe it can report how long that wait still is instead of one
+   * undifferentiated "searching" state.
+   * @returns the last reported progress, or `undefined` when this backend has
+   *   not started preparing an index: no full-text backend is mounted, search is
+   *   disabled, or the configured policy defers opening until the first search.
+   */
+  searchIndexProgress(): SessionSearchIndexProgress | undefined {
+    return this._searchIndexProgress
+  }
+
+  /**
+   * Publish one preparation state to {@link searchIndexProgress} readers and to
+   * `session-query/index-progress` listeners.
+   *
+   * A backend calls this at phase changes and between reconciliation batches, so
+   * it must not mutate the object it passes here afterward.
+   * @param progress - phase and counters being reported.
+   */
+  protected _reportSearchIndexProgress(progress: SessionSearchIndexProgress): void {
+    this._searchIndexProgress = progress
+    this.ctx.emit('session-query/index-progress', progress)
   }
 
   /**

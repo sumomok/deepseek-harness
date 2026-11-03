@@ -821,6 +821,8 @@ interface PluginRecord {
 
 可选的 `application` 指定文件关联应用，不修改系统默认值；`workspacePathApplications({ path })` 在校验 Host 路径后返回当前关联应用、名称、图标和默认项。
 
+Host 级 `control` 流先发一条 `SessionControlBaseline`，随后不断产出替换帧。`projection` 帧按 seq 替换某个 Session 的一个 projection 值；`search-index` 帧携带 Host 当前的全文索引准备状态——阶段、已检查数、总数与跳过的已存储会话数——它是 Host 级而非 Session 级的，因此不按 Session 访问控制过滤。新 baseline 携带该流打开前最近一次发布的准备状态；Host 未运行索引或尚未开始时则省略该字段，字段语义见 [session-query.md](session-query.zh.md)。
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
@@ -860,6 +862,17 @@ resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult>
  * @returns authorized bounded Session search results.
  */
 @Remote('search') async search(request: SessionSearchRequest, signal: AbortSignal): Promise<SessionSearchValue>
+
+/**
+ * Search visible Session content at message granularity, addressing every hit
+ * by the Session and event it came from. Unlike {@link search}, which reports
+ * matching Sessions, each item names one message so a client can open it, and
+ * paging continues through the cursor this returns.
+ * @param request - literal message-content query and an optional continuation cursor.
+ * @param signal - cancellation for list and search reads.
+ * @returns this page's authorized hits and the cursor for the next one.
+ */
+@Remote('searchMessages') searchMessages(request: SessionMessageSearchRequest, signal: AbortSignal): Promise<SessionMessageSearchValue>
 
 /**
  * Create one ordinary Session for a new conversation, reusing the named blank Session while it is reusable.
@@ -1063,7 +1076,7 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
 @Remote({ mode: 'stream' }) async *control(signal: AbortSignal): AsyncIterable<SessionControlFrame>
 ```
 
-Types: [SessionId](core.zh.md) · [SessionSearchRequest](session-query.zh.md)
+Types: [SessionId](core.zh.md) · [SessionMessageSearchRequest](session-query.zh.md) · [SessionSearchRequest](session-query.zh.md)
 
 Source: [`packages/api/session-controller/src/index.ts`](../../packages/api/session-controller/src/index.ts)
 

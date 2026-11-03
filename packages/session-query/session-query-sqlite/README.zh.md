@@ -51,8 +51,11 @@ kind: "package-reference"
 | `readWindowMax` | `50` | 继承的 `readEvent()` 的 `before`/`after` 原始事件数上限 |
 | `persistedReadConcurrency` | `4` | 继承批量读取的并发持久化日志读取数 |
 | `preparedSessionCacheSize` | `5` | 继承的 `observeSession` 读取器为复用保留的冷 prepared-Session 观察数 |
+| `reconcileBatchSize` | `16` | 一次对账判定多少个已存储会话后才报告索引准备进度并让出事件循环 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-session-query-sqlite)是每个受支持字段及其 JSDoc 的穷尽式真源。
+
+搜索在查询之前先等待索引准备；把打开推迟到首次搜索的部署会在那一次搜索上承担这段等待。SQLite 后端通过 `ctx.sessionQuery.searchIndexProgress()` 与 `session-query/index-progress` 发布 `opening`、`reconciling` 与 `ready`：每轮对账判定 `reconcileBatchSize` 个已存储会话后报告已到达的计数并让出事件循环，因此监听方能在等待中的搜索请求仍未收到响应时看到这一轮推进。计数只覆盖已存储会话；`skipped` 统计那些已检查过、且存储修订与索引一致的会话，它们的日志不再重读。
 
 ### 搜索行为
 

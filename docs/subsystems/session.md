@@ -817,6 +817,8 @@ The backends that consume this contract are on [persistence.md](persistence.md).
 
 The optional `application` selects a registered file handler without changing the system default; `workspacePathApplications({ path })` returns current handlers, names, icons, and default selection after Host path verification.
 
+The Host-wide `control` stream opens with one `SessionControlBaseline` and then yields replacement frames. A `projection` frame replaces one Session projection value at its seq; a `search-index` frame carries the Host's current full-text index preparation — phase, examined, total, and skipped stored Sessions — which is Host-wide rather than Session-scoped and so is not filtered by Session access. A new baseline carries the last preparation published before the stream opened, and omits it when the Host runs no index or has not started one; the field semantics live on [session-query.md](session-query.md).
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
@@ -856,6 +858,17 @@ resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult>
  * @returns authorized bounded Session search results.
  */
 @Remote('search') async search(request: SessionSearchRequest, signal: AbortSignal): Promise<SessionSearchValue>
+
+/**
+ * Search visible Session content at message granularity, addressing every hit
+ * by the Session and event it came from. Unlike {@link search}, which reports
+ * matching Sessions, each item names one message so a client can open it, and
+ * paging continues through the cursor this returns.
+ * @param request - literal message-content query and an optional continuation cursor.
+ * @param signal - cancellation for list and search reads.
+ * @returns this page's authorized hits and the cursor for the next one.
+ */
+@Remote('searchMessages') searchMessages(request: SessionMessageSearchRequest, signal: AbortSignal): Promise<SessionMessageSearchValue>
 
 /**
  * Create one ordinary Session for a new conversation, reusing the named blank Session while it is reusable.
@@ -1059,7 +1072,7 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
 @Remote({ mode: 'stream' }) async *control(signal: AbortSignal): AsyncIterable<SessionControlFrame>
 ```
 
-Types: [SessionId](core.md) · [SessionSearchRequest](session-query.md)
+Types: [SessionId](core.md) · [SessionMessageSearchRequest](session-query.md) · [SessionSearchRequest](session-query.md)
 
 Source: [`packages/api/session-controller/src/index.ts`](../../packages/api/session-controller/src/index.ts)
 

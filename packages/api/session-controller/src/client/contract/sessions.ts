@@ -11,7 +11,9 @@ import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { AgentContext } from '../scope.ts'
 import type { SessionSearchResultItem } from '../sessions/manager.ts'
-import type { SessionMessageSearchRequest, SessionMessageSearchValue } from '../../types.ts'
+import type {
+  SessionMessageSearchRequest, SessionMessageSearchValue, SessionSearchIndexProgress,
+} from '../../types.ts'
 import type { SessionBinding, SessionListState } from '../sessions/service.ts'
 import type { SessionFace } from './session.ts'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
@@ -79,6 +81,18 @@ export interface ISessions {
    * (fixture included) reports the same number.
    */
   readonly searchResultLimit: number
+  /**
+   * Host full-text index preparation reported by the control stream. A search
+   * waits for that preparation before it reads anything, so presentation can
+   * show how long the wait still is instead of one "searching" state.
+   *
+   * The value is Host-wide and connection-scoped: it is absent until this
+   * connection reports one, which a Host without a full-text index, a Host with
+   * search disabled, and a Host that defers opening until the first search all
+   * share. The last value a failed pass published stays until another pass
+   * replaces it, so read it alongside the search's own outcome.
+   */
+  readonly searchIndex: ObservableSnapshot<SessionSearchIndexProgress | undefined>
   /**
    * Create a Session for a new conversation on the Host. The Host reuses the
    * named blank Session while it is reusable and otherwise creates another; the

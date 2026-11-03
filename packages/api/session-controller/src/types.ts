@@ -660,9 +660,38 @@ export type SessionFollowFrame =
   | SessionEventEntry
   | { readonly type: 'assistant-stream'; readonly frame: SessionAssistantStreamFrame }
 
+/**
+ * Observable preparation of the Host's full-text search index.
+ *
+ * A search waits for this preparation before it reads anything, so a client
+ * that can see it reports how long that wait still is instead of one
+ * undifferentiated "searching" state. It counts preparation work and says
+ * nothing about {@link SessionMessageSearchValue.coverage}.
+ */
+export interface SessionSearchIndexProgress {
+  /**
+   * `opening` while the Host opens the index, `reconciling` while it compares
+   * the stored corpus with what the index holds, and `ready` once that pass
+   * finished. A pass that fails reports nothing further, so the last value
+   * stays published until the next search starts another one.
+   */
+  readonly phase: 'opening' | 'reconciling' | 'ready'
+  /** Stored Sessions this pass finished deciding, the skipped ones included. */
+  readonly examined: number
+  /** Stored Sessions the pass must decide; `0` until the corpus listing returns. */
+  readonly total: number
+  /** Examined Sessions whose stored revision matched the index, so their logs were not read again. */
+  readonly skipped: number
+}
+
 /** Complete live control baseline emitted once per control stream generation. */
 export interface SessionControlBaseline {
   readonly projections: Readonly<Record<SessionId, SessionProjectionBaseline>>
+  /**
+   * Preparation the Host's full-text search index reported before this stream
+   * opened; absent when this Host runs no index or has not started one.
+   */
+  readonly searchIndex?: SessionSearchIndexProgress
 }
 
 /** One finished projection value and its durable watermark. */
@@ -673,10 +702,16 @@ export interface SessionProjectionUpdate {
   readonly seq: number
 }
 
-/** Host-wide live state stream. Each generation starts with exactly one baseline. */
+/**
+ * Host-wide live state stream. Each generation starts with exactly one baseline.
+ *
+ * A `search-index` frame is Host-wide rather than Session-scoped, so it is
+ * delivered to every subscriber that may search.
+ */
 export type SessionControlFrame =
   | { readonly type: 'baseline'; readonly value: SessionControlBaseline }
   | ({ readonly type: 'projection' } & SessionProjectionUpdate)
+  | { readonly type: 'search-index'; readonly value: SessionSearchIndexProgress }
 
 /** One pending live-Agent inbox item, preserving placement and content order. */
 export interface SessionQueuedItem {

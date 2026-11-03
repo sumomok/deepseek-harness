@@ -5,6 +5,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto'
+import { scheduler } from 'node:timers/promises'
 import { SESSION_FORMAT_VERSION, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { DatabaseSync, SQLOutputValue } from 'node:sqlite'
 import { Context, Service, type Fiber } from '@deepseek-ai/cordis'
@@ -85,6 +86,8 @@ export const SESSION_QUERY_SQLITE_DEFAULT_LIMIT = 20
 export const SESSION_QUERY_SQLITE_MAX_LIMIT = 100
 /** Default maximum snippet length in Unicode code points. */
 export const SESSION_QUERY_SQLITE_SNIPPET_CHARS = 240
+/** Default number of stored Sessions one reconciliation decides between event-loop yields. */
+export const SESSION_QUERY_SQLITE_DEFAULT_RECONCILE_BATCH_SIZE = 16
 
 // One transient source change gets a retry; repeated churn fails rather than monopolizing the queue.
 const STABLE_OBSERVATION_ATTEMPTS = 2
@@ -120,6 +123,13 @@ export interface Config extends SessionQueryConfig {
   persistedReadConcurrency?: number
   /** Maximum cold prepared-Session observations the inherited reader retains for reuse. Defaults to 5. */
   preparedSessionCacheSize?: number
+  /**
+   * Stored Sessions one reconciliation decides before it reports progress and
+   * yields the event loop, which is what lets a listener observe the pass
+   * advance. A larger batch trades that granularity for fewer yields; defaults
+   * to 16.
+   */
+  reconcileBatchSize?: number
 }
 
 interface ResolvedConfig {
@@ -132,6 +142,7 @@ interface ResolvedConfig {
   readWindowMax: number
   persistedReadConcurrency: number
   preparedSessionCacheSize: number
+  reconcileBatchSize: number
 }
 
 interface ObservedSession {
@@ -164,6 +175,10 @@ interface Observation {
   persistenceBinding: PersistenceBinding
   persisted: Map<SessionId, ObservedPersistedSession>
   live: Map<SessionId, ObservedSession>
+  /** Stored Sessions this pass decided, including the skipped ones. */
+  examined: number
+  /** Examined stored Sessions whose stored revision matched the index. */
+  skipped: number
 }
 
 interface IndexedPersistedRow {
@@ -269,6 +284,11 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       .min(1)
       .max(Number.MAX_SAFE_INTEGER)
       .default(SESSION_QUERY_DEFAULT_PREPARED_SESSION_CACHE_SIZE),
+    reconcileBatchSize: z.number()
+      .step(1)
+      .min(1)
+      .max(Number.MAX_SAFE_INTEGER)
+      .default(SESSION_QUERY_SQLITE_DEFAULT_RECONCILE_BATCH_SIZE),
   })
 
   /** Validated and defaulted backend configuration. */
@@ -310,9 +330,14 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     ctx.effect(() => async () => this.close(), 'sessionQuerySqlite.close')
   }
 
-  /** Open eagerly only when activation owns the configured readiness boundary. */
+  /**
+   * Open eagerly only when activation owns the configured readiness boundary.
+   *
+   * Activation reports no preparation phase: no search is waiting on this
+   * open, and a published `opening` would outlive it in every later baseline.
+   */
   protected async [Service.init](): Promise<void> {
-    if (this.config.openAt === 'startup') await this._ensureReady(undefined)
+    if (this.config.openAt === 'startup') await this._ensureReady(undefined, false)
   }
 
   override async searchSessions(
@@ -461,8 +486,19 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     this._localGeneration = state.global_generation
   }
 
-  private async _ensureReady(signal: AbortSignal | undefined): Promise<void> {
-    this._ready ??= this._open()
+  /**
+   * Open the index once and wait for that open.
+   * @param signal - cancellation for the wait.
+   * @param reportOpening - whether a waiting search observes the opening phase;
+   *   activation opens with no search to report to.
+   */
+  private async _ensureReady(signal: AbortSignal | undefined, reportOpening = true): Promise<void> {
+    if (this._ready === undefined) {
+      if (reportOpening) {
+        this._reportSearchIndexProgress({ phase: 'opening', examined: 0, total: 0, skipped: 0 })
+      }
+      this._ready = this._open()
+    }
     try {
       await waitWithAbort(this._ready, signal)
     } catch (error: unknown) {
@@ -593,6 +629,12 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     this._localGeneration = nextLocalGeneration
     this._lastPersistenceIdentity = observation.persistenceBinding.identity
     this._recordUnreadable(unreadable)
+    this._reportSearchIndexProgress({
+      phase: 'ready',
+      examined: observation.examined,
+      total: observation.persisted.size,
+      skipped: observation.skipped,
+    })
     return observation.persistenceBinding
   }
 
@@ -627,6 +669,8 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       const persistence = persistenceBinding.service
       const initiallyLive = new Set(this.ctx.sessions.list().map(session => session.id))
       let persisted = new Map<SessionId, ObservedPersistedSession>()
+      let examined = 0
+      let skipped = 0
       if (persistence !== undefined) {
         try {
           const canReuseIndexed = this._lastPersistenceIdentity === undefined
@@ -635,35 +679,34 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
           const before = await persistence.list(listOptions)
           assertNotAborted(signal)
           persisted = materializePersistenceSnapshots(before)
+          const total = persisted.size
+          // One frame per distinct examined count: a batch boundary and the
+          // tail both fall here when the corpus ends on one.
+          let reported = -1
+          const reportProgress = (): void => {
+            if (examined === reported) return
+            reported = examined
+            this._reportSearchIndexProgress({ phase: 'reconciling', examined, total, skipped })
+          }
+          reportProgress()
           for (const entry of persisted.values()) {
-            if (canReuseIndexed && indexed.get(entry.header.id)?.revision === entry.revision) continue
-            // Skip work already shadowed by a live owner. The cold read is
-            // non-mutating (interrupted turns are balanced in memory only), so
-            // an owner attaching after this check cannot cause side effects;
-            // the live-membership retry below makes the returned observation
-            // live-preferred.
-            if (initiallyLive.has(entry.header.id) || this.ctx.sessions.get(entry.header.id) !== undefined) continue
-            assertNotAborted(signal)
-            let loaded: ColdSessionLog
-            try {
-              loaded = await readColdSessionLog(persistence, entry.header.id, signal)
-            } catch (error: unknown) {
-              // Cancellation keeps the abort mapping below; any other failure belongs to this one
-              // log, which is left out of the index while the remaining sessions stay searchable.
-              if (signal?.aborted) throw error
-              entry.unreadable = { error }
-              continue
+            if (canReuseIndexed && indexed.get(entry.header.id)?.revision === entry.revision) {
+              skipped += 1
+            } else if (!initiallyLive.has(entry.header.id) && this.ctx.sessions.get(entry.header.id) === undefined) {
+              // Skip work already shadowed by a live owner. The cold read is
+              // non-mutating (interrupted turns are balanced in memory only), so
+              // an owner attaching after this check cannot cause side effects;
+              // the live-membership retry below makes the returned observation
+              // live-preferred.
+              await this._observePersistedEntry(persistence, entry, signal)
             }
-            assertNotAborted(signal)
-            // Listed and stored headers that disagree fail the whole observation with
-            // SESSION_QUERY_SOURCE_CONFLICT; only a failed read or extraction is confined to its own log.
-            assertSessionHeadersCompatible(entry.header, loaded.header)
-            try {
-              entry.loaded = observeSession(loaded.header, loaded.inheritedEventCount, loaded.events)
-            } catch (error: unknown) {
-              entry.unreadable = { error }
+            examined += 1
+            if (examined % this.config.reconcileBatchSize === 0) {
+              reportProgress()
+              await scheduler.yield()
             }
           }
+          reportProgress()
           assertNotAborted(signal)
           const afterSnapshots = await persistence.list(listOptions)
           assertNotAborted(signal)
@@ -693,12 +736,49 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
         live.set(session.id, observed)
       }
       if (!sameSessionIds(initiallyLive, live)) continue
-      return { persistenceBinding, persisted, live }
+      return { persistenceBinding, persisted, live, examined, skipped }
     }
     throw new SessionQueryError(
       'session-search persistence observation did not stabilize after one retry',
       'SESSION_QUERY_PERSISTENCE_FAILED',
     )
+  }
+
+  /**
+   * Load one listed stored Session in place.
+   *
+   * A log that cannot be read or extracted is confined to its own revision and
+   * stays out of the index; a listed header that disagrees with the stored one
+   * is not, and reaches the caller's stability attempt as
+   * `SESSION_QUERY_SOURCE_CONFLICT`.
+   * @param persistence - bound persistence backend this pass listed from.
+   * @param entry - listed revision to read; receives `loaded` or `unreadable`.
+   * @param signal - cancellation for the cold read.
+   */
+  private async _observePersistedEntry(
+    persistence: SessionPersistence,
+    entry: ObservedPersistedSession,
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
+    assertNotAborted(signal)
+    let loaded: ColdSessionLog
+    try {
+      loaded = await readColdSessionLog(persistence, entry.header.id, signal)
+    } catch (error: unknown) {
+      // Cancellation keeps the caller's abort mapping; any other failure belongs
+      // to this one log, which is left out of the index while the remaining
+      // sessions stay searchable.
+      if (signal?.aborted) throw error
+      entry.unreadable = { error }
+      return
+    }
+    assertNotAborted(signal)
+    assertSessionHeadersCompatible(entry.header, loaded.header)
+    try {
+      entry.loaded = observeSession(loaded.header, loaded.inheritedEventCount, loaded.events)
+    } catch (error: unknown) {
+      entry.unreadable = { error }
+    }
   }
 
   private _mainGeneration(): number {
@@ -1087,7 +1167,6 @@ function selectedDocumentsParams(query: string, persistenceVisible: boolean): Ar
 }
 
 function observeLive(session: Session): ObservedSession {
-  // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
   return observeSession(session.header, session.inheritedEventCount, session.snapshotEvents())
 }
 
@@ -1253,6 +1332,8 @@ function resolveConfig(config: Config): ResolvedConfig {
       ?? SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY,
     preparedSessionCacheSize: config.preparedSessionCacheSize
       ?? SESSION_QUERY_DEFAULT_PREPARED_SESSION_CACHE_SIZE,
+    reconcileBatchSize: config.reconcileBatchSize
+      ?? SESSION_QUERY_SQLITE_DEFAULT_RECONCILE_BATCH_SIZE,
   }
   if (typeof resolved.path !== 'string' || resolved.path.trim().length === 0) {
     throw invalidConfig('path must not be blank')
@@ -1276,6 +1357,12 @@ function resolveConfig(config: Config): ResolvedConfig {
     || resolved.preparedSessionCacheSize < 1
   ) {
     throw invalidConfig('preparedSessionCacheSize must be a positive safe integer')
+  }
+  if (
+    !Number.isSafeInteger(resolved.reconcileBatchSize)
+    || resolved.reconcileBatchSize < 1
+  ) {
+    throw invalidConfig('reconcileBatchSize must be a positive safe integer')
   }
   if (resolved.defaultLimit > resolved.maxLimit) {
     throw invalidConfig('defaultLimit must be less than or equal to maxLimit')

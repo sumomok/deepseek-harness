@@ -51,8 +51,11 @@ Choose it when you want full-text recall over prior sessions with ranking and pa
 | `readWindowMax` | `50` | Maximum `before`/`after` raw events for the inherited `readEvent()` |
 | `persistedReadConcurrency` | `4` | Concurrent persisted-log reads for inherited batch reads |
 | `preparedSessionCacheSize` | `5` | Cold prepared-Session observations the inherited `observeSession` reader retains for reuse |
+| `reconcileBatchSize` | `16` | Stored Sessions one reconciliation decides before it reports index preparation and yields the event loop |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-session-query-sqlite) is the exhaustive source for every accepted field and its JSDoc.
+
+A search waits for index preparation before it queries, and the deployment that defers opening pays that wait on the first search. The SQLite backend publishes `opening`, `reconciling`, and `ready` through `ctx.sessionQuery.searchIndexProgress()` and `session-query/index-progress`: each reconciliation decides `reconcileBatchSize` stored Sessions, reports the counts it has reached, and yields the event loop, so a listener observes the pass advance while the search request is still unanswered. The counters cover stored Sessions only, and `skipped` counts the examined Sessions whose stored revision matched the index, so their logs were not read again.
 
 ### Search behavior
 

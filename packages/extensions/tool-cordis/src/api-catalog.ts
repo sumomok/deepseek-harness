@@ -2682,6 +2682,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'authorized bounded Session search results.',
       },
       {
+        signature: '@Remote(\'searchMessages\') searchMessages(request: SessionMessageSearchRequest, signal: AbortSignal): Promise<SessionMessageSearchValue>',
+        description: 'Search visible Session content at message granularity, addressing every hit by the Session and event it came from. Unlike search, which reports matching Sessions, each item names one message so a client can open it, and paging continues through the cursor this returns.',
+        parameters: [{ name: 'request', description: 'literal message-content query and an optional continuation cursor.' }, { name: 'signal', description: 'cancellation for list and search reads.' }],
+        returns: 'this page\'s authorized hits and the cursor for the next one.',
+      },
+      {
         signature: '@Remote(\'create\') create(request: SessionCreateRequest): Promise<SessionCreateValue>',
         description: 'Create one ordinary Session for a new conversation, reusing the named blank Session while it is reusable.',
         parameters: [{ name: 'request', description: 'optional blank Session to reuse, location, and Agent preset.' }],
@@ -3030,6 +3036,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'a caller-owned observation lease.',
       },
       {
+        signature: 'searchIndexProgress(): SessionSearchIndexProgress | undefined',
+        description: 'Read the last preparation state this backend published, without starting one.\n\nA search waits for this preparation before it queries, so a caller that can observe it can report how long that wait still is instead of one undifferentiated "searching" state.',
+        parameters: [],
+        returns: 'the last reported progress, or `undefined` when this backend has not started preparing an index: no full-text backend is mounted, search is disabled, or the configured policy defers opening until the first search.',
+      },
+      {
         signature: 'abstract searchSessions( request: SessionSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionSearchHit>>',
         description: 'Search the live-preferred logical corpus and group by session.',
         parameters: [{ name: 'request', description: 'query text, metadata filters, page size, and cursor.' }, { name: 'exec', description: 'optional cancellation control.' }],
@@ -3040,6 +3052,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Search events within one live-preferred logical session.',
         parameters: [{ name: 'request', description: 'target session, query text, filters, page size, and cursor.' }, { name: 'exec', description: 'optional cancellation control.' }],
         returns: 'matching event hits and their target header from one indexed generation.',
+      },
+      {
+        signature: 'abstract searchMessages( request: SessionMessageSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionEventSearchHit>>',
+        description: 'Search the live-preferred logical corpus at message granularity.\n\nWhere searchSessions keeps one strong event per session, this returns the matching events themselves, so a caller that needs to address a specific message reads `sessionId` and `seq` off each hit instead of a session-level summary.',
+        parameters: [{ name: 'request', description: 'query text, metadata filters, page size, and cursor.' }, { name: 'exec', description: 'optional cancellation control.' }],
+        returns: 'matching event hits in contract-defined order.',
       },
       {
         signature: 'listSessions(signal?: AbortSignal): Promise<SessionRecord[]>',
@@ -5204,6 +5222,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A stored session moved to another storage location and its header cwd changed.',
     description: 'A stored session moved to another storage location and its header cwd changed. Emitted once per successful relocate, after the backend released its write ownership, including a move whose cleanup or snapshot read failed after the new location was published. No recovery emits it: neither the recovery a backend runs at its first operation nor a later relocate of the same session that settles a move a dead process left. Every listener starts in the same tick, in registration order, and `relocate` resolves after every listener and the promise it returns have settled. A listener that throws or rejects does not stop the others: the backend logs a warning for each failure and `relocate` still resolves. A process that is not running when a move happens misses the event, so a consumer that tracks sessions by cwd reconciles from the stored headers when it starts; the workspace registry then detaches a session that a workspace whose stored path resolves lists at its old path.',
     parameters: [{ name: 'id', description: 'the relocated session.' }, { name: 'previous', description: 'the stored header before the move.' }, { name: 'current', description: 'the snapshot after the move (new cwd, new revision).' }],
+  },
+  {
+    name: 'session-query/index-progress',
+    mode: 'emit',
+    signature: '\'session-query/index-progress\'(progress: SessionSearchIndexProgress): void',
+    summary: 'Preparation of the full-text index behind session search advanced.',
+    description: 'Preparation of the full-text index behind session search advanced.',
+    parameters: [{ name: 'progress', description: 'phase and counters after the advance.' }],
   },
   {
     name: 'session-telemetry/record',
@@ -8331,11 +8357,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionControlBaseline',
-    declaration: 'export interface SessionControlBaseline {\n    readonly projections: Readonly<Record<SessionId, SessionProjectionBaseline>>;\n}',
+    declaration: 'export interface SessionControlBaseline {\n    readonly projections: Readonly<Record<SessionId, SessionProjectionBaseline>>;\n    readonly searchIndex?: SessionSearchIndexProgress;\n}',
   },
   {
     name: 'SessionControlFrame',
-    declaration: 'export type SessionControlFrame = {\n    readonly type: \'baseline\';\n    readonly value: SessionControlBaseline;\n} | ({\n    readonly type: \'projection\';\n} & SessionProjectionUpdate);',
+    declaration: 'export type SessionControlFrame = {\n    readonly type: \'baseline\';\n    readonly value: SessionControlBaseline;\n} | ({\n    readonly type: \'projection\';\n} & SessionProjectionUpdate) | {\n    readonly type: \'search-index\';\n    readonly value: SessionSearchIndexProgress;\n};',
   },
   {
     name: 'SessionCreateRequest',
@@ -8370,6 +8396,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': UserMessage;\n    \'developer/message\': {\n        turn: number;\n        step: number;\n        message: DeveloperMessage;\n        headerSeq?: SessionSeq;\n    };\n    \'system/message\': {\n        turn: number;\n        step: number;\n        message: SystemMessage;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        message: AssistantMessage;\n        stream: AssistantStreamRecord[];\n        usage?: TokenUsage;\n        interrupted?: true;\n    };\n    \'assistant/attempt\': {\n        turn: number;\n        step: number;\n        stream: AssistantStreamRecord[];\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: ToolCallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        message: ToolResultMessage;\n        error?: {\n            name: string;\n            code: string;\n            reason?: string;\n        };\n        meta?: JsonValue;\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n        startsSeries?: true;\n    };\n    \'request/context\': RequestContext;\n    \'session/end-seed\': {\n   /* …truncated — full shape in source */',
   },
   {
+    name: 'SessionEventMatchRange',
+    declaration: 'export interface SessionEventMatchRange {\n    start: number;\n    length: number;\n}',
+  },
+  {
     name: 'SessionEventMetadataFilter',
     declaration: 'export type SessionEventMetadataFilter = Exclude<SessionEventResultFilter, {\n    kind: \'text\';\n}>;',
   },
@@ -8391,7 +8421,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventSearchHit',
-    declaration: 'export interface SessionEventSearchHit extends SessionEventRecord {\n    snippet: string;\n}',
+    declaration: 'export interface SessionEventSearchHit extends SessionEventRecord {\n    snippet: string;\n    matches?: readonly SessionEventMatchRange[];\n}',
   },
   {
     name: 'SessionEventSearchPage',
@@ -8550,12 +8580,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionMessage {\n    role: \'user\' | \'assistant\';\n    text: string;\n    toolUses: ToolUseSummary[];\n}',
   },
   {
+    name: 'SessionMessageMatchRange',
+    declaration: 'export interface SessionMessageMatchRange {\n    readonly start: number;\n    readonly length: number;\n}',
+  },
+  {
     name: 'SessionMessageProjection',
     declaration: 'export interface SessionMessageProjection<T extends SessionEventType = SessionEventType> {\n    type: T;\n    project(event: SessionEvent<T>, context: SessionMessageProjectionContext): ReadonlyMap<SessionSeq, Message>;\n}',
   },
   {
     name: 'SessionMessageProjectionContext',
     declaration: 'export interface SessionMessageProjectionContext {\n    nodes: readonly SessionSeq[];\n    events: readonly SessionEvent[];\n    baseSeq: SessionLogOffset;\n    messages: ReadonlyMap<SessionSeq, Message>;\n}',
+  },
+  {
+    name: 'SessionMessageSearchItem',
+    declaration: 'export interface SessionMessageSearchItem {\n    readonly sessionId: SessionId;\n    readonly seq: SessionSeq;\n    readonly snippet: string;\n    readonly matches?: readonly SessionMessageMatchRange[];\n}',
+  },
+  {
+    name: 'SessionMessageSearchValue',
+    declaration: 'export interface SessionMessageSearchValue {\n    readonly items: readonly SessionMessageSearchItem[];\n    readonly nextCursor?: Branded<\'SessionSearchCursor\'>;\n    readonly coverage?: {\n        readonly status: \'complete\' | \'partial\';\n        readonly skippedSessions: number;\n    };\n}',
   },
   {
     name: 'SessionObservation',
@@ -8734,6 +8776,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionResultRange {\n    from?: number;\n    to?: number;\n}',
   },
   {
+    name: 'SessionSearchCoverage',
+    declaration: 'export interface SessionSearchCoverage {\n    status: \'complete\' | \'partial\';\n    skippedSessions: number;\n}',
+  },
+  {
     name: 'SessionSearchCursor',
     declaration: 'export type SessionSearchCursor = Branded<\'SessionSearchCursor\'>;',
   },
@@ -8751,7 +8797,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionSearchPage',
-    declaration: 'export interface SessionSearchPage<T> {\n    items: readonly T[];\n    nextCursor?: SessionSearchCursor;\n}',
+    declaration: 'export interface SessionSearchPage<T> {\n    items: readonly T[];\n    nextCursor?: SessionSearchCursor;\n    coverage?: SessionSearchCoverage;\n}',
   },
   {
     name: 'SessionSearchValue',

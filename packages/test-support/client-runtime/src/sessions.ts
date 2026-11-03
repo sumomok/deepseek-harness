@@ -8,7 +8,7 @@ import type {
   AgentContext, ISessions, ProjectionsFace, SessionBinding, SessionFace, SessionListState,
   SessionEventLikeEntry, SessionLiveEventEntry, SessionSearchResultItem,
   SessionReference, SessionReferenceSource, SessionRetainInfo, SessionRetainOptions,
-  SessionSnapshot, SessionSummary, SessionTarget, SubmissionHandle,
+  SessionSearchIndexProgress, SessionSnapshot, SessionSummary, SessionTarget, SubmissionHandle,
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import { scopeIdentityOf } from '@deepseek-ai/dsh-api-session-controller/src/client/scope.ts'
 import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
@@ -307,6 +307,8 @@ class TestSessionReference implements SessionReference {
 export class TestSessions implements ISessions {
   /** The useSessions catalog feed, independent of view ownership. */
   readonly list: SnapshotStore<SessionListState>
+  /** Host full-text index preparation; fixtures publish one only when their scenario needs it. */
+  readonly searchIndex: SnapshotStore<SessionSearchIndexProgress | undefined>
   private readonly records = new Map<SessionId, SessionRecord>()
   private readonly generations = new Map<SessionId, SessionGeneration>()
   private readonly addresses = new Map<SessionId, SubagentAddress>()
@@ -336,6 +338,7 @@ export class TestSessions implements ISessions {
     this.list = createSnapshotStore<SessionListState>({
       ids: [], byId: {}, phase: 'ready', projectionsBySession: {},
     })
+    this.searchIndex = createSnapshotStore<SessionSearchIndexProgress | undefined>(undefined)
     rootCtx.effect(() => async () => {
       this.closed = true
       for (const [id, generation] of this.generations) {

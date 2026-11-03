@@ -11,6 +11,7 @@ import type {
   SessionMessageSearchValue,
   SessionProjectionHints,
   SessionRenameValue,
+  SessionSearchIndexProgress,
   SessionSummary,
 } from '../../types.ts'
 import { mergeOrderedBaseline } from '../ordered-baseline.ts'
@@ -117,7 +118,8 @@ export class SessionManager {
   private readonly addresses = new Map<SessionId, SubagentAddress>()
   private readonly projectionLoads = new Map<SessionId, ProjectionLoad>()
   private readonly projectionInflight = new Map<SessionId, ProjectionInflight>()
-
+  /** Latest Host full-text index preparation, replaced by control baselines and frames. */
+  private searchIndex: SessionSearchIndexProgress | undefined
 
   private listSnapshotCache: SessionListSnapshot
   /** Entry-identity cache (reference stability): list rebuilds reuse the previous entry
@@ -667,11 +669,27 @@ export class SessionManager {
       this.replaceControlBaseline(frame.value)
       return
     }
+    if (frame.type === 'search-index') {
+      this.searchIndex = frame.value
+      this.notifier.markDirty()
+      return
+    }
     this.projectionStore(frame.sessionId).apply(frame.key, frame.value, SessionSeq(frame.seq))
     this.notifier.markDirty()
   }
 
+  /**
+   * Read the Host's full-text index preparation reported so far.
+   * @returns the latest baseline or frame value, or undefined when this
+   *   connection has reported none: no index is mounted, search is disabled, or
+   *   the Host defers opening the index until the first search.
+   */
+  getSearchIndexProgress(): SessionSearchIndexProgress | undefined {
+    return this.searchIndex
+  }
+
   private replaceControlBaseline(baseline: SessionControlBaseline): void {
+    this.searchIndex = baseline.searchIndex
 
     for (const [sessionId, block] of Object.entries(baseline.projections)) {
       const store = this.projectionStore(sessionId as SessionId)

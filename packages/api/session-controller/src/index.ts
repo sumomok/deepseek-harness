@@ -726,6 +726,11 @@ export class SessionController extends TypertRemoteService {
         case 'projection':
           if (this.ctx.remoteAccess.allows({ kind: 'session', id: frame.sessionId })) yield frame
           break
+        case 'search-index':
+          // Host-wide preparation, not a Session fact: every subscriber that
+          // may issue a search waits on the same index.
+          yield frame
+          break
         /* v8 ignore next -- closed control-frame union. */
         default:
           assertNever(frame)

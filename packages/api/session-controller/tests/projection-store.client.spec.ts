@@ -239,6 +239,24 @@ describe('manager frame routing', () => {
     expect(session.projections.get('test/marks')).toEqual({ marks: ['later'] })
   })
 
+  it('replaces the reported index preparation from a baseline and later frames, and clears it when a new baseline omits it', ({ mock, remote }) => {
+    const manager = makeManager(mock, remote)
+    expect(manager.getSearchIndexProgress()).toBeUndefined()
+
+    const opening = { phase: 'opening', examined: 0, total: 0, skipped: 0 } as const
+    manager.handleControlFrame({ type: 'baseline', value: { projections: {}, searchIndex: opening } })
+    expect(manager.getSearchIndexProgress()).toEqual(opening)
+
+    const reconciling = { phase: 'reconciling', examined: 4, total: 9, skipped: 1 } as const
+    manager.handleControlFrame({ type: 'search-index', value: reconciling })
+    expect(manager.getSearchIndexProgress()).toEqual(reconciling)
+
+    // A reconnected generation whose baseline carries no preparation clears it
+    // rather than leaving the previous generation's counters on screen.
+    manager.handleControlFrame({ type: 'baseline', value: { projections: {} } })
+    expect(manager.getSearchIndexProgress()).toBeUndefined()
+  })
+
   it('preserves a newer title when the control baseline omits it', async ({ mock, remote }) => {
     const manager = makeManager(mock, remote)
     remote.session.list.mockResolvedValue(ok({

@@ -25,6 +25,7 @@ import type {
 } from '@deepseek-ai/dsh-session-persistence'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SqliteSessionQueryEngine, {
+  SESSION_QUERY_SQLITE_DEFAULT_RECONCILE_BATCH_SIZE,
   SESSION_QUERY_SQLITE_INDEX_IDENTITY,
   SESSION_QUERY_SQLITE_SCHEMA_VERSION,
 } from '@deepseek-ai/dsh-session-query-sqlite'
@@ -34,6 +35,7 @@ import {
   SessionSearchCursor,
   type SessionAvailability,
   type SessionQueryErrorCode,
+  type SessionSearchIndexProgress,
   type SessionSearchRequest,
 } from '@deepseek-ai/dsh-session-query'
 
@@ -222,6 +224,8 @@ describe('SQLite session search', () => {
     expect((defaultCtx.sessionQuery as SqliteSessionQueryEngine).config.openAt).toBe('startup')
     expect((defaultCtx.sessionQuery as SqliteSessionQueryEngine).config.persistedReadConcurrency)
       .toBe(SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY)
+    expect((defaultCtx.sessionQuery as SqliteSessionQueryEngine).config.reconcileBatchSize)
+      .toBe(SESSION_QUERY_SQLITE_DEFAULT_RECONCILE_BATCH_SIZE)
 
     const configuredValue = 2
     const configured = new SqliteSessionQueryEngine.Config({
@@ -241,10 +245,83 @@ describe('SQLite session search', () => {
         persistedReadConcurrency,
       })).toThrow()
     }
+    for (const reconcileBatchSize of [0, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => new SqliteSessionQueryEngine.Config({
+        path: ':memory:',
+        reconcileBatchSize,
+      })).toThrow()
+    }
     expect(() => new SqliteSessionQueryEngine.Config({
       path: ':memory:',
       openAt: 'later' as never,
     })).toThrow()
+  })
+
+  it('reports index preparation, including in-flight reconciliation counts, while the first search still runs', async () => {
+    const first = header('preparing-first')
+    const second = header('preparing-second')
+    TestPersistence.reset([
+      { meta: first, events: messageEvents('first needle') },
+      { meta: second, events: messageEvents('second needle') },
+    ])
+    const ctx = await liveContext({ path: ':memory:', openAt: 'first-search', reconcileBatchSize: 1 })
+    await ctx.plugin(TestPersistence)
+    const service = ctx.sessionQuery as SqliteSessionQueryEngine
+    const seen: { progress: SessionSearchIndexProgress; answered: boolean }[] = []
+    let settled = false
+    ctx.on('session-query/index-progress', (progress) => {
+      seen.push({ progress: { ...progress }, answered: settled })
+    })
+    expect(service.searchIndexProgress()).toBeUndefined()
+
+    await expect(service.searchSessions({ query: 'needle' }))
+      .resolves.toMatchObject({ items: [{ header: first }, { header: second }] })
+    settled = true
+
+    expect(seen.map(({ progress }) => [progress.phase, progress.examined, progress.total, progress.skipped])).toEqual([
+      ['opening', 0, 0, 0],
+      ['reconciling', 0, 2, 0],
+      ['reconciling', 1, 2, 0],
+      ['reconciling', 2, 2, 0],
+      ['ready', 2, 2, 0],
+    ])
+    // The counters moved while the caller was still waiting for its page.
+    expect(seen.some(({ progress, answered }) =>
+      !answered && progress.phase === 'reconciling' && progress.examined === 1)).toBe(true)
+    expect(service.searchIndexProgress()).toEqual({ phase: 'ready', examined: 2, total: 2, skipped: 0 })
+  })
+
+  it('counts a stored log whose revision did not move as skipped, not as unreadable', async () => {
+    const first = header('unchanged-first')
+    const second = header('unchanged-second')
+    TestPersistence.reset([
+      { meta: first, events: messageEvents('first needle') },
+      { meta: second, events: messageEvents('second needle') },
+    ])
+    const ctx = await liveContext({ path: ':memory:', reconcileBatchSize: 1 })
+    await ctx.plugin(TestPersistence)
+    const service = ctx.sessionQuery as SqliteSessionQueryEngine
+    // The activation-time open reports nothing: no search waits for it, and an
+    // `opening` published here would outlive it in every later baseline.
+    expect(service.searchIndexProgress()).toBeUndefined()
+    const seen: SessionSearchIndexProgress[] = []
+    ctx.on('session-query/index-progress', (progress) => { seen.push({ ...progress }) })
+
+    await service.searchMessages({ query: 'needle' })
+    expect(TestPersistence.reads.get(first.id)).toBe(1)
+    expect(TestPersistence.reads.get(second.id)).toBe(1)
+    expect(seen.some(({ phase }) => phase === 'opening')).toBe(false)
+
+    seen.length = 0
+    const page = await service.searchMessages({ query: 'needle' })
+
+    expect(TestPersistence.reads.get(first.id)).toBe(1)
+    expect(TestPersistence.reads.get(second.id)).toBe(1)
+    expect(seen.at(-1)).toEqual({ phase: 'ready', examined: 2, total: 2, skipped: 2 })
+    expect(seen.every(({ skipped, examined }) => skipped <= examined)).toBe(true)
+    // Skipping is preparation bookkeeping; coverage still reports what the
+    // index could not read, which is different.
+    expect(page.coverage).toEqual({ status: 'complete', skippedSessions: 0 })
   })
 
   it('mounts and disposes first-search mode without opening its database', async () => {
