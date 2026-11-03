@@ -49,10 +49,14 @@ const TEXT_OUTPUT = {
 }
 
 const PROMPT_TEXT =
-  'Use session_search to find relevant work from prior sessions, or session_event_search to search earlier '
-  + 'events in one session. Search results are cursor-free and workspace-scoped. Follow a useful hit with '
+  'Use session_search to find relevant work in prior sessions other than this one, or session_event_search to '
+  + 'search earlier events in one session, including this one: omit session_id and the call covers the events '
+  + 'before the current step, which is how a decision a checkpoint replaced is checked. session_search never '
+  + 'returns this session. Search results are cursor-free and workspace-scoped. Follow a useful hit with '
   + 'session_trace, session_event_trace, or bounded session_event_read excerpts; use full: true only when '
-  + 'the complete event is necessary.'
+  + 'the complete event is necessary. When a request depends on something already decided (a ticket number, a '
+  + 'label, "as agreed", "you forgot"), check these events before proposing anything new: a miss is not proof '
+  + 'that the decision was never made. Search one identifier or keyword at a time; a whole phrase rarely matches.'
 
 /** Register all five tools and their shared model guidance. */
 export function apply(ctx: Context, config: Config): void {
@@ -65,7 +69,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'session_search',
-    description: 'Search prior sessions in the caller workspace and return the strongest matching event from each session.',
+    description: 'Search prior sessions other than this one in the caller workspace and return the strongest matching event from each session.',
     parameters: toolInput.sessionSearchParameters,
     output: TEXT_OUTPUT,
     timeoutMs: resolved.searchTimeoutMs,
@@ -75,7 +79,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'session_event_search',
-    description: 'Search prior events in one authorized session; the current session excludes the step performing this call.',
+    description: 'Search prior events in one authorized session, by default this one; a call for the current session excludes the step performing it.',
     parameters: toolInput.eventSearchParameters,
     output: TEXT_OUTPUT,
     timeoutMs: resolved.searchTimeoutMs,
