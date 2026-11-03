@@ -272,7 +272,7 @@ describe('paging', () => {
     // The cut sits just past the position so the reader keeps some context on
     // the newer side; the fixture is shorter than the lookahead, so it all fits.
     expect(eventSeqs(session)).toEqual([0, 1, 2, 3, 4, 5])
-    expect(mock.log.requests(PAGE)).toMatchObject([{ throughSeq: 3 + 120, maxMessages: 200 }])
+    expect(mock.log.requests(PAGE)).toMatchObject([{ throughSeq: 3 + 600, maxMessages: 200 }])
     expect(session.getSnapshot()).toMatchObject({ loadingOlder: false, hasMore: true })
   })
 
@@ -291,7 +291,7 @@ describe('paging', () => {
     // inside it, so serving it from the installed window would land on nothing.
     await expect(session.openAt(SessionSeq(40))).resolves.toBe(true)
 
-    expect((mock.log.requests(PAGE) as SessionPageRequest[]).map(request => request.throughSeq)).toEqual([123, 160])
+    expect((mock.log.requests(PAGE) as SessionPageRequest[]).map(request => request.throughSeq)).toEqual([603, 640])
     expect(eventSeqs(session)).toEqual(middle.map(event => event.seq))
   })
 

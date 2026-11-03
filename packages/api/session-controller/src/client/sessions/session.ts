@@ -70,7 +70,7 @@ export const HISTORY_WINDOW_MESSAGES = 200
  * Events a direct history window keeps after its target, so the reader can
  * keep moving toward the present without asking for the next page immediately.
  */
-export const HISTORY_WINDOW_LOOKAHEAD_EVENTS = 120
+export const HISTORY_WINDOW_LOOKAHEAD_EVENTS = 600
 
 const JUMP_PAGE_OPTIONS = {
   ...HISTORY_PAGE_OPTIONS,

@@ -1,7 +1,7 @@
 // An enclosing `[data-conversation-scroll]` owns scrolling when present;
 // otherwise this view owns it. Each row subscribes to one stable node key.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent, type WheelEvent } from 'react'
 import type {
   NodeKey, RenderEntry,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -209,6 +209,14 @@ export function ChatView({
   })
   // Reaching the end of a direct history window reads the next page, the way
   // scrolling up has always continued the transcript in that direction.
+  // A wheel at the end of a history window cannot scroll, so it would never
+  // fire a scroll event: treat the attempt itself as the request for more.
+  const onWheelPastNewer = useCallback((event: WheelEvent<HTMLDivElement>): void => {
+    if (!hasNewer || event.deltaY <= 0) return
+    const element = event.currentTarget
+    if (element.scrollHeight - element.scrollTop - element.clientHeight > 240) return
+    void scroll.loadNewer()
+  }, [hasNewer, scroll.loadNewer])
   const onScrollNearNewer = useCallback((event: UIEvent<HTMLDivElement>): void => {
     if (!hasNewer) return
     const element = event.currentTarget
@@ -232,7 +240,7 @@ export function ChatView({
         />
       )}
       <div className={css.root} data-chat-following-tail={scroll.followingTail ? '' : undefined}>
-        <div ref={scroll.listRef} className={css.scroll} onScroll={onScrollNearNewer}>
+        <div ref={scroll.listRef} className={css.scroll} onScroll={onScrollNearNewer} onWheel={onWheelPastNewer}>
           <div ref={scroll.columnRef} className={css.column} data-chat-flow=""
             data-chat-motion={deferCompletedTurns && scroll.initialized
               && (running || motionTail || pendingInputs.length > 0) ? '' : undefined}>
