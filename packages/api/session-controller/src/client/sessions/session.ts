@@ -665,7 +665,12 @@ export class Session implements SessionFace {
    */
   async openAt(seq: SessionSeq, signal?: AbortSignal): Promise<boolean> {
     if (this.openState !== 'open' || this.events === undefined) return false
-    if (this.baseSeq <= seq) return true
+    // Covered means inside the installed window, not merely after its start: a
+    // direct history window ends at its own position, so an earlier jump does
+    // not make a later position readable.
+    const window = this.eventSource.getSnapshot().entries
+    const last = window.at(-1)
+    if (this.baseSeq <= seq && (last === undefined || last.event.seq >= seq)) return true
     const generation = this.openGeneration
     try {
       const result = await this.remote.session.page({

@@ -276,6 +276,25 @@ describe('paging', () => {
     expect(session.getSnapshot()).toMatchObject({ loadingOlder: false, hasMore: true })
   })
 
+  it('openAt reads again when a later position is outside the installed window', async ({ mock, start }) => {
+    const oldest = plainTurn(SessionSeq(0), 0, '最旧问', '最旧答')
+    const middle = plainTurn(SessionSeq(40), 1, '中间问', '中间答')
+    const newest = plainTurn(SessionSeq(100), 2, '新问', '新答')
+    const session = await sessionBench(mock, start, SID)
+    mock.stream(FOLLOW, followScript(history(newest, true)))
+    await session.open()
+    mock.remote.session.page.mockImplementation(pageRule(history(oldest, true)))
+    await session.openAt(SessionSeq(3))
+    mock.remote.session.page.mockImplementation(pageRule(history(middle, true)))
+
+    // The first window ends at 3: position 40 is after its start but not inside
+    // it, so serving it from the installed window would land on nothing.
+    await expect(session.openAt(SessionSeq(40))).resolves.toBe(true)
+
+    expect((mock.log.requests(PAGE) as SessionPageRequest[]).map(request => request.throughSeq)).toEqual([3, 40])
+    expect(eventSeqs(session)).toEqual(middle.filter(event => event.seq <= 40).map(event => event.seq))
+  })
+
   it('openAt leaves the window alone when it already covers the position', async ({ mock, start }) => {
     const newest = plainTurn(SessionSeq(100), 2, '新问', '新答')
     const session = await sessionBench(mock, start, SID)
