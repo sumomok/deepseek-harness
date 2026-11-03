@@ -173,6 +173,12 @@ export interface ISession {
    */
   openTail(): Promise<void>
   /**
+   * Append the next forward page to the displayed history window.
+   * @param signal - optional cancellation for the read.
+   * @returns whether the window grew.
+   */
+  loadNewer(signal?: AbortSignal): Promise<boolean>
+  /**
    * Execute one slash-command line against this session's agent — pure
    * admission semantics (the host executor durably logs the lifecycle).
    * @param line - the full command line, leading slash included.

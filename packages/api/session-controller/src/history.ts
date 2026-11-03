@@ -167,6 +167,35 @@ export function paginate(
 }
 
 /**
+ * Select one forward page: the contiguous events after `afterSeq`, up to the
+ * message budget or the cut.
+ * @param events - complete log the page is cut from.
+ * @param afterSeq - exclusive lower cut; the page starts at the next event.
+ * @param maxMessages - message budget for the page.
+ * @param throughSeq - inclusive upper cut.
+ * @returns the page events and whether newer events remain after it.
+ */
+export function paginateForward(
+  events: readonly SessionEvent[],
+  afterSeq: number,
+  maxMessages: number,
+  throughSeq: SessionSeqCursor,
+): { readonly events: SessionEvent[]; readonly hasNewer: boolean } {
+  const start = SessionLogOffset(afterSeq + 1)
+  const end = Math.min(throughSeq + 1, events.length)
+  let count = 0
+  let stop = start
+  for (let index = start; index < end; index++) {
+    const event = events[index] as SessionEvent
+    stop = SessionLogOffset(index + 1)
+    if (!MESSAGE_TYPES.has(event.type) || !isAppendSurfaceEvent(event)) continue
+    count++
+    if (count >= maxMessages) break
+  }
+  return { events: events.slice(start, stop), hasNewer: stop < end }
+}
+
+/**
  * Convert a committed event to its wire entry.
  * @param event - committed Session event.
  * @returns the wire event entry.

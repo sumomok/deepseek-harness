@@ -269,10 +269,10 @@ describe('paging', () => {
 
     await expect(session.openAt(SessionSeq(3))).resolves.toBe(true)
 
-    // `throughSeq` is an inclusive cut: the page ends at the position, so the
-    // newer part of the fixture Turn is not part of this window.
-    expect(eventSeqs(session)).toEqual([0, 1, 2, 3])
-    expect(mock.log.requests(PAGE)).toMatchObject([{ throughSeq: 3, maxMessages: 200 }])
+    // The cut sits just past the position so the reader keeps some context on
+    // the newer side; the fixture is shorter than the lookahead, so it all fits.
+    expect(eventSeqs(session)).toEqual([0, 1, 2, 3, 4, 5])
+    expect(mock.log.requests(PAGE)).toMatchObject([{ throughSeq: 3 + 120, maxMessages: 200 }])
     expect(session.getSnapshot()).toMatchObject({ loadingOlder: false, hasMore: true })
   })
 
@@ -287,12 +287,31 @@ describe('paging', () => {
     await session.openAt(SessionSeq(3))
     mock.remote.session.page.mockImplementation(pageRule(history(middle, true)))
 
-    // The first window ends at 3: position 40 is after its start but not inside
-    // it, so serving it from the installed window would land on nothing.
+    // The first window ends at seq 5: position 40 is after its start but not
+    // inside it, so serving it from the installed window would land on nothing.
     await expect(session.openAt(SessionSeq(40))).resolves.toBe(true)
 
-    expect((mock.log.requests(PAGE) as SessionPageRequest[]).map(request => request.throughSeq)).toEqual([3, 40])
-    expect(eventSeqs(session)).toEqual(middle.filter(event => event.seq <= 40).map(event => event.seq))
+    expect((mock.log.requests(PAGE) as SessionPageRequest[]).map(request => request.throughSeq)).toEqual([123, 160])
+    expect(eventSeqs(session)).toEqual(middle.map(event => event.seq))
+  })
+
+  it('loadNewer appends the forward page and stops at the cut', async ({ mock, start }) => {
+    const first = plainTurn(SessionSeq(0), 0, '第一问', '第一答')
+    const second = plainTurn(SessionSeq(60), 1, '第二问', '第二答')
+    const newest = plainTurn(SessionSeq(100), 2, '新问', '新答')
+    const session = await sessionBench(mock, start, SID)
+    mock.stream(FOLLOW, followScript(history(newest, true)))
+    await session.open()
+    mock.remote.session.page.mockImplementation(pageRule(history(first, true, true)))
+    await session.openAt(SessionSeq(3))
+    expect(session.getSnapshot().hasNewer).toBe(true)
+    mock.remote.session.page.mockImplementation(pageRule(history(second, false, false)))
+
+    await expect(session.loadNewer()).resolves.toBe(true)
+
+    expect(eventSeqs(session)).toEqual([...first, ...second].map(event => event.seq))
+    expect(session.getSnapshot().hasNewer).toBe(false)
+    expect((mock.log.requests(PAGE) as SessionPageRequest[]).at(-1)).toMatchObject({ afterSeq: 5 })
   })
 
   it('openAt leaves the window alone when it already covers the position', async ({ mock, start }) => {
@@ -321,7 +340,7 @@ describe('paging', () => {
 
     // The window is not contiguous with the live tail, so appending would
     // fabricate a gap the reader would scroll through.
-    expect(eventSeqs(session)).toEqual([0, 1, 2, 3])
+    expect(eventSeqs(session)).toEqual([0, 1, 2, 3, 4, 5])
   })
 
   it('loadThrough is a no-op when the window already covers the target or the session is not open', async ({ mock, start }) => {

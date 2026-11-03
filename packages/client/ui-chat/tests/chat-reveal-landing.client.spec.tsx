@@ -69,7 +69,7 @@ function mountLanding(count = 10) {
     hasMore: false,
     loadingOlder: false,
     openAt,
-    openTail: vi.fn(async () => {}),
+    openTail: vi.fn(async () => {}), loadNewer: vi.fn(async () => false),
     loadOlder: vi.fn(),
     loadThrough,
     chatScroll: { read: () => null, save: vi.fn() },

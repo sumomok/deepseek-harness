@@ -569,6 +569,8 @@ export interface SessionPageRequest {
    */
   readonly throughSeq?: number
   readonly beforeSeq?: number
+  /** Exclusive lower cut for a forward page: the page starts after this offset. */
+  readonly afterSeq?: number
   readonly maxMessages?: number
   /** Stop at a Turn start after both minima, unless maxMessages or history exhaustion wins. */
   readonly turnWindow?: {
@@ -771,6 +773,11 @@ export interface SessionWaitValue {
  */
 export interface SessionEventsPage extends SessionPage {
   readonly cursor: number
+  /**
+   * Whether events exist after this page and before the cut. Absent on pages
+   * written before forward paging existed, which is read as "no newer".
+   */
+  readonly hasNewer?: boolean
 }
 
 /** Address for a passive event subscription. */

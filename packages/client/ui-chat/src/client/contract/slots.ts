@@ -494,6 +494,8 @@ export interface ChatViewInjected {
   openAt: (seq: SessionSeq) => Promise<boolean>
   /** Restore the live, tail-following window after a direct history read. */
   openTail: () => Promise<void>
+  /** Append the next forward page to a direct history window. */
+  loadNewer: () => Promise<boolean>
   /**
    * Resolve one durable message position to the visible row that renders it,
    * read from the live Chat snapshot rather than the render's copy: the page

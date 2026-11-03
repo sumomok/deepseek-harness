@@ -571,7 +571,7 @@ function makeHarness(
     loadOlder,
     loadThrough,
     openAt,
-    openTail: vi.fn(async () => {}),
+    openTail: vi.fn(async () => {}), loadNewer: vi.fn(async () => false),
     loadImage: vi.fn(() => Promise.reject(new Error('not used'))),
     chatScroll,
     forkAt,

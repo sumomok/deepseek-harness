@@ -90,6 +90,8 @@ export interface SessionSnapshot {
   readonly openState: OpenState
   readonly openError: RemoteFailure | null
   readonly hasMore: boolean
+  /** Whether events exist after the displayed window (a direct history read). */
+  readonly hasNewer?: boolean
   readonly loadingOlder: boolean
   readonly promptError: PromptError | null
   readonly blank: boolean

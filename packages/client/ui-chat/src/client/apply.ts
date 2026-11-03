@@ -499,6 +499,7 @@ export function apply(ctx: Context): void {
           loadThrough: seq => session.loadThrough(seq),
           openAt: seq => session.openAt(seq),
           openTail: () => session.openTail(),
+          loadNewer: () => session.loadNewer(),
           loadImage: Object.assign(
             (attachment: ImageAttachmentRef) => ctx.uiConversation.imageUrl(sessionId, attachment),
             { peek: (attachment: ImageAttachmentRef) => ctx.uiConversation.peekImageUrl(sessionId, attachment) },

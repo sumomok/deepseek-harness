@@ -185,10 +185,15 @@ export function entries(events: readonly SessionEvent[]): SessionEventEntry[] {
 }
 
 /** Build one view-less history response value. */
-export function historyValue(events: readonly SessionEvent[], hasMore = false): SessionEventsPage {
+export function historyValue(
+  events: readonly SessionEvent[],
+  hasMore = false,
+  hasNewer = false,
+): SessionEventsPage {
   return {
     cursor: events.at(-1)?.seq ?? -1,
     records: entries(events),
     hasMore,
+    hasNewer,
   }
 }

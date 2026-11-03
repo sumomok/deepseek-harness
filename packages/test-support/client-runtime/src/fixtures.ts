@@ -74,6 +74,7 @@ export function sessionSnapshot(sessionId: SessionId): SessionSnapshot {
     openState: 'open',
     openError: null,
     hasMore: false,
+    hasNewer: false,
     loadingOlder: false,
     promptError: null,
     blank: false,

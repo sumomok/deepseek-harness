@@ -66,6 +66,12 @@ export const JUMP_PAGE_MESSAGES = 200
  */
 export const HISTORY_WINDOW_MESSAGES = 200
 
+/**
+ * Events a direct history window keeps after its target, so the reader can
+ * keep moving toward the present without asking for the next page immediately.
+ */
+export const HISTORY_WINDOW_LOOKAHEAD_EVENTS = 120
+
 const JUMP_PAGE_OPTIONS = {
   ...HISTORY_PAGE_OPTIONS,
   turnWindow: { ...HISTORY_PAGE_OPTIONS.turnWindow, minMessages: JUMP_PAGE_MESSAGES },
@@ -107,6 +113,8 @@ export class Session implements SessionFace {
   // ---- Window and derived state (all private; the snapshot is the only read API) ----
   private baseSeq = SessionLogOffset(0)
   private hasMore = false
+  private hasNewer = false
+  private loadingNewer = false
   private openState: OpenState = 'cold'
   /** True while the window was installed from a direct read at a historical position. */
   private liveHistory = false
@@ -672,23 +680,66 @@ export class Session implements SessionFace {
     const last = window.at(-1)
     if (this.baseSeq <= seq && (last === undefined || last.event.seq >= seq)) return true
     const generation = this.openGeneration
+    // Land with context on both sides: the cut is normally a little past the
+    // target, so the reader can keep scrolling toward the present. A cut past
+    // the log end is refused by the Host, and the exact position is the fallback.
+    const cuts = [Number(seq) + HISTORY_WINDOW_LOOKAHEAD_EVENTS, Number(seq)]
+    for (const cut of cuts) {
+      try {
+        const result = await this.remote.session.page({
+          address: this.sessionAddress(),
+          throughSeq: cut,
+          maxMessages: HISTORY_WINDOW_MESSAGES,
+        }, signal ?? new AbortController().signal)
+        if (!result.ok) continue
+        if (generation !== this.openGeneration || this.events === undefined) return false
+        const entries = historyEntries(result.value.records)
+        if (entries.length === 0) continue
+        this.liveHistory = true
+        this.loadingOlder = false
+        this.hasNewer = result.value.hasNewer === true
+        this.installWindow(entries, result.value.hasMore)
+        this.notifier.markDirty()
+        return true
+      } catch {
+        continue
+      }
+    }
+    return false
+  }
+
+  /**
+   * Append the next forward page to the displayed history window.
+   * @param signal - optional cancellation for the read.
+   * @returns whether the window grew.
+   */
+  async loadNewer(signal?: AbortSignal): Promise<boolean> {
+    if (this.openState !== 'open' || this.events === undefined || !this.hasNewer || this.loadingNewer) return false
+    const window = this.eventSource.getSnapshot().entries
+    const last = window.at(-1)
+    if (last === undefined) return false
+    const generation = this.openGeneration
+    this.loadingNewer = true
     try {
       const result = await this.remote.session.page({
         address: this.sessionAddress(),
-        throughSeq: Number(seq),
+        afterSeq: last.event.seq,
         maxMessages: HISTORY_WINDOW_MESSAGES,
       }, signal ?? new AbortController().signal)
-      if (!result.ok) return false
-      if (generation !== this.openGeneration || this.events === undefined) return false
+      if (!result.ok || generation !== this.openGeneration || this.events === undefined) return false
       const entries = historyEntries(result.value.records)
-      if (entries.length === 0) return false
-      this.liveHistory = true
-      this.loadingOlder = false
-      this.installWindow(entries, result.value.hasMore)
+      if (entries.length === 0) {
+        this.hasNewer = false
+        return false
+      }
+      this.hasNewer = result.value.hasNewer === true
+      this.eventSource.appendPage(entries)
       this.notifier.markDirty()
       return true
     } catch {
       return false
+    } finally {
+      this.loadingNewer = false
     }
   }
 
@@ -699,6 +750,7 @@ export class Session implements SessionFace {
   async openTail(): Promise<void> {
     if (!this.liveHistory) return
     this.liveHistory = false
+    this.hasNewer = false
     await this.resync()
   }
 
@@ -1014,6 +1066,7 @@ export class Session implements SessionFace {
       openState: this.openState,
       openError: this.openError,
       hasMore: this.hasMore,
+      hasNewer: this.hasNewer,
       loadingOlder: this.loadingOlder,
       promptError: this.promptError,
       blank: this.blankBit,

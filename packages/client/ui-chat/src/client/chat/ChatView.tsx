@@ -1,7 +1,7 @@
 // An enclosing `[data-conversation-scroll]` owns scrolling when present;
 // otherwise this view owns it. Each row subscribes to one stable node key.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from 'react'
 import type {
   NodeKey, RenderEntry,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -60,7 +60,8 @@ const MOTION_TAIL_MS = 800
  */
 export function ChatView({
   useSession, useChat, useConversation, useSessions, renderSlot,
-  sessionId, openFile, openExternalLink, loadOlder, loadThrough, openAt, openTail, loadImage, inspectCall, chatScroll, forkAt, fileMentions,
+  sessionId, openFile, openExternalLink, loadOlder, loadThrough, openAt, openTail, loadNewer, loadImage,
+  inspectCall, chatScroll, forkAt, fileMentions,
   referents, usePresentation, useProjection, useInteractionIds, dispatchInteraction, t, fileDrag,
   useReveal, locateReveal, settleReveal, notifyRevealFailure, actions,
 }: ChatViewSlotProps) {
@@ -110,6 +111,9 @@ export function ChatView({
     return () => { clearTimeout(timer) }
   }, [running, deferCompletedTurns])
   const openState = useSession(s => s.openState)
+  // A direct history window ends at its own cut; this flag is how the reader
+  // continues toward the present instead of hitting a silent bottom.
+  const hasNewer = useSession(s => s.hasNewer === true)
   const openError = useSession(s => s.openError)
   const hasMore = useSession(s => s.hasMore)
   const loadingOlder = useSession(s => s.loadingOlder)
@@ -189,7 +193,8 @@ export function ChatView({
     ? latestSteering.source.rpcId : latestSteering?.id ?? null
   const scroll = useChatScroll({
     ready: openState === 'open',
-    order, firstSeq, lastKey, running, loadingOlder, hasMore, chatScroll, loadOlder, loadThrough, openAt, openTail, deferCompletedTurns,
+    order, firstSeq, lastKey, running, loadingOlder, hasMore, chatScroll, loadOlder, loadThrough,
+    openAt, openTail, loadNewer, deferCompletedTurns,
     lastIsUser: lastKey !== null && nodeStore.get(lastKey)?.kind === 'user',
     steeringId,
     submissionId: visibleSubmissions.at(-1)?.requestId ?? null,
@@ -202,6 +207,14 @@ export function ChatView({
     notifyRevealFailure,
     setTurnProcessOpen: actions.setTurnProcessOpen,
   })
+  // Reaching the end of a direct history window reads the next page, the way
+  // scrolling up has always continued the transcript in that direction.
+  const onScrollNearNewer = useCallback((event: UIEvent<HTMLDivElement>): void => {
+    if (!hasNewer) return
+    const element = event.currentTarget
+    if (element.scrollHeight - element.scrollTop - element.clientHeight > 240) return
+    void scroll.loadNewer()
+  }, [hasNewer, scroll.loadNewer])
   const interactionSurfaceRef = useRef<HTMLDivElement>(null)
   const interactionIds = useInteractionIds(ids => ids)
   const textInteraction = useTextInteraction(scroll.columnRef, interactionSurfaceRef, dispatchInteraction, interactionIds)
@@ -219,7 +232,7 @@ export function ChatView({
         />
       )}
       <div className={css.root} data-chat-following-tail={scroll.followingTail ? '' : undefined}>
-        <div ref={scroll.listRef} className={css.scroll}>
+        <div ref={scroll.listRef} className={css.scroll} onScroll={onScrollNearNewer}>
           <div ref={scroll.columnRef} className={css.column} data-chat-flow=""
             data-chat-motion={deferCompletedTurns && scroll.initialized
               && (running || motionTail || pendingInputs.length > 0) ? '' : undefined}>
@@ -242,6 +255,13 @@ export function ChatView({
                 cwd, openFile: requestOpenFile, inspectCall, forkAt, loadImage, fileMentions, referents,
               }, { hookContext: flowContext })}
             </MarkdownDelegateProvider>
+            {hasNewer && (
+              <div className={css.older}>
+                <button type="button" onClick={() => { void scroll.loadNewer() }}>
+                  {t('chat.loadNewer')}
+                </button>
+              </div>
+            )}
             <div ref={interactionSurfaceRef} className={css.textInteraction} data-text-interaction-surface=""
               aria-hidden={textInteraction.active === null}>
               {textInteraction.active !== null && renderSlot('conversation.chat.text-interaction', {

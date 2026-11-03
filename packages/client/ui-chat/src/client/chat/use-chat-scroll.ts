@@ -34,6 +34,8 @@ export interface ChatScrollInput extends ChatNavigationInput {
   readonly openAt: (seq: SessionSeq) => Promise<boolean>
   /** Restore the live, tail-following window after a direct history read. */
   readonly openTail: () => Promise<void>
+  /** Append the next forward page to a direct history window. */
+  readonly loadNewer: () => Promise<boolean>
   /** Resolve a durable message position against the live Chat snapshot. */
   readonly locateReveal: (seq: SessionSeq) => ChatRevealTarget | undefined
   /** Consume one handled reveal request. */
@@ -65,6 +67,8 @@ interface ChatScrollState extends ChatReadingState {
   readonly busyTurn: number | null
   readonly navigateToTurn: ChatNavigation['navigateToTurn']
   readonly loadEarlier: ChatNavigation['loadEarlier']
+  /** Append the next forward page to a direct history window. */
+  readonly loadNewer: () => Promise<boolean>
   readonly returnToBottom: () => void
   readonly motion: FlowMotionRows
 }
@@ -79,7 +83,8 @@ interface ChatScrollState extends ChatReadingState {
 export function useChatScroll(input: ChatScrollInput): ChatScrollState {
   const {
     ready, order, firstSeq, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running,
-    deferCompletedTurns, loadedTurns, chatScroll, hasMore, loadingOlder, loadOlder, loadThrough, openAt, openTail, transcriptView,
+    deferCompletedTurns, loadedTurns, chatScroll, hasMore, loadingOlder, loadOlder, loadThrough,
+    openAt, openTail, loadNewer, transcriptView,
     reveal, locateReveal, settleReveal, notifyRevealFailure, setTurnProcessOpen,
   } = input
   const { viewport, listRef, columnRef } = useChatViewport()
@@ -176,7 +181,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
     content.current.input = {
       ready, order, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running, loadedTurns,
       chatScroll, deferCompletedTurns, transcriptView, ...navigationInput,
-      reveal, openAt, openTail, locateReveal, settleReveal, notifyRevealFailure, setTurnProcessOpen,
+      reveal, openAt, openTail, loadNewer, locateReveal, settleReveal, notifyRevealFailure, setTurnProcessOpen,
     }
     if (!deferCompletedTurns) {
       cancelPendingFollow()
@@ -306,6 +311,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
     listRef, columnRef, ...state, busyTurn, motion: viewport.motion,
     navigateToTurn: navigation.navigateToTurn,
     loadEarlier: navigation.loadEarlier,
+    loadNewer,
     returnToBottom,
   }
 }

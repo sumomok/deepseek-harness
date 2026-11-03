@@ -67,7 +67,7 @@ function mountScroll(deferCompletedTurns = true, initial: Partial<ChatScrollInpu
     loadOlder: vi.fn(),
     loadThrough: vi.fn(async () => {}),
     openAt: vi.fn(async () => false),
-    openTail: vi.fn(async () => {}),
+    openTail: vi.fn(async () => {}), loadNewer: vi.fn(async () => false),
     chatScroll: { read: () => null, save: vi.fn() },
     ...revealDefaults,
     ...initial,
@@ -138,7 +138,7 @@ function mountRows(heights: readonly number[]) {
     transcriptView: 'standard', loadedTurns: [], hasMore: false, loadingOlder: false,
     loadOlder: vi.fn(), loadThrough: vi.fn(async () => {}),
     openAt: vi.fn(async () => false),
-    openTail: vi.fn(async () => {}), chatScroll: { read: () => null, save: vi.fn() },
+    openTail: vi.fn(async () => {}), loadNewer: vi.fn(async () => false), chatScroll: { read: () => null, save: vi.fn() },
     ...revealDefaults,
   }
   const view = render(<ScrollHarness input={input} onMotion={(motion) => { callbacks.motion = motion }}
@@ -312,7 +312,7 @@ function mountVisibleFold(test: typeof visibleFoldCases[number], reduced: boolea
     transcriptView: 'detailed', loadedTurns: [], hasMore: false, loadingOlder: false,
     loadOlder: vi.fn(), loadThrough: vi.fn(async () => {}),
     openAt: vi.fn(async () => false),
-    openTail: vi.fn(async () => {}), chatScroll: { read: () => null, save: vi.fn() },
+    openTail: vi.fn(async () => {}), loadNewer: vi.fn(async () => false), chatScroll: { read: () => null, save: vi.fn() },
     ...revealDefaults,
   }
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: reduced })))
