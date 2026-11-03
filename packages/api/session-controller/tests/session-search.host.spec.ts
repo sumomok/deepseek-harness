@@ -134,7 +134,7 @@ describe('session.searchMessages', () => {
     await ctx.fiber.dispose()
   })
 
-  it('drops hits the caller cannot see, or that are not current conversation messages', async () => {
+  it('drops hits the caller cannot see, keeping messages the transcript still shows', async () => {
     const ctx = await baseContext()
     const live = ctx.sessions.create(sid('live'), { meta: header('live', '/live') })
     ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
@@ -147,7 +147,9 @@ describe('session.searchMessages', () => {
       () => Promise.resolve({
         items: [
           { sessionId: live.id, seq: SessionSeq(1), type: 'user/message', time: 1, surface: 'current', snippet: 'kept' },
-          { sessionId: live.id, seq: SessionSeq(2), type: 'user/message', time: 2, surface: 'shadowed', snippet: 'compacted away' },
+          // Shadowed is a model-surface fact: the transcript keeps this message
+          // above the compaction marker, so a reader can still open it.
+          { sessionId: live.id, seq: SessionSeq(2), type: 'user/message', time: 2, surface: 'shadowed', snippet: 'compacted but still shown' },
           { sessionId: live.id, seq: SessionSeq(3), type: 'tool/call', time: 3, surface: 'current', snippet: 'tool noise' },
           { sessionId: sid('hidden'), seq: SessionSeq(4), type: 'user/message', time: 4, surface: 'current', snippet: 'other session' },
         ],
@@ -157,7 +159,10 @@ describe('session.searchMessages', () => {
     await list.initialize()
 
     await expect(list.searchMessages({ query: 'query' }, new AbortController().signal)).resolves.toEqual({
-      items: [{ sessionId: live.id, seq: SessionSeq(1), snippet: 'kept' }],
+      items: [
+        { sessionId: live.id, seq: SessionSeq(1), snippet: 'kept' },
+        { sessionId: live.id, seq: SessionSeq(2), snippet: 'compacted but still shown' },
+      ],
     })
     await ctx.fiber.dispose()
   })

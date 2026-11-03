@@ -359,7 +359,10 @@ export class ApiSessionList {
             query: normalizedQuery,
             eventFilters: [
               { kind: 'type', values: ['user/message', 'assistant/message'] },
-              { kind: 'surface', values: ['current'] },
+              // Shadowing is a model-surface fact: the transcript keeps the
+              // conversation above the compaction marker, so those messages
+              // are still what the reader sees and can open.
+              { kind: 'surface', values: ['current', 'shadowed'] },
             ],
             limit: pageLimit,
             ...continuation.cursor === undefined ? {} : { cursor: continuation.cursor },
@@ -383,7 +386,7 @@ export class ApiSessionList {
         const accepted = new Set<string>()
         for (const hit of page.items) {
           if (!visibleIds.has(hit.sessionId)
-            || hit.surface !== 'current'
+            || (hit.surface !== 'current' && hit.surface !== 'shadowed')
             || !MESSAGE_TYPES.has(hit.type)) continue
           const address = `${hit.sessionId}:${String(hit.seq)}`
           if (accepted.has(address)) continue
