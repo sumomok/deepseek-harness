@@ -498,8 +498,6 @@ export interface ChatViewInjected {
    * @returns the row to land on, or undefined when the loaded window cannot place it.
    */
   locateReveal: (seq: SessionSeq) => ChatRevealTarget | undefined
-  /** Resolve a position the loaded window cannot place to the nearest visible row. */
-  locateNearest: (seq: SessionSeq) => ChatRevealTarget | undefined
   /**
    * Consume a reveal request once this view landed on it or refused it.
    * @param id - request identity the view handled.

@@ -52,7 +52,6 @@ function mountLanding(count = 10) {
   const notifyRevealFailure = vi.fn<() => void>()
   const setTurnProcessOpen = vi.fn<(turn: number, answerStep: number, open: boolean) => void>()
   let target: ChatRevealTarget | undefined
-  let nearest: ChatRevealTarget | undefined
   let input: ChatScrollInput = {
     ready: true,
     order: [],
@@ -73,7 +72,6 @@ function mountLanding(count = 10) {
     chatScroll: { read: () => null, save: vi.fn() },
     reveal: null,
     locateReveal: () => target,
-    locateNearest: () => nearest,
     settleReveal,
     notifyRevealFailure,
     setTurnProcessOpen,
@@ -129,7 +127,6 @@ function mountLanding(count = 10) {
     },
     top: () => top,
     target: (next: ChatRevealTarget | undefined) => { target = next },
-    nearest: (next: ChatRevealTarget | undefined) => { nearest = next },
     raise: async (request: SessionRevealRequest): Promise<void> => {
       await act(async () => {
         update({ reveal: request })
@@ -203,19 +200,6 @@ describe('Chat reveal landing', () => {
     expect(h.loadThrough).toHaveBeenCalledTimes(2)
     expect(h.row(5).dataset.chatLanded).toBe('')
     expect(h.settleReveal).toHaveBeenLastCalledWith(2)
-  })
-
-  it('lands at the closest row when the window cannot place the exact position', async () => {
-    const h = mountLanding()
-    // The Turn holding the message is absent from the window; the reader still
-    // asked to open this Session at it.
-    h.nearest({ key: 'row:7', process: null })
-
-    await h.raise(request(1, 42))
-
-    expect(h.row(7).dataset.chatLanded).toBe('')
-    expect(h.settleReveal).toHaveBeenCalledWith(1)
-    expect(h.notifyRevealFailure).not.toHaveBeenCalled()
   })
 
   it('reports a position the loaded window cannot place instead of landing elsewhere', async () => {

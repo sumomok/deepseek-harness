@@ -31,7 +31,7 @@ import type {
   ChatFlowDataInjected, ChatFlowInjected, ChatNodeInjected, ChatScrollPosition, ChatViewInjected, ProseReferentSpan,
   QuotaNoticeInjected, QuotaNoticeState, TurnTailOwnerProps,
 } from './contract/slots.ts'
-import { resolveChatRevealTarget, resolveNearestChatRow } from './contract/reveal.ts'
+import { resolveChatRevealTarget } from './contract/reveal.ts'
 import type { ChatSnapshot } from './contract/snapshot.ts'
 import { EMPTY_CHAT_SNAPSHOT } from './contract/snapshot.ts'
 import { ApprovalCommand } from './chat/ApprovalCommand.tsx'
@@ -421,7 +421,6 @@ export function apply(ctx: Context): void {
           // Resolve against the live snapshot: the history page a reveal just
           // loaded is published before React re-renders this view.
           locateReveal: seq => resolveChatRevealTarget(chat.getSnapshot(), seq),
-          locateNearest: seq => resolveNearestChatRow(chat.getSnapshot(), seq),
           settleReveal: (id) => { ctx.uiWorkspace.settleReveal(sessionId, id) },
           notifyRevealFailure: ({ reason, seq }) => {
             console.error(`[ui-chat] reveal failed ${reason} at ${seq} in ${sessionId}`)

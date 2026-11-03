@@ -24,11 +24,10 @@ afterEach(async () => {
  * addressed. Cases that exercise a landing override these fields.
  */
 const revealDefaults: Pick<ChatScrollInput,
-  'reveal' | 'locateReveal' | 'locateNearest' | 'settleReveal' | 'notifyRevealFailure'
+  'reveal' | 'locateReveal' | 'settleReveal' | 'notifyRevealFailure'
   | 'setTurnProcessOpen'> = {
   reveal: null,
   locateReveal: () => undefined,
-  locateNearest: () => undefined,
   settleReveal: () => {},
   notifyRevealFailure: () => {},
   setTurnProcessOpen: () => {},

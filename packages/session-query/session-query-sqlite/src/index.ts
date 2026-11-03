@@ -1179,6 +1179,7 @@ function selectedDocumentsSql(): { sql: string } {
  * @returns the candidate CTE; its bindings are two visibility flags.
  */
 function selectedMessageScanSql(termCount: number): { sql: string } {
+  const kinds = MESSAGE_SEARCH_TYPES.map(kind => `'${kind}'`).join(', ')
   const literal = Array.from({ length: termCount }, () => 'AND pd.text LIKE ? ESCAPE \'\\\'').join('\n        ')
   const literalLive = Array.from({ length: termCount }, () => 'AND ld.text LIKE ? ESCAPE \'\\\'').join('\n        ')
   return {
@@ -1203,6 +1204,7 @@ function selectedMessageScanSql(termCount: number): { sql: string } {
       FROM persisted_docs AS pd
       JOIN persisted_sessions AS ps ON ps.id = pd.session_id
       WHERE ? = 1
+        AND pd.type IN (${kinds})
         ${literal}
         AND NOT EXISTS (SELECT 1 FROM temp.live_sessions AS ls WHERE ls.id = pd.session_id)
       UNION ALL
@@ -1226,10 +1228,14 @@ function selectedMessageScanSql(termCount: number): { sql: string } {
       FROM temp.live_docs AS ld
       JOIN temp.live_sessions AS ls ON ls.id = ld.session_id
       WHERE 1 = 1
+        AND ld.type IN (${kinds})
         ${literalLive}
     )`,
   }
 }
+
+/** Event kinds a message search returns: prose a reader can be shown. */
+const MESSAGE_SEARCH_TYPES = ['user/message', 'assistant/message'] as const
 
 /** Rows one message scan examines before it lets the event loop run. */
 const MESSAGE_SCAN_YIELD_ROWS = 256

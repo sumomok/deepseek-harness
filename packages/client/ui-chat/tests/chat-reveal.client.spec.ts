@@ -168,9 +168,10 @@ describe('resolveChatRevealTarget', () => {
     const snapshot = snapshotOf({ rows: [question, answer], turns: [answering] })
 
     // The search index reports the settled `assistant/message` seq, not the
-    // row's first-chunk anchor: equality against `anchorSeq` would miss the row.
+    // row's first-chunk anchor. Identity resolves the message; the anchor is a
+    // layout position and must not be treated as the message it renders.
     expect(resolveChatRevealTarget(snapshot, 30)?.key).toBe(answer.key)
-    expect(resolveChatRevealTarget(snapshot, 20)?.key).toBe(answer.key)
+    expect(resolveChatRevealTarget(snapshot, 20)).toBeUndefined()
   })
 
   it('lands on the user row that owns the searched message', () => {
@@ -179,16 +180,6 @@ describe('resolveChatRevealTarget', () => {
     const snapshot = snapshotOf({ rows: [question, answer], turns: [answering] })
 
     expect(resolveChatRevealTarget(snapshot, 11)?.key).toBe(question.key)
-  })
-
-  it('places a hit on an event with no row of its own at the row its Step had opened', () => {
-    const question = userRow(11, answering)
-    const answer = assistantRow({ anchorSeq: 20, messageSeq: 30, owner: answering, number: 1 })
-    const snapshot = snapshotOf({ rows: [question, answer], turns: [answering] })
-
-    // A `tool/result` between the two rows: no row renders it, and the Step
-    // interval says the Assistant row is what the reader was looking at.
-    expect(resolveChatRevealTarget(snapshot, 25)?.key).toBe(answer.key)
   })
 
   it('lands on the compaction row for both its checkpoint and its cited summary', () => {
@@ -243,8 +234,8 @@ describe('resolveChatRevealTarget', () => {
     const answer = assistantRow({ anchorSeq: 20, messageSeq: 30, owner: answering, number: 1 })
     const snapshot = snapshotOf({ rows: [question, answer], turns: [answering] })
 
-    // A settled Assistant with no visible content keeps its row as `hidden`;
-    // the nearest visible row of the same Turn is the honest landing.
-    expect(resolveChatRevealTarget(snapshot, 11)?.key).toBe(answer.key)
+    // A hidden row presents no text, and a neighbouring visible row is not
+    // the message that was searched: the position has no presentation here.
+    expect(resolveChatRevealTarget(snapshot, 11)).toBeUndefined()
   })
 })

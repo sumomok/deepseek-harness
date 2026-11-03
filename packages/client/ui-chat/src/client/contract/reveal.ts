@@ -8,7 +8,6 @@
  * has one, and otherwise picks the last row the message's own Location
  * (Turn, then Step) had already opened — the interval that event falls in.
  */
-import type { TurnLocation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SessionSeq } from '@deepseek-ai/dsh-session/types'
 import type { ChatNode } from './chat-nodes.ts'
 import { isVisibleChatNode } from './chat-visibility.ts'
@@ -77,47 +76,20 @@ function messageSeqOf(node: ChatNode): number | undefined {
       return node.data.command.seq
     case 'compaction':
       return node.data.seq
-    // Merge-extensible kind space: a kind without a durable message identity
-    // is resolved by its Location interval below.
+    // Merge-extensible kind space: a kind that owns no durable message
+    // identity cannot be reached from a search hit.
     default:
       return undefined
   }
 }
 
 /**
- * Whether one Turn/Step boundary pair admits a seq.
- * @param start - boundary seq, absent when the window starts inside the range.
- * @param end - closing seq, absent while the range is still open.
- * @param seq - message position to place.
- * @returns whether the range admits the position.
- */
-function admits(start: number | undefined, end: number | undefined, seq: number): boolean {
-  if (end !== undefined && seq > end) return false
-  if (start !== undefined && seq < start) return false
-  return true
-}
-
-/**
- * Find the loaded Turn whose boundaries admit a seq.
- * @param snapshot - current Chat target snapshot.
- * @param seq - message position to place.
- * @returns the owning Turn, or undefined when the loaded window cannot place it.
- */
-function turnAt(snapshot: ChatSnapshot, seq: number): TurnLocation | undefined {
-  for (const turn of snapshot.timeline.turnOrder) {
-    const location = snapshot.timeline.turns.get(turn)
-    if (location !== undefined && admits(location.start?.seq, location.end?.seq, seq)) return location
-  }
-  return undefined
-}
-
-/**
  * Resolve a durable message position to the visible Chat row that renders it.
  *
- * The window must already cover `seq`; callers page history through the
- * Session's jump loader first. A position no row renders still resolves to
- * the row its Turn/Step had open at that point, so a hit on an event without a
- * row of its own lands in the right place instead of falling back silently.
+ * Only a row that presents this event resolves: sequence proximity and Turn
+ * membership do not establish a match, and a neighbouring row is not the
+ * message the reader asked for. Callers page history first, then treat a
+ * refusal as a position this view cannot show.
  * @param snapshot - live Chat target snapshot.
  * @param seq - durable event position a search hit names.
  * @returns the row to land on, or undefined when the loaded window cannot place the position.
@@ -128,9 +100,10 @@ export function resolveChatRevealTarget(snapshot: ChatSnapshot, seq: number): Ch
     const node = snapshot.nodes.get(key)
     if (node !== undefined && isVisibleChatNode(node as ChatNode)) rows.push(node as ChatNode)
   }
-  const byKey = new Map(rows.map(row => [row.key, row]))
-  const direct = rows.find(row => ownsSeq(row, seq))
-  const node = direct ?? rows.find(row => row.anchorSeq === seq) ?? intervalRow(snapshot, byKey, seq)
+  // Identity only: an anchor or a Turn's neighbourhood is not evidence that
+  // a row presents this event, and landing elsewhere is worse than reporting
+  // that the loaded window cannot show it.
+  const node = rows.find(row => ownsSeq(row, seq))
   if (node === undefined) return undefined
   const presentation = snapshot.nodes.processSource(node.key).getSnapshot()
   return {
@@ -139,71 +112,4 @@ export function resolveChatRevealTarget(snapshot: ChatSnapshot, seq: number): Ch
       ? null
       : { turn: presentation.spec.turn, answerStep: presentation.spec.answerStep ?? 0 },
   }
-}
-
-/**
- * Resolve a position the loaded window cannot place to the nearest visible row.
- *
- * This runs only after the exact resolution refused, which means the Turn
- * holding the position is not in the window at all: the Session's history page
- * never arrived, or this view cannot page to it. Opening the Session is still
- * the reader's intent, so the transcript lands at the last row at or before the
- * position rather than staying where it was and reporting nothing.
- * @param snapshot - live Chat target snapshot.
- * @param seq - durable event position a search hit names.
- * @returns the closest visible row, or undefined when the transcript has none.
- */
-export function resolveNearestChatRow(snapshot: ChatSnapshot, seq: number): ChatRevealTarget | undefined {
-  let before: ChatNode | undefined
-  let after: ChatNode | undefined
-  for (const key of snapshot.order) {
-    const node = snapshot.nodes.get(key)
-    if (node === undefined || !isVisibleChatNode(node as ChatNode)) continue
-    if (node.kind === 'turn-process') continue
-    if (node.anchorSeq > seq) {
-      after = node as ChatNode
-      break
-    }
-    before = node as ChatNode
-  }
-  const row = before ?? after
-  if (row === undefined) return undefined
-  const presentation = snapshot.nodes.processSource(row.key).getSnapshot()
-  return {
-    key: row.key,
-    process: presentation === undefined
-      ? null
-      : { turn: presentation.spec.turn, answerStep: presentation.spec.answerStep ?? 0 },
-  }
-}
-
-/**
- * Place a seq inside its Step (or Turn) and take the last row that had opened there.
- * @param snapshot - current Chat target snapshot.
- * @param rows - visible rows by key.
- * @param seq - message position to place.
- * @returns the row to land on, or undefined when the Turn is not loaded.
- */
-function intervalRow(
-  snapshot: ChatSnapshot,
-  rows: ReadonlyMap<string, ChatNode>,
-  seq: number,
-): ChatNode | undefined {
-  const turn = turnAt(snapshot, seq)
-  if (turn === undefined) return undefined
-  const step = turn.steps.find(candidate => admits(candidate.start?.seq, candidate.end?.seq, seq))
-  const keys = step === undefined
-    ? snapshot.locations.getTurn(turn.turn)
-    : snapshot.locations.getStep(turn.turn, step.step)
-  let landed: ChatNode | undefined
-  let first: ChatNode | undefined
-  for (const key of keys) {
-    const node = rows.get(key)
-    if (node === undefined) continue
-    first ??= node
-    // A Turn-process control is a disclosure header, not a message: prefer any
-    // row that actually carries content around the position.
-    if (node.anchorSeq <= seq && node.kind !== 'turn-process') landed = node
-  }
-  return landed ?? first
 }

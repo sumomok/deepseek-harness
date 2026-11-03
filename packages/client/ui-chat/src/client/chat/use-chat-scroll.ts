@@ -32,8 +32,6 @@ export interface ChatScrollInput extends ChatNavigationInput {
   readonly reveal: SessionRevealRequest | null
   /** Resolve a durable message position against the live Chat snapshot. */
   readonly locateReveal: (seq: SessionSeq) => ChatRevealTarget | undefined
-  /** Resolve a position the loaded window cannot place to the nearest visible row. */
-  readonly locateNearest: (seq: SessionSeq) => ChatRevealTarget | undefined
   /** Consume one handled reveal request. */
   readonly settleReveal: (id: number) => void
   /** Report a reveal the loaded window could not place, with the reason. */
@@ -78,7 +76,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
   const {
     ready, order, firstSeq, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running,
     deferCompletedTurns, loadedTurns, chatScroll, hasMore, loadingOlder, loadOlder, loadThrough, transcriptView,
-    reveal, locateReveal, locateNearest, settleReveal, notifyRevealFailure, setTurnProcessOpen,
+    reveal, locateReveal, settleReveal, notifyRevealFailure, setTurnProcessOpen,
   } = input
   const { viewport, listRef, columnRef } = useChatViewport()
   const { reading, state } = useChatReading(viewport, chatScroll, loadedTurns.at(-1)?.turn ?? null)
@@ -174,7 +172,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
     content.current.input = {
       ready, order, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running, loadedTurns,
       chatScroll, deferCompletedTurns, transcriptView, ...navigationInput,
-      reveal, locateReveal, locateNearest, settleReveal, notifyRevealFailure, setTurnProcessOpen,
+      reveal, locateReveal, settleReveal, notifyRevealFailure, setTurnProcessOpen,
     }
     if (!deferCompletedTurns) {
       cancelPendingFollow()
@@ -269,13 +267,9 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
         await nextFrame()
         return arrive(attempts - 1)
       }
-      // Only a window that genuinely cannot reach the position degrades.
-      const fallback = locateNearest(reveal.seq)
-      if (fallback === undefined) {
-        settle(false)
-        return
-      }
-      land(fallback, REVEAL_LANDING_FRAMES)
+      // No row presents this position: report it instead of landing on a
+      // neighbour the reader did not ask for.
+      settle(false)
     }
     navigation.cancel()
     viewport.beginPreserving()
@@ -289,7 +283,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
       if (frame !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame)
     }
   }, [
-    ready, reveal, loadThrough, locateReveal, locateNearest, settleReveal, notifyRevealFailure,
+    ready, reveal, loadThrough, locateReveal, settleReveal, notifyRevealFailure,
     setTurnProcessOpen, hasMore, firstSeq,
     viewport, reading, navigation,
   ])
