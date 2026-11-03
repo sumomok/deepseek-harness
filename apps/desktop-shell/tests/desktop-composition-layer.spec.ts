@@ -184,6 +184,11 @@ describe('the composed session-query row', () => {
     expect(row.disabled).toBeUndefined()
   })
 
+  it('prepares the index after the served UI reports in, and only above the desktop layer', () => {
+    expect(entry(below, 'session-query-sqlite').config?.['warmupAfterReadyMs']).toBeUndefined()
+    expect(entry(desktop, 'session-query-sqlite').config?.['warmupAfterReadyMs']).toBe(3000)
+  })
+
   it('indexes into a durable derived database, not the ephemeral shipped one', () => {
     expect(entry(below, 'session-query-sqlite').config?.['path']).toBe(':memory:')
     expect(entry(desktop, 'session-query-sqlite').config?.['path']).toMatchObject({

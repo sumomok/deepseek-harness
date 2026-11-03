@@ -324,6 +324,73 @@ describe('SQLite session search', () => {
     expect(page.coverage).toEqual({ status: 'complete', skippedSessions: 0 })
   })
 
+  it('prepares the index in the background one warmup delay after the request', async () => {
+    const only = header('warmup-only')
+    TestPersistence.reset([{ meta: only, events: messageEvents('warmup needle') }])
+    const path = await temporaryPath('warmup.db')
+    const ctx = await liveContext({ path, openAt: 'first-search', warmupAfterReadyMs: 1000 })
+    await ctx.plugin(TestPersistence)
+    vi.useFakeTimers()
+    ctx.emit('session-query/warmup-requested')
+    await vi.advanceTimersByTimeAsync(999)
+    await expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' })
+    await vi.advanceTimersByTimeAsync(1)
+    vi.useRealTimers()
+    await vi.waitFor(async () => { await expect(stat(path)).resolves.toBeDefined() })
+    expect(TestPersistence.reads.get(only.id)).toBe(1)
+    // The prepared index answers without reading the log again.
+    await expect(ctx.sessionQuery.searchSessions({ query: 'warmup' }))
+      .resolves.toMatchObject({ items: [expect.objectContaining({ header: only })] })
+    expect(TestPersistence.reads.get(only.id)).toBe(1)
+  })
+
+  it('ignores repeated warmup requests and one that arrives without warmup configured', async () => {
+    const unconfigured = await liveContext({ path: await temporaryPath('no-warmup.db'), openAt: 'first-search' })
+    unconfigured.emit('session-query/warmup-requested')
+    await expect(stat((unconfigured.sessionQuery as SqliteSessionQueryEngine).config.path))
+      .rejects.toMatchObject({ code: 'ENOENT' })
+    await unconfigured.fiber.dispose()
+
+    const path = await temporaryPath('warmup-once.db')
+    const ctx = await liveContext({ path, openAt: 'first-search', warmupAfterReadyMs: 0 })
+    const seen: string[] = []
+    ctx.on('session-query/index-progress', ({ phase }) => { seen.push(phase) })
+    ctx.emit('session-query/warmup-requested')
+    ctx.emit('session-query/warmup-requested')
+    await vi.waitFor(() => { expect(seen).toContain('ready') })
+    expect(seen.filter(phase => phase === 'opening')).toHaveLength(0)
+    expect(seen.filter(phase => phase === 'ready')).toHaveLength(1)
+  })
+
+  it('drops a pending warmup when the service disposes before its delay', async () => {
+    const path = await temporaryPath('warmup-cancelled.db')
+    const search = await new Context().plugin(SqliteSessionQueryEngine, {
+      path,
+      openAt: 'first-search',
+      warmupAfterReadyMs: 50,
+    })
+    search.ctx.emit('session-query/warmup-requested')
+    await search.dispose()
+    await new Promise(resolve => setTimeout(resolve, 120))
+    await expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('refuses a warmup that full-text search is switched off for', () => {
+    expect(() => new SqliteSessionQueryEngine(new Context(), {
+      path: ':memory:',
+      openAt: 'never',
+      warmupAfterReadyMs: 1000,
+    })).toThrow(/warmupAfterReadyMs requires full-text search/)
+    expect(() => new SqliteSessionQueryEngine(new Context(), {
+      path: ':memory:',
+      warmupAfterReadyMs: -1,
+    })).toThrow(/warmupAfterReadyMs must be an integer/)
+    expect(() => new SqliteSessionQueryEngine.Config({
+      path: ':memory:',
+      warmupAfterReadyMs: -1,
+    })).toThrow()
+  })
+
   it('mounts and disposes first-search mode without opening its database', async () => {
     const path = await temporaryPath('unopened.db')
     const ctx = new Context()

@@ -21,6 +21,7 @@
   config:
     path: !!js dshHomePath('session-search/desktop.db')
     openAt: first-search
+    warmupAfterReadyMs: 3000
 
 # The model's own reach into session history: upstream's five read-only
 # session tools (`session_search`, `session_event_search`, `session_trace`,

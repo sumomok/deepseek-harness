@@ -10,6 +10,8 @@ import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import type {} from '@deepseek-ai/dsh-host-webserver'
+import type {} from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
 /** Cordis plugin name. */
@@ -153,6 +155,15 @@ export function renderProtectedDirsPrompt(config: Config, directories: Protected
  */
 export function apply(ctx: Context, config: Config): void {
   checkTemplates(config)
+  // The first index render is the earliest point this deployment knows a UI
+  // was served. The search index prepares on its own configured delay after
+  // that request, so building it never sits in the launch path.
+  let warmupRequested = false
+  ctx.effect(() => ctx.on('webserver/index-inject', () => {
+    if (warmupRequested) return
+    warmupRequested = true
+    ctx.emit('session-query/warmup-requested')
+  }), 'desktop-app.searchWarmup')
   const dataDir = resolveDshHome()
   const line = renderProtectedDirsPrompt(config, {
     installDir: config.installDir,

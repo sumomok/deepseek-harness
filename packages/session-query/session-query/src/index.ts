@@ -97,6 +97,14 @@ declare module '@deepseek-ai/cordis' {
      * @param progress - phase and counters after the advance.
      */
     'session-query/index-progress'(progress: SessionSearchIndexProgress): void
+
+    /**
+     * A deployment reports that the UI which searches has been served, so the
+     * backend may prepare its index before the first search. Repeats are
+     * allowed: each backend prepares at most once per instance.
+     * @mode emit
+     */
+    'session-query/warmup-requested'(): void
   }
 }
 

@@ -41,6 +41,7 @@ import type {
   SessionSearchPage,
   SessionSearchRequest,
 } from '@deepseek-ai/dsh-session-query'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import {
   type JournalMode,
   openSearchDatabase,
@@ -114,6 +115,12 @@ export interface Config extends SessionQueryConfig {
    * never imported or opened. Defaults to `startup`.
    */
   openAt?: OpenAt
+  /**
+   * Prepare the index in the background one delay after a deployment reports
+   * its UI is served, so the first search does not pay for the whole initial
+   * pass. Omitted: preparation starts with the first search.
+   */
+  warmupAfterReadyMs?: number
   /** SQLite journal mode. Defaults to `wal`. */
   journalMode?: JournalMode
   /** Page size when a request omits `limit`. At most `Number.MAX_SAFE_INTEGER - 1`; defaults to 20. */
@@ -138,6 +145,7 @@ export interface Config extends SessionQueryConfig {
 interface ResolvedConfig {
   path: string
   openAt: OpenAt
+  warmupAfterReadyMs?: number
   journalMode: JournalMode
   defaultLimit: number
   maxLimit: number
@@ -272,6 +280,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
   static Config: z<Config> = z.object({
     path: z.string().required(),
     openAt: z.union(['startup', 'first-search', 'never'] as const).default('startup'),
+    warmupAfterReadyMs: z.number().step(1).min(0).max(MAX_TIMER_DELAY_MS),
     journalMode: z.union(['wal', 'delete', 'truncate', 'persist'] as const).default('wal'),
     defaultLimit: z.number().step(1).min(1).max(SQLITE_MAX_PAGE_LIMIT).default(SESSION_QUERY_SQLITE_DEFAULT_LIMIT),
     maxLimit: z.number().step(1).min(1).max(SQLITE_MAX_PAGE_LIMIT).default(SESSION_QUERY_SQLITE_MAX_LIMIT),
@@ -306,6 +315,9 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
   private _globalGeneration = 0
   private _localGeneration = 0
   private _tail: Promise<void> = Promise.resolve()
+  private _warmupState: 'idle' | 'scheduled' | 'running' | 'done' = 'idle'
+  private _warmupTimer: ReturnType<typeof setTimeout> | undefined
+  private _warmupTask: Promise<void> | undefined
   private _closed = false
   private _closePromise: Promise<void> | undefined
   private readonly _optionalPersistenceFiber: Fiber
@@ -330,6 +342,13 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     ctx.effect(() => {
       return () => this._optionalPersistenceFiber.dispose()
     }, 'sessionQuerySqlite.optionalPersistence')
+    ctx.effect(() => {
+      const off = ctx.on('session-query/warmup-requested', () => { this._requestWarmup() })
+      return () => {
+        off()
+        this._cancelWarmup()
+      }
+    }, 'sessionQuerySqlite.warmup')
     ctx.effect(() => async () => this.close(), 'sessionQuerySqlite.close')
   }
 
@@ -466,9 +485,61 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     )
   }
 
+  /**
+   * Schedule one background preparation after a deployment reports its UI is
+   * up. Repeated requests are ignored, and a failed preparation leaves the
+   * next search to prepare again rather than retrying in the background.
+   */
+  private _requestWarmup(): void {
+    const delay = this.config.warmupAfterReadyMs
+    if (delay === undefined || this._warmupState !== 'idle' || this._isClosed()) return
+    this._warmupState = 'scheduled'
+    const timer = setTimeout(() => {
+      this._warmupTimer = undefined
+      if (this._isClosed()) {
+        this._warmupState = 'idle'
+        return
+      }
+      this._warmupState = 'running'
+      this._warmupTask = this._prepareWarmup()
+    }, delay)
+    timer.unref?.()
+    this._warmupTimer = timer
+  }
+
+  /** Prepare the index on the same queue searches use, reporting its failure once. */
+  private async _prepareWarmup(): Promise<void> {
+    try {
+      await this._serialized(undefined, async () => {
+        if (this._isClosed()) return
+        await this._ensureReady(undefined, false)
+        await this._reconcile(undefined)
+      })
+    } catch (error: unknown) {
+      // The background attempt stops here: the next search prepares again and
+      // reports a real storage failure itself.
+      if (!this._isClosed()) {
+        this.ctx.logger.warn(`session-search index warmup did not finish: ${errorMessage(error)}`)
+      }
+    } finally {
+      this._warmupState = 'done'
+      this._warmupTask = undefined
+    }
+  }
+
+  /** Release the pending warmup timer; a running preparation finishes with the queue. */
+  private _cancelWarmup(): void {
+    if (this._warmupTimer === undefined) return
+    clearTimeout(this._warmupTimer)
+    this._warmupTimer = undefined
+    if (this._warmupState === 'scheduled') this._warmupState = 'idle'
+  }
+
   private async _close(): Promise<void> {
     this._closed = true
+    this._cancelWarmup()
     await this._tail
+    await this._warmupTask
     if (this._ready !== undefined) {
       try {
         await this._ready
@@ -481,12 +552,18 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
   }
 
   private async _open(): Promise<void> {
-    this._db = await openSearchDatabase(this.config.path, this.config.journalMode)
-    const state = this._db.prepare(
-      'SELECT global_generation FROM search_state WHERE singleton = 1',
-    ).get() as { global_generation: number }
-    this._globalGeneration = state.global_generation
-    this._localGeneration = state.global_generation
+    const db = await openSearchDatabase(this.config.path, this.config.journalMode)
+    try {
+      const state = db.prepare(
+        'SELECT global_generation FROM search_state WHERE singleton = 1',
+      ).get() as { global_generation: number }
+      this._globalGeneration = state.global_generation
+      this._localGeneration = state.global_generation
+      this._db = db
+    } catch (error: unknown) {
+      db.close()
+      throw error
+    }
   }
 
   /**
@@ -500,7 +577,13 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       if (reportOpening) {
         this._reportSearchIndexProgress({ phase: 'opening', examined: 0, total: 0, skipped: 0 })
       }
-      this._ready = this._open()
+      const opening = this._open()
+      this._ready = opening
+      // A failed open must not stay cached: the next request opens again and
+      // reports its own failure instead of awaiting a settled rejection.
+      void opening.catch(() => {
+        if (this._ready === opening) this._ready = undefined
+      })
     }
     try {
       await waitWithAbort(this._ready, signal)
@@ -1512,6 +1595,20 @@ function resolveConfig(config: Config): ResolvedConfig {
   }
   const openPhases: readonly string[] = ['startup', 'first-search', 'never']
   if (!openPhases.includes(resolved.openAt)) throw invalidConfig('openAt is not supported')
+  const warmupAfterReadyMs = config.warmupAfterReadyMs
+  if (warmupAfterReadyMs !== undefined) {
+    if (
+      !Number.isSafeInteger(warmupAfterReadyMs)
+      || warmupAfterReadyMs < 0
+      || warmupAfterReadyMs > MAX_TIMER_DELAY_MS
+    ) {
+      throw invalidConfig(`warmupAfterReadyMs must be an integer between 0 and ${MAX_TIMER_DELAY_MS}`)
+    }
+    if (resolved.openAt === 'never') {
+      throw invalidConfig('warmupAfterReadyMs requires full-text search, which openAt "never" disables')
+    }
+    resolved.warmupAfterReadyMs = warmupAfterReadyMs
+  }
   assertPageLimit('defaultLimit', resolved.defaultLimit)
   assertPageLimit('maxLimit', resolved.maxLimit)
   assertPositiveInteger('snippetChars', resolved.snippetChars)
