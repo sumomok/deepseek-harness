@@ -7,6 +7,7 @@ import SessionStore, {
   SessionId,
   SessionSeq,
 } from '@deepseek-ai/dsh-session'
+import { CompactionId } from '@deepseek-ai/dsh-compaction'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
@@ -25,7 +26,6 @@ import { TestSessionQueryEngine } from './test-service.ts'
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     'test': { kind: 'test' } & ContextFormed
-    'compact-checkpoint': { kind: 'compact-checkpoint' } & ContextFormed
   }
 }
 
@@ -213,7 +213,7 @@ describe('session-query document and filter helpers', () => {
         time: 2,
         data: createUserMessage({
           content: [{ type: 'text', text: 'This is an automatically generated checkpoint' }],
-          source: { kind: 'compact-checkpoint' },
+          source: { kind: 'compact-checkpoint', compactionId: CompactionId('compact-1') },
         }),
         surfaceOp: 'append',
       },
