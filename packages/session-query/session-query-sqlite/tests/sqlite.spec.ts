@@ -452,6 +452,27 @@ describe('SQLite session search', () => {
     expect(page.nextCursor).toBeUndefined()
   })
 
+  it('reaches the tail of one unbroken run, not only whole tokens', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('cjk-run'))
+    // CJK and Latin adjacent form one token, so a typed fragment only matches
+    // as a prefix of that token; a whole-token search would find nothing.
+    session.append(
+      'user/message',
+      createUserMessage({
+        content: [{ type: 'text', text: '测clinet，不要测试web端' }], source: { kind: 'user' },
+      }),
+      { surfaceOp: 'append' },
+    )
+    // A fragment of the run's head reaches it.
+    const head = await ctx.sessionQuery.searchMessages({ query: '测cli' })
+    expect(head.items.map(hit => hit.seq)).toEqual([SessionSeq(0)])
+    // A fragment starting inside the run still does not: tokens begin at the
+    // run's head, so the second run stays out of reach here.
+    const inside = await ctx.sessionQuery.searchMessages({ query: '要测试' })
+    expect(inside.items).toEqual([])
+  })
+
   it('pages messages with a cursor that the session and event scopes reject', async () => {
     const ctx = await liveContext()
     const session = ctx.sessions.create(SessionId('messages-paged'))

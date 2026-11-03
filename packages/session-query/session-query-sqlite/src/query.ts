@@ -218,12 +218,19 @@ export function buildEventWhere(filters: readonly SessionEventMetadataFilter[]):
 }
 
 /**
- * Quote caller text as one FTS5 phrase so query syntax remains inert data.
+ * Quote caller text as one prefix phrase so query syntax remains inert data.
+ *
+ * A whole-token phrase misses the case search boxes exist for: a run of CJK
+ * text adjacent to Latin is one token, so `测cli` would not reach `测clinet`,
+ * and a half-typed word would not reach its completion. The trailing `*`
+ * makes the phrase's last token a prefix, which also drops the old requirement
+ * to type the entire token. `*` applies outside the quotes, so caller text
+ * still cannot introduce FTS5 syntax.
  * @param query - normalized caller query.
- * @returns FTS5 expression containing one escaped literal phrase.
+ * @returns FTS5 expression containing one escaped literal prefix phrase.
  */
 export function quoteFtsData(query: string): string {
-  return `"${query.replaceAll('"', '""')}"`
+  return `"${query.replaceAll('"', '""')}"*`
 }
 
 /**
