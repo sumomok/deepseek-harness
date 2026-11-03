@@ -195,7 +195,7 @@ describe('Chat reveal landing', () => {
     await h.raise(request(1, 42))
     expect(h.settleReveal).toHaveBeenCalledWith(1)
     // A later request carries a new identity even for the same message position.
-    await act(async () => { vi.advanceTimersByTime(2_000) })
+    await act(async () => { vi.advanceTimersByTime(3_000) })
     expect(h.row(5).dataset.chatLanded).toBeUndefined()
 
     await h.raise(request(2, 42))

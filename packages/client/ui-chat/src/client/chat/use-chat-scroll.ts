@@ -51,6 +51,9 @@ export interface ChatScrollInput extends ChatNavigationInput {
  */
 const REVEAL_LANDING_FRAMES = 20
 
+/** Extra history requests a reveal makes before it degrades to the closest row. */
+const REVEAL_HISTORY_ATTEMPTS = 3
+
 interface ChatScrollState extends ChatReadingState {
   readonly listRef: RefObject<HTMLDivElement>
   readonly columnRef: RefObject<HTMLDivElement>
@@ -212,9 +215,10 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
       if (!landed) notifyRevealFailure({ reason, seq: reveal.seq })
       settleReveal(reveal.id)
     }
-    const land = (key: string, remaining: number): void => {
+    const land = (target: ChatRevealTarget, remaining: number): void => {
       if (cancelled) return
-      const landing = viewport.revealNode(key)
+      if (target.process !== null) setTurnProcessOpen(target.process.turn, target.process.answerStep, true)
+      const landing = viewport.revealNode(target.key)
       if (landing !== null) {
         reading.acceptNavigation(landing)
         settle(true)
@@ -227,34 +231,52 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
       }
       frame = requestAnimationFrame(() => {
         frame = null
-        land(key, remaining - 1)
+        land(target, remaining - 1)
       })
     }
-    const arrive = (): void => {
+    const nextFrame = (): Promise<void> => new Promise((resolve) => {
+      frame = requestAnimationFrame(() => {
+        frame = null
+        resolve()
+      })
+    })
+    const arrive = async (attempts: number): Promise<void> => {
       if (cancelled) return
-      // An exact resolution can only refuse when the Turn holding the position
-      // is absent from the window; landing at the closest row still opens the
-      // Session where the reader asked, instead of reporting nothing.
-      const target = locateReveal(reveal.seq) ?? locateNearest(reveal.seq)
-      if (target === undefined) {
+      const exact = locateReveal(reveal.seq)
+      if (exact !== undefined) {
+        land(exact, REVEAL_LANDING_FRAMES)
+        return
+      }
+      // The window does not hold the Turn. The jump loader can decline to page
+      // — another page pull owns the flag, or it was asked before the Session
+      // opened — so ask again rather than land somewhere the reader did not ask for.
+      if (attempts > 0 && hasMore && (firstSeq === null || reveal.seq < firstSeq)) {
+        await loadThrough(reveal.seq)
+        await nextFrame()
+        return arrive(attempts - 1)
+      }
+      // Only a window that genuinely cannot reach the position degrades.
+      const fallback = locateNearest(reveal.seq)
+      if (fallback === undefined) {
         settle(false)
         return
       }
-      if (target.process !== null) setTurnProcessOpen(target.process.turn, target.process.answerStep, true)
-      land(target.key, REVEAL_LANDING_FRAMES)
+      land(fallback, REVEAL_LANDING_FRAMES)
     }
     navigation.cancel()
     viewport.beginPreserving()
     reading.pauseFollowing()
     // The jump loader settles rather than rejects; a refusal still ends this landing.
-    void loadThrough(reveal.seq).then(arrive, () => { if (!cancelled) settle(false, 'history') })
+    void loadThrough(reveal.seq)
+      .then(() => arrive(REVEAL_HISTORY_ATTEMPTS))
+      .catch(() => { if (!cancelled) settle(false, 'history') })
     return () => {
       cancelled = true
       if (frame !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame)
     }
   }, [
     ready, reveal, loadThrough, locateReveal, locateNearest, settleReveal, notifyRevealFailure,
-    setTurnProcessOpen,
+    setTurnProcessOpen, hasMore, firstSeq,
     viewport, reading, navigation,
   ])
 

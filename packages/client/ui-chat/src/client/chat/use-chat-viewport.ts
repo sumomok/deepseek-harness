@@ -71,7 +71,7 @@ interface PagingPosition {
 const READING_INTENTS = ['wheel', 'touchstart', 'pointerdown', 'keydown', 'beforematch'] as const
 const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '])
 /** Arrival wash after landing on a message a navigation asked for; the design holds it for 1.2s. */
-const LANDING_WASH_MS = 1200
+const LANDING_WASH_MS = 2600
 
 /** Owns one Chat scrollport's DOM operations, event listeners, and size observer. */
 export class ChatViewport {
