@@ -85,11 +85,15 @@ export function SearchPanel({
   // after Tab moves focus into the result list.
   const onEscape = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (event.key !== 'Escape') return
+    // A composition in progress owns its keys: Escape cancels the composition.
+    if (event.nativeEvent.isComposing) return
     event.preventDefault()
     close()
   }
 
   const onFieldKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+    // Enter during an IME composition confirms the candidate, never a result.
+    if (event.nativeEvent.isComposing) return
     if (event.key === 'ArrowDown') { event.preventDefault(); moveActive(1); return }
     if (event.key === 'ArrowUp') { event.preventDefault(); moveActive(-1); return }
     if (event.key === 'Enter') {
@@ -165,7 +169,7 @@ export function SearchPanel({
             </div>
           )}
           {notice !== undefined && <p className={css.notice}>{notice}</p>}
-          {settled && state.rows.length > 0 && state.nextCursor !== undefined && (
+          {settled && state.nextCursor !== undefined && (
             <button type="button" className={css.more} onClick={loadMore}>{t('panel.loadMore')}</button>
           )}
         </div>

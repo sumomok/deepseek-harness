@@ -45,6 +45,10 @@ export function apply(ctx: ClientContext): void {
   let sequence = 0
   let pending: AbortController | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
+  /** Every row this sequence has read, archived ones included; visibility is derived. */
+  let retained: SearchResultRow[] = []
+  /** Reads that have not settled; disposal waits for them. */
+  const inflight = new Set<Promise<void>>()
 
   const cancelPending = (): void => {
     if (timer !== undefined) { clearTimeout(timer); timer = undefined }
@@ -59,10 +63,40 @@ export function apply(ctx: ClientContext): void {
   /** Sessions the person archived; the search index does not know about archiving. */
   const archived = (): ReadonlySet<string> => new Set(ctx.workspaces.list.getSnapshot().archivedSessionIds)
 
+  /**
+   * Publish the rows that survive the archive set and keep the selection inside
+   * them. Rows are retained unfiltered so a later archive or restore changes
+   * what the person sees without another Host read.
+   * @param patch - further state fields to publish with the visible rows.
+   */
+  const publish = (patch: Partial<SearchPanelState> = {}): void => {
+    const hidden = archived()
+    const visible = retained.filter(row => !hidden.has(row.sessionId))
+    const active = store.getSnapshot().active
+    setState({
+      rows: visible,
+      active: visible.length === 0 ? -1 : Math.min(Math.max(active, 0), visible.length - 1),
+      ...patch,
+    })
+  }
+
   const titleOf = (sessionId: SearchResultRow['sessionId']): string | undefined => {
     const row = ctx.sessions.list.getSnapshot().byId[sessionId]
     const title = row?.title?.trim()
     return title === undefined || title === '' ? undefined : title
+  }
+
+  /**
+   * Start one page read and keep it in the set disposal waits on.
+   * @param query - the phrase this sequence searches for.
+   * @param cursor - continuation cursor, absent for the first page.
+   * @param token - sequence identity the reply must still match to be published.
+   */
+  const startRead = (query: string, cursor: SearchCursor | undefined, token: number): void => {
+    timer = undefined
+    const read = readPage(query, cursor, token)
+    inflight.add(read)
+    void read.finally(() => { inflight.delete(read) })
   }
 
   /** Read one page, appending when `cursor` continues an existing sequence. */
@@ -81,26 +115,16 @@ export function apply(ctx: ClientContext): void {
       setState({ phase: 'error', nextCursor: undefined })
       return
     }
-    const hidden = archived()
-    const rows: SearchResultRow[] = result.value.items
-      .filter(item => !hidden.has(item.sessionId))
-      .map(item => ({
-        sessionId: item.sessionId,
-        seq: Number(item.seq),
-        title: titleOf(item.sessionId),
-        snippet: item.snippet,
-        matches: item.matches ?? [],
-      }))
-    const previous = cursor === undefined ? [] : store.getSnapshot().rows
-    const seen = new Set(previous.map(row => `${row.sessionId}:${String(row.seq)}`))
-    const appended = [...previous, ...rows.filter(row => !seen.has(`${row.sessionId}:${String(row.seq)}`))]
-    setState({
-      rows: appended,
-      phase: 'ready',
-      nextCursor: result.value.nextCursor,
-      coverage: result.value.coverage,
-      active: appended.length === 0 ? -1 : Math.min(Math.max(store.getSnapshot().active, 0), appended.length - 1),
-    })
+    const rows: SearchResultRow[] = result.value.items.map(item => ({
+      sessionId: item.sessionId,
+      seq: Number(item.seq),
+      title: titleOf(item.sessionId),
+      snippet: item.snippet,
+      matches: item.matches ?? [],
+    }))
+    const seen = new Set(retained.map(row => `${row.sessionId}:${String(row.seq)}`))
+    retained = [...retained, ...rows.filter(row => !seen.has(`${row.sessionId}:${String(row.seq)}`))]
+    publish({ phase: 'ready', nextCursor: result.value.nextCursor, coverage: result.value.coverage })
   }
 
   const search = (query: string): void => {
@@ -108,11 +132,13 @@ export function apply(ctx: ClientContext): void {
     sequence += 1
     const token = sequence
     cancelPending()
+    retained = []
     if (trimmed === '') {
       setState({ rows: [], phase: 'idle', nextCursor: undefined, coverage: undefined, active: -1 })
       return
     }
-    timer = setTimeout(() => { void readPage(trimmed, undefined, token) }, QUERY_DEBOUNCE_MS)
+    setState({ rows: [], nextCursor: undefined, coverage: undefined, active: -1, phase: 'loading' })
+    timer = setTimeout(() => { startRead(trimmed, undefined, token) }, QUERY_DEBOUNCE_MS)
   }
 
   const open = (): void => {
@@ -124,6 +150,7 @@ export function apply(ctx: ClientContext): void {
   const close = (): void => {
     sequence += 1
     cancelPending()
+    retained = []
     store.set({ ...IDLE_STATE })
   }
 
@@ -138,9 +165,9 @@ export function apply(ctx: ClientContext): void {
   const injected: SearchPanelInjected = {
     hooks: { search: store },
     setQuery: (value) => {
-      // Drop the previous sequence's cursor before the debounce fires: a page
-      // read against the new phrase would otherwise resume from the old one.
-      setState({ query: value, active: -1, nextCursor: undefined })
+      // The old rows and cursor belong to the old phrase: clear them before the
+      // debounce fires so Enter cannot open a result the field no longer names.
+      setState({ query: value })
       search(value)
     },
     moveActive: (delta) => {
@@ -156,17 +183,28 @@ export function apply(ctx: ClientContext): void {
     loadMore: () => {
       const { query, nextCursor, phase } = store.getSnapshot()
       if (nextCursor === undefined || phase !== 'ready') return
-      void readPage(query.trim(), nextCursor, sequence)
+      startRead(query.trim(), nextCursor, sequence)
     },
     retry: () => {
       const { query } = store.getSnapshot()
       sequence += 1
-      void readPage(query.trim(), undefined, sequence)
+      retained = []
+      startRead(query.trim(), undefined, sequence)
     },
     close,
   }
 
-  ctx.effect(() => () => { cancelPending() }, 'ui-search: pending reads')
+  // Archiving and restoring change what the retained rows may show without a
+  // new Host read, so follow the Workspace projection.
+  ctx.effect(() => ctx.workspaces.list.subscribe(() => { publish() }), 'ui-search: archive follow')
+
+  // Disposal invalidates the sequence, aborts the read in flight, and waits for
+  // every read this plugin started, so nothing publishes after teardown.
+  ctx.effect(() => () => {
+    sequence += 1
+    cancelPending()
+    return Promise.allSettled([...inflight]).then(() => undefined)
+  }, 'ui-search: pending reads')
 
   ctx.effect(() => ctx.shortcuts.register({
     id: brandString<ShortcutCommandId>('search.messages'),

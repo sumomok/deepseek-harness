@@ -151,6 +151,13 @@ describe('SearchPanel keyboard', () => {
     expect(openActive).toHaveBeenCalledTimes(1)
   })
 
+  it('leaves Return to the input method while a composition is active', () => {
+    const openActive = vi.fn()
+    render(<SearchPanel {...props(state(), { openActive })} />)
+    fireEvent.keyDown(field(), { key: 'Enter', isComposing: true })
+    expect(openActive).not.toHaveBeenCalled()
+  })
+
   it('reports every keystroke so the plugin body can debounce the read', () => {
     const setQuery = vi.fn()
     render(<SearchPanel {...props(state(), { setQuery })} />)
@@ -183,6 +190,14 @@ describe('SearchPanel paging', () => {
     list.scrollTop = 900
     fireEvent.scroll(list)
     expect(loadMore).not.toHaveBeenCalled()
+  })
+
+  it('keeps the continuation reachable when a page comes back empty', () => {
+    const loadMore = vi.fn()
+    render(<SearchPanel {...props(state({ rows: [], nextCursor: 'cursor' as never, active: -1 }), { loadMore })} />)
+    fireEvent.click(screen.getByRole('button', { name: zh['panel.loadMore'] }))
+    expect(loadMore).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText(zh['panel.empty'])).toBeNull()
   })
 
   it('opens the row the pointer selected, not the keyboard selection', () => {

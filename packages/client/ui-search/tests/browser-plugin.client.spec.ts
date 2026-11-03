@@ -23,6 +23,8 @@ const registered: { id: string; defaults: Record<string, { code: string; modifie
 
 /** Session ids the stubbed Workspace projection reports as archived. */
 let archived: string[] = []
+/** Announces an archive change to the subscribers the plugin registered. */
+let archiveEmit: () => void = () => {}
 
 /** What the next stub read answers with. */
 let answer: 'page' | 'failure' | 'deferred' = 'page'
@@ -69,8 +71,16 @@ async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugi
     },
   } as never)
   ctx.provide('uiWorkspace', { openSession: (id: string) => { opened.push(id) } } as never)
+  const archiveListeners = new Set<() => void>()
+  archiveEmit = () => { for (const listener of archiveListeners) listener() }
   ctx.provide('workspaces', {
-    list: { getSnapshot: () => ({ archivedSessionIds: archived }), subscribe: () => () => {} },
+    list: {
+      getSnapshot: () => ({ archivedSessionIds: archived }),
+      subscribe: (listener: () => void) => {
+        archiveListeners.add(listener)
+        return () => { archiveListeners.delete(listener) }
+      },
+    },
   } as never)
   ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
   ctx.provide('remote', { $on: () => () => {} } as never)
@@ -253,6 +263,38 @@ describe('ui-search browser half', () => {
     const page = injected.hooks.search.getSnapshot()
     expect(page.rows).toEqual([])
     expect(page.phase).toBe('ready')
+  })
+
+  it('re-reads visibility when the archive set changes, without another Host read', async () => {
+    const { ctx } = await bench()
+    const injected = face(ctx)
+    injected.setQuery('分页')
+    await settle()
+    expect(injected.hooks.search.getSnapshot().rows).toHaveLength(1)
+    archived = ['sess-a']
+    archiveEmit()
+    expect(injected.hooks.search.getSnapshot().rows).toEqual([])
+    expect(injected.hooks.search.getSnapshot().phase).toBe('ready')
+    expect(reads).toHaveLength(1)
+  })
+
+  it('waits for a read it started before finishing disposal, and publishes nothing after', async () => {
+    const { ctx, fiber } = await bench()
+    const injected = face(ctx)
+    answer = 'deferred'
+    injected.setQuery('分页')
+    await settle()
+    expect(release).toBeDefined()
+    const before = injected.hooks.search.getSnapshot()
+    let disposed = false
+    const disposal = fiber.dispose().then(() => { disposed = true })
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(disposed).toBe(false)
+    release?.()
+    await disposal
+    expect(disposed).toBe(true)
+    expect(injected.hooks.search.getSnapshot()).toEqual(before)
+    expect(ctx.slots.entries('shell.overlay').map(entry => entry.options.id)).not.toContain('search.panel')
   })
 
   it('leaves the node half inert', () => {
