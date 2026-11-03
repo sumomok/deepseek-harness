@@ -507,6 +507,10 @@ abstract searchEvents( request: SessionEventSearchRequest, exec?: SessionSearchE
  * words, because a message is prose: every whitespace-separated term must
  * appear somewhere in the message, in any order and at any distance, and a
  * term reaches the middle of a word as readily as its start.
+ *
+ * Hits cover what a reader can see: the text blocks of `user/message` and
+ * `assistant/message`. Tool calls, reasoning, and the checkpoint a
+ * compaction injects are the run's scaffolding and never match.
  * @param request - query text, metadata filters, page size, and cursor.
  * @param exec - optional cancellation control.
  * @returns matching event hits in contract-defined order.
