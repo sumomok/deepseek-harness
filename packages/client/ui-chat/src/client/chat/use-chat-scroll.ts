@@ -42,8 +42,14 @@ export interface ChatScrollInput extends ChatNavigationInput {
   readonly setTurnProcessOpen: ChatViewSlotProps['actions']['setTurnProcessOpen']
 }
 
-/** Animation frames a landing retries while the fold it opened commits. */
-const REVEAL_LANDING_FRAMES = 4
+/**
+ * Animation frames a landing retries while the fold it opened commits.
+ *
+ * Opening a group runs on the fold clock (its close animation is ~110 ms), so
+ * the row appears several frames after the request; four frames would expire
+ * before the commit that mounts it.
+ */
+const REVEAL_LANDING_FRAMES = 20
 
 interface ChatScrollState extends ChatReadingState {
   readonly listRef: RefObject<HTMLDivElement>

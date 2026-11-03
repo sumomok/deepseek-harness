@@ -759,7 +759,7 @@ export class ChatViewport {
    * @returns the actual landing, or null when no visible row carries that key.
    */
   revealNode(key: string): ViewportLanding | null {
-    const row = this.anchor(key, 'node')
+    const row = this.anchor(key, 'node') ?? this.revealSearchableRow(key)
     if (row === null) return null
     const body = row.closest<HTMLElement>('[data-step-process-body]')
     if (body !== null) {
@@ -772,6 +772,30 @@ export class ChatViewport {
     const landing = this.align(outer, 24, Number.isSafeInteger(turn) ? turn : null)
     if (landing !== null) this.wash(row)
     return landing
+  }
+
+  /**
+   * Ask the fold that hides a row to open, so the next frame can anchor it.
+   *
+   * Folded groups and process disclosures hide their rows with `hidden="until-found"`
+   * and listen for `beforematch`, the event a browser's own find fires before it
+   * scrolls a match into view. A landing is the same request from another surface,
+   * so it fires the same event on each hidden ancestor and reports nothing this
+   * frame: the reveal is a state change that lands on a later commit.
+   * @param key - Chat Node identity to reveal.
+   * @returns null; the caller retries after the fold's commit.
+   */
+  private revealSearchableRow(key: string): null {
+    if (this.elements === null) return null
+    const list = this.elements.list
+    const row = queryNodeByKey(list, key)
+    if (row === null) return null
+    let node: HTMLElement | null = row
+    while (node !== null && node !== list) {
+      if (node.getAttribute('hidden') === 'until-found') node.dispatchEvent(new Event('beforematch'))
+      node = node.parentElement
+    }
+    return null
   }
 
   /** Wash the landed row, restarting it when the same row lands twice. */
@@ -1010,6 +1034,19 @@ export class ChatViewport {
  * Bind viewport resource ownership to the component's layout lifetime.
  * @returns one viewport owner and the element refs attached for this mount.
  */
+/**
+ * Find one rendered Chat row by its identity, including inside a folded subtree.
+ * @param list - transcript list root.
+ * @param key - Chat Node identity.
+ * @returns the row element, or null when it is not rendered at all.
+ */
+function queryNodeByKey(list: HTMLElement, key: string): HTMLElement | null {
+  for (const element of list.querySelectorAll<HTMLElement>('[data-chat-node-key]')) {
+    if (element.dataset.chatNodeKey === key) return element
+  }
+  return null
+}
+
 export function useChatViewport(): {
   viewport: ChatViewport
   listRef: RefObject<HTMLDivElement>
