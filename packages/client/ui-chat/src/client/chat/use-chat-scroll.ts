@@ -47,16 +47,22 @@ export interface ChatScrollInput extends ChatNavigationInput {
 }
 
 /**
- * Animation frames a landing retries while the fold it opened commits.
+ * How long a landing retries while the fold it opened commits.
  *
  * Opening a group runs on the fold clock (its close animation is ~110 ms), so
- * the row appears several frames after the request; four frames would expire
- * before the commit that mounts it.
+ * the row appears several frames after the request. The wait is wall-clock
+ * bounded rather than frame-count bounded so a slow or high-refresh display
+ * neither shortens nor stretches how long the mounted row may take to appear.
  */
-const REVEAL_LANDING_FRAMES = 20
+const REVEAL_MOUNT_TIMEOUT_MS = 500
 
-/** Extra history requests a reveal makes before it degrades to the closest row. */
-const REVEAL_HISTORY_ATTEMPTS = 3
+/**
+ * Extra direct reads a reveal makes when another page pull declined the first.
+ *
+ * The jump itself already reads the target page once; more retries only repeat
+ * a request the Session answered with "not now".
+ */
+const REVEAL_HISTORY_ATTEMPTS = 1
 
 /** Frames a landed row re-aligns for, covering the layout the page commit shifts. */
 const REVEAL_ALIGN_FRAMES = 2
@@ -225,7 +231,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
       if (!landed) notifyRevealFailure({ reason, seq: reveal.seq })
       settleReveal(reveal.id)
     }
-    const land = (target: ChatRevealTarget, remaining: number): void => {
+    const land = (target: ChatRevealTarget, deadline: number): void => {
       if (cancelled) return
       if (target.process !== null) setTurnProcessOpen(target.process.turn, target.process.answerStep, true)
       const landing = viewport.revealNode(target.key)
@@ -239,20 +245,20 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
         const correct = (): void => {
           if (cancelled || corrections <= 0) return
           corrections -= 1
-          viewport.revealNode(target.key)
+          viewport.realignNode(target.key)
           frame = requestAnimationFrame(correct)
         }
         if (typeof requestAnimationFrame === 'function') frame = requestAnimationFrame(correct)
         return
       }
       // The row is not mounted yet: a fold this request opened hides it until React commits.
-      if (remaining <= 0 || typeof requestAnimationFrame !== 'function') {
+      if (Date.now() >= deadline || typeof requestAnimationFrame !== 'function') {
         settle(false, 'unmounted')
         return
       }
       frame = requestAnimationFrame(() => {
         frame = null
-        land(target, remaining - 1)
+        land(target, deadline)
       })
     }
     const nextFrame = (): Promise<void> => new Promise((resolve) => {
@@ -265,7 +271,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
       if (cancelled) return
       const exact = locateReveal(reveal.seq)
       if (exact !== undefined) {
-        land(exact, REVEAL_LANDING_FRAMES)
+        land(exact, Date.now() + REVEAL_MOUNT_TIMEOUT_MS)
         return
       }
       // The window does not hold the Turn. The jump loader can decline to page

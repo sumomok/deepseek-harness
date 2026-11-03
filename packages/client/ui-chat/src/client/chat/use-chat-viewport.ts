@@ -759,6 +759,31 @@ export class ChatViewport {
    * @returns the actual landing, or null when no visible row carries that key.
    */
   revealNode(key: string): ViewportLanding | null {
+    const located = this.locateNode(key)
+    if (located === null) return null
+    this.wash(located.row)
+    return located.landing
+  }
+
+  /**
+   * Re-align a row a reveal already landed, after a commit shifted it.
+   *
+   * A correction moves the row only. Repeating the arrival wash here would
+   * restart an animation the reader has already seen and force a style flush
+   * in the middle of the page commit that caused the shift.
+   * @param key - stable Chat row anchor key.
+   * @returns the corrected landing, or null when no visible row carries that key.
+   */
+  realignNode(key: string): ViewportLanding | null {
+    return this.locateNode(key)?.landing ?? null
+  }
+
+  /**
+   * Place the scrollport on one mounted row without marking the arrival.
+   * @param key - stable Chat row anchor key.
+   * @returns the row that carries the key and its landing, or null when unmounted.
+   */
+  private locateNode(key: string): { row: HTMLElement; landing: ViewportLanding } | null {
     const row = this.anchor(key, 'node') ?? this.revealSearchableRow(key)
     if (row === null) return null
     const body = row.closest<HTMLElement>('[data-step-process-body]')
@@ -770,8 +795,7 @@ export class ChatViewport {
     const outer = body?.closest<HTMLElement>('[data-chat-group-key]') ?? row
     const turn = Number(outer.dataset.chatTurn)
     const landing = this.align(outer, 24, Number.isSafeInteger(turn) ? turn : null)
-    if (landing !== null) this.wash(row)
-    return landing
+    return landing === null ? null : { row, landing }
   }
 
   /**
@@ -800,10 +824,12 @@ export class ChatViewport {
 
   /** Wash the landed row, restarting it when the same row lands twice. */
   private wash(row: HTMLElement): void {
+    const previous = this.landing?.element ?? null
     this.clearLanding()
-    delete row.dataset.chatLanded
-    // Committing the removal starts the same animation again on the next frame.
-    void row.offsetWidth
+    // Removing and re-adding the attribute in one frame does not restart the
+    // animation unless a style flush happens between them, so only a second
+    // landing on the same row pays for that forced layout.
+    if (previous === row) void row.offsetWidth
     row.dataset.chatLanded = ''
     this.landing = {
       element: row,
