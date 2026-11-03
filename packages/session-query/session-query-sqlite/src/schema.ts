@@ -5,8 +5,14 @@ import { mkdir, open } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 
-/** Current derived-index schema version. Incompatible versions reset in place. */
-export const SESSION_QUERY_SQLITE_SCHEMA_VERSION = 8
+/**
+ * Current derived-index schema version. Incompatible versions reset in place.
+ *
+ * Version 9 records the narrowed document set: only message prose is indexed,
+ * so rows written by older extraction (tool calls, compaction checkpoints)
+ * must not survive reconciliation.
+ */
+export const SESSION_QUERY_SQLITE_SCHEMA_VERSION = 9
 
 /**
  * Identity stamped in `PRAGMA user_version`: the schema version above in the
