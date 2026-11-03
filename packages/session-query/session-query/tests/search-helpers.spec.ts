@@ -195,6 +195,27 @@ describe('session-query document and filter helpers', () => {
     ])
   })
 
+  it('omits the summary a compaction injects as a user message', () => {
+    const events = [
+      { type: 'compaction/start', seq: SessionSeq(0), time: 1, data: { compactionId: 'c', turn: 1 } },
+      { type: 'user/message', seq: SessionSeq(1), time: 2, data:
+        createUserMessage({
+          content: [{ type: 'text', text: 'This is an automatically generated checkpoint' }],
+          source: { kind: 'system-prompt' },
+        }),
+      surfaceOp: 'append' },
+      { type: 'compaction/end', seq: SessionSeq(2), time: 3, data: { compactionId: 'c', turn: 1 } },
+      { type: 'user/message', seq: SessionSeq(3), time: 4, data:
+        createUserMessage({ content: [{ type: 'text', text: 'real question' }], source: { kind: 'user' } }),
+      surfaceOp: 'append' },
+    ] as readonly SessionEvent[]
+    const documents = buildSessionEventSearchDocuments(id, events)
+    // The checkpoint is scaffolding: no row renders it, so nothing may find it.
+    expect(documents.map(document => [document.seq, document.text])).toEqual([
+      [3, 'real question'],
+    ])
+  })
+
   it('applies every session clause with OR values and validates closed values', () => {
     const parent = SessionId('parent')
     const records = [
