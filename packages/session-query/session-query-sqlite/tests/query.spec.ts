@@ -4,9 +4,12 @@ import { SessionSearchCursor, type SessionQueryErrorCode } from '@deepseek-ai/ds
 import {
   buildEventWhere,
   buildSessionWhere,
+  compileMessageTerms,
+  escapeLikeTerm,
   FTS_HIGHLIGHT_END,
   FTS_HIGHLIGHT_START,
   makeSnippet,
+  markMessageMatches,
   normalizeEventRequest,
   normalizeSessionRequest,
   quoteFtsData,
@@ -205,6 +208,33 @@ describe('SQLite search predicate compilation', () => {
 describe('SQLite query identity and presentation', () => {
   it('quotes all caller MATCH syntax as data', () => {
     expect(quoteFtsData('say "needle" OR *')).toBe('"say ""needle"" OR *"*')
+  })
+
+  it('escapes one term for a literal LIKE pattern', () => {
+    expect(escapeLikeTerm('100%')).toBe('100\\%')
+    expect(escapeLikeTerm('a_b')).toBe('a\\_b')
+    expect(escapeLikeTerm('c\\d')).toBe('c\\\\d')
+  })
+
+  it('requires every distinct whitespace-separated term', () => {
+    expect(compileMessageTerms('测 client 测')).toEqual(['测', 'client'])
+    expect(compileMessageTerms('single')).toEqual(['single'])
+  })
+
+  it('marks literal matches anywhere, merging overlaps into one range', () => {
+    expect(markMessageMatches('xx needle yy', ['needle'])).toEqual({
+      marked: `xx ${FTS_HIGHLIGHT_START}needle${FTS_HIGHLIGHT_END} yy`,
+      count: 1,
+    })
+    // Terms match in any order and merge where they overlap.
+    expect(markMessageMatches('测clinet', ['测cli', '测'])).toEqual({
+      marked: `${FTS_HIGHLIGHT_START}测cli${FTS_HIGHLIGHT_END}net`,
+      count: 1,
+    })
+    // ASCII case folds the way SQLite's LIKE folds it.
+    expect(markMessageMatches('Needle', ['needle'])?.count).toBe(1)
+    // A missing term drops the whole document.
+    expect(markMessageMatches('needle', ['needle', 'absent'])).toBeUndefined()
   })
 
   it('canonicalizes request and filter ordering in both scopes', () => {

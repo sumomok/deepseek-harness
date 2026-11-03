@@ -452,25 +452,61 @@ describe('SQLite session search', () => {
     expect(page.nextCursor).toBeUndefined()
   })
 
-  it('reaches the tail of one unbroken run, not only whole tokens', async () => {
+  it('finds literal substrings anywhere and requires every term', async () => {
     const ctx = await liveContext()
-    const session = ctx.sessions.create(SessionId('cjk-run'))
-    // CJK and Latin adjacent form one token, so a typed fragment only matches
-    // as a prefix of that token; a whole-token search would find nothing.
-    session.append(
+    const glued = ctx.sessions.create(SessionId('literal-glued'))
+    glued.append(
       'user/message',
       createUserMessage({
         content: [{ type: 'text', text: '测clinet，不要测试web端' }], source: { kind: 'user' },
       }),
       { surfaceOp: 'append' },
     )
-    // A fragment of the run's head reaches it.
-    const head = await ctx.sessionQuery.searchMessages({ query: '测cli' })
-    expect(head.items.map(hit => hit.seq)).toEqual([SessionSeq(0)])
-    // A fragment starting inside the run still does not: tokens begin at the
-    // run's head, so the second run stays out of reach here.
+    const spaced = ctx.sessions.create(SessionId('literal-spaced'))
+    spaced.append(
+      'user/message',
+      createUserMessage({
+        content: [{ type: 'text', text: '测 client 一下' }], source: { kind: 'user' },
+      }),
+      { surfaceOp: 'append' },
+    )
+
+    // A fragment that starts inside one unbroken run still reaches it: the
+    // match is literal text, not a token.
     const inside = await ctx.sessionQuery.searchMessages({ query: '要测试' })
-    expect(inside.items).toEqual([])
+    expect(inside.items.map(hit => [hit.sessionId, hit.snippet, hit.matches])).toEqual([
+      [glued.id, '测clinet，不要测试web端', [{ start: 9, length: 3 }]],
+    ])
+    // CJK adjacent to Latin is one token for FTS and one substring here.
+    const mixed = await ctx.sessionQuery.searchMessages({ query: '测cli' })
+    expect(mixed.items.map(hit => hit.sessionId)).toEqual([glued.id])
+
+    // Every term is required, in any order and at any distance.
+    const reversed = await ctx.sessionQuery.searchMessages({ query: 'client 测' })
+    expect(reversed.items.map(hit => hit.sessionId)).toEqual([spaced.id])
+    const missing = await ctx.sessionQuery.searchMessages({ query: 'client 端' })
+    expect(missing.items).toEqual([])
+  })
+
+  it('keeps a long scan responsive and still ranks the whole matching set', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('yielding-scan'))
+    for (let index = 0; index < 300; index += 1) {
+      session.append(
+        'user/message',
+        createUserMessage({ content: [{ type: 'text', text: `noise ${index}` }], source: { kind: 'user' } }),
+        { surfaceOp: 'append' },
+      )
+    }
+    session.append(
+      'user/message',
+      createUserMessage({ content: [{ type: 'text', text: 'the needle' }], source: { kind: 'user' } }),
+      { surfaceOp: 'append' },
+    )
+    // One matching row sits past the first yield window; the scan must resume
+    // rather than stop where it let the event loop run.
+    const page = await ctx.sessionQuery.searchMessages({ query: 'needle' })
+    expect(page.items.map(hit => hit.seq)).toEqual([SessionSeq(300)])
   })
 
   it('pages messages with a cursor that the session and event scopes reject', async () => {

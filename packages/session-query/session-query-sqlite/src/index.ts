@@ -54,7 +54,10 @@ import {
   assertPortableBindingCount,
   buildEventWhere,
   buildSessionWhere,
+  compileMessageTerms,
+  escapeLikeTerm,
   makeSnippet,
+  markMessageMatches,
   normalizeEventRequest,
   normalizeSessionRequest,
   quoteFtsData,
@@ -414,7 +417,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     return this._serialized(signal, async () => {
       const { offset, generation, fingerprint, persistenceBinding } =
         await this._beginCrossSessionPage(normalized, 'messages', signal)
-      const rows = this._queryMessages(normalized, offset, persistenceBinding)
+      const rows = await this._queryMessages(normalized, offset, persistenceBinding)
       return {
         ...page(rows, normalized.limit, row => this._eventHit(row), cursorOffset => encodeCursor({
           version: 1,
@@ -930,19 +933,68 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
    * @param persistenceBinding - binding for the indexed generation being read.
    * @returns one row per matching event, plus the row that proves a next page.
    */
-  private _queryMessages(
+  /**
+   * Select matching events across sessions, keeping every hit.
+   *
+   * Message search matches literal substrings, so it cannot delegate the
+   * predicate to FTS5: a token boundary is not a substring boundary, and text
+   * like `测clinet` would be reachable only as a whole token. The candidates
+   * are therefore the same derived documents with their text intact, and the
+   * scan applies the same matcher that later marks the excerpt, so what a
+   * reader sees highlighted is exactly what matched. The scan yields every
+   * {@link MESSAGE_SCAN_YIELD_ROWS} rows because a deployment's corpus can take
+   * a second, and a held event loop would stall unrelated streams.
+   * @param request - normalized query, session filters, event filters, and limit.
+   * @param offset - page offset already validated against the cursor.
+   * @param persistenceBinding - binding for the indexed generation being read.
+   * @returns one row per matching event, plus the row that proves a next page.
+   */
+  private async _queryMessages(
     request: NormalizedSessionRequest,
     offset: number,
     persistenceBinding: PersistenceBinding,
-  ): SearchRow[] {
-    const { sql, where, bindings } = crossSessionQuery(request, offset, persistenceBinding)
-    return this._requireDb().prepare(`
-      ${sql}
-      SELECT * FROM matched
+  ): Promise<SearchRow[]> {
+    const terms = compileMessageTerms(request.query)
+    const sessionWhere = buildSessionWhere(request.sessionFilters)
+    const eventWhere = buildEventWhere(request.eventFilters)
+    assertFts5OuterPredicateCount(sessionWhere.predicateCount + eventWhere.predicateCount)
+    const where = [sessionWhere.sql, eventWhere.sql].filter(Boolean).join(' AND ')
+    const visible = persistenceBinding.service !== undefined ? 1 : 0
+    const patterns = terms.map(term => `%${escapeLikeTerm(term)}%`)
+    const bindings = [
+      visible,
+      ...patterns,
+      visible,
+      ...patterns,
+      ...sessionWhere.params,
+      ...eventWhere.params,
+    ]
+    assertPortableBindingCount(bindings.length)
+    const statement = this._requireDb().prepare(`
+      ${selectedMessageScanSql(terms.length).sql}
+      SELECT * FROM candidates
       ${where === '' ? '' : `WHERE ${where}`}
-      ORDER BY match_count DESC, document_length ASC, time DESC, session_id ASC, seq DESC
-      LIMIT ? OFFSET ?
-    `).all(...bindings).map(toSearchRow)
+    `)
+    const hits: SearchRow[] = []
+    const rows = statement.iterate(...bindings) as IterableIterator<ScanRow>
+    let examined = 0
+    for (;;) {
+      const next = rows.next()
+      if (next.done === true) break
+      const marked = markMessageMatches(next.value.document_text, terms)
+      if (marked !== undefined) hits.push(scanRow(next.value, marked.marked, marked.count))
+      examined += 1
+      if (examined % MESSAGE_SCAN_YIELD_ROWS === 0) await scheduler.yield()
+    }
+    // Every hit is ranked before the page is cut: a page can only be addressed
+    // by offset when the whole matching set is ordered the same way each time.
+    hits.sort((left, right) =>
+      right.match_count - left.match_count
+      || left.document_length - right.document_length
+      || right.time - left.time
+      || (left.session_id < right.session_id ? -1 : left.session_id > right.session_id ? 1 : 0)
+      || right.seq - left.seq)
+    return hits.slice(offset, offset + request.limit + 1)
   }
 
   private _queryEvents(
@@ -1114,6 +1166,120 @@ function selectedDocumentsSql(): { sql: string } {
         ) / ? AS match_count
       FROM candidates
     )`,
+  }
+}
+
+/**
+ * Build the candidate rows a literal message search scans.
+ *
+ * Same sources, metadata and live-overrides-persisted rule as
+ * {@link selectedDocumentsSql}, with the document text itself instead of an
+ * FTS5-marked excerpt: the scan marks matches after it has proved every term
+ * is present, so the marks describe the text a reader is looking at.
+ * @returns the candidate CTE; its bindings are two visibility flags.
+ */
+function selectedMessageScanSql(termCount: number): { sql: string } {
+  const literal = Array.from({ length: termCount }, () => 'AND pd.text LIKE ? ESCAPE \'\\\'').join('\n        ')
+  const literalLive = Array.from({ length: termCount }, () => 'AND ld.text LIKE ? ESCAPE \'\\\'').join('\n        ')
+  return {
+    sql: `WITH candidates AS (
+      SELECT
+        pd.session_id AS session_id,
+        ps.version AS version,
+        ps.created_at AS created_at,
+        ps.cwd AS cwd,
+        ps.parent_session AS parent_session,
+        ps.seed_length AS seed_length,
+        ps.delegation_depth AS delegation_depth,
+        ps.agent_preset AS agent_preset,
+        0 AS live,
+        1 AS persisted,
+        CAST(pd.seq AS INTEGER) AS seq,
+        pd.type AS type,
+        CAST(pd.time AS INTEGER) AS time,
+        pd.surface AS surface,
+        pd.text AS document_text,
+        CAST(pd.codepoint_length AS INTEGER) AS document_length
+      FROM persisted_docs AS pd
+      JOIN persisted_sessions AS ps ON ps.id = pd.session_id
+      WHERE ? = 1
+        ${literal}
+        AND NOT EXISTS (SELECT 1 FROM temp.live_sessions AS ls WHERE ls.id = pd.session_id)
+      UNION ALL
+      SELECT
+        ld.session_id AS session_id,
+        ls.version AS version,
+        ls.created_at AS created_at,
+        ls.cwd AS cwd,
+        ls.parent_session AS parent_session,
+        ls.seed_length AS seed_length,
+        ls.delegation_depth AS delegation_depth,
+        ls.agent_preset AS agent_preset,
+        1 AS live,
+        CASE WHEN ? = 1 THEN ls.persisted ELSE 0 END AS persisted,
+        CAST(ld.seq AS INTEGER) AS seq,
+        ld.type AS type,
+        CAST(ld.time AS INTEGER) AS time,
+        ld.surface AS surface,
+        ld.text AS document_text,
+        CAST(ld.codepoint_length AS INTEGER) AS document_length
+      FROM temp.live_docs AS ld
+      JOIN temp.live_sessions AS ls ON ls.id = ld.session_id
+      WHERE 1 = 1
+        ${literalLive}
+    )`,
+  }
+}
+
+/** Rows one message scan examines before it lets the event loop run. */
+const MESSAGE_SCAN_YIELD_ROWS = 256
+
+/** One candidate row of {@link selectedMessageScanSql} before matching. */
+interface ScanRow {
+  session_id: string
+  version: number
+  created_at: number
+  cwd: string | null
+  parent_session: string | null
+  seed_length: number | null
+  delegation_depth: number | null
+  agent_preset: string | null
+  live: number
+  persisted: number
+  seq: number
+  type: string
+  time: number
+  surface: string
+  document_text: string
+  document_length: number
+}
+
+/**
+ * Turn one scanned candidate into the row shape the page builder reads.
+ * @param row - candidate whose every term was found.
+ * @param marked - its text with match markers.
+ * @param matchCount - merged match count over the whole document.
+ * @returns search row carrying the marked text.
+ */
+function scanRow(row: ScanRow, marked: string, matchCount: number): SearchRow {
+  return {
+    session_id: row.session_id,
+    version: row.version,
+    created_at: row.created_at,
+    cwd: row.cwd,
+    parent_session: row.parent_session,
+    seed_length: row.seed_length,
+    delegation_depth: row.delegation_depth,
+    agent_preset: row.agent_preset,
+    live: row.live,
+    persisted: row.persisted,
+    seq: row.seq,
+    type: row.type,
+    time: row.time,
+    surface: row.surface,
+    marked_text: marked,
+    match_count: matchCount,
+    document_length: row.document_length,
   }
 }
 

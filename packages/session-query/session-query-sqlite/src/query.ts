@@ -354,6 +354,90 @@ function normalizeMarkedText(markedText: string): { text: string; matches: Sessi
   }
 }
 
+/**
+ * Escape one term for a literal `LIKE` pattern.
+ * @param term - distinct required term.
+ * @returns the term with `LIKE` wildcards and the escape character itself escaped.
+ */
+export function escapeLikeTerm(term: string): string {
+  return term.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')
+}
+
+/**
+ * Terms one message search requires, in the order the caller typed them.
+ *
+ * A message search reads text as a person reads it: every whitespace-separated
+ * term must appear somewhere in the message, in any order and at any distance,
+ * which is what a search box means by more than one word. Repeated terms carry
+ * no extra weight, so they collapse here.
+ * @param query - normalized caller query.
+ * @returns distinct required terms, never empty.
+ */
+export function compileMessageTerms(query: string): readonly string[] {
+  return [...new Set(query.split(' ').filter(term => term !== ''))]
+}
+
+/**
+ * Lower-case ASCII letters without moving any offset.
+ *
+ * This is exactly the case folding SQLite's `LIKE` applies, which is what lets
+ * the scan push the term test into SQL and keep this matcher for marking: the
+ * two must agree, or a row the statement returns would fail here (or worse, a
+ * row it drops would never be marked). Non-ASCII keeps its case, as it does in
+ * `LIKE`.
+ * @param text - document or term text.
+ * @returns same-length text with ASCII letters folded.
+ */
+function foldAscii(text: string): string {
+  return text.replace(/[A-Z]/gu, letter => letter.toLowerCase())
+}
+
+/**
+ * Mark every occurrence of every required term in one document.
+ *
+ * The marks are the same sentinels `highlight()` writes, so a scanned document
+ * and an FTS-returned one reach {@link makeSnippet} in the same form. Overlapping
+ * occurrences of different terms merge into one marked range, which is also
+ * what makes the hit count a count of visible matches rather than of terms.
+ * @param text - complete document text, unmodified.
+ * @param terms - distinct terms from {@link compileMessageTerms}.
+ * @returns marked text and its merged match count, or undefined when a term is absent.
+ */
+export function markMessageMatches(
+  text: string,
+  terms: readonly string[],
+): { marked: string; count: number } | undefined {
+  const haystack = foldAscii(text)
+  const ranges: { start: number; end: number }[] = []
+  for (const term of terms) {
+    const needle = foldAscii(term)
+    if (needle.length === 0) continue
+    let at = haystack.indexOf(needle)
+    if (at === -1) return undefined
+    while (at !== -1) {
+      ranges.push({ start: at, end: at + needle.length })
+      at = haystack.indexOf(needle, at + 1)
+    }
+  }
+  ranges.sort((left, right) => left.start - right.start || right.end - left.end)
+  const merged: { start: number; end: number }[] = []
+  for (const range of ranges) {
+    const last = merged.at(-1)
+    if (last !== undefined && range.start < last.end) {
+      if (range.end > last.end) last.end = range.end
+      continue
+    }
+    merged.push({ ...range })
+  }
+  let marked = ''
+  let cursor = 0
+  for (const range of merged) {
+    marked += `${text.slice(cursor, range.start)}${FTS_HIGHLIGHT_START}${text.slice(range.start, range.end)}${FTS_HIGHLIGHT_END}`
+    cursor = range.end
+  }
+  return { marked: marked + text.slice(cursor), count: merged.length }
+}
+
 function normalizeQuery(value: string): string {
   if (typeof value !== 'string') {
     throw new SessionQueryError('session-search query must be text', 'SESSION_QUERY_INVALID_QUERY')

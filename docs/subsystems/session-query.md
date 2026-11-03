@@ -503,7 +503,10 @@ abstract searchEvents( request: SessionEventSearchRequest, exec?: SessionSearchE
  * Where {@link searchSessions} keeps one strong event per session, this
  * returns the matching events themselves, so a caller that needs to address
  * a specific message reads `sessionId` and `seq` off each hit instead of a
- * session-level summary.
+ * session-level summary. It matches literal text rather than searchable
+ * words, because a message is prose: every whitespace-separated term must
+ * appear somewhere in the message, in any order and at any distance, and a
+ * term reaches the middle of a word as readily as its start.
  * @param request - query text, metadata filters, page size, and cursor.
  * @param exec - optional cancellation control.
  * @returns matching event hits in contract-defined order.
