@@ -14,6 +14,9 @@ const SHORTCUT_CHANNELS = {
   closeWindow: 'dsh-desktop:shortcuts-close-window',
 } as const
 
+/** Mirrors `theme-channels.ts`; a sandboxed preload cannot import it. */
+const THEME_CHANNEL = 'dsh-desktop:theme-report'
+
 /** Marks `<html data-platform>` before the page's first script reads it. */
 function markPlatform(): void {
   const mark = (): void => { document.documentElement.dataset.platform = process.platform }
@@ -24,6 +27,45 @@ function markPlatform(): void {
 }
 
 markPlatform()
+
+/**
+ * Report the palette the page is painting to the shell.
+ *
+ * The served UI leaves the document transparent on macOS and draws its sidebar
+ * as a translucent tint, so the window's own background shows through: it has
+ * to follow the palette the page resolved, including when only the OS
+ * appearance changed, which no window option and no user gesture reaches. The
+ * page publishes both facts on its root element — `data-ds-theme-source` is the
+ * preference it follows, and the inline `color-scheme` is the palette it
+ * painted with `system` resolved.
+ */
+function reportTheme(): void {
+  let sent = ''
+  const send = (): void => {
+    const root = document.documentElement as HTMLElement | null
+    if (root === null) return
+    const scheme = root.style.colorScheme
+    const source = root.dataset.dsThemeSource
+    if ((scheme !== 'light' && scheme !== 'dark')
+      || (source !== 'light' && source !== 'dark' && source !== 'system')) return
+    const report = `${source}:${scheme}`
+    if (report === sent) return
+    sent = report
+    ipcRenderer.send(THEME_CHANNEL, { source, scheme })
+  }
+  // The theme bootstrap writes the attribute before this observer exists, so
+  // the first read happens when observation starts; later writes update it.
+  const observe = (): void => {
+    const root = document.documentElement as HTMLElement | null
+    if (root === null) return
+    new MutationObserver(send).observe(root, { attributes: true, attributeFilter: ['data-ds-theme-source', 'style'] })
+    send()
+  }
+  if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', observe, { once: true })
+  else observe()
+}
+
+reportTheme()
 
 contextBridge.exposeInMainWorld('dshDesktop', {
   keyboard: {

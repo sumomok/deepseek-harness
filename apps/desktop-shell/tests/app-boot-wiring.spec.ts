@@ -29,4 +29,10 @@ describe('the app window in main.ts', () => {
     expect(close).toBeLessThan(source.indexOf('\n}\n', create))
     expect(source.slice(open, close)).toMatch(/^ {4}acceptFirstMouse: true,$/mu)
   })
+
+  it('keeps the window background on the palette the page paints, not the launch palette', () => {
+    const sync = source.indexOf('  attachThemeSync(window)\n', create)
+    expect(sync).toBeGreaterThan(create)
+    expect(sync).toBeLessThan(source.indexOf('\n}\n', create))
+  })
 })

@@ -4,9 +4,11 @@
  * server closure), open the served UI in a native window, and tear the
  * server down with the app. The window loads the same `/api` transport the
  * browser uses and adds one narrow preload: it marks the document as a
- * desktop surface and carries native key presses and the device's keybinding
- * preferences, which is the contract the shared client reads from
- * `window.dshDesktop`. No Node integration reaches the page.
+ * desktop surface, carries native key presses and the device's keybinding
+ * preferences — the contract the shared client reads from `window.dshDesktop`
+ * — and reports the palette the page paints back to this process, which keeps
+ * the window's own background and native chrome on it. No Node integration
+ * reaches the page.
  *
  * The window opens immediately on a boot page that names the three startup
  * phases and how long the current one has taken, and — on the first launch
@@ -32,6 +34,7 @@ import { appBootCss, restateAppBootPage } from './app-boot-text.ts'
 import { desktopKeybindings } from './keybindings.ts'
 import { installKeyboard } from './keyboard.ts'
 import { SHORTCUT_CHANNELS } from './shortcut-channels.ts'
+import { THEME_CHANNEL } from './theme-channels.ts'
 import type { ShortcutConfigSnapshot, ShortcutDefinition, ShortcutEdit, ShortcutPlatform, ShortcutRevision } from '@deepseek-ai/dsh-client-shortcuts/protocol'
 import { pinAppIdentity } from './app-identity.ts'
 import { KEPT_REPORTS, LOG_ROTATE_BYTES, pruneReports, rotateLog } from './log-retention.ts'
@@ -108,7 +111,7 @@ import {
   type TerminalEnvHost,
 } from './terminal-env.ts'
 import { terminalForLaunch } from './terminal-sync-record.ts'
-import { PALETTES, applyNativeAppearance, resolveAppearance, resolveAppearanceSource } from './theme.ts'
+import { PALETTES, applyNativeAppearance, applyThemeReport, isThemeReport, resolveAppearance, resolveAppearanceSource } from './theme.ts'
 import { storedLanguagePreference } from './theme-preference.ts'
 import { guardWindowClose, setupTray } from './tray.ts'
 import {
@@ -1190,6 +1193,39 @@ function attachShortcuts(window: BrowserWindow): () => void {
   }
 }
 
+/** The window whose page reports the palette it paints, while it exists. */
+let themeWindow: BrowserWindow | undefined
+/** Whether the process-wide theme IPC handler is already installed. */
+let themeIpcInstalled = false
+
+/**
+ * Keep the window's own background and native chrome on the palette its page
+ * paints.
+ *
+ * On macOS the served UI draws the document transparent and tints its sidebar
+ * over it, so the window background resolved when the window opened is what
+ * the sidebar shows through. That background used to follow only the next
+ * launch: switching the OS from dark back to light left the light page's
+ * sidebar over the dark fill, and every dimmed label on it illegible. The page
+ * reports each palette it paints; the handler is installed once and routes to
+ * the window that owns the reporting page, because macOS recreates the window
+ * through the Dock.
+ * @param window - product window whose page reports its palette.
+ */
+function attachThemeSync(window: BrowserWindow): void {
+  themeWindow = window
+  window.once('closed', () => { if (themeWindow === window) themeWindow = undefined })
+  if (themeIpcInstalled) return
+  themeIpcInstalled = true
+  // Only the app window may move the window palette: the render service's
+  // windows run whatever page the agent asked for, not the served UI.
+  ipcMain.on(THEME_CHANNEL, (event, report: unknown) => {
+    const target = themeWindow
+    if (target === undefined || target.isDestroyed() || event.sender !== target.webContents) return
+    if (isThemeReport(report)) applyThemeReport(target, report)
+  })
+}
+
 /**
  * Open the window on the boot page and return its update handle.
  * @param receipt - the update confirmation line, when there is one to show.
@@ -1217,6 +1253,7 @@ function createBootWindow(receipt?: string): BootView {
     },
   })
   const stopShortcuts = attachShortcuts(window)
+  attachThemeSync(window)
   // Prefer `close` so the keyboard disposer can detach while webContents still
   // exists; `closed` is the fallback if something destroyed the window without
   // a close (the disposer itself no-ops once destroyed).

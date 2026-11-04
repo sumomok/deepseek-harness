@@ -4,7 +4,7 @@
  * @module @deepseek-ai/dsh-desktop-shell/theme
  */
 
-import { nativeTheme } from 'electron'
+import { nativeTheme, type BrowserWindow } from 'electron'
 import { resolveHarnessHome } from './profile-seed.ts'
 import { storedThemePreference } from './theme-preference.ts'
 
@@ -100,4 +100,42 @@ export function resolveAppearanceSource(): Appearance | 'system' {
  */
 export function applyNativeAppearance(source: Appearance | 'system'): void {
   nativeTheme.themeSource = source
+}
+
+/** One palette report sent by the app window's page. */
+export interface ThemeReport {
+  /** Preference source the page published; `system` while it follows the OS. */
+  readonly source: Appearance | 'system'
+  /** Palette the page painted, with `system` already resolved through the OS. */
+  readonly scheme: Appearance
+}
+
+/**
+ * Read one theme report from the app window's preload, refusing payloads the
+ * shell cannot apply.
+ * @param value - unvalidated IPC payload.
+ * @returns whether the payload names a known source and a known palette.
+ */
+export function isThemeReport(value: unknown): value is ThemeReport {
+  if (typeof value !== 'object' || value === null) return false
+  const report = value as { source?: unknown; scheme?: unknown }
+  return (report.source === 'light' || report.source === 'dark' || report.source === 'system')
+    && (report.scheme === 'light' || report.scheme === 'dark')
+}
+
+/**
+ * Apply a page's theme report to its window.
+ *
+ * The served UI leaves `html` and `body` transparent on macOS and paints its
+ * sidebar as a translucent tint over them, so the window's own background is
+ * what shows through: it follows the palette the page resolved now, not the one
+ * resolved when the window opened. The title bar and window controls follow
+ * the preference source, so an explicit choice and OS-follow stay in step with
+ * the page alike.
+ * @param window - app window whose page sent the report.
+ * @param report - validated source and palette.
+ */
+export function applyThemeReport(window: Pick<BrowserWindow, 'setBackgroundColor'>, report: ThemeReport): void {
+  if (nativeTheme.themeSource !== report.source) nativeTheme.themeSource = report.source
+  window.setBackgroundColor(PALETTES[report.scheme].background)
 }
