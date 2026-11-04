@@ -7,6 +7,10 @@ import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { downloadArtifact } from '@electron/get'
 import { readPrimaryRuntime } from '../../../packages/skill/tool-workspace-dependencies/src/index.ts'
+import {
+  DESKTOP_ELECTRON_MAJOR, DESKTOP_ELECTRON_MINIMUM,
+  assertRuntimeProbe, formatRuntimeProbe, probeRuntimeExecutable,
+} from '../../../scripts/runtime-version-gate.mjs'
 import { safeExtractZip } from './safe-extract-zip.ts'
 import { desktopTargetPlatform, resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
 import { packagingStep } from './packaging-step.mjs'
@@ -28,9 +32,12 @@ async function prepareElectron({ platform, arch }: DesktopTarget): Promise<strin
   rmSync(BUILD_PATHS.electron, { recursive: true, force: true })
   await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'extract:electron', () => safeExtractZip(archive, { dir: BUILD_PATHS.electron }))
   const executable = join(BUILD_PATHS.electron, platform === 'win32' ? 'electron.exe' : 'Electron.app/Contents/MacOS/Electron')
-  return execFileSync(executable, ['-p', 'process.versions.node'], {
-    encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-  }).trim()
+  const probe = probeRuntimeExecutable(executable, { electron: true })
+  assertRuntimeProbe(probe, {
+    platform, arch, electron: { minimum: DESKTOP_ELECTRON_MINIMUM, major: DESKTOP_ELECTRON_MAJOR },
+  })
+  console.log(`desktop Electron runtime: ${formatRuntimeProbe(probe)}`)
+  return probe.node
 }
 
 function prepareCli({ platform, arch }: DesktopTarget): void {
