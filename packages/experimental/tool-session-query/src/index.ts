@@ -54,9 +54,12 @@ const PROMPT_TEXT =
   + 'before the current step, which is how a decision a checkpoint replaced is checked. session_search never '
   + 'returns this session. Search results are cursor-free and workspace-scoped. Follow a useful hit with '
   + 'session_trace, session_event_trace, or bounded session_event_read excerpts; use full: true only when '
-  + 'the complete event is necessary. When a request depends on something already decided (a ticket number, a '
-  + 'label, "as agreed", "you forgot"), check these events before proposing anything new: a miss is not proof '
-  + 'that the decision was never made. Search one identifier or keyword at a time; a whole phrase rarely matches.'
+  + 'the complete event is necessary. Treat settled decisions as part of the task rather than something the '
+  + 'person has to remind you of: before proposing a plan, a split, or a new ticket set for an object this '
+  + 'conversation has touched (a ticket, a label, a module, a page), search these events for that object and '
+  + 'reconcile the proposal with what was already decided there. Do it on your own initiative — a miss is not '
+  + 'proof that nothing was decided, and making someone repeat a decision is the failure this search exists to '
+  + 'prevent. Search one identifier or keyword at a time; a whole phrase rarely matches.'
 
 /** Register all five tools and their shared model guidance. */
 export function apply(ctx: Context, config: Config): void {
