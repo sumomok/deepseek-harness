@@ -18,6 +18,7 @@ import { ScopedLayers, scopeOf } from '@deepseek-ai/dsh-scope'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { JobRegistry, JobId } from '@deepseek-ai/dsh-jobs'
+import type { JobNotify } from '@deepseek-ai/dsh-jobs'
 import type {
   JobAppendOptions, JobEvent, JobEvents, JobHandle, JobKind, JobOutcome, JobOutputRead, JobOutputSource,
   JobRead, JobRegisteredData, JobSettleCause, JobSettledData, JobSpec, JobStatus, JobToolCall, JobView,
@@ -80,6 +81,7 @@ interface TrackedJob {
   kind: JobKind
   label: string
   outputLimitBytes: number | undefined
+  notify: JobNotify | undefined
   /** Exact lifecycle owner; session-id authorization is derived from it. */
   owner: Agent | undefined
   cancel: (reason?: string) => void
@@ -248,6 +250,7 @@ export class LocalJobRegistry extends JobRegistry {
       kind: spec.kind,
       label: spec.label,
       outputLimitBytes: spec.outputLimitBytes,
+      notify: spec.notify,
       owner,
       cancel: hooks.cancel.bind(hooks),
       status: 'running',
@@ -423,6 +426,7 @@ export class LocalJobRegistry extends JobRegistry {
       label: job.label,
       ...owner !== undefined ? { owner } : {},
       ...job.outputLimitBytes !== undefined ? { outputLimitBytes: job.outputLimitBytes } : {},
+      ...job.notify !== undefined ? { notify: job.notify } : {},
       status: job.status,
       ...job.state.progress !== undefined ? { progress: job.state.progress } : {},
       ...job.detail !== undefined ? { detail: job.detail } : {},

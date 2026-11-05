@@ -14,6 +14,7 @@ export const NS = 'reference'
  */
 export const zh = {
   'section.files': '文件与文件夹',
+  'section.workspaces': '工作区',
   'section.subagents': '子智能体',
   'section.sessions': '对话',
   'candidate.noCwd': '（无工作目录）',
@@ -43,6 +44,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** English dictionary, checked complete against the zh key set. */
 export const en = {
   'section.files': 'Files & folders',
+  'section.workspaces': 'Workspaces',
   'section.subagents': 'Subagents',
   'section.sessions': 'Sessions',
   'candidate.noCwd': '(no cwd)',
@@ -62,6 +64,7 @@ export const en = {
 /** Japanese copy, checked against the English keys. */
 export const ja = {
   'section.files': 'ファイルとフォルダ',
+  'section.workspaces': 'ワークスペース',
   'section.subagents': 'サブエージェント',
   'section.sessions': 'セッション',
   'candidate.noCwd': '（cwdなし）',
@@ -81,6 +84,7 @@ export const ja = {
 /** Spanish dictionary, checked against the English keys. */
 export const es = {
   'section.files': 'Archivos y carpetas',
+  'section.workspaces': 'Espacios de trabajo',
   'section.subagents': 'Subagentes',
   'section.sessions': 'Sesiones',
   'candidate.noCwd': '(sin cwd)',
@@ -100,6 +104,7 @@ export const es = {
 /** French dictionary, checked against the English keys. */
 export const fr = {
   'section.files': 'Fichiers et dossiers',
+  'section.workspaces': 'Espaces de travail',
   'section.subagents': 'Sous-agents',
   'section.sessions': 'Séances',
   'candidate.noCwd': '(pas de cwd)',
@@ -119,6 +124,7 @@ export const fr = {
 /** German dictionary, checked against the English keys. */
 export const de = {
   'section.files': 'Dateien und Ordner',
+  'section.workspaces': 'Arbeitsbereiche',
   'section.subagents': 'Subagenten',
   'section.sessions': 'Sitzungen',
   'candidate.noCwd': '(kein CWD)',
@@ -138,6 +144,7 @@ export const de = {
 /** Russian dictionary, checked against the English keys. */
 export const ru = {
   'section.files': 'Файлы и папки',
+  'section.workspaces': 'Рабочие области',
   'section.subagents': 'Субагенты',
   'section.sessions': 'Сессии',
   'candidate.noCwd': '(без КДВ)',
@@ -157,6 +164,7 @@ export const ru = {
 /** Portuguese dictionary, checked against the English keys. */
 export const pt = {
   'section.files': 'Arquivos e pastas',
+  'section.workspaces': 'Espaços de trabalho',
   'section.subagents': 'Subagentes',
   'section.sessions': 'Sessões',
   'candidate.noCwd': '(sem cwd)',

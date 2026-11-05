@@ -21,16 +21,19 @@ import type {
   SessionEventReadRequest,
   SessionEventRecord,
   SessionEventSearchDocument,
+  SessionEventSearchHit,
   SessionEventSearchRequest,
   SessionEventTraceObservation,
   SessionEventTraceRequest,
   SessionEventWindow,
   SessionLineageTrace,
   SessionLogSnapshot,
+  SessionMessageSearchRequest,
   SessionRecord,
   SessionResultFilter,
   SessionSearchExecContext,
   SessionSearchHit,
+  SessionSearchIndexProgress,
   SessionSearchPage,
   SessionSearchRequest,
   SessionSurfaceSnapshot,
@@ -86,6 +89,23 @@ declare module '@deepseek-ai/cordis' {
   interface Context {
     sessionQuery: SessionQueryEngine
   }
+
+  interface Events {
+    /**
+     * Preparation of the full-text index behind session search advanced.
+     * @mode emit
+     * @param progress - phase and counters after the advance.
+     */
+    'session-query/index-progress'(progress: SessionSearchIndexProgress): void
+
+    /**
+     * A deployment reports that the UI which searches has been served, so the
+     * backend may prepare its index before the first search. Repeats are
+     * allowed: each backend prepares at most once per instance.
+     * @mode emit
+     */
+    'session-query/warmup-requested'(): void
+  }
 }
 
 /**
@@ -101,6 +121,7 @@ export abstract class SessionQueryEngine extends Service {
   private readonly _readWindowMax: number
   private readonly _corpus: SessionCorpus
   private readonly _observations: SessionObservationReader
+  private _searchIndexProgress: SessionSearchIndexProgress | undefined
 
   constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'sessionQuery')
@@ -145,6 +166,33 @@ export abstract class SessionQueryEngine extends Service {
   }
 
   /**
+   * Read the last preparation state this backend published, without starting one.
+   *
+   * A search waits for this preparation before it queries, so a caller that can
+   * observe it can report how long that wait still is instead of one
+   * undifferentiated "searching" state.
+   * @returns the last reported progress, or `undefined` when this backend has
+   *   not started preparing an index: no full-text backend is mounted, search is
+   *   disabled, or the configured policy defers opening until the first search.
+   */
+  searchIndexProgress(): SessionSearchIndexProgress | undefined {
+    return this._searchIndexProgress
+  }
+
+  /**
+   * Publish one preparation state to {@link searchIndexProgress} readers and to
+   * `session-query/index-progress` listeners.
+   *
+   * A backend calls this at phase changes and between reconciliation batches, so
+   * it must not mutate the object it passes here afterward.
+   * @param progress - phase and counters being reported.
+   */
+  protected _reportSearchIndexProgress(progress: SessionSearchIndexProgress): void {
+    this._searchIndexProgress = progress
+    this.ctx.emit('session-query/index-progress', progress)
+  }
+
+  /**
    * Search the live-preferred logical corpus and group by session.
    * @param request - query text, metadata filters, page size, and cursor.
    * @param exec - optional cancellation control.
@@ -165,6 +213,29 @@ export abstract class SessionQueryEngine extends Service {
     request: SessionEventSearchRequest,
     exec?: SessionSearchExecContext,
   ): Promise<SessionEventSearchPage>
+
+  /**
+   * Search the live-preferred logical corpus at message granularity.
+   *
+   * Where {@link searchSessions} keeps one strong event per session, this
+   * returns the matching events themselves, so a caller that needs to address
+   * a specific message reads `sessionId` and `seq` off each hit instead of a
+   * session-level summary. It matches literal text rather than searchable
+   * words, because a message is prose: every whitespace-separated term must
+   * appear somewhere in the message, in any order and at any distance, and a
+   * term reaches the middle of a word as readily as its start.
+   *
+   * Hits cover what a reader can see: the text blocks of `user/message` and
+   * `assistant/message`. Tool calls, reasoning, and the checkpoint a
+   * compaction injects are the run's scaffolding and never match.
+   * @param request - query text, metadata filters, page size, and cursor.
+   * @param exec - optional cancellation control.
+   * @returns matching event hits in contract-defined order.
+   */
+  abstract searchMessages(
+    request: SessionMessageSearchRequest,
+    exec?: SessionSearchExecContext,
+  ): Promise<SessionSearchPage<SessionEventSearchHit>>
 
   /**
    * List the complete logical corpus using live-preferred records.

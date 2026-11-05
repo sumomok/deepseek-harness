@@ -1,0 +1,20 @@
+{
+  "name": "control-healthy",
+  "source": "current DSH session (read-only copy)",
+  "events": 315,
+  "bytes": 97202,
+  "maxLineBytes": 1316,
+  "toolCalls": 43,
+  "toolResults": 43,
+  "compactions": 3,
+  "redactions": 24249,
+  "redactedBytes": {
+    "text": 332695,
+    "path": 318758,
+    "provider": 1474,
+    "model": 2527,
+    "error": 272,
+    "arguments": 7515
+  },
+  "range": "all"
+}

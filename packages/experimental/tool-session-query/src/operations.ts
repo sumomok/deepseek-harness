@@ -19,6 +19,7 @@ import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { toolInput } from './input.ts'
 import { presentation } from './presentation.ts'
 import { serviceBoundary } from './service-boundary.ts'
+import { splitsUnicodePair } from './text.ts'
 import { workspaceAccess } from './workspace-access.ts'
 
 type SessionSearchArgs = Parameters<typeof toolInput.buildSessionFilters>[0]
@@ -45,6 +46,9 @@ interface EventTargetArgs extends SessionTargetArgs {
 interface EventReadArgs extends EventTargetArgs {
   before?: number
   after?: number
+  offset?: number
+  maxChars?: number
+  full?: boolean
 }
 
 interface SearchCollection<T> {
@@ -220,19 +224,50 @@ async function executeEventRead(
   const seq = SessionSeq(args.seq)
   if (args.before !== undefined) toolInput.assertNonNegativeSafeInteger('before', args.before)
   if (args.after !== undefined) toolInput.assertNonNegativeSafeInteger('after', args.after)
+  const page = toolInput.resolveEventReadPage(args)
   const caller = workspaceAccess.callerOf(exec, ctx)
   const sessionId = workspaceAccess.targetId(args, caller)
-  await workspaceAccess.authorizeTarget(ctx, caller, sessionId, exec.signal)
+  let readSessionId = sessionId
+  let inheritedFallback = false
+  try {
+    await workspaceAccess.authorizeTarget(ctx, caller, sessionId, exec.signal)
+  } catch (error: unknown) {
+    const fallback = await workspaceAccess.inheritedParentReadTarget(
+      ctx, caller, sessionId, Number(seq), error, exec.signal,
+    )
+    if (fallback === undefined) throw error
+    readSessionId = fallback
+    inheritedFallback = true
+  }
   const window = await serviceBoundary.call(ctx, exec.signal, 'event read', () =>
     ctx.sessionQuery.readEvent({
-      sessionId,
+      sessionId: readSessionId,
       seq,
       ...args.before === undefined ? {} : { before: args.before },
       ...args.after === undefined ? {} : { after: args.after },
     }, exec.signal))
-  workspaceAccess.assertObservedTargetAuthorized(caller, sessionId, window.session)
-  const title = await workspaceAccess.readTitle(ctx, caller, sessionId, exec.signal)
-  return presentation.formatEventRead(sessionId, title, window)
+  workspaceAccess.assertObservedTargetAuthorized(caller, readSessionId, window.session)
+  const targetText = JSON.stringify(window.target, null, 2)
+  if (!page.full && page.offset > targetText.length) {
+    throw new SessionQueryError(
+      `session event read offset ${page.offset} exceeds target length ${targetText.length}`,
+      'SESSION_QUERY_INVALID_WINDOW',
+    )
+  }
+  if (!page.full && splitsUnicodePair(targetText, page.offset)) {
+    throw new SessionQueryError(
+      'session event read offset splits a Unicode surrogate pair',
+      'SESSION_QUERY_INVALID_WINDOW',
+    )
+  }
+  // The parent title cannot be resolved through this fallback; keep the read
+  // usable and degrade only the title line.
+  const title = inheritedFallback
+    ? { text: 'parent title unavailable' }
+    : await workspaceAccess.readTitle(ctx, caller, sessionId, exec.signal)
+  return presentation.formatEventRead(
+    sessionId, title, window, inheritedFallback ? 'inherited-parent' : undefined, page, targetText,
+  )
 }
 
 async function collectPages<T>(

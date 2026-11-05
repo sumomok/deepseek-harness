@@ -103,7 +103,7 @@ interface TlsConfig {
 
 ## 服务
 
-`WebServer`（`ctx.webServer`）在激活时立即监听；监听失败（EADDRINUSE 等）会使初始化被拒绝，启动进程会报告失败的 fiber。`tls` 证书对在监听器绑定前读取一次；文件不可读、为空或二者不匹配时同样会使初始化被拒绝，而不是回退到 HTTP。`register(route)` 添加一条具名路由并返回其 disposer；重复的 `(kind, path)` 抛出异常，因为路由模式是组合层约定，冲突即配置错误。Gzip 在服务器内部包装符合条件且基于 socket 的响应，因此 handler 继续直接持有 `ServerResponse`，resource 则把 `Response` 交给服务写回。已有内容编码、`Cache-Control: no-transform`、范围响应、SSE、ZIP 与打包后的 `.gz` Worker 镜像均保持 identity 响应。`collectIndexInjections(peer)` 经一次传入页面所代表 Peer 的 `webserver/index-inject` emit 收集结构化 `IndexInjection` 行，`renderIndex(html, peer)` 把它们渲染进成功的根路径和配置 index 响应，随后再按注册顺序应用原始的 `tapIndex(transform)` 逃生口转换；[dsh-client-modules](../../packages/client/modules) 以启动 manifest（元数据清单）行回应该事件。`port` 读取监听端口，包括 `config.port` 为 0 时操作系统分配的端口，`protocol` 则报告监听器提供的协议（`http:` 或 `https:`）。
+`WebServer`（`ctx.webServer`）在激活时立即监听；监听失败（EADDRINUSE 等）会使初始化被拒绝，启动进程会报告失败的 fiber。`tls` 证书对在监听器绑定前读取一次；文件不可读、为空或二者不匹配时同样会使初始化被拒绝，而不是回退到 HTTP。`register(route)` 添加一条具名路由并返回其 disposer；重复的 `(kind, path)` 抛出异常，因为路由模式是组合层约定，冲突即配置错误。`routes()` 列出当前生效的具名路由、upgrade 路由与已被占用的回退座位，不带 handler 与方法。Gzip 在服务器内部包装符合条件且基于 socket 的响应，因此 handler 继续直接持有 `ServerResponse`，resource 则把 `Response` 交给服务写回。已有内容编码、`Cache-Control: no-transform`、范围响应、SSE、ZIP 与打包后的 `.gz` Worker 镜像均保持 identity 响应。`collectIndexInjections(peer)` 经一次传入页面所代表 Peer 的 `webserver/index-inject` emit 收集结构化 `IndexInjection` 行，`renderIndex(html, peer)` 把它们渲染进成功的根路径和配置 index 响应，随后再按注册顺序应用原始的 `tapIndex(transform)` 逃生口转换；[dsh-client-modules](../../packages/client/modules) 以启动 manifest（元数据清单）行回应该事件。`port` 读取监听端口，包括 `config.port` 为 0 时操作系统分配的端口，`protocol` 则报告监听器提供的协议（`http:` 或 `https:`）。
 
 处理过程中抛出异常的请求（畸形的 % 转义撞上 `decodeURIComponent`、客户端在请求体中途断开）会记录为警告并应答 400（响应头已发出时则销毁 socket），绝不导致进程退出。dispose（资源释放）把 `close()` 与 `closeAllConnections()` 配对使用，因为处理器可能像 SSE（Server-Sent Events）那样保持响应打开，而这类连接永远不会自行结束；没有强制关闭，拆卸就会挂起。TLS socket 只有完成握手后才计入连接，因此服务器会把原始 TLS socket 与升级后的 socket 一并跟踪，并在 dispose 时销毁两者。该包从不打印输出：URL 行归 shell 所有。逐包运维细节（含开发模式的 bundle 监视流水线）留在 [README](../../packages/host/webserver/README.zh.md) 中。
 
@@ -133,14 +133,18 @@ createSharedFetchHandler(channel: '/api'): ConnectionFetchHandler
  * Apply Connection's Host/Origin checks and browser authentication to
  * another Web route.
  * @param request - request headers from the HTTP or upgrade request.
- * @returns rejection status, or undefined when the route may accept the request.
+ * @returns the rejection status of {@link admit}, 403 when it admits a
+ * non-owner Peer, or undefined when the route may accept the request.
  */
 requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection
 
 /**
- * Admit an HTTP request against its signed browser or API credential and live Peer.
+ * Admit an HTTP request against its signed browser or API credential and
+ * live Peer. With a Peer admitter installed, an authenticated request speaks
+ * for the Peer the admitter returns; without one and with `requireAdmitter`
+ * set, it is refused with 401.
  * @param request - request headers from the HTTP or upgrade request.
- * @returns the credential's Peer, or the rejection status.
+ * @returns the admitted Peer, or the rejection status.
  */
 admit(request: ConnectionTrustRequest): PeerAdmission
 
@@ -239,6 +243,15 @@ registerUpgrade(route: WebUpgradeRoute): () => void
  * @returns the disposer releasing the seat.
  */
 registerFallback(fallback: WebRoute['handler'] | Pick<WebResourceRoute, 'resource'>): () => void
+
+/**
+ * List the registrations in effect: `exact`, `prefix`, and `upgrade`
+ * routes, each kind sorted by path, then the fallback seat while it is
+ * claimed. A registration whose disposer has run is absent. Read-only:
+ * listing changes no matching.
+ * @returns fresh entries; `kind` and `path` together identify a named route.
+ */
+routes(): readonly WebRouteListing[]
 
 /**
  * Read the response an HTTP request for the same URL would receive, as the

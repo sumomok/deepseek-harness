@@ -29,6 +29,9 @@
 /deepseek-ai-dsh-loader-smoke/use-this-package/source-or-built-mode:
   en: 312abd1eddcc5015
   zh: 4fb5c6842f4d49d1
+/deepseek-ai-dsh-loader-smoke/use-this-package/isolating-the-skill-roots:
+  en: dba2519fa3991fd7
+  zh: 5e254d9298167827
 /deepseek-ai-dsh-loader-smoke/use-this-package/what-can-go-wrong:
   en: cd38599b474efc54
   zh: 353237fb992a1b1c
@@ -36,8 +39,8 @@
   en: 3ffb8df759bf5071
   zh: a93d3dd6472d9782
 /deepseek-ai-dsh-loader-smoke/understand-the-implementation/design:
-  en: f3407557b8aafb9c
-  zh: 06c9faf218c69829
+  en: d1ba19987a3f6765
+  zh: 03e0e6745865260a
 /deepseek-ai-dsh-loader-smoke/understand-the-implementation/source-map:
   en: 1dd2e4e1cd1fad2d
   zh: 4783ddacfbcf2cd5

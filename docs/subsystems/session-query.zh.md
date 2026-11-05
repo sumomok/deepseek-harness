@@ -188,12 +188,35 @@ interface SessionEventSearchRequest {
 ```
 
 ```ts type-equiv
+/** How much of the logical corpus the indexed generation behind one page covers. */
+interface SessionSearchCoverage {
+  /**
+   * `complete` when every Session in the observed corpus is indexed, `partial`
+   * when at least one could not be read. A partial page cannot answer "this
+   * does not exist", only "this was not found where it could be looked for".
+   */
+  status: 'complete' | 'partial'
+  /** Sessions the indexed generation could not read. */
+  skippedSessions: number
+}
+```
+
+```ts type-equiv
 /** One cursor-paginated result page. */
 interface SessionSearchPage<T> {
   /** Results for this page in contract-defined order. */
   items: readonly T[]
   /** Opaque continuation cursor, absent on the final page. */
   nextCursor?: SessionSearchCursor
+  /**
+   * Coverage of the indexed generation this page was read from.
+   *
+   * Absent means the provider reported nothing about it, which is not
+   * `complete`; a caller that needs the distinction must read absence as
+   * unknown. The count covers the whole observed corpus, not the Sessions this
+   * particular caller may see.
+   */
+  coverage?: SessionSearchCoverage
 }
 ```
 
@@ -208,10 +231,28 @@ interface SessionEventSearchPage extends SessionSearchPage<SessionEventSearchHit
 ```
 
 ```ts type-equiv
+/** One matched span inside a search excerpt, in UTF-16 code units of that excerpt. */
+interface SessionEventMatchRange {
+  /** Offset of the first matched code unit. */
+  start: number
+  /** Length of the match in code units. */
+  length: number
+}
+```
+
+```ts type-equiv
 /** One event full-text search hit with a bounded plain-text excerpt. */
 interface SessionEventSearchHit extends SessionEventRecord {
   /** Plain text excerpt selected around the match. */
   snippet: string
+  /**
+   * Matched spans inside `snippet`, in UTF-16 code units of that string.
+   *
+   * The provider reports them because it is the only layer that sees the
+   * index's own marking; a renderer cannot recover the spans from the excerpt
+   * after whitespace normalization and case folding.
+   */
+  matches?: readonly SessionEventMatchRange[]
 }
 ```
 
@@ -222,6 +263,45 @@ interface SessionSearchHit extends SessionRecord {
   bestMatch: SessionEventSearchHit
 }
 ```
+
+## 索引准备
+
+一次搜索在读取结果页之前先打开索引、并把已存储语料与索引现有内容比对，因此只看最终响应的调用方分不清这段等待是准备还是查询慢。`searchIndexProgress()` 读取后端最近一次发布的状态且不会启动新一轮准备，`session-query/index-progress` 报告之后每一次变化：后端打开期间是 `opening`，逐个判定已存储会话期间是 `reconciling`，该轮结束后是 `ready`。
+
+```ts type-equiv
+/**
+ * Observable preparation of the full-text index that a search reads through.
+ *
+ * Every search first opens the index and compares the stored corpus with what
+ * the index already holds. That wait, not the query, is what a caller otherwise
+ * has to report as one undifferentiated "searching" state.
+ *
+ * This counts preparation work; it is not {@link SessionSearchCoverage}, which
+ * reports how much of the observed corpus the finished generation covers. A
+ * completed pass here can still end with unreadable Sessions left out.
+ */
+interface SessionSearchIndexProgress {
+  /**
+   * `opening` while the backend module and handle open, `reconciling` while the
+   * observed corpus is compared with the index, and `ready` once the pass
+   * finished. A pass that fails reports nothing further, so the last value
+   * stays published until the next search starts another pass.
+   */
+  phase: 'opening' | 'reconciling' | 'ready'
+  /**
+   * Stored Sessions this pass finished deciding, skipped ones included. Live
+   * Sessions are observed in memory and are not part of a pass, so this counts
+   * the stored corpus only.
+   */
+  examined: number
+  /** Stored Sessions the persistence backend listed for this pass; `0` until that listing returns. */
+  total: number
+  /** Examined Sessions whose stored revision matched the indexed one, so their logs were not read again. */
+  skipped: number
+}
+```
+
+在激活时打开索引的后端不会为那次打开报告任何状态，因为没有搜索在等它；首次搜索会直接从 `reconciling` 开始。一轮准备按固定批次判定已存储会话，每批之后发布并让出事件循环，因此这些报告能在等待它们的搜索仍未收到响应时送达监听方。SQLite 后端用 `reconcileBatchSize` 设置该批次大小；跳过是这一轮在已存储修订都未变化时几乎不花时间的原因，并且它不等于覆盖度：以 `ready` 结束、`examined === total` 的一轮，`SessionSearchCoverage` 仍可能是 `partial`。
 
 ## 会话谱系
 
@@ -390,6 +470,18 @@ Exact reads, filters, and traces are backend-independent concrete behavior. A ba
 observeSession( sessionId: SessionId, options: SessionObservationOptions = {}, ): Promise<SessionObservation>
 
 /**
+ * Read the last preparation state this backend published, without starting one.
+ *
+ * A search waits for this preparation before it queries, so a caller that can
+ * observe it can report how long that wait still is instead of one
+ * undifferentiated "searching" state.
+ * @returns the last reported progress, or `undefined` when this backend has
+ *   not started preparing an index: no full-text backend is mounted, search is
+ *   disabled, or the configured policy defers opening until the first search.
+ */
+searchIndexProgress(): SessionSearchIndexProgress | undefined
+
+/**
  * Search the live-preferred logical corpus and group by session.
  * @param request - query text, metadata filters, page size, and cursor.
  * @param exec - optional cancellation control.
@@ -404,6 +496,26 @@ abstract searchSessions( request: SessionSearchRequest, exec?: SessionSearchExec
  * @returns matching event hits and their target header from one indexed generation.
  */
 abstract searchEvents( request: SessionEventSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionEventSearchPage>
+
+/**
+ * Search the live-preferred logical corpus at message granularity.
+ *
+ * Where {@link searchSessions} keeps one strong event per session, this
+ * returns the matching events themselves, so a caller that needs to address
+ * a specific message reads `sessionId` and `seq` off each hit instead of a
+ * session-level summary. It matches literal text rather than searchable
+ * words, because a message is prose: every whitespace-separated term must
+ * appear somewhere in the message, in any order and at any distance, and a
+ * term reaches the middle of a word as readily as its start.
+ *
+ * Hits cover what a reader can see: the text blocks of `user/message` and
+ * `assistant/message`. Tool calls, reasoning, and the checkpoint a
+ * compaction injects are the run's scaffolding and never match.
+ * @param request - query text, metadata filters, page size, and cursor.
+ * @param exec - optional cancellation control.
+ * @returns matching event hits in contract-defined order.
+ */
+abstract searchMessages( request: SessionMessageSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionEventSearchHit>>
 
 /**
  * List the complete logical corpus using live-preferred records.
@@ -506,6 +618,45 @@ async readEvent(request: SessionEventReadRequest, signal?: AbortSignal): Promise
 ```
 
 Types: [SessionId](core.zh.md) · [SessionTitleSnapshot](session-title.zh.md)
+
+Source: [`packages/session-query/session-query/src/index.ts`](../../packages/session-query/session-query/src/index.ts)
+
+<a id="session-query-events"></a>
+
+### `session-query/*` events
+
+<a id="session-queryindex-progress--emit"></a>
+
+#### `session-query/index-progress` — emit
+
+Preparation of the full-text index behind session search advanced.
+
+```ts cordis-catalog
+/**
+ * Preparation of the full-text index behind session search advanced.
+ * @mode emit
+ * @param progress - phase and counters after the advance.
+ */
+'session-query/index-progress'(progress: SessionSearchIndexProgress): void
+```
+
+Source: [`packages/session-query/session-query/src/index.ts`](../../packages/session-query/session-query/src/index.ts)
+
+<a id="session-querywarmup-requested--emit"></a>
+
+#### `session-query/warmup-requested` — emit
+
+A deployment reports that the UI which searches has been served, so the backend may prepare its index before the first search. Repeats are allowed: each backend prepares at most once per instance.
+
+```ts cordis-catalog
+/**
+ * A deployment reports that the UI which searches has been served, so the
+ * backend may prepare its index before the first search. Repeats are
+ * allowed: each backend prepares at most once per instance.
+ * @mode emit
+ */
+'session-query/warmup-requested'(): void
+```
 
 Source: [`packages/session-query/session-query/src/index.ts`](../../packages/session-query/session-query/src/index.ts)
 <!-- END GENERATED cordis-surface -->

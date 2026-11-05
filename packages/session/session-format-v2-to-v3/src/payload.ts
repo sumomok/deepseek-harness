@@ -2,12 +2,33 @@
 
 import { SessionFormatError, SessionFormatUnsupportedMigrationError, isSessionFormatJsonObject, sessionFormatCount, sessionFormatSafeInteger } from '@deepseek-ai/dsh-session-format'
 import type { SessionFormatEvent, SessionFormatJsonObject, SessionFormatJsonValue } from '@deepseek-ai/dsh-session-format'
-import { assertReleasedPayloadSemantics, assertReleasedSurfaceMetadata } from '@deepseek-ai/dsh-session-format-v0-to-v1'
+import { LEGACY_UNINTERPRETED_EVENT_TYPES, assertReleasedPayloadSemantics, assertReleasedSurfaceMetadata } from '@deepseek-ai/dsh-session-format-v0-to-v1'
 import { RELEASED_V2_EVENT_DISPOSITIONS } from '@deepseek-ai/dsh-session-format-v1-to-v2'
 
 /** Audited surface event names; all other admitted events are log-only. */
 export const SURFACE_TYPES: ReadonlySet<string> = new Set(['system/message', 'user/message', 'assistant/message', 'tool/result'])
 const SOURCE_KINDS = new Set(['user', 'plugin', 'model', 'tool', 'agent-instructions', 'session-reference', 'team-message', 'goal', 'skill-invocation', 'skill-catalog', 'coordinator', 'subagent-report', 'subagent-settled', 'webhook', 'agent-message'])
+
+/**
+ * Message source kinds this edge carries without classifying them.
+ *
+ * The released source vocabulary is frozen per generation, and this edge
+ * refuses a message whose `source.kind` is outside it, because a V3 transform
+ * that cannot name a source cannot promise it transforms it safely. Sessions
+ * already on disk carry kinds written by builds that mounted an out-of-repo
+ * plugin, and those files cannot be rewritten: the Session lists normally and
+ * fails only when opened. Every such kind is named here and reaches V3
+ * verbatim; nothing in the transform reads a kind other than `plugin` and
+ * `agent-message`, so carrying one across changes no other decision.
+ *
+ * - `at-file-mention` — an out-of-repo composer plugin mounted while it was
+ *   under evaluation, which writes a `user/message` whose text is a
+ *   `<workspace-reference …/>` element and whose source names the mentioned
+ *   path. Eight Sessions in each of this machine's two corpora carry it.
+ */
+export const LEGACY_UNINTERPRETED_SOURCE_KINDS: ReadonlySet<string> = Object.freeze(new Set([
+  'at-file-mention',
+]))
 
 /**
  * Require a JSON object at the durable input boundary.
@@ -46,7 +67,8 @@ export function assertEvent(event: SessionFormatEvent, version: 2 | 3): void {
   }
   const disposition = RELEASED_V2_EVENT_DISPOSITIONS[event.type]
   const feedback = event.type === 'feedback/message-put' || event.type === 'feedback/message-delete'
-  if (disposition === undefined && !feedback) {
+  const uninterpreted = LEGACY_UNINTERPRETED_EVENT_TYPES.has(event.type)
+  if (disposition === undefined && !feedback && !uninterpreted) {
     throw new SessionFormatUnsupportedMigrationError('format v2 to v3 cannot safely transform unclassified event ' + event.type)
   }
   const surface = SURFACE_TYPES.has(event.type)
@@ -63,6 +85,8 @@ export function assertEvent(event: SessionFormatEvent, version: 2 | 3): void {
     assertFeedback(event.type, data)
     return
   }
+  // A named uninterpreted type has no disposition in any released inventory, so its payload stays uninspected here too.
+  if (uninterpreted) return
   // Non-inventory feedback events have returned above.
   const admitted = disposition as NonNullable<typeof disposition>
   keys(data, admitted.required, admitted.optional, event.type + ' data')
@@ -109,6 +133,7 @@ export function isRepairIdentity(id: SessionFormatJsonValue | undefined, callId:
 
 function assertSource(message: SessionFormatJsonObject): void {
   const source = record(message['source'], 'message source')
+  if (typeof source['kind'] === 'string' && LEGACY_UNINTERPRETED_SOURCE_KINDS.has(source['kind'])) return
   if (typeof source['kind'] !== 'string' || !SOURCE_KINDS.has(source['kind'])) {
     throw new SessionFormatUnsupportedMigrationError('cannot safely transform unclassified message source')
   }

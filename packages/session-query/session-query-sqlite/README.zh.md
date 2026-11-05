@@ -51,8 +51,11 @@ kind: "package-reference"
 | `readWindowMax` | `50` | 继承的 `readEvent()` 的 `before`/`after` 原始事件数上限 |
 | `persistedReadConcurrency` | `4` | 继承批量读取的并发持久化日志读取数 |
 | `preparedSessionCacheSize` | `5` | 继承的 `observeSession` 读取器为复用保留的冷 prepared-Session 观察数 |
+| `reconcileBatchSize` | `16` | 一次对账判定多少个已存储会话后才报告索引准备进度并让出事件循环 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-session-query-sqlite)是每个受支持字段及其 JSDoc 的穷尽式真源。
+
+搜索在查询之前先等待索引准备；把打开推迟到首次搜索的部署会在那一次搜索上承担这段等待。SQLite 后端通过 `ctx.sessionQuery.searchIndexProgress()` 与 `session-query/index-progress` 发布 `opening`、`reconciling` 与 `ready`：每轮对账判定 `reconcileBatchSize` 个已存储会话后报告已到达的计数并让出事件循环，因此监听方能在等待中的搜索请求仍未收到响应时看到这一轮推进。计数只覆盖已存储会话；`skipped` 统计那些已检查过、且存储修订与索引一致的会话，它们的日志不再重读。
 
 ### 搜索行为
 
@@ -68,7 +71,7 @@ kind: "package-reference"
 
 ### 失败与恢复
 
-带类型的 `SessionQueryError` 失败携带稳定代码：搜索配置为关闭时 `SESSION_QUERY_SEARCH_DISABLED`；索引无法打开或对账时 `SESSION_QUERY_INDEX_FAILED`；搜索目标不存在时 `SESSION_QUERY_SESSION_NOT_FOUND`；语料库在分页之间变化时 `SESSION_QUERY_STALE_CURSOR`——请重试完整的搜索调用；游标不属于该请求时 `SESSION_QUERY_INVALID_CURSOR`。取消在同步 SQLite 调用之间被尊重；已在 JavaScript 线程上执行的语句无法被中断。
+带类型的 `SessionQueryError` 失败携带稳定代码：搜索配置为关闭时 `SESSION_QUERY_SEARCH_DISABLED`；索引无法打开或对账时 `SESSION_QUERY_INDEX_FAILED`；搜索目标不存在时 `SESSION_QUERY_SESSION_NOT_FOUND`；语料库在分页之间变化时 `SESSION_QUERY_STALE_CURSOR`——请重试完整的搜索调用；游标不属于该请求时 `SESSION_QUERY_INVALID_CURSOR`。某份存储日志读取或文档提取失败时，`searchSessions` 不失败：该会话不进入索引，此前由它较早修订建立的索引行被删除，持续不可读期间只记录一次指明会话与修订的警告（错误变化时再记录一次），下一次搜索再读一次；以它为目标的 `searchEvents` 以提取自身的 `SessionQueryError` 代码失败（例如 `SESSION_QUERY_INVALID_SURFACE`），否则以 `SESSION_QUERY_PERSISTENCE_FAILED` 失败，读取或提取错误作为 `cause`。取消在同步 SQLite 调用之间被尊重；已在 JavaScript 线程上执行的语句无法被中断。
 
 -----
 
@@ -101,11 +104,11 @@ kind: "package-reference"
 
 ### 索引生命周期
 
-持久化 FTS 行存放在专用派生数据库中并跨重启保留；实时会话使用连接本地 TEMP 表，遮蔽同一会话的持久化基库，并在实时所有者脱离后再次显示基库。两类表都在数字 `seed_length` 中保留精确继承切点；重建的 header 只公开 `isSeeded`，而切点参与实时指纹与持久来源修订。每次搜索执行一次串行化观察：列出持久化快照、把逐会话修订与已索引行比较、只通过读取句柄读取新增或已更改日志（在内存中补齐被中断的末尾轮次，从不写回）、提取语义文档，并在运行查询前于一个事务中提交对账。重复查询与不变的重新打开不读取任何内容；切换存储或观察到新增、已更改、已删除或经外部修复的来源时，会在下次稳定观察时对账。来源或事务失败不提交任何内容，下一次搜索重试。
+持久化 FTS 行存放在专用派生数据库中并跨重启保留；实时会话使用连接本地 TEMP 表，遮蔽同一会话的持久化基库，并在实时所有者脱离后再次显示基库。两类表都在数字 `seed_length` 中保留精确继承切点；重建的 header 只公开 `isSeeded`，而切点参与实时指纹与持久来源修订。每次搜索执行一次串行化观察：列出持久化快照、把逐会话修订与已索引行比较、只通过读取句柄读取新增或已更改日志（在内存中补齐被中断的末尾轮次，从不写回）、提取语义文档，并在运行查询前于一个事务中提交对账。重复查询与不变的重新打开除此前读取失败的日志外不读取任何内容；切换存储或观察到新增、已更改、已删除或经外部修复的来源时，会在下次稳定观察时对账。持久化列举、来源冲突或事务失败不提交任何内容，下一次搜索重试；单份无法读取的存储日志则按「失败与恢复」所述留在索引之外。
 
 ### Schema 归属
 
-数据库携带 application id 与 schema 版本 8。打开时拒绝其他应用程序拥有的文件或规范数据库，拒绝未知用户表；只有已识别的不兼容派生 schema 才会原地重置——因此不相关或 session-persistence 数据库绝不会被触碰。在 POSIX 文件系统上，缺失的目录与数据库文件以仅所有者可访问的方式创建（进程 umask 前为 `0700` 与 `0600`）。每个派生索引路径在一个进程中只能由一个服务拥有；世代与 TEMP 遮蔽状态由连接持有。
+数据库携带 application id，以及由 schema 版本 10 与这些行所提取自的 Session 世代共同构成的身份。打开时拒绝其他应用程序拥有的文件或规范数据库，拒绝未知用户表；只有已识别的不兼容派生 schema 才会原地重置——因此不相关或 session-persistence 数据库绝不会被触碰。Session 世代变化正是这类不兼容之一：迁移边会重编 `seq` 并改名事件类型，却不写入任何日志文件，于是对账的 revision 比对找不到需要重读的东西，只有这次重置才会在新世代下把语料重新提取一遍。哪些事件产出文档发生变化属于同一类不兼容：revision 比对看不见它，于是 schema 版本前移，由重置重新提取。在 POSIX 文件系统上，缺失的目录与数据库文件以仅所有者可访问的方式创建（进程 umask 前为 `0700` 与 `0600`）。每个派生索引路径在一个进程中只能由一个服务拥有；世代与 TEMP 遮蔽状态由连接持有。
 
 </details>
 

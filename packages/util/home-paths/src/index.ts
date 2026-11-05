@@ -26,6 +26,12 @@ export const DEFAULT_AGENTS_HOME_DISPLAY = `~/${AGENTS_HOME_DIR_NAME}`
 /** Environment variable that overrides the default shared agent configuration root. */
 export const AGENTS_HOME_ENV = 'DSH_AGENTS_HOME'
 
+/** Directory name for the default Claude Code configuration root under the OS home. */
+export const CLAUDE_HOME_DIR_NAME = '.claude'
+
+/** Environment variable that overrides the default Claude Code configuration root. */
+export const CLAUDE_HOME_ENV = 'DSH_CLAUDE_HOME'
+
 /**
  * Give a native filesystem watcher one canonical spelling of a path, even
  * when its final components do not exist yet. The deepest existing ancestor
@@ -77,6 +83,14 @@ export function defaultDshHome(): string {
  */
 export function defaultAgentsHome(): string {
   return join(homedir(), AGENTS_HOME_DIR_NAME)
+}
+
+/**
+ * Resolve the default Claude Code configuration root using Node's platform path rules.
+ * @returns the absolute default Claude Code configuration root.
+ */
+export function defaultClaudeHome(): string {
+  return join(homedir(), CLAUDE_HOME_DIR_NAME)
 }
 
 /**
@@ -150,6 +164,22 @@ export function resolveDshHome(configured?: string, env: Record<string, string |
  */
 export function resolveAgentsHome(configured?: string, env: Record<string, string | undefined> = process.env): string {
   return resolveRoot(configured, env, AGENTS_HOME_ENV, defaultAgentsHome)
+}
+
+/**
+ * Resolve the Claude Code configuration root.
+ *
+ * Precedence, highest first: an explicit configured path, `$DSH_CLAUDE_HOME`,
+ * then `~/.claude`. The override is the harness's own variable rather than
+ * Claude Code's, so only the harness's environment moves the root. An empty or
+ * whitespace-only `$DSH_CLAUDE_HOME` is treated as unset, so a blank override
+ * never resolves the root to the current working directory.
+ * @param configured - explicit Claude Code root override, which has highest precedence.
+ * @param env - environment mapping used to read `DSH_CLAUDE_HOME`.
+ * @returns the normalized absolute Claude Code configuration root.
+ */
+export function resolveClaudeHome(configured?: string, env: Record<string, string | undefined> = process.env): string {
+  return resolveRoot(configured, env, CLAUDE_HOME_ENV, defaultClaudeHome)
 }
 
 /**

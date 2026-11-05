@@ -49,6 +49,7 @@ import type {
 import {
   RemoteStreamMuxServer,
   rejectRemoteStreamUpgrade,
+  type RemoteSocketId,
 } from './stream-server.ts'
 import {
   REMOTE_EVENT_STREAM_ENDPOINT,
@@ -83,6 +84,31 @@ export type {
   TypertRemoteEventSource,
 } from './types.ts'
 export type { RemoteEventHostInfo } from './stream-protocol.ts'
+export type { RemoteSocketId } from './stream-server.ts'
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * A `/api/remote.mux` WebSocket was accepted and bound to the Peer
+     * Connection admitted at upgrade; every logical stream it carries speaks
+     * for that Peer.
+     * @param peer - Peer admitted at upgrade.
+     * @param socketId - Host-minted socket identity, repeated by `remote-stream/socket-closed`.
+     * @mode emit
+     */
+    'remote-stream/socket-opened'(peer: PeerScope, socketId: RemoteSocketId): void
+
+    /**
+     * A socket announced by `remote-stream/socket-opened` has closed and every
+     * logical stream it carried has finished, whether the Client closed it,
+     * its Peer was disposed (close code 1001), or the Gateway unloaded.
+     * @param peer - Peer admitted at upgrade.
+     * @param socketId - identity from the matching `remote-stream/socket-opened`.
+     * @mode emit
+     */
+    'remote-stream/socket-closed'(peer: PeerScope, socketId: RemoteSocketId): void
+  }
+}
 
 interface GatewayErrorOptions {
   readonly cause?: unknown
@@ -128,9 +154,9 @@ interface RemoteEventClient {
   readonly queue: RemoteEventQueue
   readonly signal: AbortSignal
   readonly deliveries: Map<RemoteEventId, PendingRemoteEvent>
-  /** The stream's Peer principal: only the owner answers scoped waterfalls and receives every broadcast. */
+  /** The stream's Peer principal: the owner receives every scoped waterfall and broadcast; remote access decides the rest. */
   readonly principal: Principal
-  /** Only owner streams receive scoped waterfalls they could answer; other Peers receive admitted broadcasts only. */
+  /** Owner streams receive every scoped waterfall; a non-owner stream receives the ones remote access allows on the waterfall's Agent. */
   readonly answers: boolean
 }
 
@@ -263,6 +289,10 @@ export class TypertGatewayService extends Service implements TypertGateway {
             streamInboxBytes: resolved.streamInboxBytes,
             compression: resolved.websocketCompression === 'deflate',
           },
+          {
+            opened: (peer, socketId) => { announceSocket(webCtx, 'remote-stream/socket-opened', peer, socketId) },
+            closed: (peer, socketId) => { announceSocket(webCtx, 'remote-stream/socket-closed', peer, socketId) },
+          },
         )
         const releases = new Set<Promise<void>>()
         webCtx.effect(function* () {
@@ -325,7 +355,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
   }
 
   /**
-   * Check for an active owner Client event stream, the only kind that can answer forwarded waterfalls.
+   * Check for an active owner Client event stream, the only kind that receives every forwarded waterfall.
    * @returns whether an owner stream is open and has not been cancelled.
    */
   hasLiveClient(): boolean {
@@ -498,10 +528,6 @@ export class TypertGatewayService extends Service implements TypertGateway {
       try {
         assertPeerLive(peer, endpoint)
         requireInteractions(peer, endpoint)
-        // oxlint-disable-next-line typescript/no-unnecessary-condition -- other packages merge non-owner kinds into PrincipalMap.
-        if (peer.principal.kind !== 'owner') {
-          throw new TypertGatewayError('gateway/invocation-unavailable', endpoint, 'only owner Peers answer forwarded Remote events')
-        }
         const result = parseRemoteEventResultPayload(payload)
         const client = this.remoteEventClients.get(result.clientId)
         if (client === undefined) {
@@ -584,8 +610,8 @@ export class TypertGatewayService extends Service implements TypertGateway {
       answers: peer.principal.kind === 'owner',
     }
     this.remoteEventClients.set(clientId, client)
-    if (client.answers) {
-      for (const pending of this.pendingRemoteEvents.values()) this.deliverRemoteEvent(pending, client)
+    for (const pending of this.pendingRemoteEvents.values()) {
+      if (this.receivesWaterfall(pending, client)) this.deliverRemoteEvent(pending, client)
     }
     try {
       yield { ...REMOTE_EVENT_STREAM_READY, clientId, host: registration.host }
@@ -691,12 +717,32 @@ export class TypertGatewayService extends Service implements TypertGateway {
       if ([...signals].some(signal => signal.aborted)) abort()
       else {
         for (const client of this.remoteEventClients.values()) {
-          if (client.answers) this.deliverRemoteEvent(pending, client)
+          if (this.receivesWaterfall(pending, client)) this.deliverRemoteEvent(pending, client)
         }
       }
     } catch (error) {
       source.reject(error)
     }
+  }
+
+  /**
+   * Decide whether one scoped waterfall reaches, and may still be answered by, one Client. Owner streams take
+   * every waterfall. A non-owner stream takes it only when remote access allows `event:<name>` on the resource
+   * the waterfall's Agent identity names, of the kind the `agent` Host Context adapter declares; without that
+   * declaration no non-owner receives it.
+   */
+  private receivesWaterfall(pending: PendingRemoteEvent, client: RemoteEventClient): boolean {
+    if (client.answers) return true
+    const kind = this.ctx.typert.contexts.getHost('agent')?.resource
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- domain packages merge resource kinds into TypertResourceMap.
+    if (kind === undefined) return false
+    // The kind comes from a Context adapter typed by the merged resource map, as in access.ts.
+    const resource = { kind, id: pending.frame.agentId } as RemoteAccessResource
+    return this.ctx.remoteAccess.decide({
+      principal: client.principal,
+      action: `event:${pending.frame.event}`,
+      resources: [resource],
+    }).kind === 'allow'
   }
 
   private deliverRemoteEvent(pending: PendingRemoteEvent, client: RemoteEventClient): void {
@@ -713,6 +759,13 @@ export class TypertGatewayService extends Service implements TypertGateway {
     // Settlement and Client replacement may race the result request. Results
     // from a completed event or a superseded delivery are idempotent no-ops.
     if (pending === undefined || !pending.deliveries.has(client)) return
+    // Access may have been withdrawn since delivery; the event then stays pending for the Clients still allowed.
+    if (!this.receivesWaterfall(pending, client)) {
+      throw new TypertGatewayError(
+        'gateway/interactions-forbidden', REMOTE_EVENT_RESULT_ENDPOINT,
+        'remote access no longer allows this Peer to answer the Remote event',
+      )
+    }
     this.removeRemoteEventDelivery(pending, client)
     if (result.outcome.kind === 'result') {
       this.settleRemoteEvent(pending, {
@@ -1117,6 +1170,20 @@ export class TypertGatewayService extends Service implements TypertGateway {
       )
     }
     return resolved
+  }
+}
+
+/** Emit one socket lifecycle event; a throwing listener is logged, not propagated into the WebSocket server. */
+function announceSocket(
+  ctx: Context,
+  event: 'remote-stream/socket-opened' | 'remote-stream/socket-closed',
+  peer: PeerScope,
+  socketId: RemoteSocketId,
+): void {
+  try {
+    ctx.emit(event, peer, socketId)
+  } catch (error) {
+    ctx.logger.error(`api-gateway: a ${event} listener threw`, error)
   }
 }
 

@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { execa } from 'execa'
 import yaml from 'js-yaml'
 import { expect, onTestFinished } from 'vitest'
+import { isolatedSkillRootEnv } from '@deepseek-ai/dsh-loader-smoke'
 import { pnpmCommand } from '../../../../scripts/release/process.ts'
 import { packedWorkspaceClosure, type WorkspacePackage } from '../../../../packages/sandbox/sandbox-local/tests/packed-workspace-closure.ts'
 
@@ -89,8 +90,7 @@ export async function createPackedInstallation(temporaryPrefix: string, extraPac
     !/KEY|SECRET|TOKEN|PASSWORD/.test(key) && key !== 'NODE_OPTIONS' && key !== 'NODE_PATH'
   )))
   Object.assign(environment, {
-    DSH_HOME: home,
-    DSH_AGENTS_HOME: join(temporary, 'agents'),
+    ...isolatedSkillRootEnv(temporary, { dshHome: home, agentsHome: join(temporary, 'agents') }),
     DSH_TELEMETRY_DISABLED: '1',
     CI: 'true',
   })

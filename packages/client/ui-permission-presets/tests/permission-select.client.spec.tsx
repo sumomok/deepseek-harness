@@ -111,6 +111,48 @@ describe('PermissionSelect', () => {
     expect(select).not.toHaveBeenCalled()
   })
 
+  it('draws the glyph an option names, falls back to its value, then to the bare shield', () => {
+    const catalog: PermissionCatalog = {
+      defaultPreset: 'read-only', defaultOptions: [{ value: 'read-only', name: 'read-only' }],
+      options: [
+        { value: 'read-only', name: 'read-only' },
+        { value: 'workspace-write', name: 'workspace-write' },
+        { value: 'danger-full-access', name: 'danger-full-access' },
+        { value: 'yolo-access', name: 'Reviewed full access', glyph: 'danger-full-access' },
+        { value: 'house-style', name: 'House Style' },
+      ],
+    }
+    setup({ catalog, selection: { currentValue: 'yolo-access' } })
+    fireEvent.click(trigger())
+    const icons = screen.getAllByRole('menuitem').map(item => item.querySelector('svg')?.innerHTML)
+    // A named glyph draws the same artwork as the built-in row that owns it.
+    expect(icons[3]).toBe(icons[2])
+    expect(icons[0]).not.toBe(icons[2])
+    expect(icons[1]).not.toBe(icons[2])
+    // Outside the design set: the bare shield outline from the shared sprite.
+    expect(screen.getAllByRole('menuitem')[4]?.querySelector('svg')?.getAttribute('data-icon')).toBe('dsw-icon-shield-outline-regular')
+    // The trigger resolves the current option through the same glyph choice.
+    expect(trigger().querySelector('svg')?.innerHTML).toBe(icons[2])
+  })
+
+  it('paints the row whose tone the host named, and only that row', () => {
+    const catalog: PermissionCatalog = {
+      defaultPreset: 'workspace-write', defaultOptions: [{ value: 'workspace-write', name: 'workspace-write' }],
+      options: [
+        { value: 'workspace-write', name: 'workspace-write' },
+        { value: 'yolo-access', name: 'Reviewed full access', glyph: 'danger-full-access' },
+        { value: 'danger-full-access', name: 'danger-full-access', tone: 'danger' },
+      ],
+    }
+    setup({ catalog })
+    fireEvent.click(trigger())
+    const items = screen.getAllByRole('menuitem')
+    expect(items[2]?.className).toMatch(/danger/)
+    // Sharing the full-access glyph is not the same claim as the danger tone.
+    expect(items[1]?.className).not.toMatch(/danger/)
+    expect(items[0]?.className).not.toMatch(/danger/)
+  })
+
   it('closes an open menu on an outside pointer', () => {
     setup()
     fireEvent.click(trigger())
@@ -228,7 +270,9 @@ describe('PermissionSelect', () => {
     const select = vi.fn(() => Promise.reject(new Error('rejected')))
     const { selection } = setup({ selection: { currentValue: 'custom' }, select })
     expect(trigger().textContent).toBe('Custom')
-    expect(trigger().querySelectorAll('svg')).toHaveLength(1)
+    // Outside the design set the trigger still carries artwork: the bare
+    // shield outline beside the chevron.
+    expect(trigger().querySelectorAll('svg')).toHaveLength(2)
 
     fireEvent.click(trigger())
     fireEvent.click(screen.getByRole('menuitem', { name: '工作区内修改' }))

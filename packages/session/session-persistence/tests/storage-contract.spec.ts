@@ -295,6 +295,8 @@ describe('error vocabulary', () => {
     const owned = new SessionAlreadyOwnedError(id)
     expect(owned.name).toBe('SessionAlreadyOwnedError')
     expect(owned.message).toBe('session "errored" is already owned by an active write handle')
+    expect(new SessionAlreadyOwnedError(id, 'retry later').message)
+      .toBe('session "errored" is already owned by an active write handle; retry later')
 
     const readOnly = new SessionReadOnlyError(id, 'append')
     expect(readOnly.name).toBe('SessionReadOnlyError')

@@ -2,7 +2,7 @@
 
 /** English strings (the key-set source of truth for this pair). */
 export const en = {
-  nav: 'Models',
+  nav: 'Providers & models',
   deepSeekAccount: 'DeepSeek Account',
   title: 'Models',
   intro: 'Enter your API keys to use models from the following providers.',
@@ -146,7 +146,7 @@ export type ModelsKey = keyof typeof en
 
 /** Chinese strings (same keys as {@link en}). */
 export const zh: { [Key in keyof typeof en]: string } = {
-  nav: '模型',
+  nav: '提供方与模型',
   deepSeekAccount: 'DeepSeek 账号',
   title: '模型',
   intro: '填入各提供商的 API 密钥即可使用其模型。',

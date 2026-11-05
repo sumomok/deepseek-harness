@@ -62,6 +62,8 @@ kind: "package-reference"
 
 具名 route 可以用 `resource(request, peer?)` 代替 `handler`：一个把 Fetch `Request` 映射为 `Response` 的函数。经 HTTP 时只有 `GET` 与 `HEAD` 能到达它——其他方法得到带 `Allow: GET, HEAD` 的 405，请求 body 从不读取——请求不带 Peer，携带客户端的 header，URL 是把请求目标按一个占位 origin 解析得到的，客户端的 authority 只保留在 `host` 头里。响应按背压写回，gzip 的处理与 handler 的响应相同；`HEAD` 不发送 body，客户端断开会中止 `request.signal` 并取消 body。`readResource(request, peer)` 返回同一 URL 经 HTTP 会得到的响应，由 resource 按 `peer` 计算（`HEAD` 读取不返回 body）：它遵循 HTTP 的匹配顺序；路径属于 handler、或落到未认领或 handler 形式的回退时返回 404；`GET`、`HEAD` 以外的方法返回 405；不检查 cookie、Host 或 Origin，因此调用方须先准入读者。
 
+`routes()` 列出当前生效的登记：每条 `exact`、`prefix`、`upgrade` route 一项 `{ kind, path }`，同一种类内按路径排序，回退座位被占用时最后再列一项 `{ kind: 'fallback' }`。disposer 已执行的登记不在其中。登记不声明 HTTP 方法，所以各项不带方法；列举不改变任何匹配。直接登记在 webserver 上的 route 不经过 Connection 的任何检查。列表里也有 Connection 自己登记的 route：`/api` 前缀与各 RPC 通道前缀经 `ctx.connection.admit` 准入每个请求，`/api` 前缀随后运行 `connection/request` waterfall；精确 route `/connect` 用启动令牌换取 API Cookie。组合的门禁测试读这份列表，逼每一项都有分类。
+
 ### 回退席位
 
 `registerFallback(handler)` 或 `registerFallback({ resource })` 认领所有未被具名 route 命中的请求的唯一一个应答方。第二次注册会抛错；没有注册回退时服务器回答 404。在随附的 Web 组合中，[SPA dist 服务器](../frontend-static/README.zh.md)拥有该席位，并对其渲染的每个 index 响应调用 `renderIndex`。

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
 import { RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
+import type { PermissionCatalog } from '@deepseek-ai/dsh-permission-presets/client'
 import {
   PermissionPresetSettingsController, permissionDefaultOf,
 } from '../src/client/settings-store.ts'
@@ -55,6 +56,21 @@ describe('permission settings store', () => {
     ] })
     expect(resolveDefault({ ...view('read-only'), value: {} }).currentValue).toBe('read-only')
     expect(() => resolveDefault(view('missing'))).toThrow('does not advertise')
+  })
+
+  it('carries a catalog option\'s tone onto its row and leaves the others plain', () => {
+    const toned: PermissionCatalog = {
+      options: [],
+      defaultPreset: 'read-only',
+      defaultOptions: [
+        { value: 'read-only', name: 'read-only' },
+        { value: 'danger-full-access', name: 'Full access', tone: 'danger' },
+      ],
+    }
+    expect(permissionDefaultOf(view('read-only'), toned).options).toEqual([
+      { id: 'read-only', label: 'Read Only' },
+      { id: 'danger-full-access', label: 'Full access', tone: 'danger' },
+    ])
   })
 
   it('loads and writes defaultPreset with optimistic concurrency', async () => {

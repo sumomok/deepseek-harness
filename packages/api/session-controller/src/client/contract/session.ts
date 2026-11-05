@@ -7,13 +7,13 @@
  * must stub); implementation-internal entry points (history staging, wire-frame
  * dispatch) stay on the class, invisible out here.
  */
-import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { FileAttachmentRef, ImageAttachmentRef, PromptReference } from '@deepseek-ai/dsh-attachment'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionId, SessionSeq } from '@deepseek-ai/dsh-session/types'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { PromptContentPart, QueueAction, SessionRequestId } from '../../types.ts'
-import type { PendingSubmissionAttachment, SessionSnapshot } from './snapshot.ts'
+import type { PendingSubmissionAttachment, PendingSubmissionReference, SessionSnapshot } from './snapshot.ts'
 
 /**
  * Why a local submission echo left the snapshot: `observed` when its durable
@@ -36,6 +36,8 @@ export interface BeginSubmissionInput {
   readonly text: string
   /** Ordered image previews and durable file metadata matching the upcoming prompt attachments. */
   readonly attachments: readonly PendingSubmissionAttachment[]
+  /** Ordered display fields of the upcoming prompt references; omit or leave empty for none. */
+  readonly references?: readonly PendingSubmissionReference[]
   /**
    * Called once when the Host accepted the prompt, in the same update that
    * publishes the echo, whether the receipt or an Inbox row showed it first.
@@ -93,6 +95,7 @@ export interface ISession {
    * @param mode - 'queue' appends a turn; 'steer' interrupts the running one.
    * @param signal - optional caller cancellation for the complete admission round-trip.
    * @param requestId - identity from {@link beginSubmission}; a failed identified prompt retires its echo.
+   * @param references - ordered prompt references recorded on the accepted message source; never content.
    * @returns acceptance, or the business error (also mirrored into snapshot.promptError).
    */
   prompt(
@@ -100,6 +103,7 @@ export interface ISession {
     mode: 'queue' | 'steer',
     signal?: AbortSignal,
     requestId?: SessionRequestId,
+    references?: readonly PromptReference[],
   ): Promise<RemoteResult<{ accepted: true }>>
   /**
    * Resolve one stored image using this Session's gateway permission scope.
@@ -149,6 +153,31 @@ export interface ISession {
    * @returns completion once covered, exhausted, superseded, or failed soft.
    */
   loadThrough(seq: SessionSeq): Promise<void>
+  /**
+   * Replace the display window with one direct read ending at `seq`.
+   *
+   * This is the historical-entry loader: the window becomes the contiguous
+   * page that contains the position, so reaching a message near the start of a
+   * long Session costs one read rather than one read per page. While such a
+   * window is displayed the live journal keeps its own cursor but does not
+   * append to it; reopening the Session restores the live, tail-following
+   * window.
+   * @param seq - durable event seq the window must contain.
+   * @param signal - optional cancellation for the read.
+   * @returns whether the window now covers `seq`.
+   */
+  openAt(seq: SessionSeq, signal?: AbortSignal): Promise<boolean>
+  /**
+   * Restore the live, tail-following window after {@link openAt}.
+   * @returns completion once the live window is installed again.
+   */
+  openTail(): Promise<void>
+  /**
+   * Append the next forward page to the displayed history window.
+   * @param signal - optional cancellation for the read.
+   * @returns whether the window grew.
+   */
+  loadNewer(signal?: AbortSignal): Promise<boolean>
   /**
    * Execute one slash-command line against this session's agent — pure
    * admission semantics (the host executor durably logs the lifecycle).

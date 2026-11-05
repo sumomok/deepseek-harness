@@ -394,6 +394,16 @@
     - id: ui-jobs
       name: '@deepseek-ai/dsh-client-ui-jobs'
 
+    # Workspace-wide message search: one overlay reading the Host's indexed
+    # message search page by page, opened from the page shortcut.
+    - id: ui-search
+      name: '@deepseek-ai/dsh-client-ui-search'
+      # The panel reads the Host's message index; the Web profile keeps that
+      # index closed (openAt: never above), so mounting it there would offer a
+      # command whose every read fails. A deployment that enables content
+      # search adds this row alongside its openAt override.
+      disabled: !!js "ctx.get('profileContext')?.name === 'web'"
+
     # Task management and Session reminder catalog over the Host Schedule
     # service mounted above.
     - id: ui-schedule

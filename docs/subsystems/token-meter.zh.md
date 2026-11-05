@@ -137,6 +137,14 @@ contextPressure(session: Session): Pick<ContextPressureProjection, 'pressureToke
 measure(session: Session, requestHeader?: EpochHeader): TokenMeasurement
 
 /**
+ * Whether the current surface contains any `system/message` node, including
+ * an empty system node, using the same replay state as `measure`.
+ * @param session - session whose current durable tail is synchronized.
+ * @returns true when a system/message is on the current surface.
+ */
+hasSystemMessage(session: Session): boolean
+
+/**
  * Heuristically price one model-visible message (instance face of the pure
  * `estimateMessage` export from `estimate.ts`).
  * @param message - message to price without mutation.

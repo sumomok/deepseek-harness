@@ -6,7 +6,7 @@ import type { SessionId, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SessionObservation } from '@deepseek-ai/dsh-session-query'
 import { RemoteError, remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import {
-  DEFAULT_MAX_MESSAGES, paginate, pageRecords, entryFor, addressId,
+  DEFAULT_MAX_MESSAGES, paginate, paginateForward, pageRecords, entryFor, addressId,
   validateHistoryWindow, validateAddress, rejectNotFound,
 } from '../history.ts'
 import { EventListener, ProjectionListener } from './listener.ts'
@@ -216,6 +216,10 @@ export function history(observation: SessionObservation, request: Omit<SessionPa
   if (cursor > observation.cursor) {
     throw new RemoteError('gateway/bad-request', `session history cut ${String(cursor)} exceeds ${String(observation.cursor)}`, {})
   }
+  if (request.afterSeq !== undefined) {
+    const forward = paginateForward(observation.events, request.afterSeq, request.maxMessages, cursor)
+    return { cursor, records: pageRecords(forward.events), hasMore: request.afterSeq > 0, hasNewer: forward.hasNewer }
+  }
   const page = paginate(
     observation.events,
     request.beforeSeq === undefined ? undefined : SessionLogOffset(request.beforeSeq),
@@ -223,7 +227,12 @@ export function history(observation: SessionObservation, request: Omit<SessionPa
     cursor,
     request.turnWindow,
   )
-  return { cursor, records: pageRecords(page.events), hasMore: page.hasMore }
+  return {
+    cursor,
+    records: pageRecords(page.events),
+    hasMore: page.hasMore,
+    hasNewer: cursor < observation.cursor,
+  }
 }
 
 /**
@@ -246,6 +255,13 @@ export function resolveHistoryRequest(request: SessionPageRequest): SessionPageR
   if (request.throughSeq !== undefined
     && (!Number.isSafeInteger(request.throughSeq) || request.throughSeq < -1 || Object.is(request.throughSeq, -0))) {
     throw new RemoteError('gateway/bad-request', 'throughSeq must be an integer greater than or equal to -1', {})
+  }
+  if (request.afterSeq !== undefined
+    && (!Number.isSafeInteger(request.afterSeq) || request.afterSeq < 0 || Object.is(request.afterSeq, -0))) {
+    throw new RemoteError('gateway/bad-request', 'afterSeq must be a non-negative safe integer', {})
+  }
+  if (request.afterSeq !== undefined && request.beforeSeq !== undefined) {
+    throw new RemoteError('gateway/bad-request', 'afterSeq and beforeSeq cannot be combined', {})
   }
   if (request.beforeSeq !== undefined
     && (!Number.isSafeInteger(request.beforeSeq) || request.beforeSeq < 0 || Object.is(request.beforeSeq, -0))) {

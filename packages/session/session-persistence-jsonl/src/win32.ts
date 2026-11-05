@@ -6,7 +6,8 @@
  * fsync contract through Node, so the Windows path uses the native durable
  * namespace primitive instead: create a staging object in the target directory
  * and publish it with `MoveFileExW(..., MOVEFILE_WRITE_THROUGH)` without
- * replacement or cross-volume copy fallback.
+ * replacement or cross-volume copy fallback. Relocation within one session
+ * directory adds `MOVEFILE_REPLACE_EXISTING` to swap a log in one step.
  *
  * @module dsh-session-persistence-jsonl/win32
  */
@@ -36,6 +37,7 @@ interface Win32ErrnoException extends NodeJS.ErrnoException {
   dest: string
 }
 
+const MOVEFILE_REPLACE_EXISTING = 0x00000001
 const MOVEFILE_WRITE_THROUGH = 0x00000008
 const WAIT_OBJECT_0 = 0
 const WAIT_TIMEOUT = 0x00000102
@@ -131,9 +133,24 @@ async function assertDirectory(path: string): Promise<boolean> {
  * @param existing - the synced staging path to move.
  * @param replacement - the final path, which must not already exist.
  */
-export async function publishNewFileWin32(existing: string, replacement: string): Promise<void> {
+export function publishNewFileWin32(existing: string, replacement: string): Promise<void> {
+  return moveFileWin32(existing, replacement, MOVEFILE_WRITE_THROUGH)
+}
+
+/**
+ * Atomically replace `replacement` with `existing` using Windows
+ * write-through rename semantics. The destination may exist; the move must
+ * stay within the volume (no copy fallback flag is set).
+ * @param existing - the synced staging path to move.
+ * @param replacement - the final path, replaced when it exists.
+ */
+export function replaceFileWin32(existing: string, replacement: string): Promise<void> {
+  return moveFileWin32(existing, replacement, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)
+}
+
+async function moveFileWin32(existing: string, replacement: string, flags: number): Promise<void> {
   const api = await win32()
-  const ok = api.moveFileExW(toNamespacedPath(existing), toNamespacedPath(replacement), MOVEFILE_WRITE_THROUGH)
+  const ok = api.moveFileExW(toNamespacedPath(existing), toNamespacedPath(replacement), flags)
   if (ok === 0) throw win32Error('MoveFileExW', api.getLastError(), existing, replacement)
 }
 

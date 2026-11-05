@@ -22,6 +22,8 @@ import { serviceBoundary } from './service-boundary.ts'
 interface Caller {
   readonly id: SessionIdValue
   readonly header: SessionHeader
+  /** Number of leading events inherited from a fork parent. */
+  readonly inheritedEventCount: number
   /** The caller's own-session boundary fold (the `turnBoundary` projection). */
   readonly boundary: TurnBoundaryProjection
 }
@@ -63,6 +65,7 @@ function callerOf(exec: ToolRunContext, ctx: Context): Caller {
   return {
     id: agent.session.id,
     header: agent.session.header,
+    inheritedEventCount: agent.session.inheritedEventCount,
     boundary: ctx.agents.turnBoundaryOf(agent.session),
   }
 }
@@ -86,6 +89,41 @@ async function authorizeTarget(
       { kind: 'cwd', values: [cwd] },
     ], signal))
   if (records.length !== 1) throw serviceBoundary.unauthorizedTarget()
+}
+
+/**
+ * Resolve the narrow fork fallback: the requested target is the caller's
+ * direct parent, authorization failed, the caller still has a workspace, and
+ * the requested seq is inside the inherited prefix. Cross-cwd parents are
+ * rejected when their record is available; a missing parent is the only case
+ * this fallback serves. Never walks a grandparent chain.
+ * @param ctx - host context providing sessionQuery.
+ * @param caller - the fork child requesting the read.
+ * @param target - the requested session id.
+ * @param seq - requested event seq.
+ * @param error - the failed normal authorization.
+ * @param signal - caller cancellation.
+ * @returns the caller id to read from, or undefined when the fallback is not allowed.
+ */
+async function inheritedParentReadTarget(
+  ctx: Context,
+  caller: Caller,
+  target: SessionIdValue,
+  seq: number,
+  error: unknown,
+  signal: AbortSignal,
+): Promise<SessionIdValue | undefined> {
+  if (!(error instanceof HarnessError) || error.code !== 'SESSION_QUERY_TOOL_UNAUTHORIZED') return undefined
+  if (caller.header.parentSession !== target) return undefined
+  if (caller.header.cwd === undefined) return undefined
+  if (!Number.isSafeInteger(seq) || seq < 0 || seq >= caller.inheritedEventCount) return undefined
+  // A live parent with another cwd is a cross-workspace request; only a
+  // genuinely unavailable parent may be served from the inherited copy.
+  const records = await serviceBoundary.call(ctx, signal, 'parent authorization', () =>
+    ctx.sessionQuery.filterSessions([{ kind: 'id', values: [target] }], signal))
+  const live = records.find(record => record.header.id === target)
+  if (live !== undefined && live.header.cwd !== caller.header.cwd) return undefined
+  return caller.id
 }
 
 function recordAuthorized(record: SessionRecord, caller: Caller): boolean {
@@ -244,6 +282,7 @@ export const workspaceAccess = {
   callerOf,
   targetId,
   authorizeTarget,
+  inheritedParentReadTarget,
   recordAuthorized,
   assertObservedTargetAuthorized,
   authorizeSessionIds,

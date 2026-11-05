@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "micro-compaction du contexte",
+    "description": "Remplace les anciens résultats d'outils par des pointeurs de séquence de session pendant l'inactivité de l'agent."
+  }
+}

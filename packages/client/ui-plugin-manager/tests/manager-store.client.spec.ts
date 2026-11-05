@@ -24,6 +24,7 @@ const BUNDLE: BundleInfo = {
   installed: true,
   source: 'dsh-better-sidebar@^0.16.0',
   optional: false,
+  shipped: false,
   removable: true,
   updatable: false,
   rows: [{ rowId: 'sidebar', moduleName: 'dsh-better-sidebar', entryId: ROW_ENTRY }, { rowId: 'theme', moduleName: 'dsh-better-sidebar/theme' }],
@@ -130,7 +131,7 @@ describe('packageView', () => {
   it('joins a bundle with the entries its rows run as', () => {
     expect(packageView(BUNDLE, PLUGINS)).toEqual({
       name: 'dsh-better-sidebar', version: '0.16.0', description: 'A sidebar.', source: 'dsh-better-sidebar@^0.16.0',
-      installed: true, official: false, availability: 'profile', optional: false, removable: true, updatable: false, enabled: false,
+      installed: true, official: false, availability: 'profile', optional: false, shipped: false, updatable: false, removable: true, enabled: false,
       rows: [
         { rowId: 'sidebar', moduleName: 'dsh-better-sidebar', entryId: ROW_ENTRY, enabled: true, phase: 'active' },
         { rowId: 'theme', moduleName: 'dsh-better-sidebar/theme', enabled: false, phase: null },
@@ -138,25 +139,28 @@ describe('packageView', () => {
     })
     // A row the inventory no longer lists, a protected row, and a bundle the Host cannot read.
     const protectedBundle: BundleInfo = {
-      name: '@deepseek-ai/dsh-base', enabled: true, installed: false, official: false, availability: 'installation', optional: false, removable: false, updatable: false, readOnlyReason: 'management-required',
+      name: '@deepseek-ai/dsh-base', enabled: true, installed: false, official: false, availability: 'installation', optional: false, shipped: false, updatable: false, removable: false, readOnlyReason: 'management-required',
       error: { code: 'operation-error', diagnostic: 'broken' },
       rows: [{ rowId: 'core', moduleName: '@deepseek-ai/dsh-base', entryId: 'include:core' as PluginEntryId }, { rowId: 'gone', moduleName: 'x', entryId: 'include:gone' as PluginEntryId }],
       overrides: [],
     }
     expect(packageView(protectedBundle, PLUGINS)).toEqual({
-      name: '@deepseek-ai/dsh-base', installed: false, official: false, availability: 'installation', optional: false, removable: false, updatable: false, enabled: true, readOnlyReason: 'management-required',
+      name: '@deepseek-ai/dsh-base', installed: false, official: false, availability: 'installation', optional: false, shipped: false, updatable: false, removable: false, enabled: true, readOnlyReason: 'management-required',
       error: { code: 'operation-error', diagnostic: 'broken' },
       rows: [
         { rowId: 'core', moduleName: '@deepseek-ai/dsh-base', entryId: 'include:core', enabled: true, phase: 'active', readOnlyReason: 'management-required' },
         { rowId: 'gone', moduleName: 'x', entryId: 'include:gone', enabled: false, phase: null },
       ],
     })
+    // A bundle the launching application supplies keeps that mark on its view.
+    const shipped: BundleInfo = { ...BUNDLE, installed: false, shipped: true, removable: false }
+    expect(packageView(shipped, PLUGINS)).toMatchObject({ installed: false, shipped: true })
   })
 })
 
 describe('sortPackages', () => {
   it('orders packages by the short name a person reads, not by the Host order or enablement', async () => {
-    const plain = { enabled: true, installed: true, official: false, availability: 'profile' as const, optional: false, removable: true, updatable: false, rows: [], overrides: [] }
+    const plain = { enabled: true, installed: true, official: false, availability: 'profile' as const, optional: false, shipped: false, updatable: false, removable: true, rows: [], overrides: [] }
     const zeta: BundleInfo = { ...plain, name: 'dsh-zeta' }
     const alpha: BundleInfo = { ...plain, name: '@acme/dsh-alpha', enabled: false }
     const views = [zeta, BUNDLE, alpha].map(bundle => packageView(bundle, PLUGINS))
@@ -675,7 +679,7 @@ describe('PluginManagerController', () => {
   })
 
   it('refuses a spec the list already shows without asking the Host, and words what the Host refused', async () => {
-    const shipped: BundleInfo = { ...BUNDLE, name: '@deepseek-ai/dsh-official', installed: false, official: true, availability: 'installation', optional: true, removable: false }
+    const shipped: BundleInfo = { ...BUNDLE, name: '@deepseek-ai/dsh-official', installed: false, official: true, availability: 'installation', optional: true, updatable: false, removable: false }
     const { plugins, face, state, controller } = bench({
       listBundles: vi.fn(() => Promise.resolve(ok([BUNDLE, shipped]))),
       inspect: vi.fn()
@@ -712,7 +716,7 @@ describe('PluginManagerController', () => {
   it('offers a default-hidden shipped bundle by name, permits cancellation, and enables without installing', async () => {
     let enabled = false
     const shipped: BundleInfo = { ...BUNDLE, name: '@acme/shipped-exploration', installed: false, official: true,
-      availability: 'installation', optional: true, removable: false, listedByDefault: false }
+      availability: 'installation', optional: true, shipped: false, updatable: false, removable: false, listedByDefault: false }
     const { plugins, face, state, controller, track } = bench({
       listBundles: vi.fn(() => Promise.resolve(ok([{ ...shipped, enabled }]))),
       setBundleEnabled: vi.fn(() => { enabled = true; return Promise.resolve(ok(APPLIED)) }),
@@ -748,7 +752,7 @@ describe('PluginManagerController', () => {
 
   it('reports a refused bundled activation without downloading a replacement', async () => {
     const shipped: BundleInfo = { ...BUNDLE, name: '@acme/shipped-exploration', installed: false, official: true,
-      availability: 'installation', optional: true, removable: false, listedByDefault: false }
+      availability: 'installation', optional: true, shipped: false, updatable: false, removable: false, listedByDefault: false }
     const { plugins, face, state, controller } = bench({
       listBundles: vi.fn(() => Promise.resolve(ok([shipped]))),
       setBundleEnabled: vi.fn(() => Promise.resolve(ok(failed({ code: 'operation-error', diagnostic: 'activation refused' })))),
@@ -766,7 +770,7 @@ describe('PluginManagerController', () => {
 
   it('accepts a bundled package without optional version or description and reports a lost activation reply', async () => {
     const shipped: BundleInfo = { name: '@acme/shipped-exploration', installed: false, official: true, enabled: false,
-      availability: 'installation', optional: true, removable: false, updatable: false, listedByDefault: false, rows: [], overrides: [] }
+      availability: 'installation', optional: true, removable: false, shipped: false, updatable: false, listedByDefault: false, rows: [], overrides: [] }
     const { plugins, face, state, controller } = bench({
       listBundles: vi.fn(() => Promise.resolve(ok([shipped]))),
       setBundleEnabled: vi.fn(() => Promise.resolve(refused('gateway/internal', 'offline'))),
@@ -1915,7 +1919,7 @@ it('reports a successful install with only documented result fields', async () =
 
 const CATALOG: BundleInfo = {
   name: '@deepseek-ai/dsh-subagent-codex', official: true, availability: 'missing', installed: false, optional: false,
-  enabled: false, removable: false, updatable: false, rows: [], overrides: [],
+  shipped: false, enabled: false, removable: false, updatable: false, rows: [], overrides: [],
   installTarget: { spec: '@deepseek-ai/dsh-subagent-codex@2.0.0', version: '2.0.0' },
 }
 
@@ -1934,7 +1938,7 @@ it('installs an absent Official entry directly at the host target and enables it
 it.each(['before', 'after'] as const)('reports one Official toggle when inventory refresh finishes %s installation', async (order) => {
   const installing = deferred<ReturnType<typeof ok<ChangeResult>>>()
   const refreshing = deferred<ReturnType<typeof ok<BundleInfo[]>>>()
-  const installed: BundleInfo = { ...CATALOG, availability: 'profile', installed: true, enabled: true, removable: true, version: '2.0.0' }
+  const installed: BundleInfo = { ...CATALOG, availability: 'profile', installed: true, enabled: true, shipped: false, updatable: false, removable: true, version: '2.0.0' }
   const result = ok({ ...APPLIED, bundle: CATALOG.name })
   const listBundles = vi.fn().mockResolvedValue(ok([installed]))
     .mockResolvedValueOnce(ok([CATALOG])).mockReturnValueOnce(refreshing.promise)
@@ -1964,7 +1968,7 @@ it.each(['before', 'after'] as const)('reports one Official toggle when inventor
 })
 
 it.each([true, false])('updates an Official entry with enabled=%s by removing it, then using the same exact installer', async (enabled) => {
-  const installed: BundleInfo = { ...CATALOG, availability: 'profile', installed: true, version: '1.0.0', enabled, removable: true }
+  const installed: BundleInfo = { ...CATALOG, availability: 'profile', installed: true, version: '1.0.0', enabled, shipped: false, updatable: false, removable: true }
   const { controller, plugins, face, state } = bench({ listBundles: vi.fn().mockResolvedValue(ok([installed])),
     installBundle: vi.fn().mockResolvedValue(ok({ ...APPLIED, bundle: CATALOG.name, application: 'restart-required' })),
   })
@@ -1981,7 +1985,7 @@ it.each([true, false])('updates an Official entry with enabled=%s by removing it
 })
 
 it('keeps an installed Official entry and installs nothing when its removal for an update fails', async () => {
-  const installed: BundleInfo = { ...CATALOG, availability: 'profile', installed: true, version: '1.0.0', enabled: true, removable: true }
+  const installed: BundleInfo = { ...CATALOG, availability: 'profile', installed: true, version: '1.0.0', enabled: true, shipped: false, updatable: false, removable: true }
   const { controller, plugins, face, state } = bench({ listBundles: vi.fn().mockResolvedValue(ok([installed])),
     removeBundle: vi.fn().mockResolvedValue(ok({ ...APPLIED, application: 'failed', error: { code: 'bundle-in-use' } })),
   })
@@ -1995,7 +1999,7 @@ it.each([
   ['an unreachable Host', () => refused('ERR_REMOTE', 'connection lost')],
   ['a profile without HMR', () => ok({ ...APPLIED, application: 'failed', error: { code: 'stop-profile' } })],
 ] as const)('installs an Official update only after the removal, except over a running bundle of %s', async (kind, answer) => {
-  const installed: BundleInfo = { ...CATALOG, availability: 'profile', installed: true, version: '1.0.0', enabled: true, removable: true }
+  const installed: BundleInfo = { ...CATALOG, availability: 'profile', installed: true, version: '1.0.0', enabled: true, shipped: false, updatable: false, removable: true }
   const { controller, plugins, face, state } = bench({ listBundles: vi.fn().mockResolvedValue(ok([installed])),
     removeBundle: vi.fn().mockResolvedValue(answer()),
   })

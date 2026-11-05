@@ -323,8 +323,11 @@ describe('dsh web keyless CLI smoke', () => {
         env: {
           ...process.env,
           DEEPSEEK_API_KEY: 'keyless-web-no-call',
+          // This spec is in the client-plane program, which cannot import the
+          // host-plane `isolatedSkillRootEnv`; the keys are the block it returns.
           DSH_HOME: join(sessionsDir, '.dsh'),
           DSH_AGENTS_HOME: join(sessionsDir, '.agents'),
+          DSH_CLAUDE_HOME: join(sessionsDir, '.claude'),
           TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
         },
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -446,8 +449,11 @@ describe('dsh web keyless CLI smoke', () => {
           ...process.env,
           DEEPSEEK_API_KEY: 'keyless-web-workspace',
           DEEPSEEK_BASE_URL: `http://127.0.0.1:${address.port}`,
+          // This spec is in the client-plane program, which cannot import the
+          // host-plane `isolatedSkillRootEnv`; the keys are the block it returns.
           DSH_HOME: join(workspace, '.dsh'),
           DSH_AGENTS_HOME: join(workspace, '.agents'),
+          DSH_CLAUDE_HOME: join(workspace, '.claude'),
           TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
         },
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -559,7 +565,11 @@ describe('dsh web keyless CLI smoke', () => {
           ...process.env,
           DEEPSEEK_API_KEY: 'keyless-web-retry',
           DEEPSEEK_BASE_URL: `http://127.0.0.1:${address.port}`,
+          // This spec is in the client-plane program, which cannot import the
+          // host-plane `isolatedSkillRootEnv`; the keys are the block it returns.
           DSH_HOME: join(workspace, '.dsh'),
+          DSH_AGENTS_HOME: join(workspace, '.agents'),
+          DSH_CLAUDE_HOME: join(workspace, '.claude'),
           TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
         },
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -643,8 +653,11 @@ describe('dsh web keyless CLI smoke', () => {
           DEEPSEEK_API_KEY: 'keyless-web-ptc',
           DEEPSEEK_BASE_URL: `http://127.0.0.1:${address.port}`,
           DSH_TOOLS_MODE: mode === 'native' ? 'ptc' : 'native',
+          // This spec is in the client-plane program, which cannot import the
+          // host-plane `isolatedSkillRootEnv`; the keys are the block it returns.
           DSH_HOME: join(workspace, '.dsh'),
           DSH_AGENTS_HOME: join(workspace, '.agents'),
+          DSH_CLAUDE_HOME: join(workspace, '.claude'),
           TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
         },
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -718,8 +731,11 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
         cwd: sessionsDir,
         env: {
           ...process.env,
+          // This spec is in the client-plane program, which cannot import the
+          // host-plane `isolatedSkillRootEnv`; the keys are the block it returns.
           DSH_HOME: join(sessionsDir, '.dsh'),
           DSH_AGENTS_HOME: join(sessionsDir, '.agents'),
+          DSH_CLAUDE_HOME: join(sessionsDir, '.claude'),
           TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
         },
         stdio: ['ignore', 'pipe', 'pipe'],

@@ -6,6 +6,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import { ToolExecutionPipeline } from '@deepseek-ai/dsh-tools/pipeline'
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 
+import { createHash } from 'node:crypto'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import * as PtcToolExecutor from '@deepseek-ai/dsh-tool-executor-ptc'
 import { provideWorkingDirectoryFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -257,6 +258,10 @@ describe('read tool', () => {
       offset: 1,
       lines: [{ number: 1, text: 'hello' }, { number: 2, text: 'world' }],
       totalLines: 2,
+      version: 'v1',
+      size: 11,
+      read: 'full',
+      digest: createHash('sha256').update('hello\nworld', 'utf8').digest('hex'),
     })
     expect(text(result)).toBe(`<path>/abs/a.txt</path>
 <type>file</type>
@@ -273,7 +278,16 @@ describe('read tool', () => {
     fs.files.set('key:empty.txt', '')
     const result = await call(ctx, 'read', { file_path: 'empty.txt' })
     if (result.isError) throw new Error('expected empty read success')
-    expect(result.value).toEqual({ path: '/abs/empty.txt', offset: 1, lines: [], totalLines: 0 })
+    expect(result.value).toEqual({
+      path: '/abs/empty.txt',
+      offset: 1,
+      lines: [],
+      totalLines: 0,
+      version: 'v1',
+      size: 0,
+      read: 'full',
+      digest: createHash('sha256').update('', 'utf8').digest('hex'),
+    })
     expect(text(result)).toContain('(End of file - total 0 lines)')
   })
 
@@ -374,6 +388,29 @@ describe('read tool', () => {
     const result = await call(ctx, 'read', { file_path: 'big.txt' })
     expect(result.isError).toBe(false)
     expect(text(result)).toContain('Output capped.')
+    expect(result.meta).toMatchObject({ read: 'window' })
+  })
+
+  it('marks an offset read as a window, not a full-file read', async () => {
+    const { ctx, fs } = await setup()
+    fs.files.set('key:a.txt', 'one\ntwo\nthree')
+    const result = await call(ctx, 'read', { file_path: 'a.txt', offset: 2, limit: 1 })
+    if (result.isError) throw new Error('expected read success')
+    expect(result.meta).toMatchObject({
+      offset: 2,
+      totalLines: 3,
+      read: 'window',
+      lines: [{ number: 2, text: 'two' }],
+    })
+  })
+
+  it('marks a line-truncated read as a window', async () => {
+    const { ctx, fs } = await setup({ readMaxLineLength: 5 })
+    fs.files.set('key:a.txt', 'abcdefghij')
+    const result = await call(ctx, 'read', { file_path: 'a.txt' })
+    if (result.isError) throw new Error('expected read success')
+    expect(result.meta).toMatchObject({ read: 'window', totalLines: 1 })
+    expect(JSON.stringify(result.meta)).toContain('(line truncated to 5 chars)')
   })
 
   it('attaches the structured window as presentation meta, and presentResult narrows it into a read card', async () => {
@@ -388,6 +425,10 @@ describe('read tool', () => {
       offset: 1,
       lines: [{ number: 1, text: 'const x = 1' }, { number: 2, text: 'const y = 2' }],
       totalLines: 2,
+      version: 'v1',
+      size: 23,
+      read: 'full',
+      digest: createHash('sha256').update('const x = 1\nconst y = 2', 'utf8').digest('hex'),
       lang: 'ts',
     })
     const view = ctx.tools.get('read')?.presentResult?.({ file_path: 'a.ts' }, result)
@@ -407,7 +448,16 @@ describe('read tool', () => {
     fs.files.set('key:notes', 'plain')
     const result = await call(ctx, 'read', { file_path: 'notes' })
     if (result.isError) throw new Error('expected read success')
-    expect(result.meta).toEqual({ path: '/abs/notes', offset: 1, lines: [{ number: 1, text: 'plain' }], totalLines: 1 })
+    expect(result.meta).toEqual({
+      path: '/abs/notes',
+      offset: 1,
+      lines: [{ number: 1, text: 'plain' }],
+      totalLines: 1,
+      version: 'v1',
+      size: 5,
+      read: 'full',
+      digest: createHash('sha256').update('plain', 'utf8').digest('hex'),
+    })
   })
 })
 

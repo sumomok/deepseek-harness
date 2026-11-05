@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "rappel de mémoire de session",
+    "description": "Rappelle les tours de session antérieurs dont une requête a besoin."
+  }
+}

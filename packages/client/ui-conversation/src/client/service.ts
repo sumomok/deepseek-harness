@@ -18,11 +18,11 @@ import type {
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-file-upload/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { FileAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
+import type { FileAttachmentRef, ImageMediaType, PromptReference } from '@deepseek-ai/dsh-attachment'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type {
-  ComposerAttachment, ComposerFileAttachment, ComposerImageAttachment, DraftFileUpload,
+  ComposerAttachment, ComposerFileAttachment, ComposerImageAttachment, ComposerReferenceAttachment, DraftFileUpload,
 } from './contract/slots.ts'
 import type { QueueAction } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
@@ -68,7 +68,19 @@ export interface IConversation {
    * @returns completion of the page pull.
    */
   loadOlder(): Promise<void>
+  /**
+   * Register one reference draft for the calling owner. Add it to a Session
+   * draft with `inputActions.addAttachments([draft.id])`. Removal before send
+   * releases it; a send resolves its payload and records it on the message
+   * source, and an observed send releases it.
+   * @param input - owner name, chip label, payload resolver, and optional chip action.
+   * @returns the registered draft descriptor.
+   */
+  createReferenceDraft(input: ReferenceDraftInput): ComposerReferenceAttachment
 }
+
+/** Owner-supplied fields of one reference draft. */
+export type ReferenceDraftInput = Omit<ComposerReferenceAttachment, 'kind' | 'id'>
 
 /** Create one browser-only image draft descriptor; only its id enters input state. */
 function browserDraftAttachment(file: File): ComposerImageAttachment {
@@ -223,6 +235,9 @@ export class ConversationController extends Service implements IConversation {
    * and removes every attachment from the draft registry; an accepted prompt
    * whose echo retires unobserved also releases them. Until the Host accepts
    * the prompt, every attachment remains registered for the composer.
+   * Reference drafts resolve their payloads beside image encoding and travel
+   * as the prompt's `references`, never as content; a resolver rejection
+   * abandons the echo and rejects this call.
    * @param session - target session.
    * @param text - serialized prompt text.
    * @param attachmentIds - ordered draft-local attachment ids.
@@ -251,13 +266,17 @@ export class ConversationController extends Service implements IConversation {
       }
       return upload
     }
+    const media = attachments.filter(isMediaAttachment)
+    const references = attachments.filter(
+      (attachment): attachment is ComposerReferenceAttachment => attachment.kind === 'reference',
+    )
     // A file draft's upload always stores a file; only image drafts store an image.
     const storedFileOf = (attachment: ComposerFileAttachment): FileAttachmentRef =>
       (uploadFor(attachment) as Extract<DraftFileUpload, { readonly file: FileAttachmentRef }>).file
     // An image draft without an upload, such as a subagent continuation's, sends its bytes inline.
-    const imageReceipts = new Map(attachments.flatMap(attachment => attachment.kind === 'image'
+    const imageReceipts = new Map(media.flatMap(attachment => attachment.kind === 'image'
       && uploads[attachment.id] !== undefined ? [[attachment.id, uploadFor(attachment).receiptId] as const] : []))
-    const pendingAttachments = attachments.map(attachment => attachment.kind === 'image'
+    const pendingAttachments = media.map(attachment => attachment.kind === 'image'
       ? {
         type: 'image' as const,
         value: {
@@ -269,7 +288,7 @@ export class ConversationController extends Service implements IConversation {
       }
       : { type: 'file' as const, value: storedFileOf(attachment) })
     const serializeAttachments = (): Promise<Parameters<SessionFace['prompt']>[0]> => Promise.all(
-      attachments.map(async (attachment) => {
+      media.map(async (attachment) => {
         if (attachment.kind === 'file') return { type: 'file' as const, receiptId: uploadFor(attachment).receiptId }
         const receiptId = imageReceipts.get(attachment.id)
         return receiptId === undefined
@@ -277,13 +296,24 @@ export class ConversationController extends Service implements IConversation {
           : { type: 'file' as const, receiptId }
       }),
     )
+    const resolveSignal = signal ?? new AbortController().signal
+    const resolveReferences = (): Promise<PromptReference[]> => Promise.all(
+      references.map(async reference => ({
+        source: reference.source,
+        label: reference.label,
+        data: await reference.resolve(resolveSignal),
+      })),
+    )
     // The composer owns the attachments until the Host accepts the prompt.
     const ownership = { accepted: false, retiredUnobserved: false }
     const acceptance = Promise.withResolvers<undefined>()
+    // Only a draft with attachments holds a retirement to wait for.
+    const retirement = attachments.length === 0 ? undefined : Promise.withResolvers<{ readonly reason: string }>()
     const submission = session.beginSubmission({
       mode,
       text,
       attachments: pendingAttachments,
+      references: references.map(reference => ({ source: reference.source, label: reference.label })),
       onAccept: () => {
         ownership.accepted = true
         accept?.()
@@ -293,24 +323,32 @@ export class ConversationController extends Service implements IConversation {
         if (settlement.reason === 'observed') this.settleSubmittedAttachments(session.sessionId, attachments, settlement)
         else if (ownership.accepted) this.releaseDraftAttachments(attachments)
         else ownership.retiredUnobserved = true
+        retirement?.resolve(settlement)
       },
     })
     let content: Parameters<SessionFace['prompt']>[0]
+    let resolved: PromptReference[]
     try {
       await nextPaint()
-      const uploaded = await serializeAttachments()
+      const [uploaded, payloads] = await Promise.all([serializeAttachments(), resolveReferences()])
       content = [...uploaded, ...(text === '' ? [] : [{ type: 'text' as const, text }])]
+      resolved = payloads
     } catch (error) {
       submission.abandon()
       throw error
     }
     // An Inbox row can show the acceptance before the receipt; a receipt that fails afterwards changes
     // nothing here because the Host already holds the message.
-    const result = await Promise.race([session.prompt(content, mode, signal, submission.requestId), acceptance.promise])
+    const result = await Promise.race([session.prompt(content, mode, signal, submission.requestId, resolved), acceptance.promise])
     if (result !== undefined && !result.ok) return { kind: 'error' }
+    // Acceptance settles the composer early; without it the echo decides, and an
+    // unobserved retirement keeps the attachments for the retry.
+    if (!ownership.accepted && retirement !== undefined) {
+      if ((await retirement.promise).reason !== 'observed') return { kind: 'error' }
+    } else if (ownership.retiredUnobserved) {
+      this.releaseDraftAttachments(attachments)
+    }
     ownership.accepted = true
-    // An accepted prompt whose echo already retired unobserved, as when its queue entry was removed.
-    if (ownership.retiredUnobserved) this.releaseDraftAttachments(attachments)
     return { kind: 'success' }
   }
 
@@ -348,13 +386,31 @@ export class ConversationController extends Service implements IConversation {
   }
 
   /**
+   * Register one reference draft (see the IConversation declaration).
+   * @param input - owner name, chip label, payload resolver, and optional chip action.
+   * @returns the registered draft descriptor.
+   */
+  createReferenceDraft(input: ReferenceDraftInput): ComposerReferenceAttachment {
+    const attachment: ComposerReferenceAttachment = {
+      kind: 'reference',
+      id: randomUUID() as DraftAttachmentId,
+      source: input.source,
+      label: input.label,
+      resolve: input.resolve,
+      ...(input.activate === undefined ? {} : { activate: input.activate }),
+    }
+    this.draftAttachments.set(attachment.id, attachment)
+    return attachment
+  }
+
+  /**
    * Restart one failed file or image upload.
    * @param sessionId - target Agent-scope identity.
    * @param id - draft attachment id whose upload previously failed.
    */
   retryFileUpload(sessionId: SessionId, id: DraftAttachmentId): void {
     const attachment = this.draftAttachments.get(id)
-    if (attachment === undefined) return
+    if (attachment === undefined || attachment.kind === 'reference') return
     if (this.fileUploads.getSnapshot()[id]?.status !== 'error') return
     this.beginFileUpload(sessionId, attachment)
   }
@@ -369,12 +425,16 @@ export class ConversationController extends Service implements IConversation {
     for (const id of ids) {
       const attachment = this.draftAttachments.get(id)
       if (attachment === undefined) continue
+      if (attachment.kind === 'reference') continue
       if (attachment.kind === 'image' && !uploadImages) this.dropUpload(id)
       else this.beginFileUpload(sessionId, attachment)
     }
   }
 
-  private beginFileUpload(sessionId: SessionId, attachment: ComposerAttachment): void {
+  private beginFileUpload(
+    sessionId: SessionId,
+    attachment: ComposerImageAttachment | ComposerFileAttachment,
+  ): void {
     this.fileUploadOperations.get(attachment.id)?.controller.abort()
     const controller = new AbortController()
     this.fileUploads.update((draft) => {
@@ -484,8 +544,12 @@ export class ConversationController extends Service implements IConversation {
       throw new Error('conversation.serializeDraftAttachments: one or more draft attachments are no longer available')
     }
     const uploads = this.fileUploads.getSnapshot()
+    const media = attachments.filter(isMediaAttachment)
+    if (media.length !== attachments.length) {
+      throw new Error('conversation.serializeDraftAttachments: commands do not accept reference drafts')
+    }
     return {
-      attachments: await Promise.all(attachments.map(async (attachment) => {
+      attachments: await Promise.all(media.map(async (attachment) => {
         if (attachment.kind === 'image') return { type: 'image' as const, ...await this.encodeImage(attachment.file) }
         const upload = uploads[attachment.id]
         if (upload === undefined || upload.status !== 'ready') {
@@ -514,6 +578,7 @@ export class ConversationController extends Service implements IConversation {
     const operation = this.fileUploadOperations.get(id)
     this.fileUploadOperations.delete(id)
     operation?.controller.abort()
+    this.draftAttachments.delete(id)
     this.forgetUpload(id)
   }
 
@@ -597,6 +662,10 @@ export class ConversationController extends Service implements IConversation {
     const uiConversation = this.ctx.get('uiConversation')
     let observedIndex = 0
     for (const attachment of attachments) {
+      if (attachment.kind === 'reference') {
+        this.draftAttachments.delete(attachment.id)
+        continue
+      }
       const live = this.draftAttachments.get(attachment.id)
       const ref = retirement.attachments[observedIndex++]
       if (live === undefined) continue
@@ -620,6 +689,12 @@ export class ConversationController extends Service implements IConversation {
       ...(file.name === '' ? {} : { name: file.name }),
     }
   }
+}
+
+function isMediaAttachment(
+  attachment: ComposerAttachment,
+): attachment is ComposerImageAttachment | ComposerFileAttachment {
+  return attachment.kind !== 'reference'
 }
 
 function imageMediaType(value: string): ImageMediaType {

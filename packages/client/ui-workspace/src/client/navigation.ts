@@ -13,7 +13,7 @@ import type {
 } from '@deepseek-ai/dsh-api-session-controller/client'
 // Type-only: pulls the `agentPreset` Session projection value into this program.
 import type {} from '@deepseek-ai/dsh-agent-preset-registry/types'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
+import { createSnapshotStore, type ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import type {
   IWorkspaces, WorkspaceId, WorkspaceSnapshot, WorkspaceView,
@@ -23,7 +23,10 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { DraftInitializationOptions } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { RowToast } from './contract/slots.ts'
 import { pinOrderAccounts, pinOrderSource } from './pin-order.ts'
+import { SessionReveals, type OpenSessionOptions, type SessionRevealRequest } from './reveal.ts'
 import type { WorkspaceViewStoreActions } from './stores.ts'
+
+export type { OpenSessionOptions, SessionRevealRequest } from './reveal.ts'
 
 interface MainSelection {
   readonly sessionId?: SessionId
@@ -41,8 +44,22 @@ export interface UiWorkspace {
   /**
    * Select a Session and show its Conversation as one UI navigation action.
    * @param target - known Session identity or durable direct-parent subagent address to display.
+   * @param options - optional message to land on once the Conversation renders; a
+   * navigation without one withdraws a request still pending for that Session.
    */
-  openSession(target: SessionTarget): void
+  openSession(target: SessionTarget, options?: OpenSessionOptions): void
+  /**
+   * Read the message a navigation asked one Session's transcript to show.
+   * @param sessionId - Session whose Conversation consumes the request.
+   * @returns identity-stable source of the pending request, null when none.
+   */
+  revealSource(sessionId: SessionId): ObservableSnapshot<SessionRevealRequest | null>
+  /**
+   * Consume one reveal request after the Conversation landed on it, or refused it.
+   * @param sessionId - Session whose Conversation handled the request.
+   * @param id - request identity that Conversation handled.
+   */
+  settleReveal(sessionId: SessionId, id: number): void
   /**
    * Connect a Workspace and open its Session unless a later navigation supersedes it.
    * @param workspaceId - target Workspace.
@@ -170,6 +187,8 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     readonly attempt: Promise<SessionId>
   }>()
   private readonly lifetime = new AbortController()
+  /** Message targets navigation raised, consumed by each Session's transcript. */
+  private readonly reveals = new SessionReveals()
   private readonly selection = createSnapshotStore<MainSelection>(
     {}, { persist: { name: 'dsh.sessions.current' } },
   )
@@ -290,8 +309,20 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     }
   }
 
-  openSession(target: SessionTarget): void {
+  openSession(target: SessionTarget, options: OpenSessionOptions = {}): void {
     this.replaceMain(target, this.lifetime.signal, 'reveal')
+    const sessionId = this.mainReference?.sessionId
+    if (sessionId === undefined) return
+    if (options.revealSeq === undefined) this.reveals.withdraw(sessionId)
+    else this.reveals.request(sessionId, options.revealSeq)
+  }
+
+  revealSource(sessionId: SessionId): ObservableSnapshot<SessionRevealRequest | null> {
+    return this.reveals.source(sessionId)
+  }
+
+  settleReveal(sessionId: SessionId, id: number): void {
+    this.reveals.settle(sessionId, id)
   }
 
   openWorkspace(
@@ -515,6 +546,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
   private clearMain(): void {
     const previous = this.mainReference
     this.mainReference = undefined
+    if (previous !== undefined) this.reveals.withdraw(previous.sessionId)
     this.selection.set({})
     previous?.release()
     this.ctx.layout.selectPanel(null)
@@ -548,6 +580,11 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     }
     const previous = this.mainReference
     this.mainReference = reference
+    // Leaving a Session supersedes a message target its Conversation never
+    // consumed: coming back to it later must not land where nobody asked.
+    if (previous !== undefined && previous.sessionId !== reference.sessionId) {
+      this.reveals.withdraw(previous.sessionId)
+    }
     previous?.release()
     if (panel === 'reveal') this.ctx.layout.selectPanel(null)
   }

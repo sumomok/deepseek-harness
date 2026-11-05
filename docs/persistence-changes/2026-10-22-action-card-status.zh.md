@@ -27,20 +27,20 @@ id: 2026-10-22-action-card-status
 baseline: false
 changes:
   - root: "event:agent/inbox/spliced"
-    previous: "2026-10-13-user-rpc-principal"
-    after: "b36fd842cd004b532ce96fd5d6f5be28e017eda043131aa3cf5e69edc436108e"
+    previous: "2026-09-25-prompt-references"
+    after: "a1e70b4f7de5457c5034fc8b5b09d86dc7597f30cecb4a38bce1dfebb0e68ce7"
     decision: same-version
   - root: "event:developer/message"
-    previous: "2026-10-13-user-rpc-principal"
-    after: "5ef58f2a1bdc576c1f12fa1f4da1920ece020b13c0f991a578cddcbeb28bc5be"
+    previous: "2026-09-25-prompt-references"
+    after: "5112a5c22d4df5b9d378a9329d69097de3f2fadaf93e10158924364e14726246"
     decision: same-version
   - root: "event:session/title-llm-request"
-    previous: "2026-10-13-user-rpc-principal"
-    after: "efa1a091017ce533e38b0ef3e14d11a5c102ff1793229b18dad719a4268d9adc"
+    previous: "2026-09-25-prompt-references"
+    after: "077dda2f8133f4c22085ffcbcc968cd80ec172825e5e7dead7d8784aa024df8c"
     decision: same-version
   - root: "event:user/message"
-    previous: "2026-10-13-user-rpc-principal"
-    after: "58b122df513aeaf7ddc5783dbb1fd844e2979bb273964e30ae351a8db6510019"
+    previous: "2026-09-25-prompt-references"
+    after: "9a9aee7a1fe9f796c25993e3c19fa496a3fd84c7ba7b8e472bf594064d3e6939"
     decision: same-version
 ```
 

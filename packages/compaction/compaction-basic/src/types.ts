@@ -1,5 +1,6 @@
 /**
- * Configuration vocabulary for the replay-aware basic compaction backend.
+ * Configuration vocabulary for the replay-aware basic compaction backend, and
+ * the live-policy Service Definition its automatic pressure path reads.
  *
  * @module @deepseek-ai/dsh-compaction-basic/types
  */
@@ -24,8 +25,15 @@ export interface CompactionPolicyConfig {
   maxTokens?: number
   /** Extra attempts after the first compaction when pressure remains above threshold. Defaults to `1`. */
   compactionRetries?: number
+  /** Consecutive failed automatic summaries for one session and route before pressure pauses; `0` disables the breaker. Defaults to `3`. */
+  maxConsecutiveFailures?: number
   /** Maximum retries after canonical context overflow; `0` disables recovery. Defaults to `1`. */
   maxOverflowRetries?: number
+  /**
+   * Largest replacement the shrink guard accepts, as a fraction of the span's
+   * route price. `1` takes any strictly smaller summary. Defaults to `1`.
+   */
+  summaryMaxRatio?: number
 }
 
 /** Exact provider/model override merged over the default compaction policy. */
@@ -42,6 +50,8 @@ export interface BasicCompactionConfig extends CompactionPolicyConfig {
   modelPolicies?: ModelCompactPolicyConfig[]
   /** Enable automatic step-boundary pressure and overflow-recovery listeners. Defaults to `true`. */
   auto?: boolean
+  /** Add session-history readback guidance to replacement checkpoints. Defaults to `false`. */
+  checkpointReadback?: boolean
 }
 
 /** Exactly one validated retention form. */
@@ -57,13 +67,16 @@ interface ResolvedPolicyFields {
   readonly summarizationModel: string
   readonly maxTokens: number
   readonly compactionRetries: number
+  readonly maxConsecutiveFailures: number
   readonly maxOverflowRetries: number
+  readonly summaryMaxRatio: number
 }
 
 /** Validated immutable config whose target-specific defaults remain unresolved. */
 export type ResolvedConfig = ResolvedPolicyFields & ResolvedRetention & {
   readonly modelPolicies: readonly Readonly<ModelCompactPolicyConfig>[]
   readonly auto: boolean
+  readonly checkpointReadback: boolean
 }
 
 /** Fully merged policy for one routed conversation target, before capacity scaling. */
@@ -77,4 +90,19 @@ export type ResolvedCompactSpec = Omit<ResolvedTargetPolicy, 'retainRatio' | 're
   readonly contextWindow: number
   readonly thresholdTokens: number
   readonly retainTokens: number
+}
+
+/** Live automatic-compaction policy a host-plane plugin provides from user settings. */
+export interface CompactionPolicy {
+  /**
+   * Whether pressure-triggered compaction runs at all; overflow recovery is unaffected.
+   * @returns true while the pressure path may run, false to suspend it.
+   */
+  isEnabled(): boolean
+  /**
+   * Share of the model's context window (0–1) at which the next step compacts first.
+   * @returns the live threshold ratio; a value outside (0, 1], or one the retained tail
+   *   would not clear, is refused and the configured ratio governs instead.
+   */
+  thresholdRatio(): number
 }

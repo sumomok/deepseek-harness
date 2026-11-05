@@ -98,7 +98,7 @@ async function bench() {
   const session = runtime.sessions.retainFor(runtime.ctx, SessionId('user-content'))
   const captured: { seats?: RenderSeats; setContent?: (content: ReactNode) => void } = {}
   await runtime.root.declare({
-    'conversation.approval.detail': { kind: 'single', scope: 'session' },
+    'conversation.approval.detail': { kind: 'keyed', scope: 'session' },
   }, function TestRoot(props) {
     const [content, setContent] = useState<ReactNode>(null)
     captured.seats = props
@@ -235,6 +235,31 @@ describe('user Content Factory', () => {
     expect(b.openFile).toHaveBeenCalledTimes(1)
     expect(b.openSkill).toHaveBeenCalledTimes(1)
     expect(view.container.querySelectorAll('[data-ref-chip]')).toHaveLength(3)
+  })
+
+  it('renders prompt reference labels as static chips after the prepared attachments', async () => {
+    const b = await bench()
+    const promptReferenceLabels = ['新增', '所属专题']
+    const view = b.render(<>
+      <section data-testid="with-file">
+        {b.factory({ content: { ...empty, text: 'Prepared text', attachments: [filePart], promptReferenceLabels }, facts: {}, loadImage: b.loadImage })}
+      </section>
+      <section data-testid="labels-only">
+        {b.factory({ content: { ...empty, promptReferenceLabels }, facts: {}, loadImage: b.loadImage })}
+      </section>
+    </>)
+    for (const [parent, row] of [
+      ['with-file', ['notes.txtTXT 23B', '新增', '所属专题']],
+      ['labels-only', ['新增', '所属专题']],
+    ] as const) {
+      const attachments = view.getByTestId(parent).querySelector('[data-message-attachments]')
+      expect([...attachments?.children ?? []].map(child => child.textContent)).toEqual(row)
+      expect([...attachments?.querySelectorAll('[data-reference-chip]') ?? []].map(chip => chip.getAttribute('title')))
+        .toEqual(promptReferenceLabels)
+    }
+    // Prompt references are neither controls nor Session mentions.
+    expect(view.queryAllByRole('button')).toHaveLength(0)
+    expect(view.queryByText(/Referenced session/)).toBeNull()
   })
 
   it('keeps an empty prepared value empty', async () => {

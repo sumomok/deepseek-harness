@@ -40,6 +40,11 @@ export function buildSessionEventSearchDocuments(
   const surfaceBySeq = classifySurface(events)
   const documents: SessionEventSearchDocument[] = []
   for (const event of events) {
+    // Most `user/message` events are context the harness injects for the next
+    // turn — time, runtime, skills, subagent settlements, compaction
+    // checkpoints. Only `source.kind === 'user'` is prose the person wrote and
+    // the transcript shows as their message, so the rest is not searchable.
+    if (event.type === 'user/message' && !isHumanMessage(event.data.source)) continue
     const text = extractSessionEventText(event)
     if (text.length === 0) continue
     documents.push({
@@ -52,6 +57,20 @@ export function buildSessionEventSearchDocuments(
     })
   }
   return documents
+}
+
+/**
+ * Whether one message source records text a person wrote.
+ *
+ * `MessageSourceMap` is merge-extensible and this program does not load every
+ * declaration, so the tag is read as its own discriminant text. An unknown tag
+ * falls on the non-human side: indexing scaffolding is what produced hits no
+ * transcript row could show.
+ * @param source - message source of one `user/message` event.
+ * @returns whether the event carries the person's own message.
+ */
+function isHumanMessage(source: { readonly kind: string }): boolean {
+  return source.kind === 'user'
 }
 
 function classifySurface(events: readonly SessionEvent[]): Map<SessionSeq, SessionEventSurface> {

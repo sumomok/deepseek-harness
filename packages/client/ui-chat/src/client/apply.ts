@@ -4,10 +4,15 @@ import type {} from '@deepseek-ai/dsh-client-product-analytics/client'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
-import type { SessionBinding } from '@deepseek-ai/dsh-api-session-controller/client'
+import type {
+  ISessions, ReferentRef, SessionBinding,
+} from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type { GroupKey } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { createSnapshotStore, type ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
+import type { MarkdownProseReferents } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-browser/client'
 import type {} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
@@ -22,11 +27,11 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
-import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type {
-  ChatFlowDataInjected, ChatFlowInjected, ChatNodeInjected, ChatScrollPosition, ChatViewInjected,
+  ChatFlowDataInjected, ChatFlowInjected, ChatNodeInjected, ChatScrollPosition, ChatViewInjected, ProseReferentSpan,
   QuotaNoticeInjected, QuotaNoticeState, TurnTailOwnerProps,
 } from './contract/slots.ts'
+import { resolveChatRevealTarget } from './contract/reveal.ts'
 import type { ChatSnapshot } from './contract/snapshot.ts'
 import { EMPTY_CHAT_SNAPSHOT } from './contract/snapshot.ts'
 import { ApprovalCommand } from './chat/ApprovalCommand.tsx'
@@ -42,7 +47,11 @@ import { TranscriptViewRow, type TranscriptViewRowInjected } from './settings/Tr
 import { createChatStore } from './stores.ts'
 import { TranscriptViewPolicy } from './transcript-view.ts'
 import { derivePresentationPolicy } from './presentation-policy.ts'
-import { CHAT_SETTINGS_NAMESPACE, DEFAULT_LINK_OPENING, DEFAULT_TRANSCRIPT_VIEW_MODE, type ChatSettings } from '../chat-settings.ts'
+import {
+  BUSY_COMPACTION_FIELD, CHAT_SETTINGS_NAMESPACE, DEFAULT_BUSY_COMPACTION, DEFAULT_LINK_OPENING,
+  DEFAULT_TRANSCRIPT_VIEW_MODE, type ChatSettings,
+} from '../chat-settings.ts'
+import { BusyCompactionRow, type BusyCompactionRowInjected } from './settings/BusyCompactionRow.tsx'
 import { LinkOpeningRow, type LinkOpeningRowInjected } from './settings/LinkOpeningRow.tsx'
 import { PerformanceUsageRow, type PerformanceUsageRowInjected } from './settings/PerformanceUsageRow.tsx'
 import { PerformanceUsagePolicy } from './performance-usage.ts'
@@ -75,15 +84,133 @@ export const CHAT_NODE_INJECT: ChatNodeInjected = {
 
 /** Services required by the Chat target and its presentation registrations. */
 export const inject = [
-  'slots', 'sessions', 'uiWorkspace', 'uiSession', 'uiConversation', 'locale',
+  'slots', 'sessions', 'referent', 'uiWorkspace', 'uiSession', 'uiConversation', 'conversation', 'locale',
   'configForms', 'connection', 'remote', 'remote.session', 'sidebarRight', 'fileDrag',
 ]
+
+/**
+ * The directory a Session's relative paths resolve against at this moment: its
+ * current working directory when the Client holds that projection, the same
+ * directory the Session's file tools resolve relative paths against,
+ * otherwise its header directory.
+ * @param sessions - the Client Session registry.
+ * @param sessionId - the Session the path belongs to.
+ * @returns an absolute directory, or undefined when neither is known.
+ */
+function currentDirectoryOf(sessions: ISessions, sessionId: SessionId): string | undefined {
+  const current = sessions.binding(sessionId)?.session.projections.faceOf('workingDirectory').getSnapshot()
+  return typeof current === 'string' ? current : sessions.list.getSnapshot().byId[sessionId]?.cwd
+}
+
+/**
+ * Build the render-facing prose-referent scanner/opener for one session, or
+ * undefined when no {@link ProseReferents} provider is composed in.
+ * `scan` and `resolveLink` read the session's current directory
+ * ({@link currentDirectoryOf}) and Host account home fresh on every call (the
+ * same lazy-read technique `openFile` below uses), so composing the provider
+ * in or out, a workspace change, or a working-directory change takes effect on
+ * the very next render with no re-registration.
+ * @param ctx - client root context.
+ * @param sessions - resolved once by the caller, mirroring the other apply-time service reads below.
+ * @param connection - resolved once by the caller; its `generation` snapshot names the Host account home.
+ * @param sessionId - the session this scanner/opener is bound to.
+ * @param notifyNotFound - surface the session's own composer notice for a
+ * `session/path-not-found` open failure (bound by the caller to
+ * `actx.conversation.input.for(actx).notify('error', …)`); kept as a plain
+ * callback rather than threading the session scope itself through, so this
+ * function stays testable with a bare stub.
+ * @param notFoundText - localized notice text for that case, resolved once
+ * by the caller (the same lazy-bind-then-call-per-render pattern the rest of
+ * this module's `t(...)` call sites use).
+ * @param openExternalLink - default action for an unclaimed URL span, the
+ * same preference-following opener message links use.
+ * @returns the scanner/opener MarkdownText consumes, or undefined.
+ */
+function buildProseReferents(
+  ctx: Context, sessions: ISessions, connection: ConnectionHandle, sessionId: SessionId,
+  notifyNotFound: (sessionId: SessionId, text: string) => void, notFoundText: string,
+  openExternalLink: (url: string) => void,
+): MarkdownProseReferents | undefined {
+  const provider = ctx.get('proseReferents')
+  if (provider === undefined) return undefined
+  // ProseReferents' optional methods are plain callback properties, not
+  // `this`-bound instance methods; extracting them here is what lets
+  // TypeScript narrow "defined" through the conditional spreads below and
+  // into their closures.
+  const { resolveLink: providerResolveLink, subscribe: providerSubscribe } = provider
+  return {
+    scan: (text, inlineCode) => provider.scan(text, {
+      cwd: currentDirectoryOf(sessions, sessionId),
+      home: connection.generation.getSnapshot()?.host.home,
+      inlineCode,
+    }),
+    // exactOptionalPropertyTypes: an optional method is either present or
+    // absent from the object, never present-with-value-undefined — the
+    // conditional spreads below are what that distinction requires.
+    ...(providerResolveLink === undefined ? {} : {
+      resolveLink: (destination: string, displayText: string) => providerResolveLink(destination, displayText, {
+        cwd: currentDirectoryOf(sessions, sessionId),
+        home: connection.generation.getSnapshot()?.host.home,
+      }),
+    }),
+    ...(providerSubscribe === undefined ? {} : {
+      subscribe: (listener: () => void) => providerSubscribe(listener),
+    }),
+    open: (span) => {
+      // Safe: this scanner's own `scan` above is the only producer of spans
+      // MarkdownText ever hands back to `open` — it treats a span as opaque
+      // (start/end only) and returns the exact object `scan` gave it, which
+      // always carries the fuller ProseReferentSpan shape at runtime.
+      const referentSpan = span as ProseReferentSpan
+      const ref: ReferentRef = {
+        kind: referentSpan.kind,
+        target: referentSpan.target,
+        raw: referentSpan.raw,
+        sessionId,
+        // Never the openFile chokepoint's own ref below: that would
+        // double-dispatch this click and label it 'structured' — this
+        // click is model-authored prose, not a structured content-part open.
+        source: 'chat-prose',
+        enteredAs: 'model-text',
+      }
+      const onDefault = async (): Promise<void> => {
+        if (referentSpan.kind === 'url') {
+          openExternalLink(referentSpan.target)
+          return
+        }
+        // The openFile chokepoint below hands its path to the right Sidebar;
+        // a prose referent instead reaches the Host path opener, and the raw
+        // RemoteError is rethrown (not flattened to a message-only Error) so
+        // the .catch below can classify a not-found race by `.code`.
+        const result = await ctx.remote.session.openWorkspacePath({ path: referentSpan.target })
+        if (!result.ok) throw result.error
+      }
+      // `session/path-not-found` gets the same downgrade the terminal card
+      // already has for the identical race: a span the verification layer
+      // confirmed can still name a path deleted between that `stat` and this
+      // click. Prose spans have no per-span notice slot of their own — a
+      // `fileMention` button is a pure render of `scan`/`resolveLink`'s
+      // output (`ui-primitives`'s `render.tsx`), not a stateful component —
+      // so this reuses the session's own composer notice channel instead.
+      // Any other failure still only reaches the console: no dedicated UI
+      // for those yet (unlike openFile's dialog below).
+      void ctx.referent.open(ref, onDefault).catch((error: unknown) => {
+        if (remoteErrorOf(error)?.code === 'session/path-not-found') {
+          notifyNotFound(sessionId, notFoundText)
+          return
+        }
+        console.error('ui-chat: chat-prose referent open failed', error)
+      })
+    },
+  }
+}
 
 /**
  * Mount all Chat-owned contributions.
  * @param ctx - Client root context.
  */
 export function apply(ctx: Context): void {
+  const connection = ctx.get('connection') as ConnectionHandle
   const quotaNotice = createSnapshotStore<QuotaNoticeState | null>(null)
   let quotaNoticeSeq = 0
   // Each hold is its own token, so a release can only drop the hold it was
@@ -144,6 +271,15 @@ export function apply(ctx: Context): void {
     const accepted = chatSettings.getSnapshot().value?.linkOpening
     if (accepted !== undefined) linkOpening.set(accepted)
   }))
+  // Message links and URL referents in prose both follow the link-opening
+  // preference: the Sidebar Browser when chosen and registered, else a new tab.
+  const openExternalLink = (url: string): void => {
+    if (linkOpening.getSnapshot() === 'sidebar' && ctx.get('sidebarRightTabs')?.get('browser') !== undefined) {
+      ctx.sidebarRight.openTab('browser', { params: { url } })
+    } else {
+      window.open(url, '_blank', 'noopener,noreferrer')
+    }
+  }
   ctx.inject(['sidebarRightTabs'], (scope) => {
     const tabs = scope.sidebarRightTabs
     const browserAvailable: ObservableSnapshot<boolean> = {
@@ -166,6 +302,30 @@ export function apply(ctx: Context): void {
       }),
     }, LinkOpeningRow))
   })
+  const busyCompaction = createSnapshotStore(
+    chatSettings.getSnapshot().value?.[BUSY_COMPACTION_FIELD] ?? DEFAULT_BUSY_COMPACTION,
+  )
+  ctx.effect(() => chatSettings.subscribe(() => {
+    const accepted = chatSettings.getSnapshot().value?.[BUSY_COMPACTION_FIELD]
+    if (accepted !== undefined) busyCompaction.set(accepted)
+  }))
+  // Next to the composer's busy-Enter row (order 20): both answer what input
+  // does while a turn runs.
+  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+    name: 'settings.general.item',
+    id: 'busy-compaction',
+    order: 21,
+    locale: NS,
+    inject: (): BusyCompactionRowInjected => ({
+      hooks: { busyCompaction },
+      setBusyCompaction: (mode) => {
+        busyCompaction.set(mode)
+        void chatSettings.set(BUSY_COMPACTION_FIELD, mode).catch((_error: unknown) => {
+          // The row keeps the choice for this page; the Host keeps its accepted value.
+        })
+      },
+    }),
+  }, BusyCompactionRow))
   const transcriptView = new TranscriptViewPolicy(chatSettings, 'dshDesktop' in globalThis ? 'standard' : DEFAULT_TRANSCRIPT_VIEW_MODE)
   const presentation = derivePresentationPolicy(transcriptView.mode, transcriptView.collapseTiming, transcriptView.foldedReplies)
   const performancePolicy = new PerformanceUsagePolicy(chatSettings)
@@ -223,6 +383,7 @@ export function apply(ctx: Context): void {
     name: 'conversation.chat.flow', locale: NS, store: chatStore,
     children: {
       'conversation.chat.node': { kind: 'keyed', scope: 'session', inject: CHAT_NODE_INJECT },
+      'conversation.chat.user-actions': { kind: 'list', scope: 'session' },
     },
     inject: (sessionId: SessionId): ChatFlowDataInjected => {
       const binding = ctx.sessions.binding(sessionId)
@@ -251,9 +412,46 @@ export function apply(ctx: Context): void {
         return {
           ...nodeSources(binding),
           fileDrag: ctx.fileDrag.actions,
-          hooks: { presentation, interactionIds: ctx.uiConversation.interactions },
+          hooks: {
+            presentation,
+            interactionIds: ctx.uiConversation.interactions,
+            reveal: ctx.uiWorkspace.revealSource(sessionId),
+          },
           dispatchInteraction: gesture => ctx.uiConversation.interactions.dispatch(sessionId, gesture),
+          // Resolve against the live snapshot: the history page a reveal just
+          // loaded is published before React re-renders this view.
+          locateReveal: seq => resolveChatRevealTarget(chat.getSnapshot(), seq),
+          settleReveal: (id) => { ctx.uiWorkspace.settleReveal(sessionId, id) },
+          notifyRevealFailure: ({ reason, seq }) => {
+            console.error(`[ui-chat] reveal failed ${reason} at ${seq} in ${sessionId}`)
+            const actx = ctx.sessions.scope(sessionId)
+            const conversation = actx?.get('conversation')
+            if (actx !== undefined && conversation !== undefined) {
+              conversation.input.for(actx).notify('error', t('reveal.missing'))
+            }
+          },
           fileMentions: (owner: TurnTailOwnerProps) => ctx.get('chatFileMentions')?.forClosing(owner, sessionId),
+          referents: buildProseReferents(
+            ctx, ctx.sessions, connection, sessionId,
+            (id, text) => {
+              const actx = ctx.sessions.scope(id)
+              // .get(), not the direct-property accessor: actx is a session
+              // scope this plugin's own `inject` guard does not cover, even
+              // though 'conversation' is declared above as a real dependency.
+              const conversation = actx?.get('conversation')
+              if (actx !== undefined && conversation !== undefined) conversation.input.for(actx).notify('error', text)
+            },
+            t('referent.notFound'),
+            openExternalLink,
+          ),
+          // referent/open first: wraps the pre-existing open action as the
+          // waterfall's terminus, so every consumer this one closure already
+          // reaches (tool rows, produced-file chips, and mentions) becomes
+          // interceptable without a per-consumer change. Zero listeners exist
+          // yet: with none registered the waterfall reaches its terminus
+          // immediately and this call is byte-identical to the un-wrapped open
+          // it replaces.
+          //
           // Files open in the right Sidebar, not in a desktop application: the
           // content stays in the product, beside the conversation that produced
           // it. A relative path resolves from the Session's working directory
@@ -269,12 +467,26 @@ export function apply(ctx: Context): void {
           // its top or at line 400, so the same tab is revealed and told where
           // to land.
           openFile: async (path, options) => {
-            const cwd = ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd
-            const current = session.projections.faceOf('workingDirectory').getSnapshot() as string | null | undefined
-            const url = fileAddressFor(sessionId, cwd, resolveWorkspacePath(current ?? undefined, path))
-            if (options?.line === undefined) ctx.sidebarRight.openResource(url)
-            else ctx.sidebarRight.openResource(url, { params: { line: options.line } })
-            await Promise.resolve()
+            const target = resolveWorkspacePath(currentDirectoryOf(ctx.sessions, sessionId), path)
+            const ref: ReferentRef = {
+              // '.' names the current directory itself; every other path
+              // this closure ever receives names a file (no richer file/dir
+              // signal reaches this closure).
+              kind: path === '.' ? 'dir' : 'file',
+              target,
+              raw: path,
+              sessionId,
+              source: 'chat-view.openFile',
+              enteredAs: 'structured',
+            }
+            await ctx.referent.open(ref, async () => {
+              const cwd = ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd
+              const current = session.projections.faceOf('workingDirectory').getSnapshot() as string | null | undefined
+              const url = fileAddressFor(sessionId, cwd, resolveWorkspacePath(current ?? undefined, path))
+              if (options?.line === undefined) ctx.sidebarRight.openResource(url)
+              else ctx.sidebarRight.openResource(url, { params: { line: options.line } })
+              await Promise.resolve()
+            })
           },
           openExternalLink: (url) => {
             if (linkOpening.getSnapshot() === 'sidebar' && ctx.get('sidebarRightTabs')?.get('browser') !== undefined) {
@@ -285,6 +497,9 @@ export function apply(ctx: Context): void {
           },
           loadOlder: () => { void session.loadOlder() },
           loadThrough: seq => session.loadThrough(seq),
+          openAt: seq => session.openAt(seq),
+          openTail: () => session.openTail(),
+          loadNewer: () => session.loadNewer(),
           loadImage: Object.assign(
             (attachment: ImageAttachmentRef) => ctx.uiConversation.imageUrl(sessionId, attachment),
             { peek: (attachment: ImageAttachmentRef) => ctx.uiConversation.peekImageUrl(sessionId, attachment) },
@@ -340,10 +555,19 @@ export function apply(ctx: Context): void {
     }, ActivityPill)
     yield ctx.slots.register({
       name: 'conversation.composer.dock', id: 'usage', order: 1, locale: NS, inject: statPillInject,
+      children: {
+        'conversation.chat.stats.usageLabel': { kind: 'single', scope: 'session' },
+        'conversation.chat.stats.usageRows': { kind: 'list', scope: 'session' },
+      },
     }, UsagePill)
   })
 
-  ctx.slots.inject('conversation.approval.detail', () =>
-    ctx.slots.register({ name: 'conversation.approval.detail' }, ApprovalCommand))
+  // The shell family is this package's key domain here: `bash` and `pwsh` are
+  // the wire names of both the one-shot and the persistent shells, and their
+  // arguments are the only ones this renderer reads.
+  ctx.slots.inject('conversation.approval.detail', function* () {
+    yield ctx.slots.register({ name: 'conversation.approval.detail', key: 'bash' }, ApprovalCommand)
+    yield ctx.slots.register({ name: 'conversation.approval.detail', key: 'pwsh' }, ApprovalCommand)
+  })
 
 }

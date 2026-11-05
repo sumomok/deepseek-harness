@@ -1,18 +1,28 @@
 /**
  * Authenticated GET/HEAD /api/file reads bounded file responses through
- * the composed filesystem provider. Paths and MIME types do not restrict access;
- * the connection service authenticates requests before this handler. A request
- * without the current `v` version is redirected, uncached, to the versioned URL,
- * whose response is cacheable indefinitely.
+ * the composed filesystem provider. For the owner, paths and MIME types do not
+ * restrict access; the connection service authenticates requests before this
+ * handler. A non-owner Peer reads only files inside the workspace of a Session
+ * remote access grants it the route on. A request without the current `v`
+ * version is redirected, uncached, to the versioned URL, whose response is
+ * cacheable indefinitely.
  * @module @deepseek-ai/dsh-api-session-controller/media-references
  */
 
 import { isAbsolute } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-api-remote-access'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-attachment'
-import { FsError, type FileSystem } from '@deepseek-ai/dsh-fs'
+import { FsError, type FileSystem, type FsTarget } from '@deepseek-ai/dsh-fs'
+import type {} from '@deepseek-ai/dsh-session'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type {} from '@deepseek-ai/dsh-session-persistence'
+import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import mime from 'mime-types'
+
+const FILE_ROUTE = '/api/file'
 
 const BASE_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
@@ -23,7 +33,17 @@ const NO_STORE = { ...BASE_HEADERS, 'Cache-Control': 'private, no-store' }
 // A versioned URL names one file version, so its response never changes.
 const VERSIONED = { ...BASE_HEADERS, 'Cache-Control': 'private, max-age=31536000, immutable' }
 
-async function serveFile(request: Request, fs: FileSystem, maxBytes: number): Promise<Response> {
+/**
+ * Serve one file. `confinedTo`, given only for a non-owner Peer, names the
+ * canonical directory the file must lie in; the containment check and the read
+ * use the same resolved target.
+ */
+async function serveFile(
+  request: Request,
+  fs: FileSystem,
+  maxBytes: number,
+  confinedTo?: () => Promise<FsTarget | undefined>,
+): Promise<Response> {
   const fail = (status: number, text: string): Response =>
     new Response(request.method === 'HEAD' ? null : text, { status, headers: NO_STORE })
   const params = new URL(request.url).searchParams
@@ -31,7 +51,10 @@ async function serveFile(request: Request, fs: FileSystem, maxBytes: number): Pr
   if (path === null || path.length === 0) return fail(400, 'missing path')
   if (path.includes('\0') || !isAbsolute(path)) return fail(400, 'absolute path required')
   try {
+    const root = confinedTo === undefined ? undefined : await confinedTo()
+    if (confinedTo !== undefined && root === undefined) return fail(403, 'forbidden')
     const target = await fs.resolve(path, { signal: request.signal })
+    if (root !== undefined && !fs.contains(root, target)) return fail(403, 'forbidden')
     const info = await fs.stat(target, request.signal)
     if (info === undefined) return fail(404, 'not found')
     if (info.type !== 'file') return fail(403, 'not a regular file')
@@ -67,6 +90,30 @@ async function serveFile(request: Request, fs: FileSystem, maxBytes: number): Pr
 }
 
 /**
+ * Serve a non-owner Peer only a file of a Session on which remote access
+ * allows the route: the request names the Session in `sessionId`, and the
+ * file's canonical path must lie inside that Session's workspace, its header
+ * `cwd`. Everything else answers 403 before the file is resolved or read.
+ */
+function serveNonOwnerFile(ctx: Context, request: Request, peer: PeerScope, maxBytes: number): Promise<Response> {
+  const requested = new URL(request.url).searchParams.get('sessionId')
+  const sessionId = requested === null || requested === '' ? undefined : brandString<SessionId>(requested)
+  const allowed = sessionId !== undefined && ctx.get('remoteAccess')?.decide({
+    principal: peer.principal,
+    action: FILE_ROUTE,
+    resources: [{ kind: 'session', id: sessionId }],
+  }).kind === 'allow'
+  if (!allowed) {
+    return Promise.resolve(new Response(request.method === 'HEAD' ? null : 'forbidden', { status: 403, headers: BASE_HEADERS }))
+  }
+  return serveFile(request, ctx.fs, maxBytes, async () => {
+    const live = ctx.get('sessions')?.get(sessionId)?.header
+    const cwd = (live ?? (await ctx.get('sessionPersistence')?.stat(sessionId))?.header)?.cwd
+    return cwd === undefined ? undefined : await ctx.fs.resolve(cwd, { signal: request.signal })
+  })
+}
+
+/**
  * File-display contribution. The connection service supplies authentication;
  * `ctx.fs` supplies the execution world's paths, reads, and access policy.
  */
@@ -75,10 +122,11 @@ export const SessionMediaReferences = {
   apply(ctx: Context): void {
     const maxBytes = ctx.attachments.imageLimits.maxImageBytes
     ctx.effect(() => ctx.connection.fetch.register({
-      path: '/api/file',
+      path: FILE_ROUTE,
       methods: ['GET', 'HEAD'],
       requestBody: 'buffered',
       fetch: request => serveFile(request, ctx.fs, maxBytes),
+      serveNonOwner: (request, peer) => serveNonOwnerFile(ctx, request, peer, maxBytes),
     }), 'session-controller: /api/file')
   },
 }

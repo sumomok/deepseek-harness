@@ -5,7 +5,7 @@
  * @module @deepseek-ai/dsh-jobs/types
  */
 
-import type { SessionEventMap, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEventMap, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { JobId } from './brand.ts'
 import type { JobChannel, JobChunk, JobKind, JobView } from './view.ts'
 
@@ -176,6 +176,15 @@ export interface JobHooks {
  * execution resources while the runtime owns identity, lifecycle state, and
  * the output ring.
  */
+/** What a settlement notice may do to an idle owner. */
+export type JobNotify = 'wake' | 'quiet'
+
+/**
+ * Producer declaration passed to {@link JobRegistry.start}. The runtime
+ * preflights access and cleanup before invoking {@link run}; the producer owns
+ * execution resources while the runtime owns identity, lifecycle state, and
+ * the output ring.
+ */
 export interface JobSpec {
   /** Producer kind — also the id prefix (`bash`, …). */
   kind: JobKind
@@ -196,6 +205,12 @@ export interface JobSpec {
    * retention: it bounds the consuming model surface, never observers.
    */
   outputLimitBytes?: number
+  /**
+   * What the producer wants done with the settlement notice. `wake` (default)
+   * lets it open a turn on an idle owner; `quiet` leaves it in the inbox for
+   * the owner's next step, for work nobody is waiting on.
+   */
+  notify?: JobNotify
   /**
    * Pull sources the registry pumps into the ring at its own cadence.
    * Producers that narrate their own progress use {@link JobHandle.append}

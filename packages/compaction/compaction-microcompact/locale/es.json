@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "microcompactación de contexto",
+    "description": "Convierte resultados de herramientas antiguos en punteros de secuencia de la sesión mientras el agente está inactivo."
+  }
+}

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { ReactNode } from 'react'
 import { cleanup, render } from '@testing-library/react'
 import { bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
@@ -9,7 +10,7 @@ import { useDetailedPresentation } from './presentation-fixture.client.ts'
 import { unusedImageLoader } from './reasoning-component-fixture.tsx'
 import { useDisclosure } from '../src/client/chat/use-disclosure.ts'
 import { useSearchableHidden } from '../src/client/chat/searchable-hidden.ts'
-import { ActivityPill, UsagePill, type StatPillProps } from '../src/client/chat/StatsPills.tsx'
+import { ActivityPill, UsagePill, type UsagePillProps } from '../src/client/chat/StatsPills.tsx'
 import { zh } from '../src/client/locale.ts'
 import { chatSnapshotFixture } from './chat-snapshot-fixture.client.ts'
 
@@ -48,11 +49,14 @@ describe('render branch tails', () => {
     ] as const
     const snap = chatSnapshotFixture({ nodes })
     const source = { getSnapshot: () => snap, subscribe: () => () => {} }
-    const pillProps: StatPillProps = {
+    const pillProps: UsagePillProps = {
       usePerformanceUsage: selector => selector('detailed'),
       t,
       useChat: bindSnapshotSelector(source),
       useProjection: () => undefined,
+      renderSlot: ((_key: string, _owner: unknown, opts?: { fallback?: ReactNode }) =>
+        opts?.fallback ?? null) as UsagePillProps['renderSlot'],
+      SessionProvider: ({ children }) => <>{children}</>,
     }
     const view = render(
       <>

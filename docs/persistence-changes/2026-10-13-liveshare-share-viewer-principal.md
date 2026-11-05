@@ -28,19 +28,19 @@ baseline: false
 changes:
   - root: "event:agent/inbox/spliced"
     previous: "2026-10-25-skill-catalog-incomplete"
-    after: "cdf988172b589b230f2bce868489def1bb575eb0501076ac757a8f369ac5c64e"
+    after: "9b3cfc58646659340a8bbb707a366da8121b9a0e0d3d0463af1f80e658f37468"
     decision: same-version
   - root: "event:developer/message"
     previous: "2026-10-25-skill-catalog-incomplete"
-    after: "70d2acdec1ebcfea56d02f7233ebb9ec0f7f494447fb952884c22c3afdc01d6f"
+    after: "56e14c9824450b90d3d6485d85e17b733d4aaa7de65b2050c24589ec0d9a3753"
     decision: same-version
   - root: "event:session/title-llm-request"
     previous: "2026-10-25-skill-catalog-incomplete"
-    after: "2e505098f9209e52eebd577f1a6f9d4e773ec4d78987aff28a7c786442b9f54c"
+    after: "6a1cb348005e2bdb6638669251ee37edc011309b76ed39f5ed3ce508fb190980"
     decision: same-version
   - root: "event:user/message"
     previous: "2026-10-25-skill-catalog-incomplete"
-    after: "5bb231bc5afdb532a6898a20604e76bf0c1db438bfcdc17d4847dceaddc02451"
+    after: "5842f937b833d186e5277bffa07170e06b9e41d875992fb2114c8ba2f0e651bb"
     decision: same-version
 ```
 

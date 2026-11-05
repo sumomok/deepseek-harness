@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/util/home-paths/README.md
 /:
-  en: 412be6dc9650b620
-  zh: 2a8c5a9f8567823e
+  en: 32eded87ebaea059
+  zh: c7ec2a37d858880a
 /deepseek-ai-dsh-home-paths:
   en: 6a18bcb84ce35987
   zh: f26144b659925421
 /deepseek-ai-dsh-home-paths/summary:
-  en: 52245b057c8de494
-  zh: cd18fb40ad09aecc
+  en: 18461ac26cf33199
+  zh: 09d64b66a8ebfb19
 /deepseek-ai-dsh-home-paths/table-of-contents:
   en: 80b31a934611cb4a
   zh: 05f3f7f9cb2fd881
@@ -23,6 +23,9 @@
 /deepseek-ai-dsh-home-paths/use-this-package/resolving-the-shared-agents-root:
   en: 899c53a36b4a77cd
   zh: 216532c8876d201d
+/deepseek-ai-dsh-home-paths/use-this-package/resolving-the-claude-code-root:
+  en: b86d9e3d7a0427bb
+  zh: 3a12f2f73c726e22
 /deepseek-ai-dsh-home-paths/use-this-package/displaying-a-home:
   en: 5296a54cce9be374
   zh: e408ce14b8be4698
@@ -33,14 +36,14 @@
   en: 55c5d8179de704c5
   zh: b86395e9605807cd
 /deepseek-ai-dsh-home-paths/understand-the-implementation:
-  en: 3f97bd4606e12d4a
-  zh: 8f09f108141a478e
+  en: 5f9a7d34d8c124df
+  zh: e71c628499aa8a1c
 /deepseek-ai-dsh-home-paths/understand-the-implementation/source-map:
   en: 584610e67c4aa386
   zh: 766f77e35c65193d
 /deepseek-ai-dsh-home-paths/understand-the-implementation/resolution-rules:
-  en: 0315e0bd66f98ac6
-  zh: ba3a26a19e0bda5c
+  en: 23a441586e78b0ba
+  zh: d3f3a9fff50f13f6
 /deepseek-ai-dsh-home-paths/understand-the-implementation/canonicalization-mechanics:
   en: a79aecd162317dc2
   zh: 342f9bae0231c3de

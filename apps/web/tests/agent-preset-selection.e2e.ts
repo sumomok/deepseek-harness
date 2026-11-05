@@ -367,7 +367,7 @@ describe('web e2e: agent-preset selection', () => {
     await dialog.getByRole('button', { name: 'Set as new task default: Minimal mode' }).click()
     await dialog.getByRole('button', { name: 'New task default: Minimal mode' }).waitFor({ timeout: 10_000 })
     await expect.poll(() => livePreset(scaffold), { timeout: 15_000 }).toBe('minimal')
-    await dialog.getByRole('button', { name: 'General', exact: true }).click()
+    await dialog.getByRole('button', { name: 'General settings', exact: true }).click()
     const developerTools = dialog.getByRole('switch', { name: 'Show coding view' })
     await developerTools.click()
     await expect.poll(() => developerTools.getAttribute('aria-checked')).toBe('false')
@@ -402,7 +402,7 @@ describe('web e2e: agent-preset selection', () => {
 
     await openSettings(page, 'en')
     const reopened = page.getByRole('dialog', { name: 'Settings' })
-    await reopened.getByRole('button', { name: 'General', exact: true }).click()
+    await reopened.getByRole('button', { name: 'General settings', exact: true }).click()
     const reopenedDeveloperTools = reopened.getByRole('switch', { name: 'Show coding view' })
     await expect.poll(() => reopenedDeveloperTools.getAttribute('aria-checked')).toBe('false')
     await reopenedDeveloperTools.click()

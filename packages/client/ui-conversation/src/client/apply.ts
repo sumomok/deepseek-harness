@@ -367,7 +367,9 @@ export function apply(ctx: Context, config: Config = Config({})): void {
           // A draft with a submission in flight stays with the Session that is admitting it.
           if (from.snapshot.phase !== 'plain' && from.snapshot.phase !== 'claimed') return
           const draft = from.draftSnapshot
-          const attachmentIds = from.snapshot.attachmentIds
+          // A reference belongs to the Session its owner created it for; it stays in that draft.
+          const attachmentIds = concreteConversation(ctx).resolveDraftAttachments(from.snapshot.attachmentIds)
+            .filter(attachment => attachment.kind !== 'reference').map(attachment => attachment.id)
           const next = inputHub.shell(nextId)
           if (attachmentIds.length === 0 || next.addAttachments(attachmentIds)) {
             const binding = sessions.binding(nextId)

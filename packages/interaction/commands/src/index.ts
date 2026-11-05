@@ -73,6 +73,15 @@ export interface CommandDefinition {
    * that payload in the session log.
    */
   readonly recordInput?: boolean
+  /**
+   * Whether running this command engages the session — makes it a session
+   * with something to show. Defaults to true. A command that configures the
+   * session rather than contributing to the conversation sets this false, so
+   * a fresh session it runs in stays list-hidden, keeps its Intent hero, and
+   * remains reusable as New Session. `command/run` records the declaration
+   * only when it is false.
+   */
+  readonly engages?: boolean
   /** Execute against the receiving agent without sending the command to the model. */
   readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>
 }
@@ -213,6 +222,7 @@ function normalizeDefinition(definition: CommandDefinition): RegisteredCommand {
     description: definition.description,
     ...input === undefined ? {} : { input },
     ...definition.recordInput === undefined ? {} : { recordInput: definition.recordInput },
+    ...definition.engages === undefined ? {} : { engages: definition.engages },
     handler: definition.handler,
   })
   const descriptor = Object.freeze({
@@ -375,6 +385,10 @@ export class CommandRuntime extends TypertRemoteService {
       name: parsed.name,
       ...command.definition.recordInput === false ? {} : { args: parsed.rawInput },
       source: { kind: 'user' },
+      // Recorded only when declared false: an absent member means the
+      // ordinary engaging command, which keeps every log written before the
+      // declaration existed readable as what it is.
+      ...command.definition.engages === false ? { engages: false } : {},
     })
     const settle = (result: CommandResult): CommandExecution => {
       this.appendLifecycle(agent.session, 'command/done', {

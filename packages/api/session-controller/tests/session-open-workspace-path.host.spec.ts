@@ -1,4 +1,6 @@
-import { resolve } from 'node:path'
+import { mkdtemp, realpath, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import * as nativeCommand from '@deepseek-ai/dsh-native-command'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -6,11 +8,33 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SessionStore from '@deepseek-ai/dsh-session'
 import FsLocal from '@deepseek-ai/dsh-fs-local'
 import { onTestFinished } from 'vitest'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createSessionTestController,
   createSessionTestRemote,
 } from './test-remote.ts'
+
+// The ENOENT pre-check's non-ENOENT fallthrough and its abort-during-stat
+// race cannot be timed or injected against the real filesystem: both need
+// `stat` itself to answer on this test's own schedule.
+const state = vi.hoisted(() => ({
+  statOverride: undefined as ((path: string) => Promise<unknown>) | undefined,
+}))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    stat: (async (path: string) => {
+      if (state.statOverride !== undefined) return state.statOverride(path)
+      return actual.stat(path)
+    }) as typeof actual.stat,
+  }
+})
+
+afterEach(() => {
+  state.statOverride = undefined
+})
 
 async function context(): Promise<Context> {
   const ctx = new Context()
@@ -20,6 +44,22 @@ async function context(): Promise<Context> {
   await ctx.plugin(FsLocal)
   onTestFinished(() => ctx.fiber.dispose())
   return ctx
+}
+
+/**
+ * A fresh temporary directory under its realpath, so the controller's Host
+ * path verification maps it back to itself even where the system temp
+ * directory is a symlink (macOS `/var` → `/private/var`).
+ */
+async function stagingRoot(): Promise<string> {
+  return realpath(await mkdtemp(join(tmpdir(), 'dsh-open-workspace-path-')))
+}
+
+/** Stage one real, empty file so it resolves for the openWorkspacePath existence check. */
+async function stageFile(root: string, name: string): Promise<string> {
+  const path = join(root, name)
+  await writeFile(path, '')
+  return path
 }
 
 describe('session/openWorkspacePath', () => {
@@ -65,10 +105,11 @@ describe('session/openWorkspacePath', () => {
       openPath,
     })
     const signal = new AbortController().signal
+    const target = await stageFile(await stagingRoot(), 'a.ts')
 
-    await expect(remote.openWorkspacePath({ path: '/workspace/project/src/a.ts' }, signal))
+    await expect(remote.openWorkspacePath({ path: target }, signal))
       .resolves.toEqual({ ok: true, value: { opened: true } })
-    expect(openPath).toHaveBeenCalledWith(resolve('/workspace/project/src/a.ts'), signal)
+    expect(openPath).toHaveBeenCalledWith(target, signal)
     expect(ctx.agents.list()).toEqual([])
   })
 
@@ -81,9 +122,73 @@ describe('session/openWorkspacePath', () => {
       openPath,
     })
 
-    await remote.openWorkspacePath({ path: '/workspace/result.html' })
-    await remote.openWorkspacePath({ path: 'result.html' })
-    expect(openPath.mock.calls.map(call => call[0])).toEqual([resolve('/workspace/result.html'), resolve('result.html')])
+    const root = await stagingRoot()
+    const absolute = await stageFile(root, 'result.html')
+    const priorCwd = process.cwd()
+    process.chdir(root)
+    try {
+      await remote.openWorkspacePath({ path: absolute })
+      await remote.openWorkspacePath({ path: 'result.html' })
+    } finally {
+      process.chdir(priorCwd)
+    }
+    expect(openPath.mock.calls.map(call => call[0])).toEqual([absolute, absolute])
+  })
+
+  it('answers session/path-not-found for a path that does not resolve on disk, without invoking the native opener', async () => {
+    const ctx = await context()
+    const openPath = vi.fn((_path: string, _signal: AbortSignal) => Promise.resolve())
+    const remote = await createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
+      cwd: '/default',
+      openPath,
+    })
+    const missing = join(await stagingRoot(), 'missing.txt')
+
+    await expect(remote.openWorkspacePath({ path: missing }))
+      .resolves.toMatchObject({
+        ok: false,
+        error: { code: 'session/path-not-found', details: { path: missing } },
+      })
+    expect(openPath).not.toHaveBeenCalled()
+  })
+
+  it('falls through a non-ENOENT stat failure and still invokes the native opener', async () => {
+    const ctx = await context()
+    const openPath = vi.fn((_path: string, _signal: AbortSignal) => Promise.resolve())
+    const remote = await createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
+      cwd: '/default',
+      openPath,
+    })
+    const target = await stageFile(await stagingRoot(), 'denied.txt')
+    state.statOverride = () => Promise.reject(
+      Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }),
+    )
+
+    await expect(remote.openWorkspacePath({ path: target }))
+      .resolves.toEqual({ ok: true, value: { opened: true } })
+    expect(openPath).toHaveBeenCalledWith(target, expect.anything())
+  })
+
+  it('answers cancelled when abort lands between the stat pre-check and the opener', async () => {
+    const ctx = await context()
+    const openPath = vi.fn((_path: string, _signal: AbortSignal) => Promise.resolve())
+    const remote = await createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
+      cwd: '/default',
+      openPath,
+    })
+    const target = await stageFile(await stagingRoot(), 'a.txt')
+    const aborted = new AbortController()
+    state.statOverride = async (path) => {
+      aborted.abort(new Error('gateway/cancelled'))
+      return { path }
+    }
+
+    await expect(remote.openWorkspacePath({ path: target }, aborted.signal))
+      .resolves.toMatchObject({ ok: false, error: { code: 'gateway/cancelled' } })
+    expect(openPath).not.toHaveBeenCalled()
   })
 
   it('rejects empty paths before opening anything', async () => {
@@ -109,8 +214,9 @@ describe('session/openWorkspacePath', () => {
       cwd: '/default',
       openPath,
     })
+    const target = await stageFile(await stagingRoot(), 'result.html')
 
-    await expect(remote.openWorkspacePath({ path: 'result.html' }))
+    await expect(remote.openWorkspacePath({ path: target }))
       .resolves.toMatchObject({
         ok: false,
         error: { code: 'gateway/internal', message: 'path open failed' },
@@ -118,7 +224,7 @@ describe('session/openWorkspacePath', () => {
 
     const aborted = new AbortController()
     aborted.abort(new Error('gateway/cancelled'))
-    await expect(remote.openWorkspacePath({ path: 'result.html' }, aborted.signal))
+    await expect(remote.openWorkspacePath({ path: target }, aborted.signal))
       .resolves.toMatchObject({ ok: false, error: { code: 'gateway/cancelled' } })
   })
 
@@ -136,11 +242,14 @@ describe('session/openWorkspacePath', () => {
       cwd: '/default',
       openPath,
     })
+    const root = await stagingRoot()
+    const first = await stageFile(root, 'first.html')
+    const second = await stageFile(root, 'second.html')
 
-    await expect(controller.openWorkspacePath({ path: 'first.html' }, aborted.signal))
+    await expect(controller.openWorkspacePath({ path: first }, aborted.signal))
       .rejects.toMatchObject({ code: 'gateway/cancelled' })
     await expect(controller.openWorkspacePath({
-      path: 'second.html',
+      path: second,
     }, new AbortController().signal)).rejects.toMatchObject({
       code: 'gateway/internal', message: 'path open failed',
     })
@@ -156,10 +265,11 @@ it('reports Host file-manager metadata and dispatches reveal separately from def
     defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/default', openPath, revealPath,
   })
   try {
+    const report = await stageFile(await stagingRoot(), 'report.txt')
     expect(controller.workspaceDesktop()).toMatchObject({ available: true, name: expect.any(String) as string })
     const signal = new AbortController().signal
-    await controller.openWorkspacePath({ path: '/workspace/report.txt', action: 'reveal' }, signal)
-    expect(revealPath).toHaveBeenCalledWith(resolve('/workspace/report.txt'), signal)
+    await controller.openWorkspacePath({ path: report, action: 'reveal' }, signal)
+    expect(revealPath).toHaveBeenCalledWith(report, signal)
     expect(openPath).not.toHaveBeenCalled()
   } finally { await ctx.fiber.dispose() }
 })
@@ -172,8 +282,9 @@ it('uses the native reveal adapter without a test override and respects unsuppor
     const controller = await createSessionTestController(ctx, {
       defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/default', nativeOpen: true,
     })
+    const report = await stageFile(await stagingRoot(), 'report.txt')
     expect(controller.workspaceDesktop()).toMatchObject({ available: false, fileManager: null })
-    await controller.openWorkspacePath({ path: '/report.txt', action: 'reveal' }, new AbortController().signal)
+    await controller.openWorkspacePath({ path: report, action: 'reveal' }, new AbortController().signal)
     expect(reveal).toHaveBeenCalledOnce()
   } finally { manager.mockRestore(); reveal.mockRestore(); await ctx.fiber.dispose() }
 })
@@ -215,8 +326,9 @@ it('dispatches default-app opening to the association adapter', async () => {
     defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/default', nativeOpen: true,
   })
   const signal = new AbortController().signal
-  await controller.openWorkspacePath({ path: '/report.html' }, signal)
-  expect(open).toHaveBeenCalledWith(resolve('/report.html'), signal)
+  const report = await stageFile(await stagingRoot(), 'report.html')
+  await controller.openWorkspacePath({ path: report }, signal)
+  expect(open).toHaveBeenCalledWith(report, signal)
 })
 
 
@@ -230,8 +342,9 @@ it('uses the same path verification for handler queries and explicit application
     fileApplications, openFileApplication,
   })
   const signal = new AbortController().signal
-  expect(await controller.workspacePathApplications({ path: '/file.mp3' }, signal)).toEqual(applications)
-  await controller.openWorkspacePath({ path: '/file.mp3', application: applications[0]!.id }, signal)
+  const file = await stageFile(await stagingRoot(), 'file.mp3')
+  expect(await controller.workspacePathApplications({ path: file }, signal)).toEqual(applications)
+  await controller.openWorkspacePath({ path: file, application: applications[0]!.id }, signal)
   expect(openFileApplication).toHaveBeenCalledWith(expect.stringContaining('file.mp3'), applications[0]!.id, signal)
   const mapping = vi.spyOn(ctx.fs, 'processPathFromHostPath').mockReturnValue(undefined)
   onTestFinished(() => { mapping.mockRestore() })

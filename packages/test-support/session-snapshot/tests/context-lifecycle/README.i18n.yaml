@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/test-support/session-snapshot/tests/context-lifecycle/README.md
+/context-lifecycle-fixtures-ctx-b4:
+  en: 50c1969f1898cc14
+  zh: cae9db1d7cfe0595
+/context-lifecycle-fixtures-ctx-b4/files:
+  en: a8f725393c9df190
+  zh: 003a875a34921611
+/context-lifecycle-fixtures-ctx-b4/generating-the-fixtures:
+  en: 8d149f5e6a49ddba
+  zh: 60da21346dc83e99
+/context-lifecycle-fixtures-ctx-b4/projection-rules-project-ts:
+  en: 2a5bb315eba34b65
+  zh: f8f3ce3c4264df2b
+/context-lifecycle-fixtures-ctx-b4/assertions-boundaries-spec-ts-23:
+  en: 27db6341e7dee351
+  zh: 38eaea186f1eb9ef
+/context-lifecycle-fixtures-ctx-b4/known-boundaries:
+  en: 8f8c13a5e1a6c6ba
+  zh: e618406ec2db223b
+/context-lifecycle-fixtures-ctx-b4/engine-driven-measurements-task-31:
+  en: e8674c41d5eb21ae
+  zh: c2941ed281baf59e

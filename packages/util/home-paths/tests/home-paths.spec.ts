@@ -4,18 +4,21 @@ import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   AGENTS_HOME_DIR_NAME,
+  CLAUDE_HOME_DIR_NAME,
   DEFAULT_AGENTS_HOME_DISPLAY,
   DEFAULT_DSH_HOME_DISPLAY,
   DSH_HOME_DIR_NAME,
   agentsHomeDisplay,
   canonicalizeWatchPath,
   defaultAgentsHome,
+  defaultClaudeHome,
   defaultDshHome,
   dshCachePath,
   dshHomeDisplay,
   dshHomePath,
   expandHomePath,
   resolveAgentsHome,
+  resolveClaudeHome,
   resolveDshHome,
 } from '@deepseek-ai/dsh-home-paths'
 
@@ -84,6 +87,24 @@ describe('dsh path helpers', () => {
   it('labels a resolved agents home by whether it is the default root', () => {
     expect(agentsHomeDisplay(resolve(defaultAgentsHome()))).toBe('~/.agents')
     expect(agentsHomeDisplay('/some/other/root')).toBe('$DSH_AGENTS_HOME')
+  })
+
+  it('owns the default Claude Code home directory name', () => {
+    expect(CLAUDE_HOME_DIR_NAME).toBe('.claude')
+    expect(defaultClaudeHome()).toBe(join(homedir(), '.claude'))
+  })
+
+  it('resolves an explicit Claude Code home before DSH_CLAUDE_HOME and the default', () => {
+    const envHome = join(homedir(), 'env-claude')
+
+    expect(resolveClaudeHome('/tmp/explicit-claude', { DSH_CLAUDE_HOME: '~/env-claude' })).toBe(resolve('/tmp/explicit-claude'))
+    expect(resolveClaudeHome(undefined, { DSH_CLAUDE_HOME: '~/env-claude' })).toBe(envHome)
+    expect(resolveClaudeHome(undefined, {})).toBe(defaultClaudeHome())
+  })
+
+  it('treats an empty or whitespace-only DSH_CLAUDE_HOME as unset', () => {
+    expect(resolveClaudeHome(undefined, { DSH_CLAUDE_HOME: '' })).toBe(defaultClaudeHome())
+    expect(resolveClaudeHome(undefined, { DSH_CLAUDE_HOME: '   ' })).toBe(defaultClaudeHome())
   })
 
   it.each([

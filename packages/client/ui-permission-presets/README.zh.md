@@ -31,13 +31,13 @@ kind: "package-reference"
 
 ### 选择器
 
-选中即提交 `/permission <preset>` 命令行。带参形式（直接键入 `/permission <preset>`）仍直接切换；装饰只替换裸调用。内置标签在英文界面中是 `Read Only`、`Workspace Write`、`Full access` 和 `Auto review`，在中文界面中是「仅可查看」「工作区内修改」「完全权限」和「自动审查」。显式 host 标签保持原样，未知 kebab-case 名称渲染为 Title Case；`auto` 在菜单选项中带有 `EXP` 标记，并在可见选择时要求实验风险确认。选中后的 composer 控件显示模式，不展示该标记。`custom` 只是显示状态，绝非目标。
+选中即提交 `/permission <preset>` 命令行。带参形式（直接键入 `/permission <preset>`）仍直接切换；装饰只替换裸调用。内置标签在英文界面中是 `Read Only`、`Workspace Write`、`Full access` 和 `Auto review`，在中文界面中是「仅可查看」「工作区内修改」「完全权限」和「自动审查」。显式 host 标签保持原样，未知 kebab-case 名称渲染为 Title Case；`auto` 在菜单选项中带有 `EXP` 标记，并在可见选择时要求实验风险确认。选中后的 composer 控件显示模式，不展示该标记。`custom` 只是显示状态，绝非目标。选择器不按预设的 `tone` 给任何一行上色：它的行只有标签、详情行与可选的确认，没有颜色。
 
 实时目录撤销某个预设时，composer 关闭对应的待确认对话框，并用 Session 的当前值替代已不可用的乐观选择。每次目录失效（无 payload 的通知或连接代际变更）会关闭已打开的 slash 选择器或其确认对话框，不消费草稿；而发布某个 picker 正在等待的读取结果时，该 picker 保持打开并保留失败与重试状态；重新打开时读取当前目录。已经提交的命令在响应结束前继续保持忙碌状态。
 
 ### 设置行
 
-该行从宿主动态的 `defaultPreset` enum 推导选项，使用与当前会话选择器相同的本地化内置标签，并写入一条设置变更操作。`auto` 等仅限当前会话的 contribution 不会出现。该值只在之后创建会话时生效；改变它绝不会切换或改写当前会话。
+该行从宿主动态的 `defaultPreset` enum 推导选项，使用与当前会话选择器相同的本地化内置标签，并写入一条设置变更操作。被宿主标记为 `danger` 色调的预设渲染为破坏性行。`auto` 等仅限当前会话的 contribution 不会出现。该值只在之后创建会话时生效；改变它绝不会切换或改写当前会话。
 
 -----
 

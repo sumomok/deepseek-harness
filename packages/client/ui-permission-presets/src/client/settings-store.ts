@@ -11,7 +11,7 @@ import {
   createSnapshotStore, type SnapshotStore,
 } from '@deepseek-ai/dsh-client-store'
 import type { SettingsDescribeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
-import type { PermissionCatalog } from '@deepseek-ai/dsh-permission-presets/client'
+import type { PermissionCatalog, PresetTone } from '@deepseek-ai/dsh-permission-presets/client'
 import type { PermissionCatalogDirectory } from './catalog.ts'
 import { displayPermissionPreset } from './presentation.ts'
 
@@ -24,6 +24,8 @@ export interface PermissionDefaultOption {
   id: string
   /** Host-supplied label or a title-cased preset key. */
   label: string
+  /** Palette tone the host named for this preset; omitted rows take the plain label color. */
+  tone?: PresetTone
 }
 
 /** Permission settings-row snapshot. */
@@ -48,6 +50,7 @@ export function permissionDefaultOf(view: SettingsNamespaceView, catalog: Permis
   const currentValue = (view.value as { defaultPreset?: string }).defaultPreset ?? catalog.defaultPreset
   const options = catalog.defaultOptions.map(option => ({
     id: option.value, label: displayPermissionPreset(option.value, option.name),
+    ...option.tone !== undefined ? { tone: option.tone } : {},
   }))
   if (!options.some(option => option.id === currentValue)) throw new Error('permission catalog does not advertise its current default')
   return { currentValue, options }

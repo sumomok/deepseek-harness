@@ -7,12 +7,12 @@ import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { ISession, SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import {
-  SlotTestRuntime, stubConfigForm, usePinnedBrowserLanguages,
+  RemoteError, SlotTestRuntime, stubConfigForm, usePinnedBrowserLanguages,
 } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionBehaviorOverrides } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
 import {
-  apply as applyConversation, inject as injectConversation,
+  apply as applyConversation, inject as injectConversation, type ComposerBarInjected,
   type GroupKey,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import {
@@ -35,7 +35,6 @@ const ATTACHMENT = {
   width: 1,
   height: 1,
 } as const
-
 type ChatInstance = ReturnType<ReturnType<typeof createChatStore>['create']>
 type ChatActions = ChatInstance['actions']
 
@@ -54,6 +53,10 @@ function sessionFakeFor() {
 
 async function bench(initialSettings?: ChatSettings, withBrowserRegistry = true, withProcessGroups = true) {
   const runtime = await SlotTestRuntime.create()
+  runtime.ctx.provide('connection', {
+    generation: { getSnapshot: () => ({ host: { home: '/home/fixture' } }), subscribe: () => () => {} },
+    state: createSnapshotStore('connected'),
+  } as never)
   const chatSettings = stubConfigForm<ChatSettings>()
   if (initialSettings !== undefined) chatSettings.publish({ value: initialSettings })
   runtime.ctx.provide('configForms', {
@@ -61,7 +64,6 @@ async function bench(initialSettings?: ChatSettings, withBrowserRegistry = true,
     get: (id: string) => id === CHAT_SETTINGS_NAMESPACE ? chatSettings.scope : stubConfigForm().scope,
   } as never)
   const layout = { closeRightbar: vi.fn(), openRightbar: vi.fn() }
-  runtime.ctx.provide('connection', { state: createSnapshotStore('connected') } as never)
   runtime.ctx.provide('fileDrag', { actions: fileDrag, read: () => undefined })
   runtime.ctx.provide('layout', layout as never)
   const sidebarRight = {
@@ -127,6 +129,11 @@ async function bench(initialSettings?: ChatSettings, withBrowserRegistry = true,
     const injectFlow = entry.inject as (sessionId: SessionId) => ChatFlowDataInjected
     return { instance, injected: injectFlow(reference.sessionId) }
   }
+  const composerApi = (id: SessionId | undefined): ComposerBarInjected => {
+    const factory: unknown = runtime.slots.entries('conversation.composer.bar')[0]!.inject
+    if (!isComposerBarInject(factory)) throw new Error('the composer bar registered no inject factory')
+    return factory(id)
+  }
   return {
     get linkPreference() {
       const row = runtime.slots.entries('settings.general.item').find(entry => entry.options.id === 'link-opening')!
@@ -135,7 +142,18 @@ async function bench(initialSettings?: ChatSettings, withBrowserRegistry = true,
     },
     runtime, chat, chatSettings, browserAvailable,
     layout, openWorkspacePath, sidebarRight, sidebarRightTabs, session, chatViewApi, chatFlowApi, rootReference, openSession,
+    composerApi,
   }
+}
+
+/**
+ * Narrow the composer bar entry's inject factory, which the slot ledger types
+ * for every entry alike, to the Session-scoped form the Conversation bar registers.
+ * @param value - the entry's `inject` member.
+ * @returns whether it is a callable factory.
+ */
+function isComposerBarInject(value: unknown): value is (sessionId: SessionId | undefined) => ComposerBarInjected {
+  return typeof value === 'function'
 }
 
 describe('Chat inject API', () => {
@@ -196,7 +214,7 @@ describe('Chat inject API', () => {
       setCollapseTiming('next-input')
       expect(presentation.getSnapshot()).toMatchObject({ mode: 'detailed', collapseTiming: 'next-input' })
       expect(b.chatSettings.set).toHaveBeenCalledWith('collapseTiming', 'next-input')
-      b.chatSettings.publish({ status: 'ready', value: { linkOpening: 'sidebar', transcriptView: 'standard', performanceUsage: 'detailed', collapseTiming: 'next-input' }, revision: 1, writable: true })
+      b.chatSettings.publish({ status: 'ready', value: { linkOpening: 'sidebar', transcriptView: 'standard', performanceUsage: 'detailed', busyCompaction: 'turn-end', collapseTiming: 'next-input' }, revision: 1, writable: true })
       expect(presentation.getSnapshot()).toMatchObject({ mode: 'standard', collapseTiming: 'next-input' })
       setCollapseTiming('completion')
       expect(presentation.getSnapshot()).toMatchObject({ mode: 'standard', collapseTiming: 'completion' })
@@ -358,7 +376,7 @@ describe('Chat inject API', () => {
   })
 
   it('applies restored and live link destinations without remounting the Chat view', async () => {
-    const settings: ChatSettings = { transcriptView: 'compact', performanceUsage: 'detailed', linkOpening: 'new-tab' }
+    const settings: ChatSettings = { transcriptView: 'compact', performanceUsage: 'detailed', linkOpening: 'new-tab', busyCompaction: 'turn-end' }
     const b = await bench(settings)
     const open = vi.spyOn(window, 'open').mockImplementation(() => null)
     try {
@@ -487,6 +505,68 @@ describe('Chat inject API', () => {
     await b.runtime.dispose()
   })
 
+  it('resolves file paths against the Session directory current at the click and keeps the line', async () => {
+    const b = await bench()
+    const targets: string[] = []
+    b.runtime.ctx.on('referent/open', async (ref, next) => {
+      targets.push(ref.target)
+      await next()
+    })
+    const { injected } = b.chatViewApi(b.rootReference)
+    // No working directory recorded yet: the header directory is the base.
+    await injected.openFile('src/a.ts')
+    await b.runtime.sessions.setProjection(ROOT, 'workingDirectory', '/proj/child')
+    await injected.openFile('src/a.ts')
+    await injected.openFile('src/a.ts', { line: 12 })
+    // An absolute path keeps its own spelling whatever the current directory.
+    await injected.openFile('/proj/top.ts')
+    // Outside the header workspace the address keeps the absolute path.
+    await b.runtime.sessions.setProjection(ROOT, 'workingDirectory', '/tmp/wt')
+    await injected.openFile('notes.md', { line: 3 })
+    // A null projection means no recorded directory: back to the header.
+    await b.runtime.sessions.setProjection(ROOT, 'workingDirectory', null)
+    await injected.openFile('src/a.ts')
+    expect(targets).toEqual([
+      '/proj/src/a.ts', '/proj/child/src/a.ts', '/proj/child/src/a.ts', '/proj/top.ts', '/tmp/wt/notes.md', '/proj/src/a.ts',
+    ])
+    expect(b.sidebarRight.openResource.mock.calls).toEqual([
+      ['dsh-resource://file/session/root-1/src/a.ts'],
+      ['dsh-resource://file/session/root-1/child/src/a.ts'],
+      ['dsh-resource://file/session/root-1/child/src/a.ts', { params: { line: 12 } }],
+      ['dsh-resource://file/session/root-1/top.ts'],
+      ['dsh-resource://file/session/root-1//tmp/wt/notes.md', { params: { line: 3 } }],
+      ['dsh-resource://file/session/root-1/src/a.ts'],
+    ])
+    await b.runtime.dispose()
+  })
+
+  it('resolves Windows file paths against the current directory in either separator spelling', async () => {
+    const b = await bench()
+    const WIN = 'root-win' as SessionId
+    await b.runtime.sessions.add({
+      id: WIN,
+      summary: { title: 'W', displayTitle: 'W', cwd: 'C:\\proj' },
+      session: sessionFakeFor(),
+    })
+    using reference = b.runtime.sessions.retain(WIN)
+    const targets: string[] = []
+    b.runtime.ctx.on('referent/open', async (ref, next) => {
+      targets.push(ref.target)
+      await next()
+    })
+    const { injected } = b.chatViewApi(reference)
+    await b.runtime.sessions.setProjection(WIN, 'workingDirectory', 'C:\\proj\\child')
+    await injected.openFile('src\\a.ts', { line: 2 })
+    await b.runtime.sessions.setProjection(WIN, 'workingDirectory', 'D:\\wt')
+    await injected.openFile('a.ts')
+    expect(targets).toEqual(['C:\\proj\\child\\src\\a.ts', 'D:\\wt\\a.ts'])
+    expect(b.sidebarRight.openResource.mock.calls).toEqual([
+      ['dsh-resource://file/session/root-win/child/src/a.ts', { params: { line: 2 } }],
+      ['dsh-resource://file/session/root-win/D:/wt/a.ts'],
+    ])
+    await b.runtime.dispose()
+  })
+
   it('fails loud when a Chat View inject resolves no Session', async () => {
     const b = await bench()
     const entry = b.runtime.slots.entries('conversation.view')[0]!
@@ -533,6 +613,209 @@ describe('Chat inject API', () => {
     expect(loaded).toEqual(expect.any(String))
     expect(b.session.readAttachment).toHaveBeenCalledWith(ATTACHMENT)
     expect(injected.loadImage.peek?.(ATTACHMENT)).toBe(loaded)
+    await b.runtime.dispose()
+  })
+
+  it('referents (chat view face) is undefined with no proseReferents provider composed in', async () => {
+    const b = await bench()
+    const { injected } = b.chatViewApi(b.rootReference)
+    expect(injected.referents).toBeUndefined()
+    await b.runtime.dispose()
+  })
+
+  it('referents.scan forwards text, session cwd, Host home, and inlineCode to the proseReferents provider', async () => {
+    const b = await bench()
+    const scan = vi.fn((_text: string, _context: { cwd?: string; home?: string; inlineCode: boolean }) => [])
+    b.runtime.ctx.provide('proseReferents', { scan })
+    const { injected } = b.chatViewApi(b.rootReference)
+    expect(injected.referents).toBeDefined()
+    injected.referents!.scan('see /proj/src/a.ts', true)
+    expect(scan).toHaveBeenCalledWith('see /proj/src/a.ts', { cwd: '/proj', home: '/home/fixture', inlineCode: true })
+    await b.runtime.dispose()
+  })
+
+  it('referents.scan and resolveLink pass the Session directory current at each call', async () => {
+    const b = await bench()
+    const scan = vi.fn((_text: string, _context: { cwd?: string; home?: string; inlineCode: boolean }) => [])
+    const resolveLink = vi.fn(() => undefined)
+    b.runtime.ctx.provide('proseReferents', { scan, resolveLink })
+    const { injected } = b.chatViewApi(b.rootReference)
+    await b.runtime.sessions.setProjection(ROOT, 'workingDirectory', '/proj/child')
+    injected.referents!.scan('see a.ts', false)
+    expect(injected.referents!.resolveLink!('a.ts', 'a.ts')).toBeUndefined()
+    expect(scan).toHaveBeenLastCalledWith('see a.ts', { cwd: '/proj/child', home: '/home/fixture', inlineCode: false })
+    expect(resolveLink).toHaveBeenLastCalledWith('a.ts', 'a.ts', { cwd: '/proj/child', home: '/home/fixture' })
+    await b.runtime.dispose()
+  })
+
+  it('referents.resolveLink is undefined when the provider declares no resolveLink', async () => {
+    const b = await bench()
+    b.runtime.ctx.provide('proseReferents', { scan: () => [] })
+    const { injected } = b.chatViewApi(b.rootReference)
+    // oxlint-disable-next-line typescript/unbound-method -- presence check only, never called unbound
+    expect(injected.referents!.resolveLink).toBeUndefined()
+    await b.runtime.dispose()
+  })
+
+  it('referents.resolveLink forwards destination, displayText, session cwd, and Host home to the provider', async () => {
+    const b = await bench()
+    const span = { start: 0, end: 9, kind: 'file' as const, target: '/proj/report.md', raw: '/proj/report.md' }
+    const resolveLink = vi.fn(() => span)
+    b.runtime.ctx.provide('proseReferents', { scan: () => [], resolveLink })
+    const { injected } = b.chatViewApi(b.rootReference)
+    expect(injected.referents!.resolveLink!('/proj/report.md', 'report.md')).toBe(span)
+    expect(resolveLink).toHaveBeenCalledWith('/proj/report.md', 'report.md', { cwd: '/proj', home: '/home/fixture' })
+    await b.runtime.dispose()
+  })
+
+  it('referents.subscribe is undefined when the provider declares no subscribe', async () => {
+    const b = await bench()
+    b.runtime.ctx.provide('proseReferents', { scan: () => [] })
+    const { injected } = b.chatViewApi(b.rootReference)
+    // oxlint-disable-next-line typescript/unbound-method -- presence check only, never called unbound
+    expect(injected.referents!.subscribe).toBeUndefined()
+    await b.runtime.dispose()
+  })
+
+  it('referents.subscribe forwards straight through to the provider, unsubscribe included', async () => {
+    const b = await bench()
+    const unsubscribe = vi.fn()
+    const subscribe = vi.fn(() => unsubscribe)
+    b.runtime.ctx.provide('proseReferents', { scan: () => [], subscribe })
+    const { injected } = b.chatViewApi(b.rootReference)
+    const listener = (): void => {}
+    const returned = injected.referents!.subscribe!(listener)
+    expect(subscribe).toHaveBeenCalledWith(listener)
+    returned()
+    expect(unsubscribe).toHaveBeenCalled()
+    await b.runtime.dispose()
+  })
+
+  it('referents.open dispatches referent/open entered as chat-prose model text, distinct from openFile', async () => {
+    const b = await bench()
+    const span = { start: 0, end: 11, kind: 'file' as const, target: '/proj/src/a.ts', raw: 'src/a.ts' }
+    b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
+    let captured: unknown
+    // Claims (never calls next): the default open action never runs.
+    b.runtime.ctx.on('referent/open', (ref: unknown) => { captured = ref; return Promise.resolve() })
+    const { injected } = b.chatViewApi(b.rootReference)
+    injected.referents!.open(injected.referents!.scan('src/a.ts', true)[0]!)
+    await vi.waitFor(() => { expect(captured).toBeDefined() })
+    expect(captured).toEqual({
+      kind: 'file', target: '/proj/src/a.ts', raw: 'src/a.ts', sessionId: ROOT,
+      source: 'chat-prose', enteredAs: 'model-text',
+    })
+    await b.runtime.dispose()
+  })
+
+  it('referents.open falls through to openWorkspacePath for an unclaimed file/dir span', async () => {
+    const b = await bench()
+    const span = { start: 0, end: 8, kind: 'file' as const, target: '/proj/src/a.ts', raw: 'src/a.ts' }
+    b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
+    const { injected } = b.chatViewApi(b.rootReference)
+    injected.referents!.open(span)
+    await vi.waitFor(() => {
+      expect(b.openWorkspacePath).toHaveBeenCalledWith({ path: '/proj/src/a.ts' })
+    })
+    await b.runtime.dispose()
+  })
+
+  it('referents.open sends an unclaimed url span through the link-opening preference', async () => {
+    const b = await bench()
+    const span = { start: 0, end: 20, kind: 'url' as const, target: 'https://example.com/', raw: 'https://example.com/' }
+    b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+    try {
+      const { injected } = b.chatViewApi(b.rootReference)
+      injected.referents!.open(span)
+      await vi.waitFor(() => {
+        expect(b.sidebarRight.openTab).toHaveBeenCalledWith('browser', { params: { url: 'https://example.com/' } })
+      })
+      expect(openSpy).not.toHaveBeenCalled()
+      b.linkPreference.setLinkOpening('new-tab')
+      injected.referents!.open(span)
+      await vi.waitFor(() => {
+        expect(openSpy).toHaveBeenCalledWith('https://example.com/', '_blank', 'noopener,noreferrer')
+      })
+    } finally {
+      openSpy.mockRestore()
+      await b.runtime.dispose()
+    }
+  })
+
+  it('referents.open degrades a not-found race to the session\'s own composer notice, same as the terminal card\'s inline notice — a span verified earlier can still name a path deleted before this click', async () => {
+    const b = await bench()
+    const span = { start: 0, end: 8, kind: 'file' as const, target: '/proj/deleted.md', raw: 'deleted.md' }
+    b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
+    b.openWorkspacePath.mockResolvedValueOnce({
+      ok: false,
+      error: new RemoteError('session/path-not-found', 'path does not exist: /proj/deleted.md', { path: '/proj/deleted.md' }),
+    })
+    const { injected } = b.chatViewApi(b.rootReference)
+    injected.referents!.open(span)
+    await vi.waitFor(() => {
+      expect(b.composerApi(ROOT).hooks.notices.getSnapshot()).toMatchObject({ level: 'error' })
+    })
+    expect(b.composerApi(ROOT).hooks.notices.getSnapshot()?.text).toBe('该文件已不存在，可能已被移动或删除。')
+    await b.runtime.dispose()
+  })
+
+  it('marks the session workspace root as a directory referent and every other path as a file', async () => {
+    const b = await bench()
+    const opened: unknown[] = []
+    b.runtime.ctx.on('referent/open', (ref: unknown) => { opened.push(ref); return Promise.resolve() })
+    const { injected } = b.chatViewApi(b.rootReference)
+    // '.' names the current directory itself; no richer file/dir signal
+    // reaches this closure, so the two cases are the whole vocabulary.
+    await injected.openFile('.')
+    await injected.openFile('src/a.ts')
+    expect(opened).toEqual([
+      expect.objectContaining({ kind: 'dir', target: '/proj/.', raw: '.' }),
+      expect.objectContaining({ kind: 'file', target: '/proj/src/a.ts', raw: 'src/a.ts' }),
+    ])
+    await b.runtime.dispose()
+  })
+
+  it('drops the not-found notice when the session died while the open was in flight', async () => {
+    const b = await bench()
+    const span = { start: 0, end: 8, kind: 'file' as const, target: '/proj/deleted.md', raw: 'deleted.md' }
+    b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
+    let settle: (() => void) | undefined
+    b.openWorkspacePath.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => { settle = resolve })
+      return { ok: false, error: new RemoteError('session/path-not-found', 'gone', { path: '/proj/deleted.md' }) }
+    })
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { injected } = b.chatViewApi(b.rootReference)
+    injected.referents!.open(span)
+    await vi.waitFor(() => { expect(settle).toBeDefined() })
+    // The session closes while the open is still in flight: its composer, and
+    // the scope that owns it, are gone by the time the failure comes back.
+    await b.runtime.sessions.remove(ROOT)
+    settle!()
+    await vi.waitFor(() => { expect(b.openWorkspacePath).toHaveBeenCalled() })
+    await Promise.resolve()
+    expect(errorSpy).not.toHaveBeenCalled()
+    errorSpy.mockRestore()
+    await b.runtime.dispose()
+  })
+
+  it('referents.open leaves any other open failure to the console only — no dedicated UI for those yet', async () => {
+    const b = await bench()
+    const span = { start: 0, end: 8, kind: 'file' as const, target: '/proj/a.ts', raw: 'a.ts' }
+    b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
+    b.openWorkspacePath.mockResolvedValueOnce({
+      ok: false,
+      error: new RemoteError('gateway/internal', 'xdg-open is not available', {}),
+    })
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { injected } = b.chatViewApi(b.rootReference)
+    injected.referents!.open(span)
+    await vi.waitFor(() => {
+      expect(errorSpy).toHaveBeenCalledWith('ui-chat: chat-prose referent open failed', expect.any(Error))
+    })
+    expect(b.composerApi(ROOT).hooks.notices.getSnapshot()).toBeNull()
+    errorSpy.mockRestore()
     await b.runtime.dispose()
   })
 })

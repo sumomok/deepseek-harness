@@ -39,6 +39,22 @@ describe.each(modes)('native message-source admission ($compression, $access)', 
     return { ctx, path, bytes, event }
   }
 
+  async function storedMessage(source: unknown) {
+    const header = { type: 'session', version: SESSION_FORMAT_VERSION, id, createdAt: 1, delegationDepth: 0, isSeeded: false }
+    const event = { type: 'user/message', seq: 0, time: 1, surfaceOp: 'append', data: {
+      id: 'input', role: 'user', source, content: [{ type: 'text', text: 'sent' }],
+    } }
+    const lines = [header, event].map(value => JSON.stringify(value) + '\n')
+    const bytes = compression === 'none' ? Buffer.from(lines.join('')) : Buffer.concat(await Promise.all(lines.map(compressZstdFrame)))
+    const path = generationLogPath(root, undefined, id, SESSION_FORMAT_VERSION, compression)
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, bytes)
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(JsonlSessionPersistence, { root, compression })
+    return { ctx, path, bytes, event }
+  }
+
   it.each([null, {}, [], { kind: '' }, { kind: 1 }].map(source => ({ source })))('refuses malformed queued source $source before exposing a handle', async ({ source }) => {
     const { ctx, path, bytes } = await stored(source)
     const opened = ctx.sessionPersistence.open(id, access).then(async (handle) => { await handle.close() })
@@ -58,6 +74,25 @@ describe.each(modes)('native message-source admission ($compression, $access)', 
   it('preserves external attribution and own JSON metadata without a producer installed', async () => {
     const source = JSON.parse('{"kind":"external-producer","__proto__":{"retain":true},"metadata":{"count":1}}') as unknown
     const { ctx, path, bytes, event } = await stored(source)
+    const handle = await ctx.sessionPersistence.open(id, access)
+    try {
+      expect((await handle.read()).events[0]).toEqual(event)
+    } finally {
+      await handle.close()
+    }
+    expect(await readFile(path)).toEqual(bytes)
+  })
+
+  // A user source may carry optional fields this build does not name, such as
+  // prompt references; the reader admits and returns them verbatim.
+  it.each(['agent/inbox/spliced', 'user/message'])('admits optional user-source metadata verbatim in %s', async (type) => {
+    const source = {
+      kind: 'user', rpcId: 'request-1', clientTimeZone: 'UTC',
+      references: [{ source: 'owner', label: '新增', data: { entry: 'e1', point: { ref: 'e42' } } }],
+    }
+    const { ctx, path, bytes, event } = type === 'user/message'
+      ? await storedMessage(source)
+      : await stored(source)
     const handle = await ctx.sessionPersistence.open(id, access)
     try {
       expect((await handle.read()).events[0]).toEqual(event)

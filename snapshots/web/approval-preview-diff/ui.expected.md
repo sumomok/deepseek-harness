@@ -1,0 +1,8 @@
+- text: Waiting for approval
+- group "Approval details":
+  - text: "Allow this operation with workspace-write permissions: Creating the notes.txt file the user asked for. Code block"
+  - button "Wrap lines"
+  - button "Copy"
+  - text: notes.txt + alpha + beta + gamma
+- button "Reject"
+- button "Allow once"

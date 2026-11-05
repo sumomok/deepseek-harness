@@ -821,6 +821,8 @@ interface PluginRecord {
 
 可选的 `application` 指定文件关联应用，不修改系统默认值；`workspacePathApplications({ path })` 在校验 Host 路径后返回当前关联应用、名称、图标和默认项。
 
+Host 级 `control` 流先发一条 `SessionControlBaseline`，随后不断产出替换帧。`projection` 帧按 seq 替换某个 Session 的一个 projection 值；`search-index` 帧携带 Host 当前的全文索引准备状态——阶段、已检查数、总数与跳过的已存储会话数——它是 Host 级而非 Session 级的，因此不按 Session 访问控制过滤。新 baseline 携带该流打开前最近一次发布的准备状态；Host 未运行索引或尚未开始时则省略该字段，字段语义见 [session-query.md](session-query.zh.md)。
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
@@ -862,6 +864,17 @@ resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult>
 @Remote('search') async search(request: SessionSearchRequest, signal: AbortSignal): Promise<SessionSearchValue>
 
 /**
+ * Search visible Session content at message granularity, addressing every hit
+ * by the Session and event it came from. Unlike {@link search}, which reports
+ * matching Sessions, each item names one message so a client can open it, and
+ * paging continues through the cursor this returns.
+ * @param request - literal message-content query and an optional continuation cursor.
+ * @param signal - cancellation for list and search reads.
+ * @returns this page's authorized hits and the cursor for the next one.
+ */
+@Remote('searchMessages') searchMessages(request: SessionMessageSearchRequest, signal: AbortSignal): Promise<SessionMessageSearchValue>
+
+/**
  * Create one ordinary Session for a new conversation, reusing the named blank Session while it is reusable.
  * @param request - optional blank Session to reuse, location, and Agent preset.
  * @returns the created or reused Session identity and its preset when configured.
@@ -900,11 +913,20 @@ resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult>
 workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 'explorer' | 'directory' | null }
 
 /**
- * Verify one path through the composed filesystem and open it on the Host desktop.
+ * Verify one path through the composed filesystem and open or reveal it on
+ * the Host desktop. A does-not-exist path is checked explicitly before the
+ * opener runs: the opener is a shelled-out platform command (`open`,
+ * `xdg-open`, PowerShell's `Invoke-Item`), never a Node fs call, so it
+ * never raises a `NodeJS.ErrnoException` this process could read a reliable
+ * code from — its "no such file" text is platform-specific and unparsed.
+ * The pre-check leaves every other failure (permission, no registered
+ * application, the platform command itself missing) exactly as it was:
+ * folded into `gateway/internal` below.
  * @param request - path after best-effort Session workspace resolution.
  * @param signal - caller lifetime; abort terminates the native command.
  * @returns confirmation after the native opener accepts the path.
- * @throws RemoteError when the request is invalid, has no verified Host mapping, is cancelled, or the opener fails.
+ * @throws RemoteError when the request is invalid, has no verified Host mapping, the path does
+ * not exist, is cancelled, or the opener fails.
  */
 @Remote('openWorkspacePath') async openWorkspacePath( request: SessionOpenWorkspacePathRequest, signal: AbortSignal, ): Promise<SessionOpenWorkspacePathValue>
 
@@ -916,6 +938,23 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
  * @throws RemoteError when the path is invalid, the query is cancelled, or native discovery fails.
  */
 @Remote('workspacePathApplications') async workspacePathApplications( request: { readonly path: string }, signal: AbortSignal, ): Promise<readonly SessionWorkspacePathApplication[]>
+
+/**
+ * Batch existence/kind probe for the three-layer clickable-reference
+ * verification stage: a read-only `stat` per path, never a directory
+ * listing or a content read. Always available — unlike a directory
+ * picker's browse capability, this makes no filesystem choice a
+ * deployment might want to withhold beyond what `openWorkspacePath`'s own
+ * pre-check already performs per path. Capped at
+ * {@link PROBE_TARGETS_MAX_PATHS} paths per call (a larger or empty batch
+ * fails `gateway/bad-request` before probing starts) and run with bounded
+ * internal concurrency, so a caller with more candidates issues several
+ * calls rather than one unbounded one.
+ * @param request - paths to probe, in the order results are returned.
+ * @returns one result per requested path, in the same order.
+ * @throws RemoteError when the batch is empty or exceeds the size cap.
+ */
+@Remote('probeTargets') async probeTargets(request: SessionProbeTargetsRequest): Promise<SessionProbeTargetsValue>
 
 /**
  * Rename one Session after explicitly resuming it.
@@ -934,8 +973,10 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
 @Remote('fork') async fork(request: SessionForkRequest): Promise<SessionForkValue>
 
 /**
- * Admit one prompt after explicitly resuming its Session.
- * @param request - Session identity, prompt content, source metadata, and delivery mode.
+ * Admit one prompt after explicitly resuming its Session. Empty content and
+ * out-of-bounds references are rejected with `gateway/bad-request`; accepted
+ * references are recorded on the message source only, after `principal`.
+ * @param request - Session identity, prompt content, references, source metadata, and delivery mode.
  * @param signal - caller cancellation before prompt admission begins.
  * @returns acknowledgement that the Agent accepted the prompt.
  */
@@ -1035,7 +1076,7 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
 @Remote({ mode: 'stream' }) async *control(signal: AbortSignal): AsyncIterable<SessionControlFrame>
 ```
 
-Types: [SessionId](core.zh.md) · [SessionSearchRequest](session-query.zh.md)
+Types: [SessionId](core.zh.md) · [SessionMessageSearchRequest](session-query.zh.md) · [SessionSearchRequest](session-query.zh.md)
 
 Source: [`packages/api/session-controller/src/index.ts`](../../packages/api/session-controller/src/index.ts)
 

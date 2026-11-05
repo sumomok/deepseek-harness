@@ -9,6 +9,22 @@
  * @module @deepseek-ai/dsh-permission-presets/types
  */
 
+/**
+ * One glyph of the permission selector's design set. The set is closed: a
+ * presentation layer draws exactly these three, so a host names one instead of
+ * supplying artwork.
+ */
+export type PresetGlyph = 'read-only' | 'workspace-write' | 'danger-full-access'
+
+/**
+ * One tone of the access-mode menus' palette — the composer's access-mode menu
+ * and the Settings default-preset row. The set is closed: the client owns the
+ * colors, so a host names the meaning instead of supplying a color, and
+ * `danger` marks an entry the deployment treats as destructive. A preset
+ * naming none renders in the plain label color.
+ */
+export type PresetTone = 'danger'
+
 /** Presentation for an available preset or the derived `custom` current value. */
 export interface PresetOption {
   /** Stable option value: a configured preset key, live `auto`, or derived `custom`. */
@@ -17,6 +33,10 @@ export interface PresetOption {
   name: string
   /** One user-facing sentence on what the value means; omitted when not configured. */
   description?: string
+  /** Which design-set glyph the selector shows; a preset whose id is itself a glyph name needs none. */
+  glyph?: PresetGlyph
+  /** Which tone the access-mode menus paint this row in; omitted rows take the plain label color. */
+  tone?: PresetTone
 }
 
 /**

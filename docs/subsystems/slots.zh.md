@@ -141,6 +141,7 @@ Factory: conversation.content [ConversationContent]
 │     ├─ id=chat [ChatView]
 │     │  ├─ conversation.chat.text-interaction [list]
 │     │  └─ conversation.chat.flow [ChatFlow]
+│     │     ├─ conversation.chat.user-actions
 │     │     └─ conversation.chat.node [ChatNodeSeat dispatch]
 │     │        ├─ key=user [UserMessageNodeView]
 │     │        │  ├─ conversation.chat.user.before [chain]
@@ -175,6 +176,9 @@ Factory: conversation.content [ConversationContent]
 │  │  └─ conversation.input.model.label
 │  ├─ conversation.input.overlay
 │  ├─ conversation.composer.dock
+│  │  └─ id=usage [UsagePill]
+│  │     ├─ conversation.chat.stats.usageLabel
+│  │     └─ conversation.chat.stats.usageRows
 │  ├─ conversation.input.left
 │  └─ conversation.input.right
 ├─ conversation.input.dock

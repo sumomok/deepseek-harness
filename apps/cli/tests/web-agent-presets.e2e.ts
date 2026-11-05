@@ -288,6 +288,23 @@ describe('the shipped Web composition', () => {
     expect(ctx.agentPresets.defaultId).toBe('standard')
   })
 
+  // Every shipped preset mounts, not just the default one. A row that
+  // registers a service inside a group without naming it in that group's
+  // `isolate` map publishes into the root realm and fails the whole preset at
+  // mount; the failure surfaces per preset, so mounting only `standard` leaves
+  // the other three able to ship broken.
+  it.each(['standard', 'ptc', 'minimal', 'cordis'])('mounts the shipped `%s` preset', async (preset) => {
+    const handle = await ctx.agents.create({
+      sessionId: SessionId(`preset-mount-${preset}`),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, preset).then(() => undefined),
+    })
+    try {
+      expect(handle.agent.session).toBeDefined()
+    } finally {
+      await handle.dispose()
+    }
+  })
+
   it('composes the full agent from `standard`', async () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId('preset-standard'),

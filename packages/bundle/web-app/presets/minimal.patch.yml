@@ -26,9 +26,17 @@
             group: true
             isolate:
               compaction: true
+              microcompact: true
             config:
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
+                config:
+                  checkpointReadback: true
+                  retainRatio: 0.01
+              - id: microcompact
+                name: '@deepseek-ai/dsh-compaction-microcompact'
+                config:
+                  enabled: true
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
           - id: persistent-shell

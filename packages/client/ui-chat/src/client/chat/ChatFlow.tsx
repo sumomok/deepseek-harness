@@ -1,8 +1,9 @@
 /** Ordered Chat rows, local echoes, and running status share the flow slot's parent. */
-import { memo, type ReactElement } from 'react'
+import { memo, useCallback } from 'react'
+import type { ReactElement } from 'react'
 import type { PendingSubmission } from '@deepseek-ai/dsh-api-session-controller/client'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
-import type { ChatFlowSlotProps } from '../contract/slots.ts'
+import type { ChatFlowSlotProps, RenderUserActions } from '../contract/slots.ts'
 import { ChatNodeSeat } from './ChatNodeSeat.tsx'
 import { ChatGroupSeat } from './ChatGroupSeat.tsx'
 import { PendingSteeringBubble, PendingSubmissionBubble } from './MessageItem.tsx'
@@ -27,7 +28,7 @@ export const ChatFlow = memo(function ChatFlow({
   entries, pendingInputs, lastInputTurn, deferCollapse,
   useSession, useChat, useChatNode, useChatNodeBottom, useChatNodeProcess, useChatGroup, usePresentation, useConnectionState,
   useStore, actions, renderSlot, renderFactorySlot, t, useGroupAction, useGroupHeaderAction,
-  cwd, openFile, inspectCall, forkAt, loadImage, fileMentions,
+  cwd, openFile, inspectCall, forkAt, loadImage, fileMentions, referents,
 }: ChatFlowSlotProps) {
   const nodeStore = useChat(snapshot => snapshot.nodes)
   const running = useSession(snapshot => snapshot.running)
@@ -39,6 +40,10 @@ export const ChatFlow = memo(function ChatFlow({
       ? location.turn.status === 'open' ? location.turn.start?.time : undefined
       : undefined
   })
+  const renderUserActions = useCallback<RenderUserActions>(
+    owner => renderSlot('conversation.chat.user-actions', owner),
+    [renderSlot],
+  )
   const latestTurnOpen = useChatNode(latestTurnAnchor ?? '', (node) => {
     const location = node?.location
     return (location?.kind === 'turn' || location?.kind === 'step') && location.turn.status === 'open'
@@ -47,7 +52,7 @@ export const ChatFlow = memo(function ChatFlow({
   const seatProps = {
     nodeStore, useChatNode, useChatNodeBottom, useChatNodeProcess, usePresentation,
     useStore, actions, renderSlot, t, useGroupAction, deferCollapse,
-    cwd, openFile, inspectCall, forkAt, loadImage, fileMentions,
+    cwd, openFile, inspectCall, forkAt, loadImage, renderUserActions, fileMentions, referents,
   }
   const rows = entries.map((entry) => {
     switch (entry.kind) {
@@ -74,7 +79,7 @@ export const ChatFlow = memo(function ChatFlow({
     const row = isLocalSubmission(item)
       ? <PendingSubmissionBubble key={item.requestId} submission={item}
         loadImage={loadImage} renderFactorySlot={renderFactorySlot} t={t} />
-      : <PendingSteeringBubble key={item.id} content={item.content}
+      : <PendingSteeringBubble key={item.id} content={item.content} source={item.source}
         loadImage={loadImage} renderFactorySlot={renderFactorySlot} t={t} />
     if (index <= firstTranscript) leadingRows.push(row)
     else if (isTranscriptEcho(item)) openingRows.push(row)

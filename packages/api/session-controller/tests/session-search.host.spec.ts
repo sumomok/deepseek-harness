@@ -14,6 +14,7 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import {
   SessionQueryEngine,
   SessionQueryError,
+  SessionSearchCursor,
   type SessionSearchHit,
   type SessionSearchRequest,
 } from '@deepseek-ai/dsh-session-query'
@@ -69,6 +70,9 @@ class SearchSessionQuery extends SessionQueryEngine {
     private readonly search: (
       ...args: Parameters<SessionQueryEngine['searchSessions']>
     ) => Promise<unknown>,
+    private readonly searchMessage: (
+      ...args: Parameters<SessionQueryEngine['searchMessages']>
+    ) => Promise<unknown> = () => Promise.reject(new Error('message search is not configured in this test')),
   ) {
     super(ctx)
   }
@@ -77,6 +81,12 @@ class SearchSessionQuery extends SessionQueryEngine {
     ...args: Parameters<SessionQueryEngine['searchSessions']>
   ): ReturnType<SessionQueryEngine['searchSessions']> {
     return this.search(...args) as ReturnType<SessionQueryEngine['searchSessions']>
+  }
+
+  override searchMessages(
+    ...args: Parameters<SessionQueryEngine['searchMessages']>
+  ): ReturnType<SessionQueryEngine['searchMessages']> {
+    return this.searchMessage(...args) as ReturnType<SessionQueryEngine['searchMessages']>
   }
 
   override searchEvents(): Promise<never> {
@@ -89,9 +99,267 @@ function installSearchQuery(
   searchSessions: (
     ...args: Parameters<SessionQueryEngine['searchSessions']>
   ) => Promise<unknown>,
+  searchMessages?: (
+    ...args: Parameters<SessionQueryEngine['searchMessages']>
+  ) => Promise<unknown>,
 ): void {
-  new SearchSessionQuery(ctx, searchSessions)
+  new SearchSessionQuery(ctx, searchSessions, searchMessages)
 }
+
+describe('session.searchMessages', () => {
+  it('addresses every matching message by its Session and event position', async () => {
+    const ctx = await baseContext()
+    const live = ctx.sessions.create(sid('live'), { meta: header('live', '/live') })
+    ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
+      list: () => Promise.resolve([]),
+    }) as never)
+
+    const searchMessages = vi.fn(() => Promise.resolve({
+      items: [
+        { sessionId: live.id, seq: SessionSeq(3), type: 'user/message', time: 1, surface: 'current', snippet: 'alpha' },
+        { sessionId: live.id, seq: SessionSeq(7), type: 'assistant/message', time: 2, surface: 'current', snippet: 'beta' },
+      ],
+    }))
+    installSearchQuery(ctx, () => Promise.reject(new Error('session search is not used here')), searchMessages)
+    const list = new ApiSessionList(ctx, 8)
+    await list.initialize()
+
+    await expect(list.searchMessages({ query: 'query' }, new AbortController().signal)).resolves.toEqual({
+      items: [
+        { sessionId: live.id, seq: SessionSeq(3), snippet: 'alpha' },
+        { sessionId: live.id, seq: SessionSeq(7), snippet: 'beta' },
+      ],
+    })
+    expect(searchMessages).toHaveBeenCalledOnce()
+    await ctx.fiber.dispose()
+  })
+
+  it('drops hits the caller cannot see, keeping messages the transcript still shows', async () => {
+    const ctx = await baseContext()
+    const live = ctx.sessions.create(sid('live'), { meta: header('live', '/live') })
+    ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
+      list: () => Promise.resolve([]),
+    }) as never)
+
+    installSearchQuery(
+      ctx,
+      () => Promise.reject(new Error('session search is not used here')),
+      () => Promise.resolve({
+        items: [
+          { sessionId: live.id, seq: SessionSeq(1), type: 'user/message', time: 1, surface: 'current', snippet: 'kept' },
+          // Shadowed is a model-surface fact: the transcript keeps this message
+          // above the compaction marker, so a reader can still open it.
+          { sessionId: live.id, seq: SessionSeq(2), type: 'user/message', time: 2, surface: 'shadowed', snippet: 'compacted but still shown' },
+          { sessionId: live.id, seq: SessionSeq(3), type: 'tool/call', time: 3, surface: 'current', snippet: 'tool noise' },
+          { sessionId: sid('hidden'), seq: SessionSeq(4), type: 'user/message', time: 4, surface: 'current', snippet: 'other session' },
+        ],
+      }),
+    )
+    const list = new ApiSessionList(ctx, 8)
+    await list.initialize()
+
+    await expect(list.searchMessages({ query: 'query' }, new AbortController().signal)).resolves.toEqual({
+      items: [
+        { sessionId: live.id, seq: SessionSeq(1), snippet: 'kept' },
+        { sessionId: live.id, seq: SessionSeq(2), snippet: 'compacted but still shown' },
+      ],
+    })
+    await ctx.fiber.dispose()
+  })
+
+  it('keeps the same event position in two Sessions apart', async () => {
+    const ctx = await baseContext()
+    const first = ctx.sessions.create(sid('first'), { meta: header('first', '/first') })
+    const second = ctx.sessions.create(sid('second'), { meta: header('second', '/second') })
+    ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
+      list: () => Promise.resolve([]),
+    }) as never)
+
+    installSearchQuery(
+      ctx,
+      () => Promise.reject(new Error('session search is not used here')),
+      () => Promise.resolve({
+        items: [
+          { sessionId: first.id, seq: SessionSeq(4), type: 'user/message', time: 1, surface: 'current', snippet: 'first four' },
+          { sessionId: second.id, seq: SessionSeq(4), type: 'user/message', time: 2, surface: 'current', snippet: 'second four' },
+        ],
+      }),
+    )
+    const list = new ApiSessionList(ctx, 8)
+    await list.initialize()
+
+    // A page is addressed by Session and position together; one Session's
+    // fourth event must not shadow another's.
+    await expect(list.searchMessages({ query: 'query' }, new AbortController().signal)).resolves.toEqual({
+      items: [
+        { sessionId: first.id, seq: SessionSeq(4), snippet: 'first four' },
+        { sessionId: second.id, seq: SessionSeq(4), snippet: 'second four' },
+      ],
+    })
+    await ctx.fiber.dispose()
+  })
+
+  it('continues from the cursor the previous page returned', async () => {
+    const ctx = await baseContext()
+    const live = ctx.sessions.create(sid('live'), { meta: header('live', '/live') })
+    ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
+      list: () => Promise.resolve([]),
+    }) as never)
+
+    const seen: Array<string | undefined> = []
+    installSearchQuery(
+      ctx,
+      () => Promise.reject(new Error('session search is not used here')),
+      (request) => {
+        seen.push(request.cursor)
+        if (request.cursor === undefined) {
+          return Promise.resolve({
+            items: [{ sessionId: live.id, seq: SessionSeq(1), type: 'user/message', time: 1, surface: 'current', snippet: 'first' }],
+            nextCursor: SessionSearchCursor('provider-page-two'),
+          })
+        }
+        return Promise.resolve({
+          items: [{ sessionId: live.id, seq: SessionSeq(9), type: 'user/message', time: 2, surface: 'current', snippet: 'last' }],
+        })
+      },
+    )
+    const list = new ApiSessionList(ctx, 8)
+    await list.initialize()
+
+    const first = await list.searchMessages({ query: 'q' }, new AbortController().signal)
+    expect(first.items).toEqual([{ sessionId: live.id, seq: SessionSeq(1), snippet: 'first' }])
+    expect(first.nextCursor).toBeDefined()
+    if (first.nextCursor === undefined) throw new Error('a page with more must hand back a cursor')
+    // The Host's cursor is its own envelope, not the provider token.
+    expect(first.nextCursor).not.toBe(SessionSearchCursor('provider-page-two'))
+
+    const second = await list.searchMessages({ query: 'q', cursor: first.nextCursor }, new AbortController().signal)
+    expect(second).toEqual({ items: [{ sessionId: live.id, seq: SessionSeq(9), snippet: 'last' }] })
+    expect(seen).toEqual([undefined, SessionSearchCursor('provider-page-two')])
+    await ctx.fiber.dispose()
+  })
+
+  it('reuses the page size the first page negotiated when it continues', async () => {
+    const ctx = await baseContext()
+    const live = ctx.sessions.create(sid('live'), { meta: header('live', '/live') })
+    ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
+      list: () => Promise.resolve([]),
+    }) as never)
+
+    const limits: number[] = []
+    installSearchQuery(
+      ctx,
+      () => Promise.reject(new Error('session search is not used here')),
+      (request) => {
+        limits.push(request.limit ?? 0)
+        // A provider that caps pages at ten, like a configured backend can.
+        if ((request.limit ?? 0) > 10) {
+          return Promise.reject(new SessionQueryError('page is too large', 'SESSION_QUERY_INVALID_LIMIT'))
+        }
+        return Promise.resolve({
+          items: [{ sessionId: live.id, seq: SessionSeq(1), type: 'user/message', time: 1, surface: 'current', snippet: 'hit' }],
+          ...request.cursor === undefined ? { nextCursor: SessionSearchCursor('provider-next') } : {},
+        })
+      },
+    )
+    const list = new ApiSessionList(ctx, 8)
+    await list.initialize()
+
+    const first = await list.searchMessages({ query: 'q' }, new AbortController().signal)
+    if (first.nextCursor === undefined) throw new Error('the degraded page must still offer a continuation')
+    // Continuing with the untried size would fail every later page, because the
+    // provider binds its cursor to the page size the first page settled on.
+    await list.searchMessages({ query: 'q', cursor: first.nextCursor }, new AbortController().signal)
+    expect(limits).toEqual([20, 10, 10])
+    await ctx.fiber.dispose()
+  })
+
+  it('tells the caller to restart when its continuation outlived the index', async () => {
+    const ctx = await baseContext()
+    const live = ctx.sessions.create(sid('live'), { meta: header('live', '/live') })
+    ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
+      list: () => Promise.resolve([]),
+    }) as never)
+
+    let call = 0
+    installSearchQuery(
+      ctx,
+      () => Promise.reject(new Error('session search is not used here')),
+      () => {
+        call += 1
+        if (call === 1) {
+          return Promise.resolve({
+            items: [{ sessionId: live.id, seq: SessionSeq(1), type: 'user/message', time: 1, surface: 'current', snippet: 'hit' }],
+            nextCursor: SessionSearchCursor('provider-next'),
+          })
+        }
+        return Promise.reject(new SessionQueryError('cursor is stale', 'SESSION_QUERY_STALE_CURSOR'))
+      },
+    )
+    const list = new ApiSessionList(ctx, 8)
+    await list.initialize()
+
+    const first = await list.searchMessages({ query: 'q' }, new AbortController().signal)
+    if (first.nextCursor === undefined) throw new Error('a page with more must hand back a cursor')
+    // A continuation the Host cannot resume must not read as an internal
+    // failure: the client needs the one action it can take.
+    await expect(list.searchMessages({ query: 'q', cursor: first.nextCursor }, new AbortController().signal))
+      .rejects.toMatchObject({ code: 'session/search-cursor-stale' })
+    await ctx.fiber.dispose()
+  })
+
+  it('refuses a continuation whose page size was raised past the Host bound', async () => {
+    const ctx = await baseContext()
+    const live = ctx.sessions.create(sid('live'), { meta: header('live', '/live') })
+    ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
+      list: () => Promise.resolve([]),
+    }) as never)
+
+    const limits: number[] = []
+    installSearchQuery(
+      ctx,
+      () => Promise.reject(new Error('session search is not used here')),
+      (request) => {
+        limits.push(request.limit ?? 0)
+        return Promise.resolve({
+          items: [{ sessionId: live.id, seq: SessionSeq(1), type: 'user/message', time: 1, surface: 'current', snippet: 'hit' }],
+          nextCursor: SessionSearchCursor('provider-next'),
+        })
+      },
+    )
+    const list = new ApiSessionList(ctx, 8)
+    await list.initialize()
+
+    const first = await list.searchMessages({ query: 'q' }, new AbortController().signal)
+    if (first.nextCursor === undefined) throw new Error('a page with more must hand back a cursor')
+    const forged = SessionSearchCursor(Buffer.from(JSON.stringify({
+      cursor: 'provider-next',
+      limit: 100,
+    }), 'utf8').toString('base64url'))
+    await expect(list.searchMessages({ query: 'q', cursor: forged }, new AbortController().signal))
+      .rejects.toMatchObject({ code: 'gateway/bad-request' })
+    // The envelope is the Host's own bound; a caller cannot widen it.
+    expect(limits).toEqual([20])
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects a continuation this Host did not issue', async () => {
+    const ctx = await baseContext()
+    ctx.sessions.create(sid('live'), { meta: header('live', '/live') })
+    ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
+      list: () => Promise.resolve([]),
+    }) as never)
+    installSearchQuery(ctx, () => Promise.reject(new Error('unused')), () => Promise.resolve({ items: [] }))
+    const list = new ApiSessionList(ctx, 8)
+    await list.initialize()
+
+    await expect(list.searchMessages(
+      { query: 'q', cursor: SessionSearchCursor('not-ours') },
+      new AbortController().signal,
+    )).rejects.toMatchObject({ code: 'gateway/bad-request' })
+    await ctx.fiber.dispose()
+  })
+})
 
 describe('session.search', () => {
   it('rejects search when the query service is absent', async () => {

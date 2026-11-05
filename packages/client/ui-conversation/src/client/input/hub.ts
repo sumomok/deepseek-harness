@@ -22,6 +22,7 @@ import type {
 } from '../contract/input.ts'
 import type { ComposerKeyboard } from '../contract/draft-editor.ts'
 import type { ComposerBlocks } from '../contract/composer-blocks.ts'
+import type { ComposerAttachment } from '../contract/slots.ts'
 import type { InputSubmitMode } from '../contract/composer-submission.ts'
 import type { PopupDismissFace } from './facade.ts'
 import { SessionInputShell } from './facade.ts'
@@ -52,6 +53,7 @@ interface ConversationAttachmentFace {
   ): Promise<SubmitOutcome>
   serializeDraftAttachments(attachmentIds: readonly DraftAttachmentId[]): Promise<DraftAttachmentSerializationResult>
   releaseDraftAttachment(id: DraftAttachmentId): void
+  resolveDraftAttachments(ids: readonly DraftAttachmentId[]): readonly ComposerAttachment[]
 }
 
 /** Session-addressed input facade registry (SessionInputResolver face + composer-layer extras). */
@@ -134,6 +136,8 @@ export class InputHub implements SessionInputResolver {
           && this.conversation().blocks.storeFor(session.sessionId).getSnapshot() === undefined
       },
       steerQueue: () => { void this.steerQueue(session, shell) },
+      referenceCount: ids => this.conversation().resolveDraftAttachments(ids)
+        .filter(attachment => attachment.kind === 'reference').length,
       commandAttachments: {
         serialize: async (ids) => {
           const result = await this.conversation().serializeDraftAttachments(ids)

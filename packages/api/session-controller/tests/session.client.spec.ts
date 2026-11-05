@@ -259,6 +259,90 @@ describe('paging', () => {
     ])
   })
 
+  it('openAt replaces the window with one direct read at the position', async ({ mock, start }) => {
+    const oldest = plainTurn(SessionSeq(0), 0, '最旧问', '最旧答')
+    const newest = plainTurn(SessionSeq(100), 2, '新问', '新答')
+    const session = await sessionBench(mock, start, SID)
+    mock.stream(FOLLOW, followScript(history(newest, true)))
+    await session.open()
+    mock.remote.session.page.mockImplementation(pageRule(history(oldest, true)))
+
+    await expect(session.openAt(SessionSeq(3))).resolves.toBe(true)
+
+    // The cut sits just past the position so the reader keeps some context on
+    // the newer side; the fixture is shorter than the lookahead, so it all fits.
+    expect(eventSeqs(session)).toEqual([0, 1, 2, 3, 4, 5])
+    expect(mock.log.requests(PAGE)).toMatchObject([{ throughSeq: 3 + 600, maxMessages: 200 }])
+    expect(session.getSnapshot()).toMatchObject({ loadingOlder: false, hasMore: true })
+  })
+
+  it('openAt reads again when a later position is outside the installed window', async ({ mock, start }) => {
+    const oldest = plainTurn(SessionSeq(0), 0, '最旧问', '最旧答')
+    const middle = plainTurn(SessionSeq(40), 1, '中间问', '中间答')
+    const newest = plainTurn(SessionSeq(100), 2, '新问', '新答')
+    const session = await sessionBench(mock, start, SID)
+    mock.stream(FOLLOW, followScript(history(newest, true)))
+    await session.open()
+    mock.remote.session.page.mockImplementation(pageRule(history(oldest, true)))
+    await session.openAt(SessionSeq(3))
+    mock.remote.session.page.mockImplementation(pageRule(history(middle, true)))
+
+    // The first window ends at seq 5: position 40 is after its start but not
+    // inside it, so serving it from the installed window would land on nothing.
+    await expect(session.openAt(SessionSeq(40))).resolves.toBe(true)
+
+    expect((mock.log.requests(PAGE) as SessionPageRequest[]).map(request => request.throughSeq)).toEqual([603, 640])
+    expect(eventSeqs(session)).toEqual(middle.map(event => event.seq))
+  })
+
+  it('loadNewer appends the forward page and stops at the cut', async ({ mock, start }) => {
+    const first = plainTurn(SessionSeq(0), 0, '第一问', '第一答')
+    const second = plainTurn(SessionSeq(60), 1, '第二问', '第二答')
+    const newest = plainTurn(SessionSeq(100), 2, '新问', '新答')
+    const session = await sessionBench(mock, start, SID)
+    mock.stream(FOLLOW, followScript(history(newest, true)))
+    await session.open()
+    mock.remote.session.page.mockImplementation(pageRule(history(first, true, true)))
+    await session.openAt(SessionSeq(3))
+    expect(session.getSnapshot().hasNewer).toBe(true)
+    mock.remote.session.page.mockImplementation(pageRule(history(second, false, false)))
+
+    await expect(session.loadNewer()).resolves.toBe(true)
+
+    expect(eventSeqs(session)).toEqual([...first, ...second].map(event => event.seq))
+    expect(session.getSnapshot().hasNewer).toBe(false)
+    expect((mock.log.requests(PAGE) as SessionPageRequest[]).at(-1)).toMatchObject({ afterSeq: 5 })
+  })
+
+  it('openAt leaves the window alone when it already covers the position', async ({ mock, start }) => {
+    const newest = plainTurn(SessionSeq(100), 2, '新问', '新答')
+    const session = await sessionBench(mock, start, SID)
+    mock.stream(FOLLOW, followScript(history(newest, true)))
+    await session.open()
+    const sent = mock.log.requests().length
+
+    await expect(session.openAt(SessionSeq(103))).resolves.toBe(true)
+
+    expect(mock.log.requests()).toHaveLength(sent)
+    expect(eventSeqs(session)).toEqual(newest.map(event => event.seq))
+  })
+
+  it('drops live growth while a direct history window is displayed', async ({ mock, start }) => {
+    const oldest = plainTurn(SessionSeq(0), 0, '最旧问', '最旧答')
+    const newest = plainTurn(SessionSeq(100), 2, '新问', '新答')
+    const session = await sessionBench(mock, start, SID)
+    mock.stream(FOLLOW, followScript(history(newest, true)))
+    await session.open()
+    mock.remote.session.page.mockImplementation(pageRule(history(oldest, true)))
+    await session.openAt(SessionSeq(3))
+
+    await pushEvent(mock, ev.turnStart(SessionSeq(120), 3))
+
+    // The window is not contiguous with the live tail, so appending would
+    // fabricate a gap the reader would scroll through.
+    expect(eventSeqs(session)).toEqual([0, 1, 2, 3, 4, 5])
+  })
+
   it('loadThrough is a no-op when the window already covers the target or the session is not open', async ({ mock, start }) => {
     const session = await sessionBench(mock, start, SID)
     await session.loadThrough(SessionSeq(0)) // cold: no-op
@@ -511,6 +595,21 @@ describe('prompt and cancel errors', () => {
     // A successful interrupt leaves no stop error behind.
     expect(session.getSnapshot().promptError).toBeNull()
     expect(session.getSnapshot().subagent).toEqual({ address: CHILD, parentAvailable: true })
+  })
+
+  it('forwards prompt references to the subagent prompt Remote', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID, { address: CHILD, parentAvailable: true })
+    await session.open()
+    const references = [{ source: 'owner', label: '行 2', data: { row: 2 } }]
+    await session.prompt([{ type: 'text', text: '这一行' }], 'queue', undefined, undefined, references)
+    expect(mock.log.requests('subagents/prompt')).toEqual([{
+      requestId: expect.any(String) as string,
+      ...CHILD,
+      delivery: 'queue',
+      content: [{ type: 'text', text: '这一行' }],
+      clientTimeZone: TIME_ZONE,
+      references,
+    }])
   })
 
   it('sends an addressed child continuation under its echo request id and retires a refused echo', async ({ mock, start }) => {

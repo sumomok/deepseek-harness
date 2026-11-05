@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "compaction-microcompact",
+    "description": "Clears old tool results into session sequence pointers while the agent is idle."
+  }
+}

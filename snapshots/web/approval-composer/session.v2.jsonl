@@ -2,7 +2,7 @@
 {"type":"permission/preset","data":{"preset":"workspace-write"}}
 {"type":"sandbox/mode","data":{"mode":"workspace-write"}}
 {"type":"approval/policy","data":{"policy":"ask"}}
-{"type":"command/run","data":{"commandId":"{{command:1}}","name":"permission","args":" read-only","source":{"kind":"user"}}}
+{"type":"command/run","data":{"commandId":"{{command:1}}","name":"permission","args":" read-only","source":{"kind":"user"},"engages":false}}
 {"type":"permission/preset","data":{"preset":"read-only"}}
 {"type":"sandbox/mode","data":{"mode":"read-only"}}
 {"type":"command/done","data":{"commandId":"{{command:1}}","kind":"success","text":"preset read-only"}}

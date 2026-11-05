@@ -16,10 +16,12 @@ describe('ui-chat Host settings', () => {
 
     expect(plainConfig(configuration.fiber.effectiveConfig)).toEqual({
       performanceUsage: 'detailed', linkOpening: 'sidebar', collapseTiming: 'completion', foldedReplies: 'all',
+      busyCompaction: 'turn-end',
     })
     await configuration.update({ transcriptView: 'normal' })
     expect(plainConfig(configuration.fiber.effectiveConfig)).toEqual({
-      transcriptView: 'normal', performanceUsage: 'detailed', linkOpening: 'sidebar', collapseTiming: 'completion', foldedReplies: 'all',
+      transcriptView: 'normal', performanceUsage: 'detailed', linkOpening: 'sidebar', collapseTiming: 'completion',
+      foldedReplies: 'all', busyCompaction: 'turn-end',
     })
     for (const mode of ['expanded', 'compact', 'standard', 'detailed', 'verbose']) {
       await configuration.update({ transcriptView: mode })
@@ -35,6 +37,11 @@ describe('ui-chat Host settings', () => {
     await configuration.update({ linkOpening: 'new-tab' })
     expect(plainConfig(configuration.fiber.effectiveConfig)).toMatchObject({ linkOpening: 'new-tab' })
     await expect(configuration.update({ linkOpening: 'popup' })).rejects.toThrow()
+    expect(ctx.manualCompactionTiming.whileBusy()).toBe('turn-end')
+    await configuration.update({ busyCompaction: 'next-step' })
+    expect(plainConfig(configuration.fiber.config)).toMatchObject({ busyCompaction: 'next-step' })
+    expect(ctx.manualCompactionTiming.whileBusy()).toBe('next-step')
+    await expect(configuration.update({ busyCompaction: 'cancel' })).rejects.toThrow()
 
     await fiber.dispose()
   })

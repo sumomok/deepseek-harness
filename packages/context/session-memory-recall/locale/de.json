@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Sitzungsgedächtnis-Abruf",
+    "description": "Ruft frühere Sitzungsrunden ab, die eine Anfrage benötigt."
+  }
+}

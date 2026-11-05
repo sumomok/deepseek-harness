@@ -80,8 +80,11 @@ async function bench(nodes: ToolResultNode[]) {
   const openWorkspacePath = vi.fn(async () => ({ ok: true, value: { opened: true } }))
   runtime.remote.provideNamespaces({ session: { openWorkspacePath } })
   runtime.ctx.provide('configForms', { developerTools: { enabled: createSnapshotStore(true) }, get: () => stubConfigForm().scope } as never)
+  runtime.ctx.provide('connection', {
+    generation: { getSnapshot: () => undefined, subscribe: () => () => {} },
+    state: createSnapshotStore('connected'),
+  } as never)
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }
-  runtime.ctx.provide('connection', { state: createSnapshotStore('connected') } as never)
   runtime.ctx.provide('layout', layout)
   const sidebarRight = { openResource: vi.fn<(address: string) => void>() }
   runtime.ctx.provide('sidebarRight', sidebarRight as never)
@@ -303,7 +306,10 @@ describe('registrant declaration injection', () => {
       },
     })
     runtime.ctx.provide('configForms', { developerTools: { enabled: createSnapshotStore(true) }, get: () => stubConfigForm().scope } as never)
-    runtime.ctx.provide('connection', { state: createSnapshotStore('connected') } as never)
+    runtime.ctx.provide('connection', {
+      generation: { getSnapshot: () => undefined, subscribe: () => () => {} },
+      state: createSnapshotStore('connected'),
+    } as never)
     runtime.ctx.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
     runtime.ctx.provide('sidebarRight', { openResource: vi.fn() } as never)
     runtime.ctx.provide('uiWorkspace', {

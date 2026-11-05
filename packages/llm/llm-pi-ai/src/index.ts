@@ -66,13 +66,14 @@ import type {} from '@deepseek-ai/dsh-fs'
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import { PiAiAdapter } from './adapter.ts'
 import { authContextFrom, credentialStoreFrom } from './auth.ts'
-import { catalogProvider, catalogProviderIds } from './catalog.ts'
+import { catalogProvider, catalogProviderIds, supplementalProviderFacts } from './catalog.ts'
 import { assertServiceable, Config, resolveProfiles } from './config.ts'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { discoverModels } from './discovery.ts'
 import type { StoredModelDiscoveryProfile } from './discovery.ts'
 import { registerPiAiFlows } from './login.ts'
 import { providerDefaultsOf } from './provider-data.ts'
+import { supplementalProviderIds } from './supplemental.ts'
 
 export { PiAiAdapter } from './adapter.ts'
 export type { PiAiAdapterOptions } from './adapter.ts'
@@ -115,15 +116,16 @@ function registrationFacts(profiles: ReadonlyMap<string, ResolvedPiAiProviderPro
 }
 
 /**
- * The configurable-provider directory: every installed catalog route, plus
- * every route the current profiles declare. A hand-declared route has no
- * catalog entry, so without this union it would have no settings address and
- * configuration surfaces could neither show nor edit it. A catalog route also
- * carries its catalog endpoint and native authentication, which a settings
- * editor shows while the profile leaves the endpoint or the credential
- * reference unset.
+ * The configurable-provider directory: every installed catalog route, every
+ * route this package supplements a catalog gap for, plus every route the
+ * current profiles declare. A hand-declared route has no catalog entry, so
+ * without this union it would have no settings address and configuration
+ * surfaces could neither show nor edit it. A catalog route also carries its
+ * catalog endpoint and native authentication, which a settings editor shows
+ * while the profile leaves the endpoint or the credential reference unset; a
+ * supplemental route carries the endpoint from its built-in declaration.
  * @param profiles - the currently resolved provider profiles.
- * @returns the directory entries in catalog order, declared routes last.
+ * @returns the directory entries in catalog order, supplemental routes, then declared routes.
  */
 function directoryEntries(
   profiles: ReadonlyMap<string, ResolvedPiAiProviderProfile>,
@@ -132,6 +134,7 @@ function directoryEntries(
   const entries = new Map<string, LlmConfigurableProvider>()
   const declare = (provider: string, displayName: string, error?: string): void => {
     const installed = catalogProvider(provider)
+    const supplemental = supplementalProviderFacts(provider)
     entries.set(provider, {
       provider,
       displayName,
@@ -139,13 +142,22 @@ function directoryEntries(
       settingsPath: ['providers', provider],
       // Membership of the installed catalog, not of the settings document:
       // narrowing a shipped provider's models stores a profile too, and that
-      // route is still one pi-ai knows.
+      // route is still one pi-ai knows. A supplemental route is one pi-ai does
+      // not know either, so it is declared like a hand-written one.
       declared: installed === undefined,
       ...installed === undefined ? {} : providerDefaultsOf(installed),
+      ...supplemental?.baseURL === undefined ? {} : { defaultBaseURL: supplemental.baseURL },
       ...error === undefined ? {} : { error },
     })
   }
   for (const provider of catalogProviderIds()) declare(provider, provider)
+  // Supplemental routes come before stored profiles and after the catalog: a
+  // route an upstream release starts shipping drops out of this list on its
+  // own, and a profile for it only replaces the display name it declares.
+  for (const provider of supplementalProviderIds()) {
+    const supplemental = supplementalProviderFacts(provider)
+    if (supplemental !== undefined) declare(provider, supplemental.displayName)
+  }
   for (const [provider, profile] of profiles) declare(provider, profile.displayName, profile.catalogError)
   return [...entries.values()]
 }

@@ -1,28 +1,32 @@
 /**
  * Settings shell root: the sidebar-foot trigger row plus the centered modal
- * panel with the section nav rail. In browsers below 768px the panel fills
- * the viewport and the rail turns into a horizontal strip; Windows and macOS
- * desktop windows retain the rail
- * (SettingsRoot.module.css). The shell is a pure composition face —
- * slot-owned text (trigger label, panel title, close label, sections) arrives
- * from registrants through slots; accessible names resolve from localized
- * content (trigger: shell locale; dialog: aria-labelledby the title node;
- * close: visually-hidden slot text). Modal open state and the active section
- * id belong to the declared owner store; the onboarding coordinator mounts
- * exactly one ordered registrant while the sessions-derived empty-Hero fact
- * is active. Visible dialog chrome belongs to the step, so a
- * mounted-but-deciding step paints nothing here.
+ * panel (figma 2552:26025, 760x500) with the section nav rail, drawn as two
+ * levels — fixed groups from `nav-groups.ts`, each with a glyph and a title
+ * that labels it but cannot be clicked, over the ledger rows themselves. In
+ * browsers below 768px the panel fills the viewport and the rail turns into a
+ * horizontal strip; Windows and macOS desktop windows retain the rail
+ * (SettingsRoot.module.css).
+ * The shell is a pure composition face — slot-owned text (trigger label,
+ * panel title, close label, sections) arrives from registrants through slots;
+ * accessible names resolve from localized content (trigger: shell locale;
+ * dialog: aria-labelledby the title node; close: visually-hidden slot text).
+ * Modal open state and the active section id belong to the declared owner store;
+ * the onboarding coordinator mounts exactly one ordered registrant while the
+ * sessions-derived empty-Hero fact is active. Visible dialog chrome belongs
+ * to the step, so a mounted-but-deciding step paints nothing here.
  */
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import {
   ConnectionIndicator, Tooltip, useModalLayer,
-  IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconCloseOutlineRegular, IconDataOutlineMedium,
-  IconPersonalizationOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium,
+  IconAgentPresetOutlineMedium, IconCloseOutlineRegular, IconDataOutlineMedium,
+  IconPersonalizationOutlineMedium, IconQuestionOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ConnectionIndicatorState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsRootComponentProps, SettingsSectionRow } from './shell-contract.ts'
+import { groupNavRows, type SettingsNavGroupKey } from './nav-groups.ts'
 import css from './SettingsRoot.module.css'
 import { DesktopUpdateIndicator } from './DesktopUpdateIndicator.tsx'
 
@@ -31,19 +35,28 @@ const RECOVERY_CONFIRMATION_MS = 2_000
 /** Minimum visible time for the connecting pill; shorter attempts read as flicker. */
 const CONNECTING_MIN_VISIBLE_MS = 800
 
-/** Nav glyph by section id; unknown ids fall back to the settings gear. */
-function navIcon(id: string) {
-  if (id === 'account') return <IconUserOutlineMedium className={css.navIcon} size={16} />
-  if (id === 'models') return <IconDataOutlineMedium className={css.navIcon} size={16} />
-  if (id === 'agent-presets') return <IconAgentPresetOutlineMedium className={css.navIcon} size={16} />
-  if (id === 'plugins') return <IconPersonalizationOutlineMedium className={css.navIcon} size={16} />
-  if (id === 'archived-sessions') return <IconArchiveOutlineMedium className={css.navIcon} size={16} />
-  return <IconSettingsOutlineMedium className={css.navIcon} size={16} />
+/**
+ * Group glyph by nav-group key — the whole rail's icon vocabulary, since a
+ * member row carries none. `account` takes the person mark rather than the
+ * gauge: the gauge is the session token meter's own mark in the composer
+ * pills, and one glyph reading as two things in one product is worse than
+ * the person mark reading a shade wide. `about` takes the question ring,
+ * this icon set's only informational mark, drawn at the rail's 16px.
+ */
+const GROUP_ICONS: Record<SettingsNavGroupKey, () => ReactElement> = {
+  general: () => <IconSettingsOutlineMedium className={css.navIcon} size={16} />,
+  models: () => <IconDataOutlineMedium className={css.navIcon} size={16} />,
+  agent: () => <IconAgentPresetOutlineMedium className={css.navIcon} size={16} />,
+  extensions: () => <IconPersonalizationOutlineMedium className={css.navIcon} size={16} />,
+  account: () => <IconUserOutlineMedium className={css.navIcon} size={16} />,
+  about: () => <IconQuestionOutlineMedium className={css.navIcon} size={16} />,
+  other: () => <IconSettingsOutlineMedium className={css.navIcon} size={16} />,
 }
 
 type PanelProps = {
   rows: readonly SettingsSectionRow[]
   renderSlot: SettingsRootComponentProps['renderSlot']
+  t: SettingsRootComponentProps['t']
   activeId: string | undefined
   onSelect: (id: string) => void
   onClose: () => void
@@ -54,11 +67,13 @@ type PanelProps = {
  * header button, a mask click, and document-level Escape (mounted only while
  * open, so the listener lifetime is the panel's).
  */
-function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelProps) {
+function SettingsPanel({ rows, renderSlot, t, activeId, onSelect, onClose }: PanelProps) {
   // Entries can unmount underneath the requested id, so the render-time
   // projection falls back to the first row when the id is gone.
   const active = rows.find(r => r.id === activeId)?.id ?? rows[0]?.id
   const titleId = useId()
+  const groupId = useId()
+  const groups = useMemo(() => groupNavRows(rows), [rows])
 
   const panel = useRef<HTMLDivElement>(null)
   useModalLayer(panel, true, onClose)
@@ -78,19 +93,31 @@ function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelP
           data-modal-autofocus={active === undefined ? '' : undefined}>{renderSlot('settings.header', {})}</div>
         <nav className={css.nav}>
           <div className={css.navList}>
-            {rows.map(row => (
-              <button
-                key={row.id}
-                type="button"
-                className={clsx(css.navCell, row.id === active && css.active)}
-                aria-current={row.id === active ? 'true' : undefined}
-                data-modal-autofocus={row.id === active ? '' : undefined}
-                onFocus={(event) => { event.currentTarget.scrollIntoView({ block: 'nearest', inline: 'nearest' }) }}
-                onClick={() => { onSelect(row.id) }}
+            {groups.map(group => (
+              <div
+                key={group.key}
+                className={css.navGroup}
+                role="group"
+                aria-labelledby={`${groupId}-${group.key}`}
               >
-                {navIcon(row.id)}
-                <span className={css.navLabel}>{row.label}</span>
-              </button>
+                <div className={css.navGroupTitle} id={`${groupId}-${group.key}`}>
+                  {GROUP_ICONS[group.key]()}
+                  <span className={css.navGroupLabel}>{t(group.label)}</span>
+                </div>
+                {group.rows.map(row => (
+                  <button
+                    key={row.id}
+                    type="button"
+                    className={clsx(css.navCell, row.id === active && css.active)}
+                    aria-current={row.id === active ? 'true' : undefined}
+                    data-modal-autofocus={row.id === active ? '' : undefined}
+                    onFocus={(event) => { event.currentTarget.scrollIntoView({ block: 'nearest', inline: 'nearest' }) }}
+                    onClick={() => { onSelect(row.id) }}
+                  >
+                    <span className={css.navLabel}>{row.label}</span>
+                  </button>
+                ))}
+              </div>
             ))}
           </div>
         </nav>
@@ -247,11 +274,15 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
         />
         <DesktopUpdateIndicator wide={wide} hidden={connectionIndicator !== undefined && desktopUpdate.presentation?.phase !== 'installing'}
           t={t} view={desktopUpdate} onOpen={openDesktopUpdate} />
+        <div className={css.triggerActions}>
+          {renderSlot('settings.trigger.action', { wide, openSection })}
+        </div>
       </div>
       {open && (
         <SettingsPanel
           rows={rows}
           renderSlot={renderSlot}
+          t={t}
           activeId={activeId}
           onSelect={actions.select}
           onClose={close}

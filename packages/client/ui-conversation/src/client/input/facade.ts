@@ -58,6 +58,12 @@ export interface SessionInputDeps {
    */
   steerQueue?: (() => void) | undefined
   /**
+   * Count the reference drafts among draft ids. References never make a
+   * draft sendable on their own and never reach commands; absent = no id is
+   * a reference.
+   */
+  referenceCount?: ((ids: readonly DraftAttachmentId[]) => number) | undefined
+  /**
    * The plain-message sink (send choreography / materialize fork — the hub owns it).
    * `accept` settles the message as accepted at once; the sink calls it when
    * the Host's acceptance is known before the returned outcome, so the editor
@@ -391,8 +397,9 @@ export class SessionInputShell implements SessionInput {
   submit(mode: InputSubmitMode = 'queue', source?: 'click' | 'enter'): void {
     if (this.disposed) return
     const timestamp = Date.now()
+    const references = this.deps.referenceCount?.(this.attachmentIds) ?? 0
     let state: MessageSubmissionState | undefined
-    if (this.snapshot.phase === 'plain' && (this.snapshot.draft.trim() !== '' || this.attachmentIds.length > 0)) {
+    if (this.snapshot.phase === 'plain' && (this.snapshot.draft.trim() !== '' || this.attachmentIds.length > references)) {
       try { state = this.deps.submissionState?.() } catch (_error) { /* Optional Session observations cannot interrupt submission. */ }
     }
     const submission: MessageSubmission = Object.freeze({
@@ -403,10 +410,13 @@ export class SessionInputShell implements SessionInput {
     // Enter-time adjudication applies the same policy for unclaimed lines
     // inside the command source itself.
     const before = this.snapshot
-    if (before.phase === 'claimed' && this.attachmentIds.length > 0 && before.claim?.attachments !== true) {
+    if (before.phase === 'claimed' && this.attachmentIds.length > 0
+      && (before.claim?.attachments !== true || references > 0)) {
       this.notify('error', this.deps.commandAttachments.unsupportedNotice(before.claim?.token ?? before.draft))
       return
     }
+    // A reference annotates a prompt; on its own it leaves nothing to send.
+    if (before.phase === 'plain' && before.draft.trim() === '' && this.attachmentIds.length === references) return
     this.dispatchRun({
       type: 'enter',
       mode,
@@ -806,6 +816,9 @@ export class SessionInputShell implements SessionInput {
     const attachmentIds = claim.attachments === true ? attempt.attachmentIds : []
     Promise.resolve()
       .then(async () => {
+        if ((this.deps.referenceCount?.(attachmentIds) ?? 0) > 0) {
+          throw new Error(this.deps.commandAttachments.unsupportedNotice(claim.token))
+        }
         const attachments = attachmentIds.length > 0 ? await this.deps.commandAttachments.serialize(attachmentIds) : []
         // Serialization may outlive the attempt (large files, session
         // teardown); a dead attempt must not reach the Host executor.

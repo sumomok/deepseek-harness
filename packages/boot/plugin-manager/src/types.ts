@@ -22,8 +22,11 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
   }
 }
 
-/** Reasons a profile control cannot modify its target. */
-export type ReadOnlyReason = 'management-required' | 'unaddressable'
+/**
+ * Reasons a profile control cannot modify its target: the manager's own management needs it, the deployment's
+ * `requiredModules` names it, or the profile patch cannot address it uniquely.
+ */
+export type ReadOnlyReason = 'management-required' | 'deployment-required' | 'unaddressable'
 
 /** A package whose declared DSH requirements reject the running DSH version, without an exemption for the exact pair. */
 export interface IncompatiblePlugin {
@@ -99,6 +102,12 @@ export interface BundleInfo {
    * held by the installation's dependencies, selected by no shipped template, and never removable.
    */
   optional: boolean
+  /**
+   * Whether the profile manifest's `dsh.profile.shipped` names the bundle: supplied from the payload of the application
+   * that launches the profile, listed while switched off, and not removable unless the profile's own dependencies also
+   * name it.
+   */
+  shipped: boolean
   removable: boolean
   /**
    * Whether `listVersions` and `updateBundle` accept the bundle: a third-party profile dependency saved as a registry

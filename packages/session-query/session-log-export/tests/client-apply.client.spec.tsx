@@ -79,6 +79,8 @@ describe('session-log-download browser plugin', () => {
     expect(b.ctx.sessionLogDownload.store.getSnapshot().bySession[SID]?.status).toBe('error')
     injected.dismiss(SID)
     expect(b.ctx.sessionLogDownload.store.getSnapshot().bySession[SID]?.open).toBe(false)
+    injected.cancel(SID)
+    expect(b.ctx.sessionLogDownload.store.getSnapshot().bySession[SID]).toBeUndefined()
 
     const overlay = b.slots.entries('shell.overlay')[0]
     expect(overlay?.component).toBe(SessionMarkdownCopyToast)

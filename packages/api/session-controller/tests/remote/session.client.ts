@@ -43,8 +43,12 @@ export function err<T>(error: RemoteFailure): RemoteResult<T> {
  * @param hasMore - whether older history exists.
  * @returns the success result.
  */
-export function history(events: readonly SessionEvent[], hasMore = false): RemoteResult<SessionEventsPage> {
-  return ok(historyValue(events, hasMore))
+export function history(
+  events: readonly SessionEvent[],
+  hasMore = false,
+  hasNewer = false,
+): RemoteResult<SessionEventsPage> {
+  return ok(historyValue(events, hasMore, hasNewer))
 }
 
 /**

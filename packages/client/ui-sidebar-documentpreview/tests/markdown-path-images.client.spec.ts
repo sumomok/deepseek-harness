@@ -26,6 +26,12 @@ describe('Markdown preview image URLs', () => {
     expect(new URL(markdownImageUrl(BASE, documentPath, destination)!).searchParams.get('path')).toBe(path)
   })
 
+  it('names the previewed file\'s Session in the file route', () => {
+    const url = new URL(markdownImageUrl(BASE, '/work/guide/notes.md', 'images/a.png', 's1')!)
+    expect(url.searchParams.get('path')).toBe('/work/guide/images/a.png')
+    expect(url.searchParams.get('sessionId')).toBe('s1')
+  })
+
   it('waits for document metadata only for relative images', () => {
     expect(markdownImageUrl(BASE, undefined, 'a.png')).toBeUndefined()
     expect(new URL(markdownImageUrl(BASE, undefined, '/tmp/a.png')!).searchParams.get('path')).toBe('/tmp/a.png')

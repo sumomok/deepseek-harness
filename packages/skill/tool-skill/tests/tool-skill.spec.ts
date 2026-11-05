@@ -3,7 +3,7 @@ import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { afterEach, describe, expect, it } from 'vitest'
 import { unsupportedModel, provideWorkingDirectoryFixture, unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from '@deepseek-ai/cordis'
@@ -64,7 +64,12 @@ async function setup(home: string, config: toolSkill.Config = {}): Promise<Conte
   await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(SkillRegistry)
-  await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
+  await ctx.plugin(SkillFileSystem, {
+    dshHome: join(home, '.dsh'),
+    agentsHome: join(home, '.agents'),
+    claudeHome: join(home, '.claude'),
+    watch: false,
+  })
   await ctx.plugin(toolSkill, config)
   return ctx
 }
@@ -205,7 +210,12 @@ describe('dsh-tool-skill', () => {
     await ctx.plugin(AgentRegistry)
     const home = await tempDir('tool-schema')
     await ctx.plugin(SkillRegistry)
-    await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
+    await ctx.plugin(SkillFileSystem, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      claudeHome: join(home, '.claude'),
+      watch: false,
+    })
     ctx.skills.register({ name: 'lifecycle-skill', description: 'Lifecycle', source: 'runtime', content: 'body' })
 
     const fiber = await ctx.plugin(toolSkill)
@@ -581,6 +591,7 @@ describe('dsh-tool-skill', () => {
     expect(catalogMessages(session)).toHaveLength(3)
   })
 
+
   it('resumes from the durable entries of the latest visible catalog', async () => {
     // Catalog identity lives on `source.entries`: the model-facing prose does
     // not decide whether a republish is needed, so a seeded message is
@@ -849,6 +860,84 @@ describe('dsh-tool-skill', () => {
     expect(JSON.stringify(catalogMessages(session)[1]?.data.content)).not.toContain('Some skills could not be checked')
   })
 
+  // `chmod 000` denies nothing on Windows, which has no POSIX directory mode.
+  it.skipIf(process.platform === 'win32')('publishes the readable roots when one local skill root denies reading', async () => {
+    const home = await tempDir('tool-degraded-root')
+    await writeSkill(join(home, '.agents/skills'), 'readable-skill', 'Readable skill', 'Readable body.')
+    const denied = join(home, '.claude/skills')
+    await mkdir(denied, { recursive: true })
+    await chmod(denied, 0o000)
+
+    try {
+      const ctx = await setup(home)
+      ctx.logger.warn = (() => {}) as typeof ctx.logger.warn
+      const session = Session.create(SessionId('degraded-root'))
+      const agent = sessionAgent(session)
+      openMessageTurn(session)
+
+      // The provider drops the denied root alone, so the snapshot is
+      // incomplete but not empty and the catalog still reaches the model.
+      expect(await ctx.skills.snapshot()).toMatchObject({
+        skills: [{ name: 'readable-skill' }],
+        complete: false,
+      })
+      await fireStep(ctx, agent, 1, 1)
+
+      const messages = catalogMessages(session)
+      expect(messages).toHaveLength(1)
+      expect(JSON.stringify(messages[0]?.data.content)).toContain('readable-skill')
+    } finally {
+      await chmod(denied, 0o700)
+    }
+  })
+
+  // `chmod 000` denies nothing on Windows, which has no POSIX directory mode.
+  it.skipIf(process.platform === 'win32')('keeps the published catalog when a denied root leaves only skills the model cannot invoke', async () => {
+    const home = await tempDir('tool-degraded-user-only')
+    const modelRoot = join(home, '.agents/skills')
+    await writeSkill(modelRoot, 'readable-skill', 'Readable skill', 'Readable body.')
+    await mkdir(join(home, '.dsh/skills/user-only-skill'), { recursive: true })
+    await writeFile(
+      join(home, '.dsh/skills/user-only-skill/SKILL.md'),
+      '---\nname: user-only-skill\ndescription: User-only skill\ndisable-model-invocation: true\n---\n\nUser-only body.\n',
+    )
+    // Denied from the first step, so every observation stays incomplete and
+    // therefore uncached: each step rescans the roots as they are now.
+    const denied = join(home, '.claude/skills')
+    await mkdir(denied, { recursive: true })
+    await chmod(denied, 0o000)
+
+    try {
+      const ctx = await setup(home)
+      ctx.logger.warn = (() => {}) as typeof ctx.logger.warn
+      const session = Session.create(SessionId('degraded-user-only'))
+      const agent = sessionAgent(session)
+      openMessageTurn(session)
+      await fireStep(ctx, agent, 1, 1)
+      expect(catalogMessages(session)).toHaveLength(1)
+
+      // The model-invocable root goes too. One skill survives discovery, but
+      // the model may not invoke it, so this catalog would carry nothing.
+      await chmod(modelRoot, 0o000)
+      expect(await ctx.skills.snapshot()).toMatchObject({
+        skills: [{ name: 'user-only-skill' }],
+        complete: false,
+      })
+      await fireStep(ctx, agent, 1, 2)
+
+      // The replacement carries no model-invocable entry, so it publishes the
+      // unconfirmed-absence notice instead of retiring the catalog silently.
+      const messages = catalogMessages(session)
+      expect(messages).toHaveLength(2)
+      expect(messages[1]?.data.source).toMatchObject({ update: true, incomplete: true, entries: [] })
+      expect(JSON.stringify(messages[1]?.data.content)).toContain('No skills could be confirmed in this discovery attempt.')
+      expect(JSON.stringify(session.snapshotEvents())).not.toContain('No skills are currently available')
+      await chmod(modelRoot, 0o700)
+    } finally {
+      await chmod(denied, 0o700)
+    }
+  })
+
   it('omits catalog guidance when the calling agent restricts away the shipped skill tool', async () => {
     const home = await tempDir('tool-restricted-catalog')
     const ctx = await setup(home)
@@ -898,7 +987,12 @@ describe('dsh-tool-skill', () => {
     await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(SkillRegistry)
-    await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
+    await ctx.plugin(SkillFileSystem, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      claudeHome: join(home, '.claude'),
+      watch: false,
+    })
 
     await expect(ctx.plugin(toolSkill, { catalogDescriptionMaxLength: 2 })).rejects.toThrow('greater than or equal to 3')
   })

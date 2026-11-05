@@ -4,6 +4,7 @@
  * @module @deepseek-ai/dsh-tool-fs/src/read
  */
 
+import { createHash } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, ReadResultView, ToolResult } from '@deepseek-ai/dsh-tools'
@@ -102,6 +103,10 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
             },
           },
           totalLines: { type: 'integer', required: true },
+          version: { type: 'string', required: true, description: 'Filesystem version token at read time; log-only, never model-visible.' },
+          size: { type: 'integer', description: 'File size in bytes when the backend reports it; log-only.' },
+          read: { type: 'string', required: true, enum: ['full', 'window'], description: 'Whether the returned lines cover the whole file unmodified; log-only.' },
+          digest: { type: 'string', required: true, description: 'SHA-256 of the returned line window; log-only.' },
         },
       },
       render: (args, value) => {
@@ -128,6 +133,10 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
           offset: value.offset,
           lines: value.lines.map(({ number, text }) => ({ number, text })),
           totalLines: value.totalLines,
+          version: value.version,
+          ...value.size === undefined ? {} : { size: value.size },
+          read: value.read,
+          digest: value.digest,
           ...lang === undefined ? {} : { lang },
         }
       },
@@ -151,11 +160,21 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
         target.displayPath,
       )
 
+      // A read is "full" only when the returned lines reproduce the whole file
+      // unmodified; a line cap, byte cap, or a later offset makes it a window.
+      const full = input.offset === 1
+        && window.lines.length === window.totalLines
+        && !window.truncatedByBytes
+        && window.truncatedLines !== true
       const outcome = {
         path: ctx.fs.processPath(target),
         offset: input.offset,
         lines: window.lines,
         totalLines: window.totalLines,
+        version: String(info.version),
+        ...info.size === undefined ? {} : { size: info.size },
+        read: full ? 'full' as const : 'window' as const,
+        digest: createHash('sha256').update(window.lines.map(line => line.text).join('\n'), 'utf8').digest('hex'),
       }
       // Record the present observation (a no-op when no policy plugin listens). The
       // read already succeeded; an fs/observed listener is contractually a

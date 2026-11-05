@@ -40,7 +40,10 @@ export function createTransport(config: Config): Transport {
     case 'streamable-http':
       return new StreamableHTTPClientTransport(
         new URL(config.url),
-        { requestInit: { headers: config.headers } },
+        {
+          requestInit: { headers: config.headers },
+          redirectPolicy: 'same-origin',
+        },
       )
   }
 }

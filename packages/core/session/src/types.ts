@@ -90,7 +90,9 @@ export type OptionalSessionSeq = SessionSeq | null
 export const SESSION_FORMAT_VERSION = 4
 
 /**
- * Immutable validated storage metadata, kept outside the conversation event log.
+ * Validated storage metadata, kept outside the conversation event log. It is
+ * fixed for the life of every handle; only SessionPersistence.relocate
+ * replaces the cwd of a stored session.
  */
 export interface SessionHeader {
   /**
@@ -102,7 +104,7 @@ export interface SessionHeader {
   readonly id: SessionId
   /** Non-negative safe-integer Unix epoch milliseconds when the session was created. */
   readonly createdAt: number
-  /** Absolute working directory the session was created in (if any). */
+  /** Absolute directory of the session's original project: where it was created, or the target of its latest relocate (if any). */
   readonly cwd?: string
   /**
    * Direct creator of a subagent Session. Ordinary forks omit this field;

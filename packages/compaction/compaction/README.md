@@ -77,11 +77,13 @@ The seam is built on one split and three commitments:
 
 The contract is three abstract operations a backend implements: `compactIfNeeded` for automatic `pressure` or `context-overflow` triggers, `compactNow` for one explicit on-demand reduction, and `compactRegion` for a caller-selected surface range. Reusable request measurement is a separate service, `ctx.tokenMeter`. The exhaustive per-operation semantics live in the [compaction subsystem reference](../../../docs/subsystems/compaction.md); the exact signatures are in [`src/index.ts`](src/index.ts).
 
-A backend that summarizes through `ctx.llm.stream()` must forward the abort signal into the call's `GenerateOptions.signal`, so an abort or fiber dispose tears down the in-flight summarization. Automatic and explicit-region brackets recover their numeric owner from the open turn; manual brackets require no open turn and stamp `turn: null`.
+A backend that summarizes through `ctx.llm.stream()` must forward the abort signal into the call's `GenerateOptions.signal`, so an abort or fiber dispose tears down the in-flight summarization. Automatic and explicit-region brackets recover their numeric owner from the open turn; manual brackets require no open turn and stamp `turn: null`, except a manual request that waited for a running turn and compacts at its step boundary, whose bracket that turn owns. `ctx.manualCompactionTiming` is the optional host-plane Service Definition whose `whileBusy()` answer a manual consumer passes to `compactNow`; without it a running agent is refused as `busy`.
 
 ### Manual failure taxonomy
 
 The synchronous `compaction/summary-error` waterfall lets a backend request durable input recovery for a failed summary and an explicit selection. A listener returns true only after recording progress, or calls `next()` to delegate. The backend checks cancellation and selection stability before dispatch, then re-derives and re-prices input before retrying. The event declaration documents its payload; image policy belongs to `dsh-compaction-image-offload`.
+
+The synchronous `compaction/summary-review` waterfall runs after the shrink check and before `compaction/summary` and its replacement `user/message`. A listener accepts by calling `next()` and rejects by returning false; a rejection closes the bracket like a summary failure — one `compaction/end` carrying the error, no summary event, no replacement, no retry. It is intentionally synchronous: a listener may inspect or reject, but no asynchronous model review runs inside the transaction.
 
 Expected manual failures throw `ManualCompactionError` with a stable `code` from a small closed set; only failures after the `compaction/start` marker are recorded — as a `compaction/end` carrying the error — while a `busy` rejection or pre-start cancellation leaves no record. The per-code semantics live in the [compaction subsystem reference](../../../docs/subsystems/compaction.md).
 
@@ -89,6 +91,10 @@ Expected manual failures throw `ManualCompactionError` with a stable `code` from
 ### Tool-pairing boundaries
 
 The Service Definition exports `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)` for snapping and validating compaction edges. A safe edge has no unanswered assistant tool call crossing it. Each helper validates that the event sequence is in the current surface and answers from balances cached per cut in surface order, so repeated checks read no events; a replace generation rebuilds the cache, and missing seqs or an orphan `tool/result` reject as corrupt surface state.
+
+### Surface recovery addresses
+
+The Service Definition exports `originalToolResultSeq(session, seq)`, `RecoveryAddress`, and `recoveryNotice(address)` for consumers that shadow a tool result but keep its original readable. The address is either the original event's `{ sessionId, seq }`, an already-recorded spill notice, or an explicit `unavailable` result. Sequence tracing follows `surfaceOp: replace` citations across consecutive replacements and unrelated events, with a visited set and depth cap. This leaf is deliberately generic: it parses no spill notice and imports no spill backend; notice recognition stays with the pruner/spill policy. The pruner re-exports the same helpers so existing consumers keep one import path.
 
 ### The surface contract
 
@@ -103,6 +109,7 @@ The replacement sits inside the lock bracket, so a crash between `compaction/sta
 | [`src/index.ts`](src/index.ts) | Plugin entry: abstract `CompactionEngine`, `CompactionTrigger`, `ManualCompactionError`, `ctx.compaction` merge |
 | [`src/types.ts`](src/types.ts) | `CompactionResult` and the declaration-merged `compaction/*` session events |
 | [`src/tool-pairing.ts`](src/tool-pairing.ts) | Per-session cut-balance cache behind the two boundary helpers |
+| [`src/recovery.ts`](src/recovery.ts) | Generic `{sessionId, seq}` / spill-notice recovery addresses and replacement-chain tracing |
 | [`src/checkpoint.ts`](src/checkpoint.ts) | Cordis-free checkpoint source constructor and predicate (`./checkpoint` leaf) |
 | [`src/brand.ts`](src/brand.ts) | `CompactionId` branded identity |
 
@@ -112,7 +119,7 @@ One log-recorded lock is shared by all entry points. Tail inspection finds the l
 
 ### Events
 
-The `compaction/*` events extend `SessionEventMap` (merge-extensible) via declaration merging — session events, not Cordis `Events`, and all log-only. The generated [persistence log event catalog](../../../docs/persistence-catalog.md) owns the per-event payloads; `compaction/prune` documents the shadow-price protocol shared with the tool-result pruner.
+The `compaction/*` events extend `SessionEventMap` (merge-extensible) via declaration merging — session events, not Cordis `Events`, and all log-only. The generated [persistence log event catalog](../../../docs/persistence-catalog.md) owns the per-event payloads; `compaction/prune` documents the shadow-price protocol shared with the tool-result pruner. `compaction/summary-review` and `compaction/summary-error` are the separate Cordis waterfalls a backend dispatches around summarization; neither is a session event.
 
 </details>
 

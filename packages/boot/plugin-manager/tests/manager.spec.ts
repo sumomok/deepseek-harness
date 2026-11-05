@@ -26,6 +26,12 @@ import * as operations from '../src/operations.ts'
 import * as githubConnection from '../src/github-connection.ts'
 import * as gitTransport from '../src/git-transport.ts'
 import { parse, parseDocument } from 'yaml'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
+import SessionProjections from '@deepseek-ai/dsh-session-projection'
+import * as managementTool from '../src/tools.ts'
 import { isolateGitCommandLineConfig } from './git-environment.ts'
 
 // These cases install through real Git and pnpm, so the host's command-line configuration group must not reach their children.
@@ -380,12 +386,12 @@ it('lists bundle versions and current-profile plugin targets', async () => {
   expect(plugins.find(row => row.entryId === 'include:manager')?.readOnlyReason).toBe('management-required')
   expect((await manager.listBundles()).filter(bundle => bundle.installTarget === undefined)).toEqual([
     {
-      name: 'core', version: '1.0.0', enabled: true, installed: false, official: false, availability: 'profile', optional: false, removable: false, updatable: false, readOnlyReason: 'management-required',
+      name: 'core', version: '1.0.0', enabled: true, installed: false, official: false, availability: 'profile', optional: false, shipped: false, updatable: false, removable: false, readOnlyReason: 'management-required',
       meta: { title: 'core' },
       rows: [{ rowId: 'manager', moduleName: 'cordis:manager', entryId: 'include:manager' }], overrides: [],
     },
     {
-      name: 'extra', version: '1.0.0', source: 'extra@1.0.0', enabled: true, installed: true, official: false, availability: 'profile', optional: false, removable: true, updatable: true,
+      name: 'extra', version: '1.0.0', source: 'extra@1.0.0', enabled: true, installed: true, official: false, availability: 'profile', optional: false, shipped: false, updatable: true, removable: true,
       meta: { title: 'extra' },
       rows: [{ rowId: 'managed', moduleName: pathToFileURL(join(dir, 'node_modules', 'extra', 'plugin.mjs')).href, entryId: 'include:managed' }], overrides: [],
     },
@@ -407,7 +413,7 @@ it('describes a bundle by its manifest and patch: one-liner, rows without a live
   writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
   const moduleName = pathToFileURL(join(dir, 'node_modules', 'described', 'plugin.mjs')).href
   expect((await manager.listBundles()).find(row => row.name === 'described')).toEqual({
-    name: 'described', version: '2.0.0', description: 'Describes itself.', source: 'described@2.0.0', enabled: false, installed: true, official: false, availability: 'profile', optional: false, removable: true, updatable: true,
+    name: 'described', version: '2.0.0', description: 'Describes itself.', source: 'described@2.0.0', enabled: false, installed: true, official: false, availability: 'profile', optional: false, shipped: false, updatable: true, removable: true,
     meta: { title: 'described', description: 'Describes itself.' },
     rows: [{ rowId: 'described-row', moduleName }], overrides: ['managed'],
   })
@@ -550,7 +556,7 @@ it.each([
   writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
 
   expect((await manager.listBundles()).find(row => row.name === 'unnamed')).toEqual({
-    name: 'unnamed', version: '1.0.0', source: 'unnamed@1.0.0', enabled: false, installed: true, official: false, availability: 'profile', optional: false, removable: true, updatable: true,
+    name: 'unnamed', version: '1.0.0', source: 'unnamed@1.0.0', enabled: false, installed: true, official: false, availability: 'profile', optional: false, shipped: false, updatable: true, removable: true,
     rows: [], overrides: [], ...expected,
   })
 })
@@ -837,7 +843,7 @@ it('offers approval for a real git-hosted package pnpm refused to prepare', asyn
   const allowed = await manager.installBundle(spec, { enabled: false, approvedBuilds: blocked.pendingBuilds! })
   expect(allowed, JSON.stringify(allowed)).toMatchObject({ application: 'restart-required', packageResult: { exitCode: 0 } })
   expect(readFileSync(built, 'utf8')).toBe('built')
-})
+}, 30_000)
 
 it.each(['[', 'allowBuilds: false\n'])('preserves pnpm diagnostics when pending approvals cannot be read: %s', async (policy) => {
   const { manager, dir } = await fixture()
@@ -1386,12 +1392,115 @@ it.each(OPTIONAL_BUNDLES)('offers %s switched off and never removable', async (o
   expect((await manager.listBundles()).find(row => row.name === offered)).toEqual({
     name: offered, version: '3.0.0', description: 'Package one-liner.',
     meta: { title: offered, description: 'Package one-liner.' },
-    enabled: false, installed: false, official: true, availability: 'installation', optional: true, removable: false, updatable: false,
+    enabled: false, installed: false, official: true, availability: 'installation', optional: true, shipped: false, updatable: false, removable: false,
     rows: [{ rowId: 'offered-row', moduleName: pathToFileURL(join(supplied, 'plugin.mjs')).href }], overrides: [],
   })
   expect(await manager.setBundleEnabled(offered, true)).toMatchObject({ application: 'applied' })
   expect((await manager.listBundles()).find(row => row.name === offered)).toMatchObject({ enabled: true, optional: true, removable: false })
   expect(await manager.removeBundle(offered)).toMatchObject({ changed: false, application: 'failed' })
+})
+
+it('lists the bundles the profile manifest names as shipped while switched off, not removable while no dependency holds them', async () => {
+  const { manager, dir, bundle } = await fixture()
+  // The launcher links its payload's bundles beside the profile rather than installing them, and records their names.
+  bundle('payload', [{ id: 'payload-row', name: './plugin.mjs', config: { service: 'payloadProbe' } }])
+  // One shipped package lost its bundle patch and one is not there at all; both stay listed with their problem.
+  bundle('payload-plain', [])
+  writeFileSync(join(dir, 'node_modules', 'payload-plain', 'package.json'), '{"name":"payload-plain","version":"1.0.0"}')
+  const manifest = readProfileManifest('test', dir)
+  manifest.dsh = { ...manifest.dsh, profile: { ...manifest.dsh?.profile, shipped: ['payload', 'payload-plain', 'payload-gone'] } }
+  writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
+  const moduleName = pathToFileURL(join(dir, 'node_modules', 'payload', 'plugin.mjs')).href
+  const listed = (await manager.listBundles()).filter(row => row.shipped)
+  expect(listed.slice(0, 2)).toEqual([
+    {
+      name: 'payload', version: '1.0.0', meta: { title: 'payload' },
+      enabled: false, installed: false, official: false, availability: 'profile', optional: false, shipped: true, updatable: false, removable: false,
+      rows: [{ rowId: 'payload-row', moduleName }], overrides: [],
+    },
+    {
+      name: 'payload-plain', enabled: false, installed: false, official: false, availability: 'profile', optional: false, shipped: true, updatable: false, removable: false,
+      error: { code: 'not-bundle' }, rows: [], overrides: [],
+    },
+  ])
+  expect(listed.slice(2)).toMatchObject([{
+    name: 'payload-gone', enabled: false, installed: false, optional: false, shipped: true, updatable: false, removable: false,
+    error: { code: 'operation-error' }, rows: [], overrides: [],
+  }])
+  expect(await manager.setBundleEnabled('payload', true)).toMatchObject({ application: 'applied' })
+  expect((await manager.listBundles()).find(row => row.name === 'payload')).toMatchObject({ enabled: true, shipped: true })
+  // Switching it off keeps the record the launcher wrote, so the bundle stays listed.
+  expect(await manager.setBundleEnabled('payload', false)).toMatchObject({ application: 'applied' })
+  expect(readProfileManifest('test', dir).dsh?.profile?.shipped).toEqual(['payload', 'payload-plain', 'payload-gone'])
+  expect((await manager.listBundles()).find(row => row.name === 'payload')).toMatchObject({ enabled: false, shipped: true })
+  expect(await manager.removeBundle('payload')).toMatchObject({ changed: false, application: 'failed' })
+})
+
+it('refuses to remove a switched-on shipped bundle that no dependency holds', async () => {
+  const { manager, dir, bundle } = await fixture()
+  bundle('payload', [{ id: 'payload-row', name: './plugin.mjs', config: { service: 'payloadProbe' } }])
+  const manifest = readProfileManifest('test', dir)
+  manifest.dsh = { ...manifest.dsh, profile: {
+    ...manifest.dsh?.profile, bundles: [...manifest.dsh?.profile?.bundles ?? [], 'payload'], shipped: ['payload'],
+  } }
+  writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
+  expect((await manager.listBundles()).find(row => row.name === 'payload')).toMatchObject({
+    enabled: true, installed: false, shipped: true, updatable: false, removable: false,
+  })
+  const pnpm = vi.spyOn(operations, 'runProfilePnpm')
+  onTestFinished(() => { pnpm.mockRestore() })
+  expect(await manager.removeBundle('payload')).toMatchObject({
+    changed: false, application: 'failed', error: { code: 'not-removable' },
+  })
+  expect(pnpm).not.toHaveBeenCalled()
+  const kept = readProfileManifest('test', dir).dsh?.profile
+  expect(kept?.bundles).toContain('payload')
+  expect(kept?.shipped).toEqual(['payload'])
+})
+
+it('removes a shipped bundle the profile also depends on through pnpm and keeps the shipped record', async () => {
+  const { manager, dir } = await fixture()
+  // A user who added the package the launcher ships owns that copy, so removing it removes the profile dependency.
+  const manifest = readProfileManifest('test', dir)
+  manifest.dsh = { ...manifest.dsh, profile: { ...manifest.dsh?.profile, shipped: ['extra'] } }
+  writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
+  expect((await manager.listBundles()).find(row => row.name === 'extra')).toMatchObject({
+    enabled: true, installed: true, shipped: true, updatable: true, removable: true,
+  })
+  const remove = vi.spyOn(operations, 'runProfilePnpm').mockImplementation(async (_context, args) => {
+    expect(args).toContain('extra')
+    const current = readProfileManifest('test', dir)
+    delete current.dependencies?.extra
+    writeFileSync(join(dir, 'package.json'), JSON.stringify(current))
+    return { exitCode: 0, output: 'removed', truncated: false, logPath: join(dir, 'pnpm.log') }
+  })
+  onTestFinished(() => { remove.mockRestore() })
+  expect(await manager.removeBundle('extra')).toMatchObject({ changed: true, application: 'applied' })
+  expect(remove).toHaveBeenCalledOnce()
+  expect(readProfileManifest('test', dir).dsh?.profile?.shipped).toEqual(['extra'])
+  expect((await manager.listBundles()).find(row => row.name === 'extra')).toMatchObject({
+    enabled: false, installed: false, shipped: true, updatable: false, removable: false,
+  })
+})
+
+it.each([
+  ['a string', 'payload'],
+  ['an object', { payload: true }],
+  ['a mixed array', ['payload', 7]],
+])('reads a shipped record that is %s as no names and warns once', async (_kind, shipped) => {
+  const { ctx, manager, dir, bundle } = await fixture()
+  bundle('payload', [{ id: 'payload-row', name: './plugin.mjs', config: { service: 'payloadProbe' } }])
+  const manifest = readProfileManifest('test', dir)
+  manifest.dsh = { ...manifest.dsh, profile: { ...manifest.dsh?.profile, shipped: shipped as never } }
+  writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
+  const warn = vi.spyOn(ctx.logger, 'warn')
+  onTestFinished(() => { warn.mockRestore() })
+  for (let read = 0; read < 2; read++) {
+    const bundles = await manager.listBundles()
+    expect(bundles.filter(row => row.shipped)).toEqual([])
+    expect(bundles.some(row => row.name === 'payload' || row.name.length === 1)).toBe(false)
+  }
+  expect(warn.mock.calls.filter(([message]) => String(message).includes('dsh.profile.shipped'))).toHaveLength(1)
 })
 
 it('removes a selected bundle no dependency holds by deselecting it without pnpm', async () => {
@@ -1766,6 +1875,127 @@ it.each([false, true])('rechecks installed bundle peers before accepting a disab
   expect(readProfileManifest('test', dir).dsh?.profile?.bundles).toEqual(['core', 'extra'])
 })
 
+/** A module a deployment names in `requiredModules`; the rows naming it are disabled, so nothing resolves it. */
+const REQUIRED = '@acme/dsh-required'
+
+/** Replace the `extra` bundle's patch before the profile boots, so the manager starts with it. */
+function requiredExtra(rows: unknown[]): (dir: string) => void {
+  return (dir) => { writeFileSync(join(dir, 'node_modules', 'extra', 'cordis.patch.yml'), JSON.stringify([{ insert: rows }])) }
+}
+
+it('defaults requiredModules to none and refuses a name that is not a non-empty string at load', () => {
+  expect(PluginManager.Config({}).requiredModules).toEqual([])
+  expect(() => PluginManager.Config({ requiredModules: [''] })).toThrow()
+  expect(() => PluginManager.Config({ requiredModules: REQUIRED as never })).toThrow()
+})
+
+it('leaves a module and its bundle switchable while requiredModules does not name it', async () => {
+  const { manager } = await fixture('startup', false, undefined, {}, undefined,
+    requiredExtra([{ id: 'required', name: REQUIRED, disabled: true }]))
+  expect((await manager.listPlugins()).find(row => row.moduleName === REQUIRED)).toMatchObject({ patchId: 'required' })
+  const extra = (await manager.listBundles()).find(row => row.name === 'extra')!
+  expect(extra.readOnlyReason).toBeUndefined()
+  expect(extra.removable).toBe(true)
+})
+
+it('locks a module requiredModules names, and the bundle inserting it, as deployment-required', async () => {
+  const { manager, dir, profile } = await fixture('startup', false, undefined, { requiredModules: [REQUIRED] }, undefined,
+    requiredExtra([{ id: 'required', name: REQUIRED, disabled: true }, { id: 'managed', name: './plugin.mjs' }]))
+  const plugins = await manager.listPlugins()
+  const entry = plugins.find(row => row.moduleName === REQUIRED)!
+  expect(entry).toMatchObject({ readOnlyReason: 'deployment-required' })
+  expect(plugins.find(row => row.entryId === 'include:managed')).toMatchObject({ patchId: 'managed' })
+  const manifest = readFileSync(join(dir, 'package.json'), 'utf8')
+  const patch = readFileSync(profile.patchPath, 'utf8')
+  for (const enabled of [false, true]) {
+    expect(await manager.setPluginEnabled(entry.entryId, enabled)).toMatchObject({
+      changed: false, application: 'failed', error: { code: 'deployment-required' },
+    })
+  }
+  expect((await manager.listBundles()).find(row => row.name === 'extra')).toMatchObject({
+    removable: false, readOnlyReason: 'deployment-required',
+  })
+  expect(await manager.setBundleEnabled('extra', false)).toMatchObject({
+    changed: false, application: 'failed', error: { code: 'deployment-required' },
+  })
+  expect(await manager.removeBundle('extra')).toMatchObject({
+    changed: false, application: 'failed', error: { code: 'not-removable' },
+  })
+  expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(manifest)
+  expect(readFileSync(profile.patchPath, 'utf8')).toBe(patch)
+})
+
+it('reads a bundle inserting both a management and a required module as management-required', async () => {
+  const { manager } = await fixture('startup', false, undefined, { requiredModules: [REQUIRED] }, undefined, requiredExtra([
+    { id: 'required', name: REQUIRED, disabled: true },
+    { id: 'dependency', name: '@deepseek-ai/dsh-api-remotes', disabled: true },
+  ]))
+  expect((await manager.listBundles()).find(row => row.name === 'extra')?.readOnlyReason).toBe('management-required')
+  expect(await manager.setBundleEnabled('extra', false)).toMatchObject({ error: { code: 'management-required' } })
+  expect((await manager.listPlugins()).find(row => row.moduleName === REQUIRED)?.readOnlyReason).toBe('deployment-required')
+})
+
+it('reads a required module the profile patch cannot address as deployment-required', async () => {
+  const { manager, profile } = await fixture('startup', false, undefined, { requiredModules: [REQUIRED] }, undefined,
+    requiredExtra([{ id: 'required', name: REQUIRED, disabled: true }]))
+  const duplicate = composeEntries([readProfilePatches('test', profile)]).find(row => row.id === 'required')!
+  writeFileSync(profile.patchPath, JSON.stringify([{ insert: [duplicate] }]))
+  expect((await manager.listPlugins()).find(row => row.moduleName === REQUIRED)?.readOnlyReason).toBe('deployment-required')
+})
+
+it('warns once at start about each required module no started bundle inserts', async () => {
+  const warned: string[] = []
+  await fixture('startup', false, (ctx) => {
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation((message: unknown) => { warned.push(String(message)) })
+    onTestFinished(() => { warn.mockRestore() })
+  }, { requiredModules: [REQUIRED, '@acme/dsh-absent'] }, undefined, requiredExtra([{ id: 'required', name: REQUIRED, disabled: true }]))
+  expect(warned.filter(message => message.includes('requiredModules'))).toEqual(['requiredModules names @acme/dsh-absent, which no started bundle of profile test inserts'])
+})
+
+it('refuses the plugin_manager tool\'s set actions on a required module and its bundle without changing the profile', async () => {
+  const { ctx, dir, profile, manager } = await fixture('startup', false, undefined, { requiredModules: [REQUIRED] }, undefined,
+    requiredExtra([{ id: 'required', name: REQUIRED, disabled: true }]))
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRuntime)
+  await ctx.plugin(SessionProjections)
+  await ctx.plugin(SandboxPolicy, { mode: 'danger-full-access' })
+  await ctx.plugin(managementTool)
+  const call = async (args: object): Promise<unknown> => {
+    const definition = ctx.tools.get('plugin_manager')
+    if (definition === undefined) throw new Error('plugin_manager is not registered')
+    const value = await definition.execute(args, {
+      signal: new AbortController().signal,
+      callId: ToolCallId('required-call'),
+    } as never)
+    if (typeof value !== 'string') throw new Error('Expected a serialized manager result')
+    return JSON.parse(value)
+  }
+  const entry = (await manager.listPlugins()).find(row => row.moduleName === REQUIRED)!
+  const manifest = readFileSync(join(dir, 'package.json'), 'utf8')
+  const patch = readFileSync(profile.patchPath, 'utf8')
+  const refused = { changed: false, application: 'failed', error: { code: 'deployment-required' } }
+  expect(await call({ action: 'set_plugin', target: entry.entryId, enabled: false })).toMatchObject(refused)
+  expect(await call({ action: 'set_bundle', target: 'extra', enabled: false })).toMatchObject(refused)
+  expect(await call({ action: 'remove_bundle', target: 'extra' })).toMatchObject({ application: 'failed', error: { code: 'not-removable' } })
+  expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(manifest)
+  expect(readFileSync(profile.patchPath, 'utf8')).toBe(patch)
+})
+
+it.each(['missing patch', 'invalid patch'])('keeps a started required bundle protected with a %s', async (failure) => {
+  const { manager, dir } = await fixture('startup', false, undefined, { requiredModules: [REQUIRED] }, undefined,
+    requiredExtra([{ id: 'required', name: REQUIRED, disabled: true }]))
+  const patch = join(dir, 'node_modules', 'extra', 'cordis.patch.yml')
+  if (failure === 'missing patch') rmSync(patch)
+  else writeFileSync(patch, '[invalid')
+  expect((await manager.listBundles()).find(row => row.name === 'extra')).toMatchObject({
+    enabled: true, readOnlyReason: 'deployment-required', removable: false, error: { code: 'operation-error' },
+  })
+  expect(await manager.setBundleEnabled('extra', false)).toMatchObject({
+    changed: false, application: 'failed', error: { code: 'deployment-required' },
+  })
+  expect(readProfileManifest('test', dir).dsh?.profile?.bundles).toEqual(['core', 'extra'])
+})
+
 it('lists absent Official entries offline without resolving their packages or consulting registries', async () => {
   const { manager } = await fixture()
   const resolve = vi.spyOn(operations, 'bundleManifest')
@@ -1775,7 +2005,7 @@ it('lists absent Official entries offline without resolving their packages or co
   for (const entry of OFFICIAL_ON_DEMAND_CATALOG) {
     expect(bundles.filter(bundle => bundle.name === entry.packageName)).toEqual([{
       name: entry.packageName, official: true, availability: 'missing', enabled: false, installed: false, optional: false,
-      removable: false, updatable: false, rows: [], overrides: [], meta: entry.meta,
+      shipped: false, updatable: false, removable: false, rows: [], overrides: [], meta: entry.meta,
       installTarget: { spec: `${entry.packageName}@${getDshRuntimeVersion()}`, version: getDshRuntimeVersion() },
     }])
     expect(resolve.mock.calls.some(([name]) => name === entry.packageName)).toBe(false)

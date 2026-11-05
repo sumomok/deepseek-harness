@@ -32,7 +32,6 @@ import type {
 } from './types.ts'
 import { contextBreakdownProjectionDefinition } from './breakdown-projection.ts'
 import { contextPressureProjectionDefinition, tokenUsageProjectionDefinition } from './usage-projection.ts'
-import type { ContextPressureState } from './usage-projection.ts'
 import { estimateMessage, estimateToolsTokens } from './estimate.ts'
 import { advanceMeasurement, measurementProjectionDefinition } from './measurement-projection.ts'
 import type { MeasurementState } from './measurement-projection.ts'
@@ -41,11 +40,19 @@ import type { MeterSurfaceNode } from './surface-fold.ts'
 import { priceSurface } from './route-pricing.ts'
 
 export type * from './types.ts'
+// Module-edge re-exports keep the projection SessionProjectionStateMap augmentations
+// visible to aggregate programs that import only the package root.
+export type * from './usage-projection.ts'
+export type * from './breakdown-projection.ts'
 
 /** Rebuildable positional prices, excluded from projection checkpoints. */
 interface ReplayState {
   consumedEvents: SessionLogOffsetType
   surface: MeterSurfaceNode[]
+  /** Current-surface system/message seqs, including empty system nodes. */
+  systemSeqs: Set<SessionSeqType>
+  /** Open step used to validate assistant and step boundaries. */
+  stepStart: { turn: number; step: number } | undefined
   header: { seq: SessionSeqType | null; value: EpochHeader } | undefined
   anchorHeader: { seq: SessionSeqType | null; value: EpochHeader } | undefined
   anchorNodes: readonly MeterSurfaceNode[]
@@ -93,19 +100,22 @@ export class TokenMeter extends Service {
 
   private readonly states = new WeakMap<Session, ReplayState>()
   private measurementProjectionHandle: ProjectionHandle<MeasurementState> | undefined
-  private contextPressureProjectionHandle!: ProjectionHandle<ContextPressureState>
 
   constructor(ctx: Context, config: TokenMeterConfig = {}) {
     super(ctx, 'tokenMeter')
     validateConfigKeys(config)
+
+    // These units are needed by synchronous pressure and breakdown reads made
+    // immediately after the service is constructed. The measurement unit is
+    // registered during async initialization below.
+    void ctx.sessionProjections.register(tokenUsageProjectionDefinition)
+    void ctx.sessionProjections.register(contextPressureProjectionDefinition)
+    void ctx.sessionProjections.register(contextBreakdownProjectionDefinition)
   }
 
   protected async [Service.init](): Promise<void> {
     const ctx = this.ctx
     this.measurementProjectionHandle = await ctx.sessionProjections.register(measurementProjectionDefinition)
-    await ctx.sessionProjections.register(tokenUsageProjectionDefinition)
-    this.contextPressureProjectionHandle = await ctx.sessionProjections.register(contextPressureProjectionDefinition)
-    await ctx.sessionProjections.register(contextBreakdownProjectionDefinition)
 
     // Readers catch up independently, while eager observation bounds ordinary
     // read latency without creating state for sessions no consumer has read.
@@ -120,10 +130,10 @@ export class TokenMeter extends Service {
    * @returns context pressure; fields remain absent until their source events are recorded.
    */
   contextPressure(session: Session): Pick<ContextPressureProjection, 'pressureTokens' | 'contextWindow'> {
-    const { pressureTokens, contextWindow } = this.contextPressureProjectionHandle.stateOf(session)
+    const pressure = this.ctx.sessionProjections.snapshot(session, ['contextPressure']).values.contextPressure
     return {
-      ...pressureTokens === undefined ? {} : { pressureTokens },
-      ...contextWindow === undefined ? {} : { contextWindow },
+      ...pressure?.pressureTokens === undefined ? {} : { pressureTokens: pressure.pressureTokens },
+      ...pressure?.contextWindow === undefined ? {} : { contextWindow: pressure.contextWindow },
     }
   }
 
@@ -195,6 +205,16 @@ export class TokenMeter extends Service {
     }))
   }
 
+  /**
+   * Whether the current surface contains any `system/message` node, including
+   * an empty system node, using the same replay state as `measure`.
+   * @param session - session whose current durable tail is synchronized.
+   * @returns true when a system/message is on the current surface.
+   */
+  hasSystemMessage(session: Session): boolean {
+    return this._sync(session).prices.systemSeqs.size > 0
+  }
+
   /** Resolve the routed model's image pricing, when the llm service and route declare one. */
   private _routeImagePricing(header: EpochHeader | undefined): LlmImageRequestPricing | undefined {
     const config = header?.config
@@ -234,6 +254,8 @@ export class TokenMeter extends Service {
       state = {
         consumedEvents: SessionLogOffset(0),
         surface: [],
+        systemSeqs: new Set(),
+        stepStart: undefined,
         header: undefined,
         anchorHeader: undefined,
         anchorNodes: [],
@@ -272,24 +294,69 @@ export class TokenMeter extends Service {
 
   /** Update only discardable positional prices and the pre-assistant view. */
   private _foldEvent(state: ReplayState, event: SessionEvent): void {
-    if (event.type === 'request/header') state.header = { seq: event.seq, value: canonicalHeader(event.data.header) }
-    if (event.type === 'image/offload') {
-      const offloaded = new Map(event.data.targets.map(target => [target.seq, new Set(target.imageIndexes)]))
-      state.surface = state.surface.map((node) => {
-        const indexes = offloaded.get(node.seq)
-        if (indexes === undefined) return node
-        return {
-          ...node,
-          images: node.images.map((image, index) => (indexes.has(index) ? { ...image, offloaded: true as const } : image)),
+    let nextHeader = state.header
+    let nextStepStart = state.stepStart
+
+    switch (event.type) {
+      case 'image/offload': {
+        const offloaded = new Map(event.data.targets.map(target => [target.seq, new Set(target.imageIndexes)]))
+        state.surface = state.surface.map((node) => {
+          const indexes = offloaded.get(node.seq)
+          if (indexes === undefined) return node
+          return {
+            ...node,
+            images: node.images.map((image, index) => (indexes.has(index) ? { ...image, offloaded: true as const } : image)),
+          }
+        })
+        break
+      }
+      case 'request/header':
+        nextHeader = { seq: event.seq, value: canonicalHeader(event.data.header) }
+        break
+      case 'step/start':
+        if (state.stepStart !== undefined) {
+          throw new Error(
+            `token meter: step/start at seq ${event.seq} arrived before turn ${state.stepStart.turn}/step ${state.stepStart.step} ended`,
+          )
         }
-      })
+        nextStepStart = { ...event.data }
+        break
+      case 'step/end':
+        if (state.stepStart === undefined
+          || state.stepStart.turn !== event.data.turn
+          || state.stepStart.step !== event.data.step) {
+          throw new Error(`token meter: step/end at seq ${event.seq} has no matching step/start event`)
+        }
+        nextStepStart = undefined
+        break
+      default:
+        break
     }
+
     const plan = isSurfaceEvent(event) ? planSurfaceTokens(state.surface, event) : undefined
     if (event.type === 'assistant/message') {
+      const stepStart = state.stepStart
+      if (stepStart === undefined
+        || stepStart.turn !== event.data.turn
+        || stepStart.step !== event.data.step) {
+        throw new Error(`token meter: assistant/message at seq ${event.seq} has no matching step/start event`)
+      }
       state.anchorNodes = [...state.surface]
-      state.anchorHeader = state.header
+      state.anchorHeader = nextHeader
     }
-    if (plan !== undefined) commitSurfaceTokens(state.surface, plan)
+
+    state.header = nextHeader
+    state.stepStart = nextStepStart
+    if (plan !== undefined) {
+      if (plan.target !== 'append') {
+        for (let index = plan.target.startIdx; index <= plan.target.endIdx; index += 1) {
+          const removed = state.surface[index]
+          if (removed !== undefined) state.systemSeqs.delete(removed.seq)
+        }
+      }
+      if (event.type === 'system/message') state.systemSeqs.add(event.seq)
+      commitSurfaceTokens(state.surface, plan)
+    }
   }
 }
 

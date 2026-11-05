@@ -226,6 +226,8 @@ describe('bash tool through the agent loop', () => {
         command: `while [ ! -f ${JSON.stringify(sentinel)} ]; do sleep 0.02; done; echo bg-ok`,
         description: 'test command',
         run_in_background: true,
+        // This case covers the wake path; a fire-and-forget call stays quiet.
+        notify: 'wake',
       }),
       textResponse('Started it in the background.'),
       (options) => {
@@ -243,7 +245,7 @@ describe('bash tool through the agent loop', () => {
 
     const firstResult = findEvent(events(agent), 'tool/result')
     expect(firstResult.data.message.isError).toBe(false)
-    const jobId = /^started background job (bash-[0-9a-f]{16})$/.exec(resultText(firstResult))?.[1]
+    const jobId = /^started background job (bash-[0-9a-f]{16})\./.exec(resultText(firstResult))?.[1]
     if (jobId === undefined) throw new Error('first tool result lacks a job id')
     // The turn closed with the task still running, so the notice cannot exist yet.
     const isNotice = (e: SessionEvent): e is SessionEvent<'user/message'> =>

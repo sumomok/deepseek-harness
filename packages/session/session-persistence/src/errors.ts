@@ -27,11 +27,14 @@ export class SessionAlreadyExistsError extends Error {
   }
 }
 
-/** A write open found the session already bound to an active write handle. */
+/** A write open or another operation that needs write ownership found the session already bound to an active write handle. */
 export class SessionAlreadyOwnedError extends Error {
-  /** @param sessionId - the session whose write ownership is taken. */
-  constructor(readonly sessionId: SessionId) {
-    super(`session "${sessionId}" is already owned by an active write handle`)
+  /**
+   * @param sessionId - the session whose write ownership is taken.
+   * @param detail - why the refused operation needed ownership and when it can succeed, appended to the message.
+   */
+  constructor(readonly sessionId: SessionId, detail?: string) {
+    super(`session "${sessionId}" is already owned by an active write handle${detail === undefined ? '' : `; ${detail}`}`)
     this.name = 'SessionAlreadyOwnedError'
   }
 }

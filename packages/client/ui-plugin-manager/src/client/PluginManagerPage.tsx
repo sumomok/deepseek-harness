@@ -557,6 +557,7 @@ function PackageCard({ pkg, t, resolveText, busy, highlighted, newer, onOpen, on
         icon={<PackageArtwork key={pkg.meta?.icon} src={pkg.meta?.icon} />}
         tags={(
           <>
+            {pkg.shipped ? <Tag className={css.statusTag} tone="info">{t('statusShipped')}</Tag> : null}
             {beta ? <Tag className={css.statusTag} tone="info">{t('statusBeta')}</Tag> : null}
             {status === 'problem' ? <Tag className={css.statusTag} tone="danger">{t('statusProblem')}</Tag> : null}
             {pkg.availability === 'missing' ? <Tag className={css.statusTag}>{t(pkg.installed ? 'statusMissingFiles' : 'statusNotInstalled')}</Tag> : null}
@@ -778,6 +779,7 @@ function PackageDetail({
         <div className={css.titleRow}>
           <h3 className={css.detailTitle}>{title}</h3>
           {pkg.version === undefined ? null : <Tag className={css.versionTag} tone="neutral">{t('versionTag', { version: pkg.version })}</Tag>}
+          {pkg.shipped ? <Tag className={css.statusTag} tone="info">{t('statusShipped')}</Tag> : null}
           {beta ? <Tag className={css.statusTag} tone="info">{t('statusBeta')}</Tag> : null}
           {status === 'problem' ? <Tag className={css.statusTag} tone="danger">{t('statusProblem')}</Tag> : null}
           {pkg.availability === 'missing' ? <Tag className={css.statusTag}>{t(pkg.installed ? 'statusMissingFiles' : 'statusNotInstalled')}</Tag> : null}
@@ -1555,11 +1557,12 @@ export function PluginManagerPage(props: PluginManagerPageProps): ReactNode {
   }, [highlight, clearHighlight])
   const noticeLine = state.notice === null || state.notice.kind === 'refresh-failed' ? null : noticeText(state.notice, t)
 
-  // The page omits profile bundles and persistent terminals. Other installed or offered bundles and
-  // unreadable selections remain manageable; Settings' Plugin list inspects the full Host inventory.
+  // The page manages what the person installed, what the installation ships for them to switch on, what the
+  // launching application supplies from its payload, and a selected name the Host cannot read; the installation's
+  // other bundles are inspected in the Settings Plugins section's Plugin list tab.
   const listed = state.packages.filter(pkg => !HIDDEN_BUNDLES.has(pkg.name)
     && (pkg.listedByDefault !== false || pkg.enabled || pkg.installed || rowsRunning(pkg))
-    && (pkg.installed || pkg.official || pkg.error !== undefined))
+    && (pkg.installed || pkg.official || pkg.shipped || pkg.error !== undefined))
   const mine = listed.filter(pkg => !pkg.official)
   const official = listed.filter(pkg => pkg.official)
   // Both lists read one order over the eligible bundles: the main list holds the always-held ones plus the held-back

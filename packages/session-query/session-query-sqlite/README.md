@@ -44,6 +44,7 @@ Choose it when you want full-text recall over prior sessions with ranking and pa
 |---|---|---|
 | `path` | required | Dedicated derived-index SQLite path, or `:memory:`; missing paths are created owner-only on POSIX |
 | `openAt` | `startup` | `startup` opens at activation; `first-search` defers the SQLite module until the first search; `never` disables full-text search while inherited reads stay available |
+| `warmupAfterReadyMs` | unset | Delay between a deployment's `session-query/warmup-requested` and one background preparation of the index; unset leaves preparation to the first search, and `openAt: never` refuses it |
 | `journalMode` | `wal` | `wal`, `delete`, `truncate`, or `persist` |
 | `defaultLimit` | `20` | Page size when a request omits `limit` |
 | `maxLimit` | `100` | Largest accepted request page size |
@@ -51,8 +52,11 @@ Choose it when you want full-text recall over prior sessions with ranking and pa
 | `readWindowMax` | `50` | Maximum `before`/`after` raw events for the inherited `readEvent()` |
 | `persistedReadConcurrency` | `4` | Concurrent persisted-log reads for inherited batch reads |
 | `preparedSessionCacheSize` | `5` | Cold prepared-Session observations the inherited `observeSession` reader retains for reuse |
+| `reconcileBatchSize` | `16` | Stored Sessions one reconciliation decides before it reports index preparation and yields the event loop |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-session-query-sqlite) is the exhaustive source for every accepted field and its JSDoc.
+
+A search waits for index preparation before it queries, and the deployment that defers opening pays that wait on the first search. The SQLite backend publishes `opening`, `reconciling`, and `ready` through `ctx.sessionQuery.searchIndexProgress()` and `session-query/index-progress`: each reconciliation decides `reconcileBatchSize` stored Sessions, reports the counts it has reached, and yields the event loop, so a listener observes the pass advance while the search request is still unanswered. The counters cover stored Sessions only, and `skipped` counts the examined Sessions whose stored revision matched the index, so their logs were not read again.
 
 ### Search behavior
 
@@ -68,7 +72,7 @@ With `openAt: first-search`, the service activates without importing `node:sqlit
 
 ### Failures and recovery
 
-Typed `SessionQueryError` failures carry stable codes: `SESSION_QUERY_SEARCH_DISABLED` when search is configured off; `SESSION_QUERY_INDEX_FAILED` when the index cannot open or reconcile; `SESSION_QUERY_SESSION_NOT_FOUND` when a search target is absent; `SESSION_QUERY_STALE_CURSOR` when the corpus changed between pages — retry the complete search call; and `SESSION_QUERY_INVALID_CURSOR` for a cursor that does not belong to this request. Cancellation is honored between synchronous SQLite calls; a statement already executing on the JavaScript thread cannot be interrupted.
+Typed `SessionQueryError` failures carry stable codes: `SESSION_QUERY_SEARCH_DISABLED` when search is configured off; `SESSION_QUERY_INDEX_FAILED` when the index cannot open or reconcile; `SESSION_QUERY_SESSION_NOT_FOUND` when a search target is absent; `SESSION_QUERY_STALE_CURSOR` when the corpus changed between pages — retry the complete search call; and `SESSION_QUERY_INVALID_CURSOR` for a cursor that does not belong to this request. A stored log whose read or document extraction fails does not fail `searchSessions`: that session is left out of the index, a row indexed from an earlier revision of it is removed, a warning naming the session and revision is logged once while it stays unreadable (and again if its error changes), and the next search reads it again; `searchEvents` targeting it fails with the extraction's own `SessionQueryError` code, such as `SESSION_QUERY_INVALID_SURFACE`, or otherwise with `SESSION_QUERY_PERSISTENCE_FAILED` and the read or extraction error as `cause`. Cancellation is honored between synchronous SQLite calls; a statement already executing on the JavaScript thread cannot be interrupted.
 
 -----
 
@@ -101,11 +105,11 @@ The design history lives in the [SQLite FTS5 session search note](../../../.agen
 
 ### Index lifecycle
 
-Persisted FTS rows live in a dedicated derived database and survive restarts; live sessions use connection-local TEMP tables that shadow the durable base for the same session and reveal it again when the live owner detaches. Both tables retain the exact inherited cut in numeric `seed_length`; reconstructed headers expose only `isSeeded`, while the cut participates in live fingerprints and persisted source revisions. Each search runs one serialized observation: list persistence snapshots, compare per-session revisions with the indexed rows, read only new or changed logs through a read handle (balancing an interrupted final turn in memory, never writing back), extract semantic documents, and commit the reconciliation in one transaction before running the query. Repeated queries and unchanged reopens read nothing; switching stores or observing new, changed, deleted, or externally repaired sources reconciles on the next stable observation. Source or transaction failure commits nothing and the next search retries.
+Persisted FTS rows live in a dedicated derived database and survive restarts; live sessions use connection-local TEMP tables that shadow the durable base for the same session and reveal it again when the live owner detaches. Both tables retain the exact inherited cut in numeric `seed_length`; reconstructed headers expose only `isSeeded`, while the cut participates in live fingerprints and persisted source revisions. Each search runs one serialized observation: list persistence snapshots, compare per-session revisions with the indexed rows, read only new or changed logs through a read handle (balancing an interrupted final turn in memory, never writing back), extract semantic documents, and commit the reconciliation in one transaction before running the query. Repeated queries and unchanged reopens read nothing beyond logs that previously failed to read; switching stores or observing new, changed, deleted, or externally repaired sources reconciles on the next stable observation. A persistence listing, source conflict, or transaction failure commits nothing and the next search retries; a single stored log that cannot be read is left out of the index instead, as Failures and recovery describes.
 
 ### Schema ownership
 
-The database carries an application id and schema version 8. Opening refuses a file owned by another application or a canonical database, rejects unknown user tables, and only a recognized incompatible derived schema resets in place — so an unrelated or session-persistence database is never touched. On POSIX filesystems, missing directories and database files are created owner-only (`0700` and `0600` before the process umask). Exactly one service in one process owns a derived-index path; generations and TEMP shadow state are connection-owned.
+The database carries an application id and an identity built from schema version 10 and the Session generation its rows were extracted from. Opening refuses a file owned by another application or a canonical database, rejects unknown user tables, and only a recognized incompatible derived schema resets in place — so an unrelated or session-persistence database is never touched. A Session generation change is one of those incompatibilities: a migration edge renumbers `seq` and renames event types without writing to any log file, so reconciliation's revision comparison finds nothing to re-read and the reset is what re-extracts the corpus once under the new generation. A change in which events produce documents is the same kind of incompatibility: revision comparison cannot see it, so the schema version moves and the reset re-extracts. On POSIX filesystems, missing directories and database files are created owner-only (`0700` and `0600` before the process umask). Exactly one service in one process owns a derived-index path; generations and TEMP shadow state are connection-owned.
 
 </details>
 

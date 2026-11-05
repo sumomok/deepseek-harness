@@ -3,6 +3,7 @@ import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { DatabaseSync } from 'node:sqlite'
+import { existsSync } from 'node:fs'
 import { chmod, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -24,6 +25,8 @@ import type {
 } from '@deepseek-ai/dsh-session-persistence'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SqliteSessionQueryEngine, {
+  SESSION_QUERY_SQLITE_DEFAULT_RECONCILE_BATCH_SIZE,
+  SESSION_QUERY_SQLITE_INDEX_IDENTITY,
   SESSION_QUERY_SQLITE_SCHEMA_VERSION,
 } from '@deepseek-ai/dsh-session-query-sqlite'
 import {
@@ -32,6 +35,7 @@ import {
   SessionSearchCursor,
   type SessionAvailability,
   type SessionQueryErrorCode,
+  type SessionSearchIndexProgress,
   type SessionSearchRequest,
 } from '@deepseek-ai/dsh-session-query'
 
@@ -98,6 +102,7 @@ class TestHandle implements SessionHandle {
     TestPersistence.reads.set(this.id, (TestPersistence.reads.get(this.id) ?? 0) + 1)
     TestPersistence.readSignals.push(options?.signal)
     if (TestPersistence.failure !== undefined) throw TestPersistence.failure
+    if (TestPersistence.readFailures.has(this.id)) throw TestPersistence.readFailures.get(this.id)
     const entry = TestPersistence.entries.get(this.id)
     if (entry === undefined) throw new SessionPersistenceNotFoundError(this.id)
     await TestPersistence.readEffect?.(entry, options?.signal)
@@ -144,6 +149,7 @@ class TestPersistence extends SessionPersistence {
   static listEffect: ((signal?: AbortSignal) => void | Promise<void>) | undefined
   static listOverride: (() => SessionPersistenceSnapshot[]) | undefined
   static failure: unknown
+  static readFailures = new Map<SessionIdType, unknown>()
 
   static reset(entries: readonly { meta: SessionHeader; events: SessionEvent[] }[] = []): void {
     this.entries = new Map()
@@ -158,6 +164,7 @@ class TestPersistence extends SessionPersistence {
     this.listEffect = undefined
     this.listOverride = undefined
     this.failure = undefined
+    this.readFailures = new Map()
   }
 
   static set(entry: { meta: SessionHeader; events: SessionEvent[] }): void {
@@ -217,6 +224,8 @@ describe('SQLite session search', () => {
     expect((defaultCtx.sessionQuery as SqliteSessionQueryEngine).config.openAt).toBe('startup')
     expect((defaultCtx.sessionQuery as SqliteSessionQueryEngine).config.persistedReadConcurrency)
       .toBe(SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY)
+    expect((defaultCtx.sessionQuery as SqliteSessionQueryEngine).config.reconcileBatchSize)
+      .toBe(SESSION_QUERY_SQLITE_DEFAULT_RECONCILE_BATCH_SIZE)
 
     const configuredValue = 2
     const configured = new SqliteSessionQueryEngine.Config({
@@ -236,9 +245,149 @@ describe('SQLite session search', () => {
         persistedReadConcurrency,
       })).toThrow()
     }
+    for (const reconcileBatchSize of [0, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => new SqliteSessionQueryEngine.Config({
+        path: ':memory:',
+        reconcileBatchSize,
+      })).toThrow()
+    }
     expect(() => new SqliteSessionQueryEngine.Config({
       path: ':memory:',
       openAt: 'later' as never,
+    })).toThrow()
+  })
+
+  it('reports index preparation, including in-flight reconciliation counts, while the first search still runs', async () => {
+    const first = header('preparing-first')
+    const second = header('preparing-second')
+    TestPersistence.reset([
+      { meta: first, events: messageEvents('first needle') },
+      { meta: second, events: messageEvents('second needle') },
+    ])
+    const ctx = await liveContext({ path: ':memory:', openAt: 'first-search', reconcileBatchSize: 1 })
+    await ctx.plugin(TestPersistence)
+    const service = ctx.sessionQuery as SqliteSessionQueryEngine
+    const seen: { progress: SessionSearchIndexProgress; answered: boolean }[] = []
+    let settled = false
+    ctx.on('session-query/index-progress', (progress) => {
+      seen.push({ progress: { ...progress }, answered: settled })
+    })
+    expect(service.searchIndexProgress()).toBeUndefined()
+
+    await expect(service.searchSessions({ query: 'needle' }))
+      .resolves.toMatchObject({ items: [{ header: first }, { header: second }] })
+    settled = true
+
+    expect(seen.map(({ progress }) => [progress.phase, progress.examined, progress.total, progress.skipped])).toEqual([
+      ['opening', 0, 0, 0],
+      ['reconciling', 0, 2, 0],
+      ['reconciling', 1, 2, 0],
+      ['reconciling', 2, 2, 0],
+      ['ready', 2, 2, 0],
+    ])
+    // The counters moved while the caller was still waiting for its page.
+    expect(seen.some(({ progress, answered }) =>
+      !answered && progress.phase === 'reconciling' && progress.examined === 1)).toBe(true)
+    expect(service.searchIndexProgress()).toEqual({ phase: 'ready', examined: 2, total: 2, skipped: 0 })
+  })
+
+  it('counts a stored log whose revision did not move as skipped, not as unreadable', async () => {
+    const first = header('unchanged-first')
+    const second = header('unchanged-second')
+    TestPersistence.reset([
+      { meta: first, events: messageEvents('first needle') },
+      { meta: second, events: messageEvents('second needle') },
+    ])
+    const ctx = await liveContext({ path: ':memory:', reconcileBatchSize: 1 })
+    await ctx.plugin(TestPersistence)
+    const service = ctx.sessionQuery as SqliteSessionQueryEngine
+    // The activation-time open reports nothing: no search waits for it, and an
+    // `opening` published here would outlive it in every later baseline.
+    expect(service.searchIndexProgress()).toBeUndefined()
+    const seen: SessionSearchIndexProgress[] = []
+    ctx.on('session-query/index-progress', (progress) => { seen.push({ ...progress }) })
+
+    await service.searchMessages({ query: 'needle' })
+    expect(TestPersistence.reads.get(first.id)).toBe(1)
+    expect(TestPersistence.reads.get(second.id)).toBe(1)
+    expect(seen.some(({ phase }) => phase === 'opening')).toBe(false)
+
+    seen.length = 0
+    const page = await service.searchMessages({ query: 'needle' })
+
+    expect(TestPersistence.reads.get(first.id)).toBe(1)
+    expect(TestPersistence.reads.get(second.id)).toBe(1)
+    expect(seen.at(-1)).toEqual({ phase: 'ready', examined: 2, total: 2, skipped: 2 })
+    expect(seen.every(({ skipped, examined }) => skipped <= examined)).toBe(true)
+    // Skipping is preparation bookkeeping; coverage still reports what the
+    // index could not read, which is different.
+    expect(page.coverage).toEqual({ status: 'complete', skippedSessions: 0 })
+  })
+
+  it('prepares the index in the background one warmup delay after the request', async () => {
+    const only = header('warmup-only')
+    TestPersistence.reset([{ meta: only, events: messageEvents('warmup needle') }])
+    const path = await temporaryPath('warmup.db')
+    const ctx = await liveContext({ path, openAt: 'first-search', warmupAfterReadyMs: 1000 })
+    await ctx.plugin(TestPersistence)
+    vi.useFakeTimers()
+    ctx.emit('session-query/warmup-requested')
+    await vi.advanceTimersByTimeAsync(999)
+    await expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' })
+    await vi.advanceTimersByTimeAsync(1)
+    vi.useRealTimers()
+    await vi.waitFor(async () => { await expect(stat(path)).resolves.toBeDefined() })
+    expect(TestPersistence.reads.get(only.id)).toBe(1)
+    // The prepared index answers without reading the log again.
+    await expect(ctx.sessionQuery.searchSessions({ query: 'warmup' }))
+      .resolves.toMatchObject({ items: [expect.objectContaining({ header: only })] })
+    expect(TestPersistence.reads.get(only.id)).toBe(1)
+  })
+
+  it('ignores repeated warmup requests and one that arrives without warmup configured', async () => {
+    const unconfigured = await liveContext({ path: await temporaryPath('no-warmup.db'), openAt: 'first-search' })
+    unconfigured.emit('session-query/warmup-requested')
+    await expect(stat((unconfigured.sessionQuery as SqliteSessionQueryEngine).config.path))
+      .rejects.toMatchObject({ code: 'ENOENT' })
+    await unconfigured.fiber.dispose()
+
+    const path = await temporaryPath('warmup-once.db')
+    const ctx = await liveContext({ path, openAt: 'first-search', warmupAfterReadyMs: 0 })
+    const seen: string[] = []
+    ctx.on('session-query/index-progress', ({ phase }) => { seen.push(phase) })
+    ctx.emit('session-query/warmup-requested')
+    ctx.emit('session-query/warmup-requested')
+    await vi.waitFor(() => { expect(seen).toContain('ready') })
+    expect(seen.filter(phase => phase === 'opening')).toHaveLength(0)
+    expect(seen.filter(phase => phase === 'ready')).toHaveLength(1)
+  })
+
+  it('drops a pending warmup when the service disposes before its delay', async () => {
+    const path = await temporaryPath('warmup-cancelled.db')
+    const search = await new Context().plugin(SqliteSessionQueryEngine, {
+      path,
+      openAt: 'first-search',
+      warmupAfterReadyMs: 50,
+    })
+    search.ctx.emit('session-query/warmup-requested')
+    await search.dispose()
+    await new Promise(resolve => setTimeout(resolve, 120))
+    await expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('refuses a warmup that full-text search is switched off for', () => {
+    expect(() => new SqliteSessionQueryEngine(new Context(), {
+      path: ':memory:',
+      openAt: 'never',
+      warmupAfterReadyMs: 1000,
+    })).toThrow(/warmupAfterReadyMs requires full-text search/)
+    expect(() => new SqliteSessionQueryEngine(new Context(), {
+      path: ':memory:',
+      warmupAfterReadyMs: -1,
+    })).toThrow(/warmupAfterReadyMs must be an integer/)
+    expect(() => new SqliteSessionQueryEngine.Config({
+      path: ':memory:',
+      warmupAfterReadyMs: -1,
     })).toThrow()
   })
 
@@ -338,6 +487,192 @@ describe('SQLite session search', () => {
     expect(open).toHaveBeenCalledOnce()
   })
 
+  it('returns every matching message across sessions instead of one strong hit per session', async () => {
+    const ctx = await liveContext()
+    const first = ctx.sessions.create(SessionId('messages-first'))
+    const second = ctx.sessions.create(SessionId('messages-second'))
+    // Distinct lengths keep the length tiebreaker decisive, so the expected
+    // order does not depend on the wall clock the appends happen to share.
+    for (const [session, text] of [
+      [first, 'needle a'],
+      [first, 'needle bb'],
+      [second, 'needle ccc'],
+    ] as const) {
+      session.append(
+        'user/message',
+        createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }),
+        { surfaceOp: 'append' },
+      )
+    }
+
+    // The grouped read is what a session list needs, and it keeps one row each.
+    const grouped = await ctx.sessionQuery.searchSessions({ query: 'needle' })
+    expect(grouped.items.map(hit => hit.header.id)).toEqual([first.id, second.id])
+
+    // Message granularity keeps all three, so a caller can address each one.
+    const page = await ctx.sessionQuery.searchMessages({ query: 'needle' })
+    expect(page.items.map(hit => [hit.sessionId, hit.seq, hit.snippet])).toEqual([
+      [first.id, SessionSeq(0), 'needle a'],
+      [first.id, SessionSeq(1), 'needle bb'],
+      [second.id, SessionSeq(0), 'needle ccc'],
+    ])
+    expect(page.nextCursor).toBeUndefined()
+  })
+
+  it('finds literal substrings anywhere and requires every term', async () => {
+    const ctx = await liveContext()
+    const glued = ctx.sessions.create(SessionId('literal-glued'))
+    glued.append(
+      'user/message',
+      createUserMessage({
+        content: [{ type: 'text', text: '测clinet，不要测试web端' }], source: { kind: 'user' },
+      }),
+      { surfaceOp: 'append' },
+    )
+    const spaced = ctx.sessions.create(SessionId('literal-spaced'))
+    spaced.append(
+      'user/message',
+      createUserMessage({
+        content: [{ type: 'text', text: '测 client 一下' }], source: { kind: 'user' },
+      }),
+      { surfaceOp: 'append' },
+    )
+
+    // A fragment that starts inside one unbroken run still reaches it: the
+    // match is literal text, not a token.
+    const inside = await ctx.sessionQuery.searchMessages({ query: '要测试' })
+    expect(inside.items.map(hit => [hit.sessionId, hit.snippet, hit.matches])).toEqual([
+      [glued.id, '测clinet，不要测试web端', [{ start: 9, length: 3 }]],
+    ])
+    // CJK adjacent to Latin is one token for FTS and one substring here.
+    const mixed = await ctx.sessionQuery.searchMessages({ query: '测cli' })
+    expect(mixed.items.map(hit => hit.sessionId)).toEqual([glued.id])
+
+    // Every term is required, in any order and at any distance.
+    const reversed = await ctx.sessionQuery.searchMessages({ query: 'client 测' })
+    expect(reversed.items.map(hit => hit.sessionId)).toEqual([spaced.id])
+    const missing = await ctx.sessionQuery.searchMessages({ query: 'client 端' })
+    expect(missing.items).toEqual([])
+  })
+
+  it('keeps a long scan responsive and still ranks the whole matching set', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('yielding-scan'))
+    for (let index = 0; index < 300; index += 1) {
+      session.append(
+        'user/message',
+        createUserMessage({ content: [{ type: 'text', text: `noise ${index}` }], source: { kind: 'user' } }),
+        { surfaceOp: 'append' },
+      )
+    }
+    session.append(
+      'user/message',
+      createUserMessage({ content: [{ type: 'text', text: 'the needle' }], source: { kind: 'user' } }),
+      { surfaceOp: 'append' },
+    )
+    // One matching row sits past the first yield window; the scan must resume
+    // rather than stop where it let the event loop run.
+    const page = await ctx.sessionQuery.searchMessages({ query: 'needle' })
+    expect(page.items.map(hit => hit.seq)).toEqual([SessionSeq(300)])
+  })
+
+  it('pages messages with a cursor that the session and event scopes reject', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('messages-paged'))
+    for (const text of ['needle a', 'needle bb', 'needle ccc']) {
+      session.append(
+        'user/message',
+        createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }),
+        { surfaceOp: 'append' },
+      )
+    }
+
+    const first = await ctx.sessionQuery.searchMessages({ query: 'needle', limit: 2 })
+    expect(first.items.map(hit => hit.seq)).toEqual([SessionSeq(0), SessionSeq(1)])
+    expect(first.nextCursor).toBeDefined()
+
+    const rest = await ctx.sessionQuery.searchMessages({
+      query: 'needle',
+      limit: 2,
+      ...first.nextCursor === undefined ? {} : { cursor: first.nextCursor },
+    })
+    expect(rest.items.map(hit => hit.seq)).toEqual([SessionSeq(2)])
+    expect(rest.nextCursor).toBeUndefined()
+
+    // One cursor names one scope and one request; a page read here must not
+    // continue a session-grouped read.
+    await expect(ctx.sessionQuery.searchSessions({
+      query: 'needle',
+      limit: 2,
+      ...first.nextCursor === undefined ? {} : { cursor: first.nextCursor },
+    })).rejects.toMatchObject({ code: 'SESSION_QUERY_INVALID_CURSOR' })
+  })
+
+  it('reports a message page as partial while a stored Session stays unreadable', async () => {
+    const readable = header('readable-log')
+    const broken = header('broken-log')
+    TestPersistence.reset([
+      { meta: readable, events: messageEvents('readable needle') },
+      { meta: broken, events: messageEvents('broken needle') },
+    ])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    TestPersistence.readFailures.set(broken.id, new Error('torn record at line 7'))
+
+    const page = await ctx.sessionQuery.searchMessages({ query: 'needle' })
+    expect(page.items.map(item => item.sessionId)).toEqual([readable.id])
+    // "No match" and "not looked at" read identically in `items`; only this
+    // field separates them.
+    expect(page.coverage).toEqual({ status: 'partial', skippedSessions: 1 })
+  })
+
+  it('refuses a message cursor in another scope or under a changed request', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('cursor-scope'))
+    for (const text of ['needle a', 'needle bb', 'needle ccc']) {
+      session.append(
+        'user/message',
+        createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }),
+        { surfaceOp: 'append' },
+      )
+    }
+
+    const first = await ctx.sessionQuery.searchMessages({ query: 'needle', limit: 1 })
+    const cursor = first.nextCursor
+    if (cursor === undefined) throw new Error('a one-item page of three matches must offer a continuation')
+
+    // The scope, the query, and the page size are all part of the cursor's
+    // identity: continuing under a different one would silently mix pages.
+    await expect(ctx.sessionQuery.searchEvents({
+      sessionId: session.id, query: 'needle', limit: 1, cursor,
+    })).rejects.toMatchObject({ code: 'SESSION_QUERY_INVALID_CURSOR' })
+    await expect(ctx.sessionQuery.searchMessages({
+      query: 'other', limit: 1, cursor,
+    })).rejects.toMatchObject({ code: 'SESSION_QUERY_INVALID_CURSOR' })
+    await expect(ctx.sessionQuery.searchMessages({
+      query: 'needle', limit: 2, cursor,
+    })).rejects.toMatchObject({ code: 'SESSION_QUERY_INVALID_CURSOR' })
+  })
+
+  it('rejects a cursor that decodes to something other than an object', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('cursor-shape'))
+    session.append(
+      'user/message',
+      createUserMessage({ content: [{ type: 'text', text: 'needle' }], source: { kind: 'user' } }),
+      { surfaceOp: 'append' },
+    )
+
+    for (const body of ['null', '7', '"text"', '[]']) {
+      const cursor = SessionSearchCursor(Buffer.from(body, 'utf8').toString('base64url'))
+      // A JSON document that is not an object must fail as a typed cursor error,
+      // not as a TypeError read off a primitive.
+      await expect(ctx.sessionQuery.searchMessages({ query: 'needle', cursor }))
+        .rejects.toMatchObject({ code: 'SESSION_QUERY_INVALID_CURSOR' })
+    }
+  })
+
   it('searches two-character Unicode61 tokens in live-only sessions', async () => {
     const ctx = await liveContext({ path: ':memory:', snippetChars: 20 })
     const session = ctx.sessions.create(SessionId('live'), {
@@ -414,7 +749,7 @@ describe('SQLite session search', () => {
         },
       },
       { type: 'user/message', seq: SessionSeq(2), time: 12, data: createUserMessage({
-        content: [{ type: 'text', text: 'needle summary' }], source: { kind: 'test' },
+        content: [{ type: 'text', text: 'needle summary' }], source: { kind: 'user' },
       }), surfaceOp: { op: 'replace', startSeq: SessionSeq(0), endSeq: SessionSeq(0) }, sourceEventSeqs: [SessionSeq(0)] },
       { type: 'turn/end', seq: SessionSeq(3), time: 13, data: { turn: 1, reason: { kind: 'error', error: { message: 'needle failure', code: 'UNKNOWN' } } } },
     ]
@@ -1123,6 +1458,145 @@ describe('SQLite reconciliation and source lifecycle', () => {
       .rejects.toThrow(expectCode('SESSION_QUERY_SOURCE_CONFLICT'))
   })
 
+  it('leaves a stored log it cannot read out of the index, warns once while it stays unreadable, and searches the rest', async () => {
+    const readable = header('readable-log')
+    const broken = header('broken-log')
+    TestPersistence.reset([
+      { meta: readable, events: messageEvents('readable needle') },
+      { meta: broken, events: messageEvents('broken needle') },
+    ])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const failure = new Error('torn record at line 7')
+    TestPersistence.readFailures.set(broken.id, failure)
+
+    const first = await ctx.sessionQuery.searchSessions({ query: 'needle' })
+    expect(first.items.map(item => item.header.id)).toEqual([readable.id])
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"broken-log"'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('torn record at line 7'))
+
+    const signal = new AbortController().signal
+    const second = await ctx.sessionQuery.searchSessions({ query: 'needle' }, { signal })
+    expect(second.items.map(item => item.header.id)).toEqual([readable.id])
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(TestPersistence.reads.get(readable.id)).toBe(1)
+    expect(TestPersistence.reads.get(broken.id)).toBe(2)
+
+    // A new revision that fails the same way stays one warning.
+    TestPersistence.set({ meta: broken, events: messageEvents('moved needle') })
+    const moved = await ctx.sessionQuery.searchSessions({ query: 'needle' })
+    expect(moved.items.map(item => item.header.id)).toEqual([readable.id])
+    expect(warn).toHaveBeenCalledTimes(1)
+
+    const changedFailure = new Error('checksum mismatch at line 9')
+    TestPersistence.readFailures.set(broken.id, changedFailure)
+    await ctx.sessionQuery.searchSessions({ query: 'needle' })
+    expect(warn).toHaveBeenCalledTimes(2)
+    expect(warn).toHaveBeenLastCalledWith(expect.stringContaining('checksum mismatch at line 9'))
+
+    await expect(ctx.sessionQuery.searchEvents({ sessionId: broken.id, query: 'needle' }))
+      .rejects.toMatchObject({ code: 'SESSION_QUERY_PERSISTENCE_FAILED', cause: changedFailure })
+    await expect(ctx.sessionQuery.searchEvents({ sessionId: readable.id, query: 'needle' }))
+      .resolves.toMatchObject({ items: [{ sessionId: readable.id }] })
+
+    TestPersistence.readFailures.delete(broken.id)
+    const repaired = await ctx.sessionQuery.searchSessions({ query: 'needle' })
+    expect(repaired.items.map(item => item.header.id).sort()).toEqual([broken.id, readable.id].sort())
+    await expect(ctx.sessionQuery.searchEvents({ sessionId: broken.id, query: 'needle' }))
+      .resolves.toMatchObject({ items: [{ sessionId: broken.id }] })
+
+    TestPersistence.set({ meta: broken, events: messageEvents('rewritten needle') })
+    TestPersistence.readFailures.set(broken.id, 'not an Error')
+    const rebroken = await ctx.sessionQuery.searchSessions({ query: 'needle' })
+    expect(rebroken.items.map(item => item.header.id)).toEqual([readable.id])
+    expect(warn).toHaveBeenCalledTimes(3)
+    expect(warn).toHaveBeenLastCalledWith(expect.stringContaining('unknown error'))
+    warn.mockRestore()
+  })
+
+  it('leaves a stored log whose documents cannot be extracted out of the index and keeps its error code', async () => {
+    const readable = header('readable-surface')
+    const broken = header('broken-surface')
+    TestPersistence.reset([
+      { meta: readable, events: messageEvents('readable needle') },
+      {
+        meta: broken,
+        events: [{
+          type: 'user/message',
+          seq: SessionSeq(0),
+          time: 1,
+          data: createUserMessage({ content: [{ type: 'text', text: 'broken needle' }], source: { kind: 'user' } }),
+          surfaceOp: { op: 'replace', startSeq: SessionSeq(9), endSeq: SessionSeq(9) },
+        }],
+      },
+    ])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+
+    expect((await ctx.sessionQuery.searchSessions({ query: 'needle' })).items.map(item => item.header.id))
+      .toEqual([readable.id])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"broken-surface"'))
+    await expect(ctx.sessionQuery.searchEvents({ sessionId: broken.id, query: 'needle' }))
+      .rejects.toMatchObject({ code: 'SESSION_QUERY_INVALID_SURFACE' })
+    warn.mockRestore()
+  })
+
+  it('fails the whole search on a header conflict even when the same log has an invalid surface', async () => {
+    const readable = header('readable-conflict-peer')
+    const conflicted = header('conflicted-surface', 1)
+    TestPersistence.reset([
+      { meta: readable, events: messageEvents('readable needle') },
+      {
+        meta: conflicted,
+        events: [{
+          type: 'user/message',
+          seq: SessionSeq(0),
+          time: 1,
+          data: createUserMessage({ content: [{ type: 'text', text: 'conflicted needle' }], source: { kind: 'user' } }),
+          surfaceOp: { op: 'replace', startSeq: SessionSeq(9), endSeq: SessionSeq(9) },
+        }],
+      },
+    ])
+    // The listed header disagrees with the stored one on an immutable field.
+    TestPersistence.listOverride = () => [
+      { header: readable, revision: SessionPersistenceRevision('conflict-peer:1') },
+      { header: header('conflicted-surface', 2), revision: SessionPersistenceRevision('conflicted:1') },
+    ]
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+
+    await expect(ctx.sessionQuery.searchSessions({ query: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_SOURCE_CONFLICT'))
+    await expect(ctx.sessionQuery.searchEvents({ sessionId: conflicted.id, query: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_SOURCE_CONFLICT'))
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('keeps cancellation when a cold read fails after its signal aborts', async () => {
+    const durable = header('aborted-failing-read')
+    TestPersistence.reset([{ meta: durable, events: messageEvents('durable needle') }])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const controller = new AbortController()
+    const readError = new Error('read torn by cancellation')
+    TestPersistence.readEffect = () => {
+      TestPersistence.readEffect = undefined
+      controller.abort()
+      throw readError
+    }
+
+    await expect(ctx.sessionQuery.searchSessions({ query: 'needle' }, { signal: controller.signal }))
+      .rejects.toMatchObject({ code: 'SESSION_QUERY_ABORTED', cause: readError })
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
   it('preserves unchanged persisted generations while reconciling new, changed, and deleted rows', { timeout: 20_000 }, async () => {
     const path = await temporaryPath()
     const unchanged = header('unchanged')
@@ -1312,6 +1786,68 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     expect(ctx.sessionQuery).toBeUndefined()
   })
 
+  it('rebuilds persisted rows extracted under a retired Session generation', async () => {
+    // The stamped identity has to move with the Session generation; carrying
+    // the schema version alone is what let rows survive a migration edge.
+    expect(SESSION_QUERY_SQLITE_INDEX_IDENTITY % 100).toBe(SESSION_FORMAT_VERSION)
+    expect(Math.floor(SESSION_QUERY_SQLITE_INDEX_IDENTITY / 100)).toBe(SESSION_QUERY_SQLITE_SCHEMA_VERSION)
+    const persistenceRoot = await temporaryPath('generation-sessions')
+    const searchPath = await temporaryPath('generation.db')
+    const meta = header('generation', 10, { cwd: '/work' })
+    const build = async (): Promise<void> => {
+      const ctx = new Context()
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(SessionProjectionRegistry)
+      const persistence = await ctx.plugin(JsonlSessionPersistence, { root: persistenceRoot, compression: 'none' })
+      const search = await ctx.plugin(SqliteSessionQueryEngine, { path: searchPath })
+      if (!existsSync(join(persistenceRoot, '--work--'))) {
+        const writer = await ctx.sessionPersistence.create(meta)
+        await writer.append(messageEvents('generation needle'))
+        await writer.close()
+      }
+      await ctx.sessionQuery.searchSessions({ query: 'needle' })
+      await search.dispose()
+      await persistence.dispose()
+    }
+    // A row this index already holds is reused: reconciliation reads a Session
+    // again only when its file revision moved, and nothing writes to a log to
+    // migrate it. The planted text is what makes that reuse observable.
+    const plant = (): void => {
+      const db = new DatabaseSync(searchPath)
+      db.exec("UPDATE persisted_docs SET text = 'plantedmarker'")
+      db.close()
+    }
+    const markerHits = async (): Promise<number> => {
+      const ctx = new Context()
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(SessionProjectionRegistry)
+      const persistence = await ctx.plugin(JsonlSessionPersistence, { root: persistenceRoot, compression: 'none' })
+      const search = await ctx.plugin(SqliteSessionQueryEngine, { path: searchPath })
+      const found = await ctx.sessionQuery.searchSessions({ query: 'plantedmarker' })
+      const rebuilt = await ctx.sessionQuery.searchSessions({ query: 'generation needle' })
+      await search.dispose()
+      await persistence.dispose()
+      return found.items.length * 10 + rebuilt.items.length
+    }
+
+    await build()
+    plant()
+    // Same identity: the planted row stands and the source text is not indexed.
+    expect(await markerHits()).toBe(10)
+
+    plant()
+    const retired = new DatabaseSync(searchPath)
+    retired.exec(`PRAGMA user_version = ${SESSION_QUERY_SQLITE_SCHEMA_VERSION * 100 + (SESSION_FORMAT_VERSION - 1)}`)
+    retired.close()
+    // A retired generation drops the derived rows, so the next search extracts
+    // the log again under the current one.
+    expect(await markerHits()).toBe(1)
+    const stamped = new DatabaseSync(searchPath, { readOnly: true })
+    expect(stamped.prepare('PRAGMA user_version').get())
+      .toEqual({ user_version: SESSION_QUERY_SQLITE_INDEX_IDENTITY })
+    stamped.close()
+  })
+
   it('resets a recognized incompatible schema but refuses unknown or foreign tables', { timeout: 20_000 }, async () => {
     const stalePath = await temporaryPath('stale.db')
     const staleOwner = await liveContext({ path: stalePath })
@@ -1325,7 +1861,7 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     await (staleCtx.sessionQuery as SqliteSessionQueryEngine).close()
     const rebuilt = new DatabaseSync(stalePath)
     expect((rebuilt.prepare('PRAGMA user_version').get() as { user_version: number }).user_version)
-      .toBe(SESSION_QUERY_SQLITE_SCHEMA_VERSION)
+      .toBe(SESSION_QUERY_SQLITE_INDEX_IDENTITY)
     rebuilt.close()
 
     const augmentedPath = await temporaryPath('augmented.db')
@@ -1365,7 +1901,7 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     const stillCurrentAugmented = new DatabaseSync(currentAugmentedPath)
     expect(stillCurrentAugmented.prepare('SELECT value FROM unrelated').get()).toEqual({ value: 'safe' })
     expect(stillCurrentAugmented.prepare('PRAGMA user_version').get())
-      .toEqual({ user_version: SESSION_QUERY_SQLITE_SCHEMA_VERSION })
+      .toEqual({ user_version: SESSION_QUERY_SQLITE_INDEX_IDENTITY })
     expect(stillCurrentAugmented.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'wal' })
     stillCurrentAugmented.close()
 

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "microcompactação de contexto",
+    "description": "Substitui resultados antigos de ferramentas por ponteiros de sequência da sessão enquanto o agente está ocioso."
+  }
+}

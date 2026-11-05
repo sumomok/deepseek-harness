@@ -41,9 +41,20 @@ describe('MarkdownBody', () => {
       .toBe('/work/guide/images/a.png')
     expect(new URL(view.getByAltText('absolute').getAttribute('src')!).searchParams.get('path')).toBe('/tmp/a.png')
     expect(new URL(view.getByAltText('relative').getAttribute('src')!).protocol).toBe(new URL(base).protocol)
+    expect(new URL(view.getByAltText('absolute').getAttribute('src')!).searchParams.get('sessionId')).toBe('markdown')
     expect(view.getByAltText('external').getAttribute('src')).toBe('https://example.test/a.png')
     fireEvent.error(view.getByAltText('relative'))
     expect(view.getByText('relative').tagName).toBe('SPAN')
+  })
+
+  it('names no Session in image URLs of a document addressed by absolute path', () => {
+    vi.spyOn(document, 'baseURI', 'get').mockReturnValue('http://localhost/')
+    const text = '![absolute](/tmp/a.png)'
+    const base = props(content([text], true), undefined, '/home/me/notes.md')
+    const view = render(<MarkdownBody {...base} resourceAddress="dsh-resource://file/absolute/home/me/notes.md" />)
+    const src = new URL(view.getByAltText('absolute').getAttribute('src')!)
+    expect(src.searchParams.get('path')).toBe('/tmp/a.png')
+    expect(src.searchParams.has('sessionId')).toBe(false)
   })
 
   it('resolves reference images at EOF and updates their directory when metadata changes', () => {

@@ -169,7 +169,7 @@ describe('viewer forwarded interactions', () => {
     })
     expect(await read.answer('share', {
       op: 'call', path: '/api/$events/result', body: { payload: result('allowed-once') },
-    }, actor)).toMatchObject({ status: 200, body: { result: { ok: false, error: { code: 'gateway/invocation-unavailable' } } } })
+    }, actor)).toMatchObject({ status: 200, body: { result: { ok: false, error: { code: 'gateway/interactions-forbidden' } } } })
     expect(await gatewayRpc('$events/result', result('denied'), lifetime.signal, owner)).toEqual({ ok: true })
     expect(await outcome.promise).toEqual({ kind: 'result', value: 'denied' })
   })

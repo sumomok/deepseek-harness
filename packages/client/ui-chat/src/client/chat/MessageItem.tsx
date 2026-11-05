@@ -3,7 +3,8 @@ import type { ReactNode } from 'react'
 import type { PendingSubmission } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { PropsRenderFactories, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { UserTextFacts } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { JsonBlock, StateDot, TextShimmer } from '@deepseek-ai/dsh-client-ui-primitives'
+import { JsonBlock, referenceLabelsOf, StateDot, TextShimmer } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { CompactionFailureChatData } from '../contract/chat-nodes.ts'
 import type {
   ChatNodeOwnerProps, ChatNodeViewProps, ChatViewSlotProps, UserContentAttachment, UserContentData, UserContentInput,
 } from '../contract/slots.ts'
@@ -161,6 +162,37 @@ function TurnMaxTokensItem({ t }: {
 }
 
 /**
+ * Notice for an automatic compaction that failed to write its summary. The
+ * visible copy is a fixed localized sentence: the backend's own failure text
+ * names internals a product user has no vocabulary for, so it rides the
+ * `title` attribute for whoever is diagnosing rather than the row itself.
+ *
+ * The copy claims only that no summary was written. It cannot claim the
+ * conversation is unchanged: the engine prunes oversized tool results before
+ * it opens the bracket, so a failure here can follow a landed reduction.
+ */
+function CompactionFailureItem({ node, t }: {
+  node: CompactionFailureChatData
+  t: ChatViewSlotProps['t']
+}) {
+  const detail = t('message.compaction.failed.detail')
+  return (
+    <div className={css.turnErrorRow} role="status">
+      <StateDot state="warning" className={css.turnErrorDot} />
+      <div className={css.turnErrorCopy}>
+        <span className={css.maxTokensTitle}>{t('message.compaction.failed')}</span>
+        <span
+          className={css.compactionFailureReason}
+          {...node.reason === null ? {} : { title: node.reason }}
+        >
+          {detail}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+/**
  * A row the message-source seat decorates. A durable Chat node satisfies it;
  * pending and local-echo rows pass a source-less stand-in.
  */
@@ -179,7 +211,8 @@ const NO_MESSAGE_SOURCE: PropsRenderSlots<'conversation.chat.user.before'>['rend
 function UserStyleBubble({
   node, renderSlotChain, content, loadImage, renderFactorySlot, actions,
   pending = false, echo = false, batchStart = false,
-  referenceLabels, skillNames, previewAttachments, facts: inputFacts = EMPTY_TEXT_FACTS, interactive = false,
+  referenceLabels, skillNames, previewAttachments, promptReferenceLabels, facts: inputFacts = EMPTY_TEXT_FACTS,
+  interactive = false,
 }: {
   content: readonly unknown[]
   renderFactorySlot: PropsRenderFactories['renderFactorySlot']
@@ -201,6 +234,8 @@ function UserStyleBubble({
   skillNames?: readonly string[]
   /** Local submission-echo attachments replacing the content-derived attachment sequence. */
   previewAttachments?: readonly UserContentAttachment[]
+  /** Labels of the prompt references recorded with this message, in order. */
+  promptReferenceLabels?: readonly string[] | undefined
   /** Inputs used by text transforms, separate from row and rendering props. */
   facts?: Readonly<Partial<UserTextFacts>>
 } & Pick<ChatNodeOwnerProps, 'loadImage'> & Pick<UserContentInput, 'interactive'>): ReactNode {
@@ -210,7 +245,8 @@ function UserStyleBubble({
     attachments: previewAttachments ?? parts.attachments,
     extraBlocks: parts.rest,
     ...(referenceLabels === undefined ? {} : { referenceLabels }),
-  }), [parts, previewAttachments, referenceLabels])
+    ...(promptReferenceLabels === undefined || promptReferenceLabels.length === 0 ? {} : { promptReferenceLabels }),
+  }), [parts, previewAttachments, referenceLabels, promptReferenceLabels])
   const facts = useMemo<Readonly<Partial<UserTextFacts>>>(() => ({
     ...inputFacts,
     ...(referenceLabels === undefined ? {} : { sessionLabels: referenceLabels }),
@@ -238,19 +274,23 @@ function UserStyleBubble({
 /**
  * Render one Host-authoritative pending steering item with the same visual
  * language as its eventual durable transcript node.
- * @param props - pending content, authorized image loader, and Factory/locale seats.
+ * @param props - pending content and source, authorized image loader, and Factory/locale seats.
  * @returns the pending steering bubble.
  */
-export function PendingSteeringBubble({ content, loadImage, renderFactorySlot, t }: {
+export function PendingSteeringBubble({ content, source, loadImage, renderFactorySlot, t }: {
   content: readonly unknown[]
+  /** The pending message source; its prompt references render as chips. */
+  source: unknown
   renderFactorySlot: PropsRenderFactories['renderFactorySlot']
   t: ChatViewSlotProps['t']
 } & Pick<ChatNodeOwnerProps, 'loadImage'>): ReactNode {
+  const promptReferenceLabels = useMemo(() => referenceLabelsOf(source), [source])
   return (
     <UserStyleBubble
       node={UNDECORATED_ROW}
       renderSlotChain={NO_MESSAGE_SOURCE}
       content={content}
+      promptReferenceLabels={promptReferenceLabels}
       renderFactorySlot={renderFactorySlot}
       loadImage={loadImage}
       pending
@@ -299,12 +339,17 @@ export function PendingSubmissionBubble({ submission, loadImage, renderFactorySl
       : { type: 'file', file: attachment.value }),
     [submission.attachments],
   )
+  const promptReferenceLabels = useMemo(
+    () => submission.references?.map(reference => reference.label),
+    [submission.references],
+  )
   return (
     <UserStyleBubble
       node={UNDECORATED_ROW}
       renderSlotChain={NO_MESSAGE_SOURCE}
       content={content}
       previewAttachments={previewAttachments}
+      promptReferenceLabels={promptReferenceLabels}
       renderFactorySlot={renderFactorySlot}
       loadImage={loadImage}
       pending={submission.placement === 'steering'}
@@ -330,18 +375,20 @@ export function PendingSubmissionBubble({ submission, loadImage, renderFactorySl
  * bubble without asking for it.
  */
 export const UserMessageNodeView = memo(function UserMessageNodeView({
-  node, renderFactorySlot, loadImage, renderSlotChain, t,
+  node, renderFactorySlot, loadImage, renderSlotChain, renderUserActions, t,
 }: ChatNodeViewProps<'user' | 'steering'> & {
   /** Bound by the `user` keyed registration, the only entry that declares the seat. */
   renderSlotChain: PropsRenderSlots<'conversation.chat.user.before'>['renderSlotChain']
 }) {
   const data = node.data
+  const promptReferenceLabels = useMemo(() => referenceLabelsOf(data.source), [data.source])
   return (
     <UserStyleBubble
       node={node}
       renderSlotChain={renderSlotChain}
       content={data.content}
       interactive
+      promptReferenceLabels={promptReferenceLabels}
       renderFactorySlot={renderFactorySlot}
       loadImage={loadImage}
       batchStart={node.kind === 'steering' && node.data.batchStart === true}
@@ -353,6 +400,7 @@ export const UserMessageNodeView = memo(function UserMessageNodeView({
           time={data.time}
           clock="start"
           className={css.actions}
+          extraActions={renderUserActions({ seq: data.seq, text })}
           t={t}
         />
       )}
@@ -379,6 +427,13 @@ export const CompactionNodeView = memo(function CompactionNodeView({ node, t }: 
   return <CompactionItem node={node.data} t={t} />
 })
 
+/** Open automatic-compaction bracket keyed Chat renderer. */
+export const CompactionRunningNodeView = memo(function CompactionRunningNodeView(
+  { t }: Pick<ChatNodeViewProps<'compaction-running'>, 't'>,
+) {
+  return <CompactionItem node={null} t={t} />
+})
+
 /** Correlated retry-chain keyed Chat renderer. */
 export const RetryNodeView = memo(function RetryNodeView({ node, t }: ChatNodeViewProps<'model-retry'>) {
   const data = node.data
@@ -393,6 +448,13 @@ export const TurnErrorNodeView = memo(function TurnErrorNodeView({ node, t }: Ch
 /** Max-tokens turn-end notice keyed Chat renderer. */
 export const TurnMaxTokensNodeView = memo(function TurnMaxTokensNodeView({ t }: ChatNodeViewProps<'turn-max-tokens'>) {
   return <TurnMaxTokensItem t={t} />
+})
+
+/** Failed automatic-compaction keyed Chat renderer. */
+export const CompactionFailureNodeView = memo(function CompactionFailureNodeView(
+  { node, t }: Pick<ChatNodeViewProps<'compaction-failure'>, 'node' | 't'>,
+) {
+  return <CompactionFailureItem node={node.data} t={t} />
 })
 
 /** Explicit unknown-surface keyed Chat renderer. */

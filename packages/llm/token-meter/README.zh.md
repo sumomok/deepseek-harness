@@ -33,7 +33,7 @@ kind: "package-reference"
 
 ### 测量压力
 
-`ctx.tokenMeter` 暴露两个操作。`measure(session, requestHeader?)` 在同一个已消费日志 revision 上返回独立、深度不可变的快照：`totalTokens` 是请求与响应压力，`surfaceTokens` 是仅表面的路由定价总量，等于 `nodes[].tokens` 之和。可选 `requestHeader` 覆盖会选择计价路由与压力字段；节点集合仍描述当前会话。`estimateMessage(message)` 用固定启发式规则为一条消息计价。每次调用都会克隆带位置的表面节点，因此测量是 O(surface)。
+`ctx.tokenMeter` 暴露三个操作。`measure(session, requestHeader?)` 在同一个已消费日志 revision 上返回独立、深度不可变的快照：`totalTokens` 是请求与响应压力，`surfaceTokens` 是仅表面的路由定价总量，等于 `nodes[].tokens` 之和。可选 `requestHeader` 覆盖会选择计价路由与压力字段；节点集合仍描述当前会话。`hasSystemMessage(session)` 从同一增量 replay 状态回答当前 surface 是否包含 `system/message`（包括 later 或空 system 节点）；它不扫描 surface，调用方必须读取当前状态，不能使用较早的 measurement。`estimateMessage(message)` 用固定启发式规则为一条消息计价。每次调用都会克隆带位置的表面节点，因此测量是 O(surface)。
 
 ```text
 const { totalTokens, surfaceTokens, nodes } = ctx.tokenMeter.measure(session)
@@ -66,6 +66,8 @@ token-meter 通过必需的 `ctx.sessionProjections` 服务注册三个客户端
 ### 解读数字
 
 占用是参考数字，不是计费记录：harness 中没有任何机制依据它做决定，压缩读取的是 `measure()`。UI 用测量压力除以所选模型独立解析的容量来计算占用。`contextBreakdown` 数字是估算值，其总和不会等于 `projectedTokens`；后者的提供方锚点恰好携带启发式误差——CJK 文本与 JSON schema 在每 token 四字符下严重低估。
+
+当决定取决于两种文字之间的**比值**时，这个误差会直接影响结果，因此本模块还导出密集档：`estimateDenseTextTokens` 与 `estimateDenseMessageTokens` 把每个 CJK 码点计为一个 token，其余文本按每 token 3.5 字符计价。密集档是估算的保守一侧，压缩用它把候选摘要与所替换区间作比较；它不参与占用折叠——占用仍使用固定启发式，以保证投影与它回放的追加价格一致。
 
 -----
 

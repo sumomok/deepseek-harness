@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execa } from 'execa'
 import { afterEach, describe, expect, it } from 'vitest'
+import { isolatedSkillRootEnv } from '@deepseek-ai/dsh-loader-smoke'
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const builtBin = join(repoRoot, 'apps/cli/lib/bin.js')
@@ -51,8 +52,7 @@ describe.skipIf(!builtArtifactsExist)('dsh web browser-open assembled snapshot',
       env: {
         ...process.env,
         DEEPSEEK_API_KEY: 'keyless-browser-open-no-call',
-        DSH_AGENTS_HOME: join(root, '.agents'),
-        DSH_HOME: join(root, '.dsh'),
+        ...isolatedSkillRootEnv(root),
         DSH_TELEMETRY_DISABLED: '1',
         NODE_NO_WARNINGS: '1',
         SSH_CONNECTION: '',
@@ -110,9 +110,8 @@ describe.skipIf(!builtArtifactsExist)('dsh web browser-open assembled snapshot',
         ...process.env,
         BROWSER_OPEN_TEST_FAILURE: 'fixture desktop unavailable',
         DEEPSEEK_API_KEY: 'keyless-browser-open-no-call',
-        DSH_AGENTS_HOME: join(root, '.agents'),
+        ...isolatedSkillRootEnv(root),
         DSH_BROWSER_OPEN_TEST_EXIT_ON_FAILURE: '1',
-        DSH_HOME: join(root, '.dsh'),
         DSH_TELEMETRY_DISABLED: '1',
         NODE_NO_WARNINGS: '1',
         SSH_CONNECTION: '',
@@ -157,9 +156,8 @@ describe.skipIf(!builtArtifactsExist)('dsh web browser-open assembled snapshot',
       env: {
         ...process.env,
         DEEPSEEK_API_KEY: 'keyless-browser-open-no-call',
-        DSH_AGENTS_HOME: join(root, '.agents'),
+        ...isolatedSkillRootEnv(root),
         DSH_BROWSER_OPEN_TEST_EXIT_ON_READY: '1',
-        DSH_HOME: join(root, '.dsh'),
         DSH_TELEMETRY_DISABLED: '1',
         NODE_NO_WARNINGS: '1',
         SSH_CONNECTION: '10.0.0.2 55000 10.0.0.9 22',
@@ -204,8 +202,7 @@ describe.skipIf(!builtArtifactsExist)('dsh web browser-open assembled snapshot',
       env: {
         ...process.env,
         DEEPSEEK_API_KEY: 'keyless-browser-open-no-call',
-        DSH_AGENTS_HOME: join(root, '.agents'),
-        DSH_HOME: join(root, '.dsh'),
+        ...isolatedSkillRootEnv(root),
         DSH_TELEMETRY_DISABLED: '1',
         NODE_NO_WARNINGS: '1',
         SSH_CONNECTION: '',

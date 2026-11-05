@@ -53,7 +53,9 @@ async function bench() {
     developerTools: { enabled: createSnapshotStore(true) },
     get: (namespace: string) => namespace === CHAT_SETTINGS_NAMESPACE ? chatSettings.scope : stubConfigForm().scope,
   } as never)
-  runtime.ctx.provide('connection', { state: createSnapshotStore('connected') } as never)
+  runtime.ctx.provide('connection', {
+    generation: { getSnapshot: () => undefined, subscribe: () => () => {} },
+  } as never)
   runtime.ctx.provide('layout', { openRightbar: () => {}, closeRightbar: () => {} } as never)
   runtime.ctx.provide('sidebarRight', { openResource: () => {}, openTab: () => {} } as never)
   runtime.ctx.provide('sidebarRightTabs', {
@@ -70,7 +72,7 @@ async function bench() {
   runtime.slots.installLocale(locale)
   await runtime.declare({
     'shell.overlay': { kind: 'list', scope: 'root' },
-    'conversation.approval.detail': { kind: 'single', scope: 'session' },
+    'conversation.approval.detail': { kind: 'keyed', scope: 'session' },
   })
   const conversation = await runtime.mount({ inject: [...injectConversation], apply: applyConversation })
   let descriptor: Parameters<typeof runtime.ctx.uiSession.provide>[0] | undefined

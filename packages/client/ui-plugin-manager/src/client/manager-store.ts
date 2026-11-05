@@ -121,7 +121,15 @@ export interface PackageView {
   readonly source?: string
   /** Whether the installation ships the bundle for the person to switch on: official, off until selected, never removable. */
   readonly optional: boolean
-  /** Whether the Host removes the bundle: a profile dependency, or a selection that neither the profile nor the installation holds. */
+  /**
+   * Whether the application that launches the profile supplies the bundle from its own payload: listed while off, not
+   * removable unless the profile's own dependencies also name it.
+   */
+  readonly shipped: boolean
+  /**
+   * Whether the Host removes the bundle: a profile dependency, or a selection that neither the profile, the installation,
+   * nor the launcher holds.
+   */
   readonly removable: boolean
   /** Whether the Host lists and installs newer registry versions of the bundle. */
   readonly updatable: boolean
@@ -563,6 +571,7 @@ export function packageView(bundle: BundleInfo, plugins: readonly PluginInfo[]):
     installed: bundle.installed,
     ...bundle.listedByDefault === undefined ? {} : { listedByDefault: bundle.listedByDefault },
     optional: bundle.optional,
+    shipped: bundle.shipped,
     removable: bundle.removable,
     updatable: bundle.updatable,
     enabled: bundle.enabled,

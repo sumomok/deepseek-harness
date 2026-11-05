@@ -31,8 +31,8 @@ import type { Volatile } from '@deepseek-ai/cordis'
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import { promptReferencesProblem, type PromptReference } from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-working-directory'
-import type {} from '@deepseek-ai/dsh-attachment'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import { assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
@@ -180,6 +180,7 @@ interface BrowserPromptSource {
   readonly clientTimeZone?: string
   /** Caller that submitted this follow-up, written only when it is not the owner; absent means the owner. */
   readonly principal?: Principal
+  readonly references?: readonly PromptReference[]
 }
 
 /** Host configuration for continuable subagent capacity. */
@@ -430,15 +431,16 @@ export class SubagentRuntime extends TypertRemoteService {
 
   /**
    * Deliver one browser-authored message to a continuable child through the
-   * exact live direct parent, retaining the caller-minted request identity and
-   * validated browser zone on the accepted message. Success identifies the
+   * exact live direct parent, retaining the caller-minted request identity,
+   * validated browser zone, and bounded prompt references on the accepted
+   * message source. Success identifies the
    * message the child's inbox accepted; later execution is independent of this
    * call. Queue delivery targets a later turn; steer delivery targets the
    * nearest step and retains the Agent loop's best-effort fallback semantics.
    * Image parts are admitted and persisted through the attachment store
    * before delivery, and the child's model must accept image input.
    * Cold resume at capacity rejects with `subagent/delivery-unavailable`.
-   * @param request - durable address, delivery, minted identity, content, and optional browser zone.
+   * @param request - durable address, delivery, minted identity, content, optional browser zone, and optional references.
    * @param signal - carrier cancellation, owning the call until inbox acceptance.
    * @returns the accepted message's inbox identity.
    * @throws {RemoteError} `gateway/bad-request`, `subagent/attachment-invalid`,
@@ -460,6 +462,9 @@ export class SubagentRuntime extends TypertRemoteService {
         { value: clientTimeZone },
       )
     }
+    const references = request.references ?? []
+    const referencesProblem = promptReferencesProblem(references)
+    if (referencesProblem !== undefined) throw new RemoteError('gateway/bad-request', referencesProblem, {})
     const parent = this.ctx.get('agents')?.get(parentSessionId)
     if (parent === undefined) {
       throw new RemoteError(
@@ -474,6 +479,7 @@ export class SubagentRuntime extends TypertRemoteService {
       rpcId: request.requestId,
       ...(canonicalTimeZone === undefined ? {} : { clientTimeZone: canonicalTimeZone }),
       ...(principal === undefined ? {} : { principal }),
+      ...(references.length === 0 ? {} : { references }),
     }
     try {
       // Admission precedes delivery: image parts become durable references

@@ -4,9 +4,12 @@ import { SessionSearchCursor, type SessionQueryErrorCode } from '@deepseek-ai/ds
 import {
   buildEventWhere,
   buildSessionWhere,
+  compileMessageTerms,
+  escapeLikeTerm,
   FTS_HIGHLIGHT_END,
   FTS_HIGHLIGHT_START,
   makeSnippet,
+  markMessageMatches,
   normalizeEventRequest,
   normalizeSessionRequest,
   quoteFtsData,
@@ -204,7 +207,34 @@ describe('SQLite search predicate compilation', () => {
 
 describe('SQLite query identity and presentation', () => {
   it('quotes all caller MATCH syntax as data', () => {
-    expect(quoteFtsData('say "needle" OR *')).toBe('"say ""needle"" OR *"')
+    expect(quoteFtsData('say "needle" OR *')).toBe('"say ""needle"" OR *"*')
+  })
+
+  it('escapes one term for a literal LIKE pattern', () => {
+    expect(escapeLikeTerm('100%')).toBe('100\\%')
+    expect(escapeLikeTerm('a_b')).toBe('a\\_b')
+    expect(escapeLikeTerm('c\\d')).toBe('c\\\\d')
+  })
+
+  it('requires every distinct whitespace-separated term', () => {
+    expect(compileMessageTerms('测 client 测')).toEqual(['测', 'client'])
+    expect(compileMessageTerms('single')).toEqual(['single'])
+  })
+
+  it('marks literal matches anywhere, merging overlaps into one range', () => {
+    expect(markMessageMatches('xx needle yy', ['needle'])).toEqual({
+      marked: `xx ${FTS_HIGHLIGHT_START}needle${FTS_HIGHLIGHT_END} yy`,
+      count: 1,
+    })
+    // Terms match in any order and merge where they overlap.
+    expect(markMessageMatches('测clinet', ['测cli', '测'])).toEqual({
+      marked: `${FTS_HIGHLIGHT_START}测cli${FTS_HIGHLIGHT_END}net`,
+      count: 1,
+    })
+    // ASCII case folds the way SQLite's LIKE folds it.
+    expect(markMessageMatches('Needle', ['needle'])?.count).toBe(1)
+    // A missing term drops the whole document.
+    expect(markMessageMatches('needle', ['needle', 'absent'])).toBeUndefined()
   })
 
   it('canonicalizes request and filter ordering in both scopes', () => {
@@ -249,14 +279,36 @@ describe('SQLite query identity and presentation', () => {
   })
 
   it('normalizes, bounds, and positions snippets by Unicode code point', () => {
-    expect(makeSnippet('  short\ntext  ', 20)).toBe('short text')
-    expect(makeSnippet(`abcde${FTS_HIGHLIGHT_START}f${FTS_HIGHLIGHT_END}`, 1)).toBe('…')
-    expect(makeSnippet('abcdefghij', 5)).toBe('abcd…')
-    expect(makeSnippet(`ab${FTS_HIGHLIGHT_START}c${FTS_HIGHLIGHT_END}defghij`, 5)).toBe('…bcd…')
-    expect(makeSnippet(`ab${FTS_HIGHLIGHT_START}c${FTS_HIGHLIGHT_END}defghij`, 3)).toBe('…c…')
-    expect(makeSnippet(`abcde${FTS_HIGHLIGHT_START}f${FTS_HIGHLIGHT_END}`, 2)).toBe('…f')
-    expect(makeSnippet(`abcde${FTS_HIGHLIGHT_START}f${FTS_HIGHLIGHT_END}`, 5)).toBe('…cdef')
-    expect(makeSnippet(`  x—${FTS_HIGHLIGHT_START}café${FTS_HIGHLIGHT_END}\n y  `, 20))
-      .toBe('x—café y')
+    const text = (marked: string, maxChars: number): string => makeSnippet(marked, maxChars).snippet
+    expect(text('  short\ntext  ', 20)).toBe('short text')
+    expect(text(`abcde${FTS_HIGHLIGHT_START}f${FTS_HIGHLIGHT_END}`, 1)).toBe('…')
+    expect(text('abcdefghij', 5)).toBe('abcd…')
+    expect(text(`ab${FTS_HIGHLIGHT_START}c${FTS_HIGHLIGHT_END}defghij`, 5)).toBe('…bcd…')
+    expect(text(`ab${FTS_HIGHLIGHT_START}c${FTS_HIGHLIGHT_END}defghij`, 3)).toBe('…c…')
+    expect(text(`abcde${FTS_HIGHLIGHT_START}f${FTS_HIGHLIGHT_END}`, 2)).toBe('…f')
+    expect(text(`abcde${FTS_HIGHLIGHT_START}f${FTS_HIGHLIGHT_END}`, 5)).toBe('…cdef')
+    expect(text(`  x—${FTS_HIGHLIGHT_START}café${FTS_HIGHLIGHT_END}\n y  `, 20))
+      .toBe('x—café y')
+  })
+
+  it('reports every matched span inside the excerpt it returns', () => {
+    const excerpt = makeSnippet(
+      `${FTS_HIGHLIGHT_START}Ab${FTS_HIGHLIGHT_END} and ${FTS_HIGHLIGHT_START}cd${FTS_HIGHLIGHT_END} tail`,
+      40,
+    )
+    expect(excerpt.snippet).toBe('Ab and cd tail')
+    // Offsets index the returned string, so a renderer can slice it directly.
+    expect(excerpt.matches.map(range => excerpt.snippet.slice(range.start, range.start + range.length)))
+      .toEqual(['Ab', 'cd'])
+
+    // An excerpt that starts mid-text keeps the prefix ellipsis out of the
+    // matched text, and a match outside the window drops out entirely.
+    const clipped = makeSnippet(
+      `0123456789 ${FTS_HIGHLIGHT_START}needle${FTS_HIGHLIGHT_END} tail ${FTS_HIGHLIGHT_START}late${FTS_HIGHLIGHT_END}`,
+      16,
+    )
+    const shown = clipped.matches.map(range => clipped.snippet.slice(range.start, range.start + range.length))
+    expect(shown).toEqual(['needle'])
+    expect(clipped.snippet).toContain('needle')
   })
 })

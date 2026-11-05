@@ -53,6 +53,8 @@ import type {
   SessionWorkspacePathApplication,
   SessionEventsPage,
   SessionPageRequest,
+  SessionProbeTargetsRequest,
+  SessionProbeTargetsValue,
   SessionPromptRequest,
   SessionPromptValue,
   SessionRenameRequest,
@@ -87,6 +89,7 @@ export interface TestSessionRemote {
     request: SessionOpenWorkspacePathRequest,
     signal?: AbortSignal,
   ): Promise<RemoteResult<SessionOpenWorkspacePathValue>>
+  probeTargets(request: SessionProbeTargetsRequest): Promise<RemoteResult<SessionProbeTargetsValue>>
   page(request: SessionPageRequest, signal?: AbortSignal): Promise<RemoteResult<SessionEventsPage>>
   projections(request: SessionProjectionsRequest, signal?: AbortSignal): Promise<RemoteResult<SessionProjectionsValue>>
   follow(request: SessionFollowRequest, signal?: AbortSignal): AsyncIterable<SessionFollowFrame>
@@ -219,6 +222,10 @@ export function testSessionPersistence(
 
 /** Concrete point-read query used by Session Controller tests that do not exercise search. */
 class TestSessionQuery extends SessionQueryEngine {
+
+  override searchMessages(): Promise<never> {
+    throw new Error('this fake implements no message-granularity search')
+  }
   override searchSessions(): Promise<never> {
     return Promise.reject(new Error('session search is not configured in this test'))
   }
@@ -387,6 +394,7 @@ export async function createSessionTestRemote(
       () => direct.openWorkspacePath(request, signal),
       signal,
     ),
+    probeTargets: request => remoteResult(() => direct.probeTargets(request)),
     page: (request, signal = new AbortController().signal) => remoteResult(
       // oxlint-disable-next-line typescript/no-deprecated -- Test face keeps the legacy page entry covered.
       () => direct.page(request, signal),

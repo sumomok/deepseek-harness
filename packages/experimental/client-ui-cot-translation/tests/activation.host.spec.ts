@@ -20,6 +20,7 @@ import CotTranslationController from '../src/index.ts'
 class ReadOnlySessionQuery extends SessionQuery {
   searchSessions(): never { throw new Error('Unexpected full-text Session search') }
   searchEvents(): never { throw new Error('Unexpected full-text event search') }
+  searchMessages(): never { throw new Error('Unexpected full-text message search') }
 }
 
 const cleanups: Array<() => Promise<void>> = []

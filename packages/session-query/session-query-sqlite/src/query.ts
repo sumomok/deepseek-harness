@@ -7,9 +7,11 @@ import {
 } from '@deepseek-ai/dsh-session-query'
 import type {
   SessionAvailability,
+  SessionEventMatchRange,
   SessionEventMetadataFilter,
   SessionEventResultFilter,
   SessionEventSearchRequest,
+  SessionEventSnippet,
   SessionResultFilter,
   SessionSearchCursor,
   SessionSearchRequest,
@@ -216,12 +218,19 @@ export function buildEventWhere(filters: readonly SessionEventMetadataFilter[]):
 }
 
 /**
- * Quote caller text as one FTS5 phrase so query syntax remains inert data.
+ * Quote caller text as one prefix phrase so query syntax remains inert data.
+ *
+ * A whole-token phrase misses the case search boxes exist for: a run of CJK
+ * text adjacent to Latin is one token, so `测cli` would not reach `测clinet`,
+ * and a half-typed word would not reach its completion. The trailing `*`
+ * makes the phrase's last token a prefix, which also drops the old requirement
+ * to type the entire token. `*` applies outside the quotes, so caller text
+ * still cannot introduce FTS5 syntax.
  * @param query - normalized caller query.
- * @returns FTS5 expression containing one escaped literal phrase.
+ * @returns FTS5 expression containing one escaped literal prefix phrase.
  */
 export function quoteFtsData(query: string): string {
-  return `"${query.replaceAll('"', '""')}"`
+  return `"${query.replaceAll('"', '""')}"*`
 }
 
 /**
@@ -266,11 +275,29 @@ export function requestFingerprint(request: NormalizedSessionRequest | Normalize
  * @param maxChars - maximum result length in Unicode code points.
  * @returns bounded plain-text snippet.
  */
-export function makeSnippet(markedText: string, maxChars: number): string {
-  const { text: clean, matchStart } = normalizeMarkedText(markedText)
+export function makeSnippet(markedText: string, maxChars: number): SessionEventSnippet {
+  const { text: clean, matches } = normalizeMarkedText(markedText)
   const characters = Array.from(clean)
-  if (characters.length <= maxChars) return clean
-  if (maxChars === 1) return '…'
+  const matchStart = matches[0]?.start ?? 0
+  const window = (start: number, end: number, prefix: string, suffix: string): SessionEventSnippet => ({
+    snippet: `${prefix}${characters.slice(start, end).join('')}${suffix}`,
+    matches: matches.flatMap((match) => {
+      // A match that only overlaps the window is cut to it: the returned excerpt
+      // holds part of the match, and highlighting must stop at the excerpt's
+      // edge instead of running into the ellipsis or past the string.
+      const from = Math.max(match.start, start)
+      const to = Math.min(match.start + match.length, end)
+      if (to <= from) return []
+      return [{
+        // Positions are UTF-16 code units of the returned snippet, which is what
+        // a renderer slicing that string needs.
+        start: prefix.length + characters.slice(start, from).join('').length,
+        length: characters.slice(from, to).join('').length,
+      }]
+    }),
+  })
+  if (characters.length <= maxChars) return window(0, characters.length, '', '')
+  if (maxChars === 1) return { snippet: '…', matches: [] }
   const matchedIndex = Math.min(matchStart, characters.length - 1)
   let start = Math.max(0, matchedIndex - Math.floor(maxChars / 3))
   const prefix = start > 0 ? '…' : ''
@@ -290,29 +317,125 @@ export function makeSnippet(markedText: string, maxChars: number): string {
     start = Math.max(0, end - contentLength)
   }
   end = Math.min(characters.length, start + contentLength)
-  return `${prefix}${characters.slice(start, end).join('')}${suffix}`
+  // The prefix and suffix were budgeted above; the window must not re-derive
+  // them from its own bounds, or a cleared suffix comes back and overshoots.
+  return window(start, end, prefix, end === characters.length ? '' : suffix)
 }
 
-function normalizeMarkedText(markedText: string): { text: string; matchStart: number } {
+function normalizeMarkedText(markedText: string): { text: string; matches: SessionEventMatchRange[] } {
   const characters: string[] = []
-  let matchStart: number | undefined
+  const matches: SessionEventMatchRange[] = []
+  let opening: number | undefined
   for (const character of markedText) {
     if (character === FTS_HIGHLIGHT_START) {
-      matchStart ??= characters.length
+      opening = characters.length
       continue
     }
-    if (character === FTS_HIGHLIGHT_END) continue
+    if (character === FTS_HIGHLIGHT_END) {
+      if (opening !== undefined && characters.length > opening) {
+        matches.push({ start: opening, length: characters.length - opening })
+      }
+      opening = undefined
+      continue
+    }
     if (/\s/u.test(character)) {
       if (characters.length > 0 && characters.at(-1) !== ' ') characters.push(' ')
     } else {
       characters.push(character)
     }
   }
+  if (opening !== undefined && characters.length > opening) {
+    matches.push({ start: opening, length: characters.length - opening })
+  }
   if (characters.at(-1) === ' ') characters.pop()
   return {
     text: characters.join(''),
-    matchStart: matchStart ?? 0,
+    matches,
   }
+}
+
+/**
+ * Escape one term for a literal `LIKE` pattern.
+ * @param term - distinct required term.
+ * @returns the term with `LIKE` wildcards and the escape character itself escaped.
+ */
+export function escapeLikeTerm(term: string): string {
+  return term.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')
+}
+
+/**
+ * Terms one message search requires, in the order the caller typed them.
+ *
+ * A message search reads text as a person reads it: every whitespace-separated
+ * term must appear somewhere in the message, in any order and at any distance,
+ * which is what a search box means by more than one word. Repeated terms carry
+ * no extra weight, so they collapse here.
+ * @param query - normalized caller query.
+ * @returns distinct required terms, never empty.
+ */
+export function compileMessageTerms(query: string): readonly string[] {
+  return [...new Set(query.split(' ').filter(term => term !== ''))]
+}
+
+/**
+ * Lower-case ASCII letters without moving any offset.
+ *
+ * This is exactly the case folding SQLite's `LIKE` applies, which is what lets
+ * the scan push the term test into SQL and keep this matcher for marking: the
+ * two must agree, or a row the statement returns would fail here (or worse, a
+ * row it drops would never be marked). Non-ASCII keeps its case, as it does in
+ * `LIKE`.
+ * @param text - document or term text.
+ * @returns same-length text with ASCII letters folded.
+ */
+function foldAscii(text: string): string {
+  return text.replace(/[A-Z]/gu, letter => letter.toLowerCase())
+}
+
+/**
+ * Mark every occurrence of every required term in one document.
+ *
+ * The marks are the same sentinels `highlight()` writes, so a scanned document
+ * and an FTS-returned one reach {@link makeSnippet} in the same form. Overlapping
+ * occurrences of different terms merge into one marked range, which is also
+ * what makes the hit count a count of visible matches rather than of terms.
+ * @param text - complete document text, unmodified.
+ * @param terms - distinct terms from {@link compileMessageTerms}.
+ * @returns marked text and its merged match count, or undefined when a term is absent.
+ */
+export function markMessageMatches(
+  text: string,
+  terms: readonly string[],
+): { marked: string; count: number } | undefined {
+  const haystack = foldAscii(text)
+  const ranges: { start: number; end: number }[] = []
+  for (const term of terms) {
+    const needle = foldAscii(term)
+    if (needle.length === 0) continue
+    let at = haystack.indexOf(needle)
+    if (at === -1) return undefined
+    while (at !== -1) {
+      ranges.push({ start: at, end: at + needle.length })
+      at = haystack.indexOf(needle, at + 1)
+    }
+  }
+  ranges.sort((left, right) => left.start - right.start || right.end - left.end)
+  const merged: { start: number; end: number }[] = []
+  for (const range of ranges) {
+    const last = merged.at(-1)
+    if (last !== undefined && range.start < last.end) {
+      if (range.end > last.end) last.end = range.end
+      continue
+    }
+    merged.push({ ...range })
+  }
+  let marked = ''
+  let cursor = 0
+  for (const range of merged) {
+    marked += `${text.slice(cursor, range.start)}${FTS_HIGHLIGHT_START}${text.slice(range.start, range.end)}${FTS_HIGHLIGHT_END}`
+    cursor = range.end
+  }
+  return { marked: marked + text.slice(cursor), count: merged.length }
 }
 
 function normalizeQuery(value: string): string {

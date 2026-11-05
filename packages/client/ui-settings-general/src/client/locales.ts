@@ -28,6 +28,13 @@ export const zh = {
   'openDocument': '打开配置文件',
   'openDocument.error': '无法打开配置文件',
   'general.nav': '通用设置',
+  'nav.group.general': '通用',
+  'nav.group.models': '模型',
+  'nav.group.agent': '智能体',
+  'nav.group.extensions': '扩展',
+  'nav.group.account': '账户与用量',
+  'nav.group.about': '关于',
+  'nav.group.other': '其他',
   'general.currentVersion': '当前版本：{version}',
   'developerTools.title': '显示代码工作视图',
   'developerTools.error': '保存失败，请重试',
@@ -76,7 +83,14 @@ export const en = {
   'close': 'Close',
   'openDocument': 'Open configuration file',
   'openDocument.error': 'Could not open configuration file',
-  'general.nav': 'General',
+  'general.nav': 'General settings',
+  'nav.group.general': 'General',
+  'nav.group.models': 'Models',
+  'nav.group.agent': 'Agent',
+  'nav.group.extensions': 'Extensions',
+  'nav.group.account': 'Account & usage',
+  'nav.group.about': 'About',
+  'nav.group.other': 'Other',
   'general.currentVersion': 'Current version: {version}',
   'developerTools.title': 'Show coding view',
   'developerTools.error': 'Could not save. Please try again.',
@@ -139,6 +153,13 @@ export const ja = {
   'hostRelease.unknown': '不明',
   'hostRelease.reload': '再読み込みして新しいバージョンを読み込む',
   'hostRelease.later': '後で',
+  'nav.group.general': 'General',
+  'nav.group.models': 'Models',
+  'nav.group.agent': 'Agent',
+  'nav.group.extensions': 'Extensions',
+  'nav.group.account': 'Account & usage',
+  'nav.group.about': 'About',
+  'nav.group.other': 'Other',
 } satisfies Record<keyof typeof en, string>
 
 /** Spanish dictionary, checked against the English keys. */
@@ -185,6 +206,13 @@ export const es = {
   'hostRelease.unknown': 'Desconocido',
   'hostRelease.reload': 'Recargar para cargar la nueva versión.',
   'hostRelease.later': 'Ahora no',
+  'nav.group.general': 'General',
+  'nav.group.models': 'Models',
+  'nav.group.agent': 'Agent',
+  'nav.group.extensions': 'Extensions',
+  'nav.group.account': 'Account & usage',
+  'nav.group.about': 'About',
+  'nav.group.other': 'Other',
 } satisfies Record<keyof typeof en, string>
 
 /** French dictionary, checked against the English keys. */
@@ -231,6 +259,13 @@ export const fr = {
   'hostRelease.unknown': 'Inconnu',
   'hostRelease.reload': 'Recharger pour charger la nouvelle version',
   'hostRelease.later': 'Pas maintenant',
+  'nav.group.general': 'General',
+  'nav.group.models': 'Models',
+  'nav.group.agent': 'Agent',
+  'nav.group.extensions': 'Extensions',
+  'nav.group.account': 'Account & usage',
+  'nav.group.about': 'About',
+  'nav.group.other': 'Other',
 } satisfies Record<keyof typeof en, string>
 
 /** German dictionary, checked against the English keys. */
@@ -277,6 +312,13 @@ export const de = {
   'hostRelease.unknown': 'Unbekannt',
   'hostRelease.reload': 'Neu laden, um die neue Version zu laden',
   'hostRelease.later': 'Nicht jetzt',
+  'nav.group.general': 'General',
+  'nav.group.models': 'Models',
+  'nav.group.agent': 'Agent',
+  'nav.group.extensions': 'Extensions',
+  'nav.group.account': 'Account & usage',
+  'nav.group.about': 'About',
+  'nav.group.other': 'Other',
 } satisfies Record<keyof typeof en, string>
 
 /** Russian dictionary, checked against the English keys. */
@@ -323,6 +365,13 @@ export const ru = {
   'hostRelease.unknown': 'Неизвестно',
   'hostRelease.reload': 'Перезагрузите, чтобы загрузить новую версию',
   'hostRelease.later': 'Не сейчас',
+  'nav.group.general': 'General',
+  'nav.group.models': 'Models',
+  'nav.group.agent': 'Agent',
+  'nav.group.extensions': 'Extensions',
+  'nav.group.account': 'Account & usage',
+  'nav.group.about': 'About',
+  'nav.group.other': 'Other',
 } satisfies Record<keyof typeof en, string>
 
 /** Portuguese dictionary, checked against the English keys. */
@@ -369,4 +418,11 @@ export const pt = {
   'hostRelease.unknown': 'Desconhecido',
   'hostRelease.reload': 'Recarregue para carregar a nova versão',
   'hostRelease.later': 'Agora não',
+  'nav.group.general': 'General',
+  'nav.group.models': 'Models',
+  'nav.group.agent': 'Agent',
+  'nav.group.extensions': 'Extensions',
+  'nav.group.account': 'Account & usage',
+  'nav.group.about': 'About',
+  'nav.group.other': 'Other',
 } satisfies Record<keyof typeof en, string>

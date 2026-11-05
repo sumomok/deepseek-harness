@@ -135,7 +135,9 @@ function gitEnv(): NodeJS.ProcessEnv {
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_') || name === 'GIT_SSH' || name === 'GIT_SSH_COMMAND'))
   // A user's own ssh program keeps precedence; the default only keeps ssh from waiting for a prompt.
   const ssh = env.GIT_SSH === undefined && env.GIT_SSH_COMMAND === undefined ? { GIT_SSH_COMMAND: 'ssh -o BatchMode=yes' } : {}
-  return { ...env, GIT_TERMINAL_PROMPT: '0', GIT_LFS_SKIP_SMUDGE: '1', ...ssh }
+  // Diagnostics travel into DSH's English failure text; a translated Git tail would
+  // make the same refusal read differently per machine.
+  return { ...env, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', GIT_TERMINAL_PROMPT: '0', GIT_LFS_SKIP_SMUDGE: '1', ...ssh }
 }
 
 /**

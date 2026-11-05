@@ -1,0 +1,34 @@
+# Bilingual-pair consistency record for 2026-10-05-console-member-peers.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-05-console-member-peers.md
+/agent-note-one-host-serving-several-members:
+  en: e123e51215015e1c
+  zh: 03edba8e693ae2b9
+/agent-note-one-host-serving-several-members/problem:
+  en: 794004705d83a4a8
+  zh: 0c0ebfb0331a83fe
+/agent-note-one-host-serving-several-members/decision:
+  en: 1a547ee427fa532a
+  zh: cb41cc90438cf01f
+/agent-note-one-host-serving-several-members/decision/admission-seam-and-socket-events-connection-member-peers:
+  en: eeb733b57cd13616
+  zh: 46cbb534a956fff0
+/agent-note-one-host-serving-several-members/decision/member-waterfalls-remote-event-delivery-filter:
+  en: 117f35bff32cc2df
+  zh: 5fd820252ba33f6f
+/agent-note-one-host-serving-several-members/decision/exact-routes-with-their-own-access-rule-connection-fetch-guard:
+  en: 3c1f598e74593572
+  zh: bd79982efac67854
+/agent-note-one-host-serving-several-members/decision/console-obligations:
+  en: bbb322e2762f836b
+  zh: c9f62b03c5081f9e
+/agent-note-one-host-serving-several-members/decision/retirement:
+  en: cfd9069d5020cdce
+  zh: 2ee55d0515b8f8c0
+/agent-note-one-host-serving-several-members/alternatives-considered:
+  en: efdbd16436c35f68
+  zh: b7f4cc92d1d50cf3
+/agent-note-one-host-serving-several-members/consequences:
+  en: cb8e0d7c36b6455f
+  zh: b6fe0d4b8c0e4291

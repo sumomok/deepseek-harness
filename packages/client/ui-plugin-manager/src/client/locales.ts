@@ -39,6 +39,7 @@ export const zh = {
   installedTab: '已安装',
   statusProblem: '异常',
   statusBeta: '实验性',
+  statusShipped: '内置',
   reasonLabel: '原因',
   metadataError: '包元信息错误：{error}',
   versionTag: 'v{version}',
@@ -272,6 +273,7 @@ export const zh = {
   failedRowEnable: '组件启用失败：{reason}',
   failedRowDisable: '组件停用失败：{reason}',
   reasonManagementRequired: '插件管理所需，不能停用或卸载',
+  reasonDeploymentRequired: '应用必需，不能停用或卸载',
   reasonUnaddressable: '当前 profile 的 patch 无法唯一定位这一项',
   reasonUnknownPlugin: '找不到该插件',
   reasonInvalidSpec: '请输入有效的包名或地址',
@@ -334,6 +336,7 @@ export const en = {
   installedTab: 'Installed',
   statusProblem: 'Problem',
   statusBeta: 'Experimental',
+  statusShipped: 'Built-in',
   reasonLabel: 'Reason',
   metadataError: 'Package metadata error: {error}',
   versionTag: 'v{version}',
@@ -567,6 +570,7 @@ export const en = {
   failedRowEnable: 'Could not enable the component: {reason}',
   failedRowDisable: 'Could not disable the component: {reason}',
   reasonManagementRequired: 'Plugin management needs it; it cannot be switched off or uninstalled.',
+  reasonDeploymentRequired: 'This app needs it; it cannot be switched off or uninstalled.',
   reasonUnaddressable: 'The profile patch cannot address this one uniquely.',
   reasonUnknownPlugin: 'No such plugin.',
   reasonInvalidSpec: 'Enter a valid package name or address.',
@@ -882,6 +886,8 @@ export const ja = {
   'detailInvalid': 'プラグインが無効な詳細ファイルを宣言しています。',
   'detailFailed': '詳細を読み込めませんでした。',
   'detailFootnotes': '脚注',
+  statusShipped: 'Built-in',
+  reasonDeploymentRequired: 'This app needs it; it cannot be switched off or uninstalled.',
 } satisfies Record<keyof typeof en, string>
 
 /** Spanish dictionary, checked against the English keys. */
@@ -1174,6 +1180,8 @@ export const es = {
   detailInvalid: 'El complemento declara un archivo de detalles no válido.',
   detailFailed: 'No se pudieron leer los detalles.',
   detailFootnotes: 'Notas a pie de página',
+  statusShipped: 'Built-in',
+  reasonDeploymentRequired: 'This app needs it; it cannot be switched off or uninstalled.',
 } satisfies Record<keyof typeof en, string>
 
 /** French dictionary, checked against the English keys. */
@@ -1466,6 +1474,8 @@ export const fr = {
   detailInvalid: 'Le plugin déclare un fichier de détails invalide.',
   detailFailed: 'Impossible de lire les détails.',
   detailFootnotes: 'Notes de bas de page',
+  statusShipped: 'Built-in',
+  reasonDeploymentRequired: 'This app needs it; it cannot be switched off or uninstalled.',
 } satisfies Record<keyof typeof en, string>
 
 /** German dictionary, checked against the English keys. */
@@ -1758,6 +1768,8 @@ export const de = {
   detailInvalid: 'Das Plugin deklariert eine ungültige Detaildatei.',
   detailFailed: 'Die Details konnten nicht gelesen werden.',
   detailFootnotes: 'Fußnoten',
+  statusShipped: 'Built-in',
+  reasonDeploymentRequired: 'This app needs it; it cannot be switched off or uninstalled.',
 } satisfies Record<keyof typeof en, string>
 
 /** Russian dictionary, checked against the English keys. */
@@ -2050,6 +2062,8 @@ export const ru = {
   detailInvalid: 'Плагин объявляет неверный файл сведений.',
   detailFailed: 'Подробности прочитать не удалось.',
   detailFootnotes: 'Сноски',
+  statusShipped: 'Built-in',
+  reasonDeploymentRequired: 'This app needs it; it cannot be switched off or uninstalled.',
 } satisfies Record<keyof typeof en, string>
 
 /** Portuguese dictionary, checked against the English keys. */
@@ -2342,4 +2356,6 @@ export const pt = {
   detailInvalid: 'O plugin declara um arquivo de detalhes inválido.',
   detailFailed: 'Não foi possível ler os detalhes.',
   detailFootnotes: 'Notas de rodapé',
+  statusShipped: 'Built-in',
+  reasonDeploymentRequired: 'This app needs it; it cannot be switched off or uninstalled.',
 } satisfies Record<keyof typeof en, string>

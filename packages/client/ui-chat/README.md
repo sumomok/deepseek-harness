@@ -20,6 +20,8 @@ File-mention providers receive the viewed Session ID with the closing-turn owner
 - [Hidden Chat rows](#system-prompt-row)
 - [Command and failure rows](#command-and-failure-rows)
 - [Turn token usage](#turn-token-usage)
+- [Automatic compaction](#automatic-compaction)
+- [Manual compaction](#manual-compaction)
 - [Completed-turn footer](#completed-turn-footer)
 - [Turn Process Folding](#turn-process-folding)
 - [Grouped rendering](#grouped-rendering)
@@ -37,7 +39,7 @@ Image drag actions arrive through the image entry’s inject face from [ui-file-
 
 Sent generic-file attachments retain the draft's [file-card radius](../../../docs/ui-radius.md#radius-scale).
 
-`ChatView` supplies file and HTTP(S) navigation through the existing `MarkdownDelegateProvider` around its node list, passing `requestOpenFile`, `openExternalLink`, and `fileImages` directly. Its file opener retains Chat's failure feedback and retry handling. Assistant Markdown file links open in the right Sidebar after the message settles, including references to unmodified files. Relative paths resolve in the viewed Session's workspace; absolute paths retain the same Session's filesystem access. `#L24` and `#L24-L30` navigate to the first specified line and reuse an existing file tab. Missing files show the preview's error state.
+`ChatView` supplies file and HTTP(S) navigation through the existing `MarkdownDelegateProvider` around its node list, passing `requestOpenFile`, `openExternalLink`, and `fileImages` directly. Its file opener retains Chat's failure feedback and retry handling. Assistant Markdown file links open in the right Sidebar after the message settles, including references to unmodified files. Relative paths resolve against the viewed Session's current working directory at the moment of the click, or against its workspace when no working directory is recorded; absolute paths retain the same Session's filesystem access. `#L24` and `#L24-L30` navigate to the first specified line and reuse an existing file tab. Missing files show the preview's error state.
 
 Native message images use separate user and output positions. The `conversation.chat.user.content` Factory declares `conversation.chat.user.images`, which `UserContent` renders; the Assistant node registration declares `conversation.chat.message.images`, which `AssistantMarkdown` renders. Both receive image sources, the authorized `loadImage`, and layout options through explicit props. Their official `MessageImages` entries call the shared root-scoped `conversation.images.content` Factory. Each position can be replaced independently without duplicating the gallery implementation.
 
@@ -47,9 +49,9 @@ The session-scoped `conversation.chat.user.content` Factory renders only the use
 
 The official user and steering renderer declares the session-scoped `conversation.chat.user.before` chain slot at its `user` registration and renders it directly above the bubble with `renderSlotChain`; the `steering` registration shares the renderer without owning the seat. Owner props carry the durable message `source` and row `kind`; each entry’s `select` matches its own sources, and the first non-null result reaches the elected component as `matched`. No match displays no content. Entries own their markup and copy; Chat does not interpret message sources.
 
-Standalone Markdown images show contained previews and open the shared image lightbox; local paths resolve against the viewed workspace after settlement. Image file links keep their sidebar activation and show a thumbnail after hover dwell or keyboard focus. Escape dismisses the thumbnail. Failed images retain a localized status and their description; no duplicate-image filtering is applied.
+Standalone Markdown images show contained previews and open the shared image lightbox; local paths resolve against the viewed workspace after settlement, and their file-route URLs name the viewed Session. Image file links keep their sidebar activation and show a thumbnail after hover dwell or keyboard focus. Escape dismisses the thumbnail. Failed images retain a localized status and their description; no duplicate-image filtering is applied.
 
-Settings → General → Open chat links in selects the destination for ordinary clicks on Chat HTTP(S) links: In-App Sidebar (default) opens a new right-Sidebar Browser tab, while Default Browser opens an external tab. The setting follows Keyboard shortcuts and is shown only while the Sidebar Browser is available. If the Sidebar Browser is not registered, both choices use the external browser; modified clicks retain native behavior. The `ui-chat.linkOpening` preference persists on the Host for authenticated browsers and stays process-local when settings cannot persist writes. Sent file references and skills confirmed by the message’s logged invocation also open in the right Sidebar. File paths use the viewed Session; skill names resolve through its current input-trigger source. Both use the prose file-link dotted underline on hover or focus. Sessions, directories, and command labels remain non-navigating references.
+Settings → General → Open chat links in selects the destination for ordinary clicks on Chat HTTP(S) links: In-App Sidebar (default) opens a new right-Sidebar Browser tab, while Default Browser opens an external tab. The setting follows Keyboard shortcuts and is shown only while the Sidebar Browser is available. If the Sidebar Browser is not registered, both choices use the external browser; modified clicks retain native behavior. The `ui-chat.linkOpening` preference persists on the Host for authenticated browsers and stays process-local when settings cannot persist writes. Sent file references and skills confirmed by the message’s logged invocation also open in the right Sidebar. File paths resolve like Markdown file links, against the viewed Session's current working directory when clicked; skill names resolve through its current input-trigger source. Both use the prose file-link dotted underline on hover or focus. Sessions, directories, and command labels remain non-navigating references.
 
 <a id="system-prompt-row"></a>
 ## Hidden Chat rows
@@ -80,6 +82,16 @@ In narrow browser settings, preference labels use a smaller gutter before their 
 
 Preference menus restore focus to their trigger without scrolling before publishing a new selection.
 
+<a id="automatic-compaction"></a>
+## Automatic compaction
+
+An automatic compaction owns one row for its whole lifetime: `Compacting context…` while its bracket is open, then `Context compacted` with the shadowed item and approximate token counts once the replacement lands, expandable to the summary the backend wrote. A bracket cancelled by Stop leaves no row, one that closes on an error shows the failure notice instead, and a bracket whose start is outside the loaded window shows only its landed marker. Inside a Turn the running row and the failure notice stand outside the process group, so a collapsed group never hides them; the failure notice also stays outside the whole-Turn fold once the Turn completes. The landed marker joins the group like other process content.
+
+<a id="manual-compaction"></a>
+## Manual compaction
+
+Settings → General → Compaction while busy stores `ui-chat.busyCompaction`, and this package's Host plugin provides it live as `ctx.manualCompactionTiming`, so a bare `/compact` sent while a Turn runs follows it: Queue (`turn-end`, default) compacts after the Turn ends, before any queued Turn's first request; Interrupt (`next-step`) compacts at the running Turn's next step boundary without cancelling it, or after the Turn when no boundary follows. Queue is the default because the running Turn then finishes on the history it started with, matching Queue as the busy-Enter default. An argued `/compact …` line is not a bare invocation and is sent as a message. Until its bracket opens the `/compact` card reads `Waiting to compact…`. Inside a Turn the card stands outside the process group and outside the whole-Turn fold, so neither a collapsed group nor a completed Turn hides it. The Host's fixed English result texts are shown in the reader's language.
+
 <a id="completed-turn-footer"></a>
 ## Completed-turn footer
 
@@ -95,6 +107,8 @@ The completed-turn action footer follows the recorded Turn end. Its action row s
 During uninterrupted following, local transcript and steering echoes remain mounted through Inbox acceptance and claim until the durable message arrives, without triggering tail following twice. Pending steering follows Inbox order across clients, using matching local echoes in place. Admitted local steering also suppresses matching stale Inbox rows until the claim projection arrives; steering without a locally tracked submission continues to follow the Inbox projection. After reconnect, Host-owned rows replace receipt-confirmed local echoes; a claim awaiting admission may briefly have no bubble.
 
 When Chat ends with an open Turn control and that Turn has no visible input, the first local transcript echo precedes the control. Other echoes remain at the flow tail. The control and echoes share one keyed list, so arrival of the control preserves the echo's mounted identity. Durable inputs replace their matching echoes in the same render.
+
+User and steering bubbles, their local submission echoes, and Host-pending steering show the prompt-reference labels recorded on the message source as label-only chips after the message's files and images. No other reference field reaches the DOM, and copy still yields the message text alone.
 
 Work-details modes control process-group display and reasoning previews. Compact, Standard, and Detailed fold eligible completed Turns while keeping every Assistant reply visible, or only the final answer under Final answer only; Verbose retains the duration/status header without a collapse action and shows historical process rows directly. The [business-rule reference](src/client/conversation-nodes/README.md#display-modes) contains the mode table, title behavior, whole-Turn eligibility, clocks, and disclosure resets.
 
@@ -205,6 +219,7 @@ None; Chat presentation does not assemble or mutate provider requests.
 
 - **The transcript reflects the loaded Session window** — older transcript nodes become available only after Session Controller loads the preceding event page. Turn navigation is wider than the window: the rail merges the loaded Turns with the host `turnOutline` projection, so every started Turn gets a fixed-pitch mark (10px apart; a ladder taller than the frame scrolls inside it with gradient fades), and activating an unloaded mark pages history through the Turn's `turn/start` seq before landing on its row. Without the projection (assemblies not mounting `dsh-session-turn-outline`) the rail falls back to loaded Turns only.
 - **Rail previews are card-sized** — one prompt line (50 characters) and up to three response lines (120), on loaded and unloaded Turns alike; an unloaded Turn's response arrives from the outline only once the Turn settled, so an open Turn previews its prompt (or just the Turn number) until then.
+- **Relative file references bind when clicked** — a relative path in an Assistant link, a tool row, or a sent file reference resolves against the Session's current working directory at the click, so after the agent changes directory again, an earlier relative reference resolves against the new directory. Markdown image sources and image-link thumbnails resolve against the Session's workspace when rendered and do not follow directory changes.
 
 
 <a id="dev-note"></a>

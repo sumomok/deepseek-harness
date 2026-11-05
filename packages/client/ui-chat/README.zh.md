@@ -20,6 +20,8 @@ kind: "package-reference"
 - [Chat 隐藏的行](#system-prompt-row)
 - [指令与失败行](#command-and-failure-rows)
 - [轮次 token 用量](#turn-token-usage)
+- [自动压缩](#automatic-compaction)
+- [手动压缩](#manual-compaction)
 - [已完成轮次的页脚](#completed-turn-footer)
 - [轮次过程折叠](#turn-process-folding)
 - [分组渲染](#grouped-rendering)
@@ -37,7 +39,7 @@ kind: "package-reference"
 
 已发送的普通文件附件保留草稿中的[文件卡片圆角](../../../docs/ui-radius.zh.md#radius-scale)。
 
-`ChatView` 通过节点列表外围既有的 `MarkdownDelegateProvider` 提供文件及 HTTP(S) 导航，直接传入 `requestOpenFile`、`openExternalLink` 和 `fileImages`。文件打开动作保留 Chat 的失败反馈与重试处理。Assistant Markdown 文件链接在消息落定后可于右侧栏打开，包括未修改文件的引用。相对路径基于当前查看的 Session 工作区解析；绝对路径仍使用同一 Session 的文件系统访问。`#L24` 和 `#L24-L30` 定位到指定起始行，并复用现有文件标签。文件缺失时显示预览错误状态。
+`ChatView` 通过节点列表外围既有的 `MarkdownDelegateProvider` 提供文件及 HTTP(S) 导航，直接传入 `requestOpenFile`、`openExternalLink` 和 `fileImages`。文件打开动作保留 Chat 的失败反馈与重试处理。Assistant Markdown 文件链接在消息落定后可于右侧栏打开，包括未修改文件的引用。相对路径在点击时基于当前查看的 Session 的当前工作目录解析，尚未记录工作目录时基于其工作区；绝对路径仍使用同一 Session 的文件系统访问。`#L24` 和 `#L24-L30` 定位到指定起始行，并复用现有文件标签。文件缺失时显示预览错误状态。
 
 原生消息图片使用独立的用户与输出位置。`conversation.chat.user.content` Factory 声明 `conversation.chat.user.images`，由 `UserContent` 渲染；Assistant 节点注册声明 `conversation.chat.message.images`，由 `AssistantMarkdown` 渲染。两者通过显式 props 接收图片来源、授权 `loadImage` 和布局参数。官方 `MessageImages` 条目调用共享的 root 作用域 `conversation.images.content` Factory。每个位置均可独立替换，无需复制画廊实现。
 
@@ -47,9 +49,9 @@ Session 作用域的 `conversation.chat.user.content` Factory 只渲染用户内
 
 官方 user 与 steering 共用的渲染器在 `user` 注册项上声明 session-scoped `conversation.chat.user.before` chain slot，并在气泡上方直接通过 `renderSlotChain` 渲染；`steering` 注册项复用该渲染器但不拥有该槽位。owner props 携带 Session 记录的持久化消息 `source` 与行 `kind`；各条目的 `select` 匹配自己负责的来源，首个非 null 结果作为 `matched` 交给获选组件。无匹配时不显示内容。条目自行拥有标记和文案；Chat 不解析消息来源。
 
-独立的 Markdown 图片以内嵌预览显示，点击打开共享图片浮层；本地路径在消息落定后基于当前查看的工作区解析。图片文件链接保持点击打开侧栏，鼠标停留或键盘聚焦时显示缩略图，Esc 关闭缩略图。图片加载失败时保留本地化状态与图片说明；不执行重复图片过滤。
+独立的 Markdown 图片以内嵌预览显示，点击打开共享图片浮层；本地路径在消息落定后基于当前查看的工作区解析，其文件路由 URL 指明当前查看的会话。图片文件链接保持点击打开侧栏，鼠标停留或键盘聚焦时显示缩略图，Esc 关闭缩略图。图片加载失败时保留本地化状态与图片说明；不执行重复图片过滤。
 
-设置 → 通用设置 → 网页链接默认打开方式控制普通点击 Chat HTTP(S) 链接时的目标：「应用内侧边栏」（默认）打开新的右侧 Sidebar Browser tab，「默认浏览器」打开外部标签页。该设置项位于快捷键之后，仅在 Sidebar Browser 可用时显示。若 Sidebar Browser 未注册，两种选择均使用外部浏览器；带修饰键的点击保留原生行为。已认证浏览器的 `ui-chat.linkOpening` 偏好在 Host 上持久化，设置无法持久化写入时仅在当前进程内生效。已发送的文件引用及消息日志确认调用的 skill 也可在右侧栏打开预览。文件路径使用当前查看的 Session；skill 名称由该 Session 当前的输入触发源解析。两者悬停或聚焦时均使用正文文件链接的虚线下划线。会话、目录和命令标签仍只作为引用展示。
+设置 → 通用设置 → 网页链接默认打开方式控制普通点击 Chat HTTP(S) 链接时的目标：「应用内侧边栏」（默认）打开新的右侧 Sidebar Browser tab，「默认浏览器」打开外部标签页。该设置项位于快捷键之后，仅在 Sidebar Browser 可用时显示。若 Sidebar Browser 未注册，两种选择均使用外部浏览器；带修饰键的点击保留原生行为。已认证浏览器的 `ui-chat.linkOpening` 偏好在 Host 上持久化，设置无法持久化写入时仅在当前进程内生效。已发送的文件引用及消息日志确认调用的 skill 也可在右侧栏打开预览。文件路径与 Markdown 文件链接一样，在点击时基于当前查看的 Session 的当前工作目录解析；skill 名称由该 Session 当前的输入触发源解析。两者悬停或聚焦时均使用正文文件链接的虚线下划线。会话、目录和命令标签仍只作为引用展示。
 
 <a id="system-prompt-row"></a>
 ## Chat 隐藏的行
@@ -80,6 +82,16 @@ Assistant 尝试结束且没有可见消息时，Chat 隐藏已发布的 Node，
 
 偏好菜单在发布新选择之前，先将焦点还给触发按钮，且不引起滚动。
 
+<a id="automatic-compaction"></a>
+## 自动压缩
+
+一次自动压缩在整个生命周期里只占一行：标记对打开期间显示 `正在压缩…`，替换落地后变为 `上下文已压缩` 并附被遮蔽的条目数与近似 token 数，可展开查看后端写下的摘要。被 Stop 取消的标记对不留下任何行，因错误闭合的标记对改为显示失败提示，起点位于已加载窗口之外的标记对只显示其已落地的标记。在轮次内，运行行与失败提示位于过程组之外，组折叠时也不会被藏起；轮次完成后失败提示也位于整轮折叠之外。已落地的标记与其他过程内容一样进组。
+
+<a id="manual-compaction"></a>
+## 手动压缩
+
+设置 → 通用设置 → 繁忙时的压缩行为保存 `ui-chat.busyCompaction`，本包的 Host 插件把它实时提供为 `ctx.manualCompactionTiming`，因此轮次运行期间发送的裸 `/compact` 遵循它：「排队等候」（`turn-end`，默认）在轮次结束后、任何排队轮次的首个请求之前压缩；「立即打断」（`next-step`）在运行中轮次的下一个 step 边界压缩，不取消该轮次，之后没有 step 边界时则在轮次结束后压缩。默认取「排队等候」，因为运行中的轮次会在它开始时的历史上完成，与繁忙时发送默认「排队发送」一致。带参数的 `/compact …` 不是裸调用，会作为消息发送。标记对打开之前，`/compact` 卡片显示 `等待压缩…`。在轮次内，这张卡片位于过程组与整轮折叠之外，组折叠和轮次完成都不会把它藏起。Host 的固定英文结果文本以读者的语言显示。
+
 <a id="completed-turn-footer"></a>
 ## 已完成轮次的页脚
 
@@ -95,6 +107,8 @@ Assistant 尝试结束且没有可见消息时，Chat 隐藏已发布的 Node，
 正常在线时，本地 transcript 与 steering 回显在 Inbox 接受与领取期间保持挂载，直到持久消息到达，不会重复触发跟随底部。跨客户端的待处理 steering 遵循 Inbox 顺序，在匹配位置使用本地回显。已入档的本地 steering 还会排除匹配的旧 Inbox 行，直到领取投影到达；没有本地提交身份的 steering 仍按 Inbox 投影显示。重连后，Host 消息替代已有接收回执的本地回显；已领取但尚未入档时，气泡可能短暂消失。
 
 Chat 末尾为进行中的 Turn 控制行，且该轮尚无可见输入时，第一条本地 transcript 回显显示在控制行前。其他回显保留在正文末尾。控制行与回显共用一个 keyed 列表，因此控制行到达时不会重新挂载回显。持久输入在同一次渲染中替换匹配的回显。
+
+用户与 steering 气泡、它们的本地提交回显，以及 Host 待处理的 steering，会在消息的文件与图片之后，把消息来源上记录的提示词引用标签显示为只含标签的 chip。引用的其他字段不会进入 DOM，复制得到的仍只有消息文字。
 
 工作步骤展示模式控制过程组显示与推理预览。简洁、标准、详细模式收起符合条件的已完成轮次，保留所有 Assistant 回复可见，选「仅最终回答」时只保留最终答案；完全展开模式保留时长或状态抬头，但不支持收起，历史过程行直接显示。[业务规则明细](src/client/conversation-nodes/README.zh.md#display-modes) 统一说明模式表、组头行为、整轮折叠资格、时钟与开合重置。
 
@@ -205,6 +219,7 @@ Chat view 在标记了 `data-text-interaction-source` 的业务节点上检测�
 
 - **transcript 只反映已加载的 Session 窗口**——只有会话控制器加载前一页事件后，更早的 transcript node 才会出现。轮次导航比窗口更宽：轨道把已加载的轮次与宿主 `turnOutline` 投影合并，每个已开始的轮次都有固定间距刻度（相隔 10px；阶梯高于外框时在框内滚动并以渐变淡出标示可滚方向），激活未加载刻度会先把历史分页拉到该轮次的 `turn/start` seq 再落到它的行上。没有该投影时（未挂载 `dsh-session-turn-outline` 的装配），轨道回退到仅显示已加载轮次。
 - **导航预览按卡片尺寸截断**——提示词一行（50 字符）、回复至多三行（120 字符），已加载与未加载 Turn 一致；未加载 Turn 的回复要等该轮落定后才随大纲到达，进行中的轮次在此之前只预览提示词（或仅轮次号）。
+- **相对文件引用在点击时绑定**——Assistant 链接、工具行或已发送文件引用中的相对路径按点击那一刻 Session 的当前工作目录解析，因此 agent 再次切换目录后，较早的相对引用会按新目录解析。Markdown 图片来源与图片链接缩略图在渲染时按 Session 工作区解析，不跟随目录切换。
 
 
 <a id="dev-note"></a>

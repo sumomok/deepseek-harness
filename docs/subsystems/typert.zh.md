@@ -440,7 +440,7 @@ interface TypertGateway {
   /** Carrier adapter shared by WebSocket and in-process transports. */
   readonly wireStream: TypertGatewayWireStream
   /**
-   * Check for an active owner Client event stream, the only kind that can answer forwarded waterfalls.
+   * Check for an active owner Client event stream, the only kind that receives every forwarded waterfall.
    * @returns whether an owner stream is open and has not been cancelled.
    */
   hasLiveClient(): boolean
@@ -535,7 +535,9 @@ registerPolicy<K extends Exclude<keyof PrincipalMap, 'owner'>>(kind: K, policy: 
 invalidate(principal?: Principal): void
 
 /**
- * Gateway-only: decide one request whose resources the Gateway resolved.
+ * Decide one request whose resources its caller resolved: the Gateway for
+ * calls and forwarded events, or the `serveNonOwner` access rule of an exact
+ * Connection Fetch route, which names its route path as the action.
  * The owner is allowed, and so is `remoteAccess/follow`: every Peer reads
  * its own snapshot. Otherwise the action is allowed only when, on every
  * listed resource, some binding of the principal's policy names that
@@ -548,7 +550,8 @@ invalidate(principal?: Principal): void
  *   no binding allows, else `explain()`'s reason, else `no-allow`;
  *   `policy-failed` when `bindings()`, a condition, or `explain()` throws,
  *   logged once per policy until the next `invalidate()`. The Gateway
- *   throws `remote-access/denied` for a denied call and drops a denied event.
+ *   throws `remote-access/denied` for a denied call and drops a denied event;
+ *   a route answers 403.
  */
 decide(request: RemoteAccessRequest<Principal>): RemoteAccessDecision
 
@@ -661,7 +664,7 @@ Resolve strict generated definitions or conservative SRC markers against current
 
 ```ts cordis-catalog
 /**
- * Check for an active owner Client event stream, the only kind that can answer forwarded waterfalls.
+ * Check for an active owner Client event stream, the only kind that receives every forwarded waterfall.
  * @returns whether an owner stream is open and has not been cancelled.
  */
 hasLiveClient(): boolean
@@ -694,6 +697,50 @@ async invoke(request: InvokeRemoteRequest): Promise<unknown>
  * @returns a cancellation-aware iterable over the business results.
  */
 async stream(request: InvokeRemoteRequest): Promise<AsyncIterable<unknown>>
+```
+
+Source: [`packages/api/gateway/src/index.ts`](../../packages/api/gateway/src/index.ts)
+
+<a id="remote-stream-events"></a>
+
+### `remote-stream/*` events
+
+<a id="remote-streamsocket-closed--emit"></a>
+
+#### `remote-stream/socket-closed` — emit
+
+A socket announced by `remote-stream/socket-opened` has closed and every logical stream it carried has finished, whether the Client closed it, its Peer was disposed (close code 1001), or the Gateway unloaded.
+
+```ts cordis-catalog
+/**
+ * A socket announced by `remote-stream/socket-opened` has closed and every
+ * logical stream it carried has finished, whether the Client closed it,
+ * its Peer was disposed (close code 1001), or the Gateway unloaded.
+ * @param peer - Peer admitted at upgrade.
+ * @param socketId - identity from the matching `remote-stream/socket-opened`.
+ * @mode emit
+ */
+'remote-stream/socket-closed'(peer: PeerScope, socketId: RemoteSocketId): void
+```
+
+Source: [`packages/api/gateway/src/index.ts`](../../packages/api/gateway/src/index.ts)
+
+<a id="remote-streamsocket-opened--emit"></a>
+
+#### `remote-stream/socket-opened` — emit
+
+A `/api/remote.mux` WebSocket was accepted and bound to the Peer Connection admitted at upgrade; every logical stream it carries speaks for that Peer.
+
+```ts cordis-catalog
+/**
+ * A `/api/remote.mux` WebSocket was accepted and bound to the Peer
+ * Connection admitted at upgrade; every logical stream it carries speaks
+ * for that Peer.
+ * @param peer - Peer admitted at upgrade.
+ * @param socketId - Host-minted socket identity, repeated by `remote-stream/socket-closed`.
+ * @mode emit
+ */
+'remote-stream/socket-opened'(peer: PeerScope, socketId: RemoteSocketId): void
 ```
 
 Source: [`packages/api/gateway/src/index.ts`](../../packages/api/gateway/src/index.ts)

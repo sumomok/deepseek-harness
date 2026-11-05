@@ -252,6 +252,24 @@ describe('prompt-coupled retirement', () => {
     expect(mock.log.requests('session/prompt')).toMatchObject([{ requestId: handle.requestId, sessionId: SID }])
   })
 
+  it('shows reference labels on the echo and sends the resolved references with the prompt', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    const handle = session.beginSubmission({
+      mode: 'queue', text: '看这里', attachments: [], references: [{ source: 'owner', label: '新增' }],
+    })
+    session.beginSubmission({ mode: 'queue', text: '没有引用', attachments: [], references: [] })
+    // The echo publishes once the Host accepts, so its reference labels are
+    // read from the accepted submission rather than synchronously here.
+    const references = [{ source: 'owner', label: '新增', data: { entry: 'e1' } }]
+    await session.prompt([{ type: 'text', text: '看这里' }], 'queue', undefined, handle.requestId, references)
+    await session.prompt([{ type: 'text', text: '没有引用' }], 'queue', undefined, undefined, [])
+    expect(mock.log.requests('session/prompt')).toMatchObject([
+      { requestId: handle.requestId, content: [{ type: 'text', text: '看这里' }], references },
+      { content: [{ type: 'text', text: '没有引用' }] },
+    ])
+    expect(mock.log.requests('session/prompt')[1]).not.toHaveProperty('references')
+  })
+
   it('an unidentified prompt failure leaves registered echoes alone', async ({ mock, start }) => {
     const session = await sessionBench(mock, start, SID)
     await submitAccepted(session, { mode: 'queue', text: '还在', attachments: [] })

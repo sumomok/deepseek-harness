@@ -1,4 +1,4 @@
-/** Browser plugin owning ZIP download and Markdown copy state, plus feedback controls. */
+/** Browser plugin owning ZIP download, Markdown copy, and feedback state, plus their shared panel. */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -32,8 +32,8 @@ export type { SessionLogDownloadEntry, SessionLogDownloadState } from './control
 export const inject = ['slots', 'locale']
 
 /**
- * Provide the download controller and mount its modal, the Markdown copy
- * controller and its root toast, and both Header actions.
+ * Provide the download and Markdown copy controllers, mount their panel into
+ * the Session Header, and own the copy toast.
  * @param ctx - browser context carrying slots and locale services.
  */
 export function apply(ctx: ClientContext): void {
@@ -75,6 +75,7 @@ export function apply(ctx: ClientContext): void {
       request: (sessionId: SessionId) => controller.download(sessionId),
       copyMarkdown: (sessionId: SessionId) => copyController.copy(sessionId),
       dismiss: (sessionId: SessionId) => { controller.dismiss(sessionId) },
+      cancel: (sessionId: SessionId) => { controller.cancel(sessionId) },
       // The feedback plugin can unload between the menu render and this click.
       openFeedback: (sessionId: SessionId) => { ctx.get('feedbackUi')?.openSession(sessionId) },
     }),

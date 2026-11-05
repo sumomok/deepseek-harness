@@ -54,6 +54,7 @@ kind: "package-library"
 | `Pill` | 可选中的胶囊按钮，用于视图切换与筛选器；接受 `active` 与 `onClick`。 |
 | `SegmentedTabs` | 受控的等宽分段标签，支持滑动指示条及左／右方向键、Home、End 导航。调用方提供文案、标签与面板 id，以及面板内容。默认 `size="md"` 总高 42px、内边距 4px；`size="sm"` 总高 34px、内边距 2px。 |
 | `Tag` | 只读胶囊徽章；`tone` 选择八种配色之一。 |
+| `PromptReferenceChip`, `referenceLabelsOf` | 24px 胶囊，只以标签显示一个提示词引用，悬停标题也是标签；`onActivate` 让标签成为按钮，`remove` 在胶囊内加入移除按钮。`referenceLabelsOf(source)` 从消息来源读取标签，跳过格式不对的条目。 |
 | `PathLabel` | 单行文件路径：目录使用弱化颜色，文件名使用主色，悬停可查看完整路径。空间足够时靠左显示；溢出时保留尾部并在左侧渐隐，路径或尺寸变化时更新。 |
 | `StateDot` | 10px 槽内的绿色 `done`、琥珀色 `warning`、红色 `error`、中性灰色 `idle` 圆点，以及 tertiary 灰色 14px 旋转 `ongoing` loading，其动画在挂载时以及每次动画重启（如列表重排）时固定到文档时间零点，所以所有可见 loading 同相旋转。它是 `aria-hidden` 的，名称由渲染点提供。 `appearance="step"` 以实心勾表示完成、空心圆表示等待。 |
 | `ConnectionIndicator` | 行内连接恢复控件，覆盖断线、重试与已恢复三种状态。 |
@@ -177,7 +178,7 @@ kind: "package-library"
 
 ### 几何与溢出
 
-输出卡片共享同一套几何模型：`white-space: pre` 并横向滚动，让按列对齐的内容保持对齐；超过 `maxLines`（默认 16）时折叠为头部切片加尾部切片，由展开按钮控制，长正文不会撑高卡片。`TerminalBlock` 通过 `CommandText` 让每条原始命令行可选中并横向滚动；提示符和状态保持固定。状态点始终对齐命令的第一个视觉行，包括命令自动折行时。只有横向溢出的文本以具名 group 进入 Tab 顺序，名称使用 owner 的本地化 `commandLine(line)` 标签。能完整显示的文本（包括 Jobs 中已换行的命令）不会添加 Tab 停靠点。尺寸、文本与字体变化会更新可聚焦状态，不改变滚动位置。`TerminalBlock` 把 ANSI 解析为 React span，并带逐行列缓冲处理光标移动，遵循行内擦除、制表位与字符宽度。宿主可按表层选择退出共享几何：把 `--dsl-terminal-command-whitespace` / `--dsl-terminal-line-whitespace` 重绑为 `pre-wrap` 让命令与输出完整换行且不横向滚动；`maxLines: Infinity` 为改用 `--dsl-terminal-output-max-height` 限高滚动的宿主禁用折叠；`copyText` 覆盖复制载荷（并让控件在任何输出出现之前就保持渲染）；`runStateDot: false` 在外围行已携带同一状态时省去状态点，并经 `--dsl-terminal-gutter` 收回其落区。`background` 默认为 false，透传调用的后台标志。后台调用的 `running` 表示启动调用进度：Start 显示该指示，回执使 `running` 变为 false，命令保持静态且不显示状态点或辅助标签。后台调用不显示输出、空输出提示、退出状态 pill 或默认输出 Copy 控件，显式 `copyText` 覆盖仍可使用。横幅分割线跟随渲染出的正文：正在流式输出的 running 卡片像已结束卡片一样把命令与文本分隔开。
+输出卡片共享同一套几何模型：`white-space: pre` 并横向滚动，让按列对齐的内容保持对齐；超过 `maxLines`（默认 16）时折叠为头部切片加尾部切片，由展开按钮控制，长正文不会撑高卡片。`TerminalBlock` 通过 `CommandText` 让每条原始命令行可选中并横向滚动；提示符和状态保持固定。状态点始终对齐命令的第一个视觉行，包括命令自动折行时。只有横向溢出的文本以具名 group 进入 Tab 顺序，名称使用 owner 的本地化 `commandLine(line)` 标签。能完整显示的文本（包括 Jobs 中已换行的命令）不会添加 Tab 停靠点。尺寸、文本与字体变化会更新可聚焦状态，不改变滚动位置。`TerminalBlock` 把 ANSI 解析为 React span，并带逐行列缓冲处理光标移动，遵循行内擦除、制表位与字符宽度。`parseAnsiLines`（及其结果类型 `AnsiLine`）——该渲染背后的分词器——是公开导出项，因此另一个 renderer 可以把同样的输出转换为同样的带样式 span，而无需重复实现该解析器。宿主可按表层选择退出共享几何：把 `--dsl-terminal-command-whitespace` / `--dsl-terminal-line-whitespace` 重绑为 `pre-wrap` 让命令与输出完整换行且不横向滚动；`maxLines: Infinity` 为改用 `--dsl-terminal-output-max-height` 限高滚动的宿主禁用折叠；`copyText` 覆盖复制载荷（并让控件在任何输出出现之前就保持渲染）；`runStateDot: false` 在外围行已携带同一状态时省去状态点，并经 `--dsl-terminal-gutter` 收回其落区。`background` 默认为 false，透传调用的后台标志。后台调用的 `running` 表示启动调用进度：Start 显示该指示，回执使 `running` 变为 false，命令保持静态且不显示状态点或辅助标签。后台调用不显示输出、空输出提示、退出状态 pill 或默认输出 Copy 控件，显式 `copyText` 覆盖仍可使用。横幅分割线跟随渲染出的正文：正在流式输出的 running 卡片像已结束卡片一样把命令与文本分隔开。
 
 </details>
 

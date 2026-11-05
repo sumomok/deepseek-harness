@@ -29,6 +29,7 @@ function injectedOf(c: TestClient): SettingsRootInjected {
 const CHILD_SPECS = {
   'settings.launcher': { kind: 'single', scope: 'root' },
   'settings.trigger': { kind: 'single', scope: 'root' },
+  'settings.trigger.action': { kind: 'list', scope: 'root' },
   'settings.header': { kind: 'single', scope: 'root' },
   'settings.action': { kind: 'list', scope: 'root' },
   'settings.close': { kind: 'single', scope: 'root' },
@@ -113,6 +114,23 @@ describe('ui-settings-general shell', () => {
     expect(listener).toHaveBeenCalled()
     expect(sections.getSnapshot()).not.toBe(rows)
     off()
+  })
+
+  it('projects one nav row per section cell, not per registration', async ({ start }) => {
+    const c = await start()
+    const { sections } = injectedOf(c).hooks
+    const before = sections.getSnapshot().length
+    // A lower-priority entry on an occupied id shadows it: one cell, one
+    // rendered section, so the rail must not grow a second row for it.
+    c.ctx.slots.register(
+      { name: 'settings.section', id: 'models', order: 10, label: 'Shadow', priority: -1 } as never,
+      () => null,
+    )
+    const rows = sections.getSnapshot()
+    expect(rows).toHaveLength(before)
+    expect(rows.filter(row => row.id === 'models')).toHaveLength(1)
+    // The winner is the shadowing entry the outlet renders, not the shadowed one.
+    expect(rows.find(row => row.id === 'models')?.label).toBe('Shadow')
   })
 
   it('shows Account first only while signed in and removes it on sign-out', async ({ start }) => {

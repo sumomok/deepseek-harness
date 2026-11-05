@@ -70,6 +70,7 @@ export type {
   CodeFileType, FileType, FileTypeIconProps, FileTypeKind, FileTypeProjectContext,
 } from './FileTypeIcon.tsx'
 export { UserTextRun, ReferenceChip, type UserTextRunProps, type ReferenceChipProps } from './user-text.tsx'
+export { PromptReferenceChip, referenceLabelsOf } from './PromptReferenceChip.tsx'
 export { Tooltip } from './Tooltip.tsx'
 export type { TooltipSide } from './Tooltip.tsx'
 export { pointerModality } from './input-modality.ts'
@@ -102,6 +103,8 @@ export { TerminalBlock, DEFAULT_TERMINAL_MAX_LINES } from './TerminalBlock.tsx'
 export { CommandText } from './CommandText.tsx'
 export type { CommandTextProps } from './CommandText.tsx'
 export type { TerminalBlockProps, TerminalBlockLabels } from './TerminalBlock.tsx'
+export { parseAnsiLines } from './ansi.ts'
+export type { AnsiLine } from './ansi.ts'
 export { ReadBlock, DEFAULT_READ_MAX_LINES } from './ReadBlock.tsx'
 export type { ReadBlockProps, ReadBlockLine, ReadBlockLabels } from './ReadBlock.tsx'
 export { DiffBlock, DEFAULT_DIFF_MAX_LINES, diffTotals } from './DiffBlock.tsx'
@@ -123,7 +126,10 @@ export type { MarkdownDelegate, MarkdownDelegateProviderProps, MarkdownExternalL
 export { DetailDocument, detailDocumentState, useDetailDocumentLabels } from './DetailDocument.tsx'
 export type { DetailDocumentCopy, DetailDocumentLabels, DetailDocumentRead, DetailDocumentState } from './DetailDocument.tsx'
 export { MarkdownText } from './markdown/MarkdownText.tsx'
-export type { MarkdownCodeLabels, MarkdownFileMentions, MarkdownLabels, MarkdownPathImages } from './markdown/MarkdownText.tsx'
+export type {
+  MarkdownCodeLabels, MarkdownFileMentions, MarkdownLabels, MarkdownPathImages,
+  MarkdownProseReferents, MarkdownProseSpan,
+} from './markdown/MarkdownText.tsx'
 export { extractMarkdownPlainText } from './markdown/plain-text.ts'
 export type { MarkdownPlainTextMode, MarkdownPlainTextOptions } from './markdown/plain-text.ts'
 export * from './icons/index.tsx'

@@ -26,6 +26,15 @@ declare module '@deepseek-ai/cordis' {
      * @mode emit
      */
     'connection/reset'(): void
+    /**
+     * The connection's coarse state changed (deduplicated: fires only on an
+     * actual transition).
+     * @mode emit
+     * @param state - 'connecting' while a physical-carrier attempt is in
+     * flight; 'disconnected' between attempts while the carrier is
+     * unavailable; 'connected' after a generation's handshake succeeds.
+     */
+    'connection/state'(state: ConnectionState): void
   }
 }
 

@@ -1,13 +1,13 @@
 /** Register the Tool call tree, details renderer, and built-in atomic views. */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import type { RemoteHostFacts } from '@deepseek-ai/dsh-api-remotes/client'
-import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import { ToolCallTree } from './tool/ToolCallTree.tsx'
+import { toolHostInject } from './host-info.ts'
 import { CONVERSATION_NS as NS } from './locale.ts'
+import { approvalDiffPreview } from './tool/toolviews/approval-diff-row.tsx'
 import { askQuestionToolview } from './tool/toolviews/ask-question-row.tsx'
 import { bashToolviewSample } from './tool/toolviews/bash-sample.tsx'
 import { fileMutationToolview } from './tool/toolviews/file-mutation-row.tsx'
@@ -26,11 +26,7 @@ export const inject = ['slots', 'remote']
  * @param ctx - Client root context.
  */
 export function apply(ctx: ClientContext): void {
-  const hostInfo: HostObservable<RemoteHostFacts> = {
-    getSnapshot: () => ctx.remote.$host,
-    subscribe: listener => ctx.on('connection/reset', listener),
-  }
-  const toolInject = () => ({ hooks: { hostInfo } })
+  const toolInject = toolHostInject(ctx)
   ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({
     name: 'conversation.chat.node',
     key: 'tool-call',
@@ -50,4 +46,5 @@ export function apply(ctx: ClientContext): void {
   ctx.plugin(todoToolview)
   ctx.plugin(detailsToolview)
   ctx.plugin(askQuestionToolview)
+  ctx.plugin(approvalDiffPreview)
 }

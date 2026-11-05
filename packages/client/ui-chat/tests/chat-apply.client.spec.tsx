@@ -26,6 +26,7 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { QuotaNoticeInjected } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { PerformanceUsageRowInjected } from '../src/client/settings/PerformanceUsageRow.tsx'
+import type { BusyCompactionRowInjected } from '../src/client/settings/BusyCompactionRow.tsx'
 import { CHAT_SETTINGS_NAMESPACE, type ChatSettings } from '../src/chat-settings.ts'
 import { ActivityPill, UsagePill } from '../src/client/chat/StatsPills.tsx'
 import { createFlowMotion, type InputFoldDriver } from '../src/client/chat/flow-motion.ts'
@@ -44,6 +45,10 @@ const SID = 'session-1' as SessionId
 
 async function bench() {
   const runtime = await SlotTestRuntime.create()
+  runtime.ctx.provide('connection', {
+    generation: { getSnapshot: () => ({ host: { home: '/home/fixture' } }), subscribe: () => () => {} },
+    state: createSnapshotStore('connected'),
+  } as never)
   runtime.ctx.provide('fileDrag', { actions: { prepare: async () => ({ start: () => true, release: () => {} }), reportFailure: () => {} }, read: () => undefined } satisfies import('@deepseek-ai/cordis').Context['fileDrag'])
   const chatSettings = stubConfigForm<ChatSettings>()
   runtime.ctx.provide('configForms', {
@@ -52,7 +57,6 @@ async function bench() {
       ? chatSettings.scope
       : stubConfigForm().scope,
   } as never)
-  runtime.ctx.provide('connection', { state: createSnapshotStore('connected') } as never)
   runtime.ctx.provide('layout', { openRightbar: vi.fn(), closeRightbar: vi.fn() } as never)
   runtime.ctx.provide('sidebarRight', { openResource: vi.fn(), openTab: vi.fn() } as never)
   runtime.ctx.provide('sidebarRightTabs', {
@@ -78,7 +82,7 @@ async function bench() {
   await runtime.root.declare({
     'main': { kind: 'keyed', scope: 'root' },
     'shell.overlay': { kind: 'list', scope: 'root' },
-    'conversation.approval.detail': { kind: 'single', scope: 'session' },
+    'conversation.approval.detail': { kind: 'keyed', scope: 'session' },
     'settings.general.item': { kind: 'list', scope: 'root' },
   }, (_props: { renderSlot?: unknown }) => null)
   const conversation = await runtime.mount({
@@ -140,7 +144,9 @@ describe('Chat apply wiring', () => {
     expect(b.runtime.slots.entries('conversation.composer.dock').map(row => row.options.id))
       .toEqual(['activity', 'usage'])
     expect(b.runtime.slots.entries('settings.general.item').map(row => row.options.id))
-      .toEqual(['transcript-view', 'link-opening', 'composer-enter', 'performance-usage'])
+      .toEqual(['transcript-view', 'link-opening', 'composer-enter', 'busy-compaction', 'performance-usage'])
+    expect(b.runtime.slots.entries('conversation.approval.detail').map(row => row.options.key))
+      .toEqual(['bash', 'pwsh'])
     await b.runtime.dispose()
   })
 
@@ -185,6 +191,19 @@ describe('Chat apply wiring', () => {
     expect(() => b.runtime.factoryOf('conversation.chat.user.content')).toThrow('no definition')
   })
 
+  it('declares the user-actions seat on the shared flow', async () => {
+    const b = await bench()
+    onTestFinished(() => b.runtime.dispose())
+    b.runtime.renderRoot()
+    const view = b.runtime.slots.entries('conversation.view')[0]
+    const flow = b.runtime.slots.entries('conversation.chat.flow')[0]
+    expect(b.runtime.slots.spec('conversation.chat.user-actions')).toMatchObject({ kind: 'list', scope: 'session' })
+    expect(flow?.children?.['conversation.chat.user-actions']).toMatchObject({ kind: 'list', scope: 'session' })
+    expect(view?.children?.['conversation.chat.user-actions']).toBeUndefined()
+    await b.chat.dispose()
+    expect(b.runtime.slots.spec('conversation.chat.user-actions')).toBeUndefined()
+  })
+
   it('lets another registrant replace one composer stats pill by id', async () => {
     const b = await bench()
     onTestFinished(() => b.runtime.dispose())
@@ -221,9 +240,34 @@ describe('Chat apply wiring', () => {
     expect(b.chatSettings.set).toHaveBeenCalledWith('transcriptView', choice)
 
     b.chatSettings.publish({
-      status: 'ready', value: { linkOpening: 'sidebar', transcriptView: 'compact', performanceUsage: 'detailed' }, revision: 1, writable: true,
+      status: 'ready', value: { linkOpening: 'sidebar', transcriptView: 'compact', performanceUsage: 'detailed', busyCompaction: 'turn-end' }, revision: 1, writable: true,
     })
     expect(face.hooks.transcriptView.getSnapshot()).toBe('compact')
+  })
+
+  it('mirrors the Host busy-state compaction timing into its Settings row next to busy Enter', async () => {
+    const b = await bench()
+    const row = b.runtime.slots.entries('settings.general.item')
+      .find(entry => entry.options.id === 'busy-compaction')!
+    expect(row.options.order).toBe(21)
+    const injected = row.inject?.() ?? {}
+    const face: BusyCompactionRowInjected = {
+      hooks: injected['hooks'] as BusyCompactionRowInjected['hooks'],
+      setBusyCompaction: injected['setBusyCompaction'] as BusyCompactionRowInjected['setBusyCompaction'],
+    }
+    expect(face.hooks.busyCompaction.getSnapshot()).toBe('turn-end')
+    face.setBusyCompaction('next-step')
+    expect(face.hooks.busyCompaction.getSnapshot()).toBe('next-step')
+    expect(b.chatSettings.set).toHaveBeenCalledWith('busyCompaction', 'next-step')
+    b.chatSettings.publish({ value: { linkOpening: 'sidebar', transcriptView: 'compact', performanceUsage: 'detailed', busyCompaction: 'turn-end' } })
+    expect(face.hooks.busyCompaction.getSnapshot()).toBe('turn-end')
+    b.chatSettings.publish({ value: undefined })
+    expect(face.hooks.busyCompaction.getSnapshot()).toBe('turn-end')
+    b.chatSettings.set.mockRejectedValueOnce(new Error('settings unavailable'))
+    face.setBusyCompaction('next-step')
+    await Promise.resolve()
+    expect(face.hooks.busyCompaction.getSnapshot()).toBe('next-step')
+    await b.runtime.dispose()
   })
 
   it('restores saved collapse timing when the Chat plugin remounts', async () => {
@@ -238,11 +282,11 @@ describe('Chat apply wiring', () => {
       setCollapseTiming('next-input')
       expect(hooks.collapseTiming.getSnapshot()).toBe('next-input')
       expect(b.chatSettings.set).toHaveBeenCalledExactlyOnceWith('collapseTiming', 'next-input')
-      b.chatSettings.publish({ status: 'ready', value: { linkOpening: 'sidebar', transcriptView: 'standard', performanceUsage: 'detailed', collapseTiming: 'next-input' }, revision: 1, writable: true })
+      b.chatSettings.publish({ status: 'ready', value: { linkOpening: 'sidebar', transcriptView: 'standard', performanceUsage: 'detailed', busyCompaction: 'turn-end', collapseTiming: 'next-input' }, revision: 1, writable: true })
       expect(hooks.transcriptView.getSnapshot()).toBe('standard')
       expect(hooks.collapseTiming.getSnapshot()).toBe('next-input')
       expect(b.runtime.slots.entries('settings.general.item').map(entry => entry.options.id))
-        .toEqual(['transcript-view', 'link-opening', 'composer-enter', 'performance-usage'])
+        .toEqual(['transcript-view', 'link-opening', 'composer-enter', 'busy-compaction', 'performance-usage'])
 
       await b.chat.dispose()
       expect(b.runtime.slots.entries('settings.general.item').some(entry => entry.options.id === 'transcript-view')).toBe(false)
@@ -256,7 +300,7 @@ describe('Chat apply wiring', () => {
       expect(remountedHooks.transcriptView.getSnapshot()).toBe('standard')
       expect(b.chatSettings.set).toHaveBeenCalledExactlyOnceWith('collapseTiming', 'next-input')
       expect(b.runtime.slots.entries('settings.general.item').map(entry => entry.options.id))
-        .toEqual(['transcript-view', 'link-opening', 'composer-enter', 'performance-usage'])
+        .toEqual(['transcript-view', 'link-opening', 'composer-enter', 'busy-compaction', 'performance-usage'])
     } finally {
       await b.runtime.dispose()
     }
@@ -269,7 +313,7 @@ describe('Chat apply wiring', () => {
     expect(face.hooks.performanceUsage.getSnapshot()).toBe('detailed')
     face.setPerformanceUsage('compact')
     expect(b.chatSettings.set).toHaveBeenCalledWith('performanceUsage', 'compact')
-    b.chatSettings.publish({ value: { linkOpening: 'sidebar', transcriptView: 'compact', performanceUsage: 'compact' } })
+    b.chatSettings.publish({ value: { linkOpening: 'sidebar', transcriptView: 'compact', performanceUsage: 'compact', busyCompaction: 'turn-end' } })
     expect(face.hooks.performanceUsage.getSnapshot()).toBe('compact')
     for (const entry of [
       ...b.runtime.slots.entries('conversation.composer.dock'),

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   assertReleasedV2Header,
+  RELEASED_V2_EVENT_TYPES,
   releasedV2SessionFormatCodec,
+  restoreReleasedV2Artifact,
   sessionFormatV1ToV2,
 } from '@deepseek-ai/dsh-session-format-v1-to-v2'
 import { assertReleasedV2Artifact } from '../src/testing/validation.ts'
@@ -839,6 +841,103 @@ describe('sessionFormatV1ToV2', () => {
     expect(() => migrateV1ToV2(source)).toThrow(
       /command\/done 7 sourceEventSeq targets consumed assistant\/chunk 3/,
     )
+  })
+
+  it('carries the command/run engagement declaration across the v2 edge', () => {
+    // The v2 disposition table derives from v0's, so the optional member is
+    // retained rather than dropped as unexpected drift.
+    const source: SessionFormatArtifact = {
+      header: { version: 1, id: 'session-engages', createdAt: 10, isSeeded: false, delegationDepth: 0 },
+      inheritedEventCount: 0,
+      events: [
+        event('command/run', 0, 100, {
+          commandId: 'command-1', name: 'permission', source: { kind: 'user' }, engages: false,
+        }),
+        event('command/done', 1, 101, { commandId: 'command-1', kind: 'success' }),
+      ],
+    }
+
+    expect(migrateV1ToV2(source).events[0]).toStrictEqual(
+      event('command/run', 0, 100, {
+        commandId: 'command-1', name: 'permission', source: { kind: 'user' }, engages: false,
+      }),
+    )
+  })
+
+  it('carries a named uninterpreted historical event into v2 with its ignorable envelope', () => {
+    const carried = [
+      { ...event('attachment/materialized', 0, 100, { attachmentId: 'a', locator: 'spill:1' }), ignorable: true },
+      { ...event('permissionRules/decision', 1, 101, { toolName: 'read', outcome: 'deny' }), ignorable: true },
+      { ...event('content/shown', 2, 102, { page: 'reports', by: 'user' }), ignorable: true },
+      {
+        ...event('content/navigated', 3, 103, { page: 'reports', url: '/reports', title: 'Reports', by: 'user' }),
+        ignorable: true,
+      },
+      {
+        ...event('content-surface/selected', 4, 104, { kind: 'page', entryId: 'reports', by: 'user' }),
+        ignorable: true,
+      },
+      {
+        ...event('content-surface/dismissed', 5, 105, { kind: 'page', entryId: 'point-info', by: 'user' }),
+        ignorable: true,
+      },
+      {
+        ...event('content-component/shown', 6, 106, { entryId: 'sales', title: 'Sales', spec: {}, by: 'user' }),
+        ignorable: true,
+      },
+      {
+        ...event('content-component/resolved', 7, 107, { callId: 'call-1', entryId: 'sales', spec: {} }),
+        ignorable: true,
+      },
+    ]
+    const sourceHeader = {
+      version: 1, id: 'v1-uninterpreted', createdAt: 1, isSeeded: false, delegationDepth: 0,
+    } as const
+    const { stage, output } = stageHarness({ id: sourceHeader.id })
+
+    for (const one of carried) stage.transformEvent(one, output)
+
+    expect(output.values).toEqual(carried)
+    // Only the installed-current restorer's `ignorable` branch admits a carried event the v2
+    // vocabulary never declared; the frozen released-v2 writer image refuses every one of them.
+    expect(() => restoreReleasedV2Artifact(
+      {
+        header: sessionFormatV1ToV2.migrateHeader(sourceHeader),
+        inheritedEventCount: 0,
+        events: output.values,
+      },
+      new Set(RELEASED_V2_EVENT_TYPES),
+    )).not.toThrow()
+  })
+
+  it('accepts a subagent descriptor the v0 edge renumbered to version 3', () => {
+    const descriptor = {
+      version: 3,
+      mode: 'continuable',
+      provider: 'spawn',
+      label: '调研黄金类资产与矿股PE',
+      agentProvider: 'deepseek-official',
+      agentModel: 'deepseek-v4-flash-vision-exp',
+    }
+    const source: SessionFormatArtifact = {
+      header: {
+        version: 1,
+        id: 'v1-descriptor',
+        createdAt: 1,
+        isSeeded: false,
+        delegationDepth: 0,
+      },
+      inheritedEventCount: 0,
+      events: [event('subagent/descriptor', 0, 100, descriptor)],
+    }
+
+    const migrated = migrateV1ToV2(source)
+
+    expect(migrated.events[0]?.data).toEqual(descriptor)
+    expect(() => migrateV1ToV2({
+      ...source,
+      events: [event('subagent/descriptor', 0, 100, { ...descriptor, version: 2 })],
+    })).toThrow(/subagent\/descriptor 0 version must be one of 3/)
   })
 
   it('refuses an undeclared v1 event even when its envelope says ignorable', () => {

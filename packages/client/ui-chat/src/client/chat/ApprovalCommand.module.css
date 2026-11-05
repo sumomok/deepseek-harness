@@ -1,0 +1,9 @@
+/* Model-supplied program text: monospace so its spacing carries meaning, and
+   break-all so a long unbroken command wraps inside the approval card instead
+   of widening it. Both describe a command rather than the card's detail seat,
+   which every tool's renderer now shares. Color and metrics come from that
+   seat. */
+.command {
+  font-family: var(--ds-font-family-code);
+  word-break: break-all;
+}

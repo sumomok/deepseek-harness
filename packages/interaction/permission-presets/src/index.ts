@@ -32,7 +32,7 @@ import { APPROVAL_POLICIES, setApprovalPolicy } from '@deepseek-ai/dsh-user-appr
 // Type-only: resolves the required projection service and optional settings/command children.
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-commands'
-import type { PermissionCatalog, PermissionSelection, PresetOption } from './types.ts'
+import type { PermissionCatalog, PermissionSelection, PresetGlyph, PresetOption, PresetTone } from './types.ts'
 
 export type * from './types.ts'
 
@@ -64,7 +64,27 @@ export interface PresetSpec {
   name?: string
   /** One user-facing sentence on what the preset means; omitted when not configured. */
   description?: string
+  /** Which design-set glyph the selector shows; a preset whose id is itself a glyph name needs none. */
+  glyph?: PresetGlyph
+  /** Which tone the access-mode menus paint this preset's row in; omitted rows take the plain label color. */
+  tone?: PresetTone
 }
+
+/** The closed glyph set a preset may name, for schemastery validation of the table. */
+const PRESET_GLYPHS: PresetGlyph[] = ['read-only', 'workspace-write', 'danger-full-access']
+
+/** The closed tone set a preset may name, for schemastery validation of the table. */
+const PRESET_TONES: PresetTone[] = ['danger']
+
+/** One row of the {@link Config} preset table; the domain type keeps every presentation field optional. */
+const presetSpecSchema: z<PresetSpec> = z.object({
+  sandbox: z.union(SANDBOX_MODES as SandboxMode[]).required(),
+  approval: z.union(APPROVAL_POLICIES as ApprovalPolicy[]).required(),
+  name: z.string(),
+  description: z.string(),
+  glyph: z.union(PRESET_GLYPHS),
+  tone: z.union(PRESET_TONES),
+})
 
 /**
  * Returned when effective knob values match no available preset. Clients may
@@ -174,12 +194,7 @@ export interface Config {
 export class PermissionPresetService extends TypertRemoteService {
   // Inline schema call: the config catalog walks `static Config` statically.
   static Config = z.object({
-    presets: z.dict(z.object({
-      sandbox: z.union(SANDBOX_MODES as SandboxMode[]).required(),
-      approval: z.union(APPROVAL_POLICIES as ApprovalPolicy[]).required(),
-      name: z.string(),
-      description: z.string(),
-    })).default({
+    presets: z.dict(presetSpecSchema).default({
       'workspace-write': {
         sandbox: 'workspace-write', approval: 'ask',
         name: 'workspace-write', description: 'Write inside the workspace and permitted temporary directories; wider retries require approval.',
@@ -257,6 +272,12 @@ export class PermissionPresetService extends TypertRemoteService {
         name: 'permission',
         description: 'Switch the permission preset (sandbox mode + approval policy)',
         input: { hint: '<preset>' },
+        // Configures what the session may do rather than contributing to the
+        // conversation. The Intent hero's own access-mode chip runs this
+        // command, so engaging here would close the hero — and the workspace
+        // and agent-preset choices that live only there — the moment someone
+        // set an access mode for a session they had not started yet.
+        engages: false,
         // No settlement text labels its value with this command's own name: a
         // surface that renders `name · text` (the web command row) would
         // otherwise read `permission · Permission preset: workspace-write.`
@@ -386,7 +407,13 @@ export class PermissionPresetService extends TypertRemoteService {
       return { value: CUSTOM_PRESET, name: 'Custom', description: 'Current sandbox and approval settings do not match a preset.' }
     }
     const spec = this.resolve(name)
-    return { value: name, name: spec.name ?? name, ...spec.description !== undefined ? { description: spec.description } : {} }
+    return {
+      value: name,
+      name: spec.name ?? name,
+      ...spec.description !== undefined ? { description: spec.description } : {},
+      ...spec.glyph !== undefined ? { glyph: spec.glyph } : {},
+      ...spec.tone !== undefined ? { tone: spec.tone } : {},
+    }
   }
 
   /**

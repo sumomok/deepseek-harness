@@ -128,9 +128,27 @@ describe('Markdown file links', () => {
         <MarkdownText text={`[source](${target})`} />
       </MarkdownDelegateProvider>,
     )
-    expect(view.getByText('source')).toBeTruthy()
+    // Inert, but not silent: the link text keeps the destination beside it as
+    // plain prose, which is what this fork's renderer does with every
+    // destination the allowlist rejects.
+    expect(view.container.textContent).toBe(`source (${target})`)
     expect(view.container.querySelector('button, a')).toBeNull()
     expect(openFile).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    'src/a.ts',
+    '/workspace/src/index.ts#L24',
+    '../docs/My%20Notes.md#L24-L30',
+    'C:/work/file.ts#L2',
+  ])('shows the destination %s as inert prose when no delegate offers an opener', (target) => {
+    // The document preview, the plan preview, the trajectory table, and the
+    // question composer all render markdown outside any
+    // MarkdownDelegateProvider. Without this fallback the destination would be
+    // dropped on every one of them.
+    const view = render(<MarkdownText text={`[source](${target})`} />)
+    expect(view.container.textContent).toBe(`source (${target})`)
+    expect(view.container.querySelector('button, a')).toBeNull()
   })
 
   it('preserves external links and leaves local links inert without an opener', () => {
@@ -204,7 +222,7 @@ describe('Markdown file links', () => {
     expect(first).toHaveBeenCalledOnce()
     view.rerender(scope())
     expect(view.queryByRole('button')).toBeNull()
-    expect(view.getByText('source')).toBeTruthy()
+    expect(view.container.textContent).toBe('source (src/a.ts)')
     expect(outer).not.toHaveBeenCalled()
   })
 })

@@ -13,8 +13,10 @@
     "src/client/copy-controller.ts",
     "src/client/index.ts",
     "src/client/locales.ts",
+    "src/client/progress.ts",
     "src/routes.ts",
-    "src/css-modules.d.ts"
+    "src/css-modules.d.ts",
+    "src/export-extent.ts"
   ],
   "references": [
     { "path": "../../../vendor/cordis" },

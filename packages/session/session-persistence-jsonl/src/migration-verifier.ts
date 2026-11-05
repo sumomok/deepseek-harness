@@ -17,6 +17,18 @@ type VerificationResponse =
   | { readonly ok: true; readonly result: JsonlVerifiedGeneration }
   | { readonly ok: false; readonly message: string; readonly stack?: string }
 
+/**
+ * The Worker ran the verification and reported its failure: the generation
+ * does not decode to the expected id and event count, or the Worker could not
+ * read it. Every other rejection of {@link verifyCurrentGenerationInWorker} is
+ * a cancellation or a failure of the Worker itself (a Worker `error` event,
+ * an exit before reporting, a nonzero exit after reporting, an invalid
+ * response, or a failed termination) and says nothing about the generation.
+ */
+export class JsonlVerificationRejectedError extends Error {
+  override readonly name = 'JsonlVerificationRejectedError'
+}
+
 /** Process-wide memory bound for full-generation verification isolates. */
 const MAX_CONCURRENT_VERIFIERS = 2
 
@@ -104,6 +116,7 @@ function workerSpawn(request: VerificationRequest): { readonly entry: string | U
  * @param expectedPrefix - verified physical prefix; an append tail may be present and is not validated.
  * @param signal - optional cancellation for scheduler wait and Worker execution.
  * @returns the worker's physical identity and digest after its natural zero exit.
+ * @throws {JsonlVerificationRejectedError} when the Worker rejects the generation.
  */
 export function verifyCurrentGenerationInWorker(
   path: string,
@@ -165,7 +178,7 @@ function runVerificationWorker(
       }
       const response = value as VerificationResponse
       if (!response.ok) {
-        const error = new Error(response.message)
+        const error = new JsonlVerificationRejectedError(response.message)
         if (response.stack !== undefined) error.stack = response.stack
         fail(error)
         return

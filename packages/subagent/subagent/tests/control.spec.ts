@@ -218,12 +218,14 @@ describe('subagent prompt Remote', () => {
       } satisfies RemoteInvocation,
     }).subagents
 
-    await expect(as(GUEST).prompt(promptRequest(), signal)).resolves.toEqual({ messageId: 'm-guest' })
+    const references = [{ source: 'owner', label: 'Row 2', data: { entry: 'e1' } }]
+    await expect(as(GUEST).prompt({ ...promptRequest(), references }, signal)).resolves.toEqual({ messageId: 'm-guest' })
     await expect(as({ kind: 'owner' }).prompt(promptRequest(), signal)).resolves.toEqual({ messageId: 'm-guest' })
     expect(delivery.mock.calls.map(call => call[3])).toEqual([
-      { kind: 'user', rpcId: REQUEST_ID, principal: GUEST },
+      { kind: 'user', rpcId: REQUEST_ID, principal: GUEST, references },
       { kind: 'user', rpcId: REQUEST_ID },
     ])
+    expect(Object.keys(delivery.mock.calls[0]![3])).toEqual(['kind', 'rpcId', 'principal', 'references'])
   })
 
   it('passes steer delivery through the same admission operation', async () => {
@@ -241,6 +243,26 @@ describe('subagent prompt Remote', () => {
 
     await expect(subagents.prompt(promptRequest(), signal)).resolves.toEqual({ messageId: 'm-2' })
     expect(delivery.mock.calls[0]?.[3]).toEqual({ kind: 'user', rpcId: REQUEST_ID })
+  })
+
+  it('records bounded prompt references on the durable source and rejects out-of-bounds ones', async () => {
+    const { subagents } = await bench({ [PARENT]: { status: 'idle' } })
+    const delivery = promptDelivery(subagents).mockResolvedValue('m-ref' as MessageId)
+    const references = [{ source: 'owner', label: 'Row 2', data: { entry: 'e1' } }]
+
+    await expect(subagents.prompt({ ...promptRequest(), references }, signal)).resolves.toEqual({ messageId: 'm-ref' })
+    expect(delivery.mock.calls[0]?.[2]).toEqual([{ type: 'text', text: 'continue' }])
+    expect(delivery.mock.calls[0]?.[3]).toEqual({ kind: 'user', rpcId: REQUEST_ID, references })
+    await expect(subagents.prompt({ ...promptRequest(), references: [] }, signal)).resolves.toEqual({ messageId: 'm-ref' })
+    expect(delivery.mock.calls[1]?.[3]).toEqual({ kind: 'user', rpcId: REQUEST_ID })
+
+    await expect(subagents.prompt({
+      ...promptRequest(),
+      references: [{ source: 'owner', label: 'a\nb', data: {} }],
+    }, signal)).rejects.toMatchObject({
+      code: 'gateway/bad-request', message: 'reference 0 label must not contain control, format, or unpaired surrogate characters',
+    })
+    expect(delivery).toHaveBeenCalledTimes(2)
   })
 
   it('accepts UTC and rejects an empty, untrimmed, malformed, or unknown zone', async () => {

@@ -213,7 +213,14 @@ export function prepareException(
 ): ProgramResult {
   let message: string
   try {
-    const detail: unknown = isNativeError(error) ? error.stack ?? error.message : error
+    // A trimmed stack carries the source position, so prefer it while it fits; a stack
+    // that alone would overflow the remaining budget keeps the message rather than
+    // turning the failure into an output-limit diagnostic.
+    const detail: unknown = isNativeError(error)
+      ? (typeof error.stack === 'string' && jsonStringBytesUpTo(error.stack, remainingOutputBytes) === undefined
+        ? error.message
+        : error.stack ?? error.message)
+      : error
     message = typeof detail === 'string' ? detail : String(detail)
   } catch {
     message = 'program threw an unrenderable value'

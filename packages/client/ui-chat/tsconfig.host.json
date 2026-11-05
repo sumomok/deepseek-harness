@@ -17,6 +17,9 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../compaction/compaction"
+    },
+    {
       "path": "../../settings/settings"
     }
   ]

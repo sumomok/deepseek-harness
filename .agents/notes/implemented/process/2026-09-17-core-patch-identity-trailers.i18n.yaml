@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-17-core-patch-identity-trailers.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-17-core-patch-identity-trailers.md
+/agent-note-core-patch-identity-is-a-slug-in-a-commit-trailer-not-a-commit-hash:
+  en: 5ff0b2095b5fb103
+  zh: a50ac2a6b8c51fca
+/agent-note-core-patch-identity-is-a-slug-in-a-commit-trailer-not-a-commit-hash/problem:
+  en: 5e7bd40ad4de8823
+  zh: 035fa9ccbb5399c7
+/agent-note-core-patch-identity-is-a-slug-in-a-commit-trailer-not-a-commit-hash/decision:
+  en: 5e041cd5ac9dbfa0
+  zh: d04aa7d077b7c762
+/agent-note-core-patch-identity-is-a-slug-in-a-commit-trailer-not-a-commit-hash/alternatives-considered:
+  en: 104d507d410963c6
+  zh: ec0deb88069b54f3
+/agent-note-core-patch-identity-is-a-slug-in-a-commit-trailer-not-a-commit-hash/consequences:
+  en: b2e0f24638a5eb59
+  zh: f4d4f21457de34d8
+/agent-note-core-patch-identity-is-a-slug-in-a-commit-trailer-not-a-commit-hash/revised-after-review:
+  en: 7bca4883fd9d28eb
+  zh: fe2af684db42b2f2

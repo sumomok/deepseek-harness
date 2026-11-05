@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-将插件配置保存到当前 profile 的 patch 并立即应用。写入在改动磁盘前验证完整候选值，并与 profile 更改及 HMR 串行执行。无效值和更高层覆盖不会改动文件。
+将插件配置保存到当前 profile 的 patch 并立即应用。写入在改动磁盘前验证完整候选值，并与 profile 更改及 HMR 串行执行。无效值、更高层覆盖以及新增或改动的 `!!js` 表达式不会改动文件。
 
 ## 目录
 
@@ -67,6 +67,8 @@ kind: "package-reference"
 - 编辑写入当前 profile patch。Home patch 和命令行 overlay 参与优先级解析，但不作为写入目标。
 - 完整配置覆盖保留普通字段，但会在 profile 层固定其当前原始值。
 - 仅可编辑 profile 根 Include 拥有且可唯一定位的条目。
+- Loader 表达式指任何带 `__jsExpr` 键的对象，不论该键的值是什么、对象是否另有其他键。只有当前配置或继承配置的同一路径上已有完全相同的对象时，编辑才能携带它；否则 `edit()` 在验证前抛出 `ConfigExpressionRejectedError`，表达式不会被求值，文件不变。设置表单原样写回已有表达式不受影响。
+- 数组下标属于该路径，因此删除位于含表达式元素之前的数组元素会使表达式移位，该编辑被拒绝。
 
 <a id="dev-note"></a>
 ### 开发备注

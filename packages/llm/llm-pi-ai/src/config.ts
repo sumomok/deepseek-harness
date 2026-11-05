@@ -29,6 +29,7 @@ import {
   MODALITIES,
   PiAiCatalogError,
   resolveRouteModels,
+  supplementalProviderFacts,
   SUPPORTED_THINKING_FORMATS,
   THINKING_LEVELS,
   THINKING_TOKEN_BUDGET_FIELDS,
@@ -400,9 +401,34 @@ function assertValidHeaders(provider: string, headers: Readonly<Record<string, s
 }
 
 /**
+ * The profile with this package's supplemental provider facts underneath it.
+ * A route the installed catalog does not ship keeps a serviceable endpoint,
+ * protocol, transport, and display name before anyone declares them, so a
+ * settings surface can add it by storing only a credential. Every field the
+ * profile sets wins; removing the table entry costs no configuration, and
+ * declaring the same route by hand keeps working unchanged.
+ *
+ * `compat` is deliberately not merged here: {@link resolveRouteModels} applies
+ * it beneath the route's own switches per model, so a route repointed at
+ * another protocol keeps only the switches that protocol takes.
+ * @param provider - provider route key.
+ * @param source - the configured profile.
+ * @returns the profile to resolve, with supplemental defaults beneath it.
+ */
+function withSupplementalProvider(provider: string, source: PiAiProviderProfile): PiAiProviderProfile {
+  const supplemental = supplementalProviderFacts(provider)
+  if (supplemental === undefined) return source
+  const { compat: _compat, ...facts } = supplemental
+  return { ...facts, ...source }
+}
+
+/**
  * Resolve scalar defaults and materialize each route's serviceable models.
- * Deferred catalog validation retains diagnostics without deleting configured
- * routes. An omitted dict resolves to the empty, dormant route set.
+ * Each profile is layered over this package's supplemental facts for its
+ * route, so a route the installed catalog does not ship resolves from a
+ * credential alone. Deferred catalog validation retains diagnostics without
+ * deleting configured routes. An omitted dict resolves to the empty, dormant
+ * route set.
  * @param providers - configured provider profiles keyed by route.
  * @param validation - writes require a complete catalog; stored reads retain catalog diagnostics.
  * @returns validated profiles in configuration order.
@@ -416,7 +442,8 @@ export function resolveProfiles(
   }
   const entries = Object.entries(providers ?? {})
   const resolved = new Map<string, ResolvedPiAiProviderProfile>()
-  for (const [provider, source] of entries) {
+  for (const [provider, configured] of entries) {
+    const source = withSupplementalProvider(provider, configured)
     rejectRemovedFields(provider, source)
     if (provider.length === 0) throw new Error('llm-pi-ai: provider names must be non-empty')
     if (source.baseURL !== undefined && source.baseURL.length === 0) {

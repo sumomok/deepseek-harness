@@ -31,7 +31,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
-  rmSync(root, { recursive: true, force: true })
+  rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
 })
 
 function git(cwd: string, ...args: string[]): string {
@@ -183,8 +183,9 @@ it('refuses a repository that a completed fetch left past its limit', async () =
   const source = repository('e2', Object.fromEntries(Array.from({ length: 1000 }, (_value, index) => [`dir${String(index)}/f.txt`, String(index)])))
   const repositories = cache({ maxRepositoryBytes: 4096, sizePollMs: 3_600_000 })
   await expect(repositories.read(source.url, source.commit, 'dir0/f.txt', 100, signal)).rejects.toMatchObject({ reason: 'too-large' })
+  await repositories.settled()
   expect(readdirSync(join(root, 'cache'))).toEqual([])
-})
+}, 30_000)
 
 it('deletes least recently used repositories beyond the cache size and stale staging directories', async () => {
   const first = repository('f', { 'README.md': 'first' })

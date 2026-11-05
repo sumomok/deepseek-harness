@@ -27,19 +27,19 @@ id: 2026-10-25-skill-catalog-incomplete
 baseline: false
 changes:
   - root: "event:agent/inbox/spliced"
-    previous: "2026-10-22-action-card-status"
+    previous: "2026-10-24-context-lifecycle-message-sources"
     after: "9e8043098fb89db6d7c92a92c70146c5c8d24fa88f733c687fa29e5e7a58ab30"
     decision: same-version
   - root: "event:developer/message"
-    previous: "2026-10-22-action-card-status"
+    previous: "2026-10-24-context-lifecycle-message-sources"
     after: "95acdbd066cf445d37092e5fdfe2e8717ef6ca1aed50f70e2e6037a6989a1f2f"
     decision: same-version
   - root: "event:session/title-llm-request"
-    previous: "2026-10-22-action-card-status"
+    previous: "2026-10-24-context-lifecycle-message-sources"
     after: "eaa9125aec0fb28478096c46e73e21bf512ab0d84d826bfb41e7308707734cb5"
     decision: same-version
   - root: "event:user/message"
-    previous: "2026-10-22-action-card-status"
+    previous: "2026-10-24-context-lifecycle-message-sources"
     after: "39adb7fce8475af6402acd925ea79697b3341c22422ac32833d71217d84e987f"
     decision: same-version
 ```

@@ -1843,6 +1843,21 @@
     },
     {
       "doc": "docs/subsystems/session-query.md",
+      "symbol": "SessionSearchIndexProgress",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/session-query.md",
+      "symbol": "SessionSearchCoverage",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/session-query.md",
+      "symbol": "SessionEventMatchRange",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/session-query.md",
       "symbol": "SessionSearchPage",
       "source": "packages/session-query/session-query/src/types.ts"
     },
@@ -2230,6 +2245,16 @@
       "doc": "docs/subsystems/permission-presets.md",
       "symbol": "PresetSpec",
       "source": "packages/interaction/permission-presets/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/permission-presets.md",
+      "symbol": "PresetGlyph",
+      "source": "packages/interaction/permission-presets/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/permission-presets.md",
+      "symbol": "PresetTone",
+      "source": "packages/interaction/permission-presets/src/types.ts"
     },
     {
       "doc": "docs/subsystems/session-projection.md",

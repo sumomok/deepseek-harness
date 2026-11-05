@@ -5,10 +5,21 @@ import { scheduler } from 'node:timers/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type { ImageAttachmentLimits } from '@deepseek-ai/dsh-attachment'
+// Type-only: merges the command lifecycle events into SessionEventMap so the
+// blank fold can name `command/run`.
+import type {} from '@deepseek-ai/dsh-commands/types'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
-import { SessionQueryError, type SessionRecord, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
+import type SessionQueryEngine from '@deepseek-ai/dsh-session-query'
+import {
+  SessionQueryError,
+  SessionSearchCursor,
+  type SessionRecord,
+  type SessionSearchHit,
+  type SessionSearchPage,
+  type SessionSearchRequest,
+} from '@deepseek-ai/dsh-session-query'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { z } from 'zod'
 import {
@@ -16,11 +27,93 @@ import {
   SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
 } from './types.ts'
 import type {
-  SessionListMetadata, SessionProjectionHints, SessionSearchItem,
+  SessionListMetadata, SessionMessageMatchRange, SessionMessageSearchItem, SessionMessageSearchRequest,
+  SessionMessageSearchValue,
+  SessionProjectionHints, SessionSearchItem,
   SessionSearchValue, SessionSummary,
 } from './types.ts'
 
+/** What one Host-issued message-search continuation carries. */
+interface MessageContinuation {
+  /** Provider continuation, absent on the first page. */
+  readonly cursor: SessionSearchCursor | undefined
+  /**
+   * Page size the provider accepted for this sequence.
+   *
+   * The provider's cursor is bound to the page size it was issued under, so a
+   * later page must ask with the same one. Carrying it here is what lets the
+   * first page degrade to a smaller size without stranding every page after it.
+   */
+  readonly limit: number
+}
+
+/**
+ * Wrap a provider continuation together with the page size it belongs to.
+ * @param cursor - provider continuation for the next page.
+ * @param limit - page size the provider accepted.
+ * @returns the opaque cursor handed back to the caller.
+ */
+function encodeMessageContinuation(cursor: SessionSearchCursor, limit: number): SessionSearchCursor {
+  return SessionSearchCursor(Buffer.from(JSON.stringify({ cursor, limit }), 'utf8').toString('base64url'))
+}
+
+/**
+ * Read a continuation this Host issued, or start a new sequence.
+ * @param raw - cursor the caller sent back, if any.
+ * @returns the provider continuation and the page size to ask with.
+ * @throws {RemoteError} `gateway/bad-request` when the value is not one of ours.
+ */
+function decodeMessageContinuation(raw: SessionSearchCursor | undefined): MessageContinuation {
+  if (raw === undefined) return { cursor: undefined, limit: SESSION_SEARCH_RESULT_LIMIT }
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as Partial<Record<'cursor' | 'limit', unknown>>
+    const cursor = parsed.cursor
+    const limit = parsed.limit
+    if (typeof cursor !== 'string'
+      || typeof limit !== 'number'
+      || !Number.isSafeInteger(limit)
+      || limit < 1
+      || limit > SESSION_SEARCH_RESULT_LIMIT) {
+      throw new Error('continuation does not carry a cursor and a permitted page size')
+    }
+    return { cursor: SessionSearchCursor(cursor), limit }
+  } catch {
+    throw new RemoteError(
+      'gateway/bad-request',
+      'message search cursor is not a cursor this Host issued; restart from the first page',
+      {},
+    )
+  }
+}
+
+/**
+ * Keep only the matched spans that still index the excerpt after truncation.
+ *
+ * The provider reports offsets into the excerpt it returned; the Host bounds
+ * that excerpt again, so a span past the cut would index past the string.
+ * @param snippet - the excerpt this response will carry.
+ * @param matches - spans the provider reported against its own excerpt.
+ * @returns the surviving spans, or undefined when there were none to begin with.
+ */
+function boundedMatches(
+  snippet: string,
+  matches: readonly SessionMessageMatchRange[] | undefined,
+): readonly SessionMessageMatchRange[] | undefined {
+  if (matches === undefined) return undefined
+  return matches
+    .map(range => ({ start: range.start, length: Math.min(range.length, snippet.length - range.start) }))
+    .filter(range => range.start >= 0 && range.length > 0)
+}
+
 const SEARCH_PROVIDER_CALL_LIMIT = 100
+
+/** One admitted search hit and the key that keeps it unique across pages. */
+interface AdmittedHit<TItem> {
+  /** Identity of the provider row this item came from. */
+  readonly key: string
+  /** The item this search returns for that row. */
+  readonly item: TItem
+}
 const SESSION_SEARCH_QUERY_MAX_CHARS = 500
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
 
@@ -40,6 +133,16 @@ const imageLimitsSchema = z.object({
 
 /**
  * Advance the Session-list metadata projection by one committed event.
+ *
+ * `blank` means the Session has nothing to show and nothing to address: it
+ * falls on the first `turn/start` and on the first engaging `command/run`,
+ * and never rises again. A command run counts unless it recorded
+ * `engages: false`, the declaration a command makes when it configures the
+ * session instead of contributing to the conversation; the member is absent
+ * on every ordinary run and on every log written before the declaration
+ * existed. The remaining standalone events (`plan/mode`, `session/title`,
+ * permission and sandbox configuration) never clear it: they record a
+ * setting, not content.
  * @param state - metadata before the event.
  * @param event - next committed Session event.
  * @returns the original or advanced metadata value.
@@ -48,7 +151,9 @@ export function applySessionListMetadata(
   state: SessionListMetadata,
   event: SessionEvent,
 ): SessionListMetadata {
-  const blank = state.blank && event.type !== 'turn/start'
+  const blank = state.blank
+    && event.type !== 'turn/start'
+    && !(event.type === 'command/run' && event.data.engages !== false)
   const lastPromptAt = event.type === 'user/message' && event.data.source.kind === 'user'
     ? event.time
     : state.lastPromptAt
@@ -93,6 +198,13 @@ export class ApiSessionList {
       init: () => ({ blank: true, lastPromptAt: null }),
       apply: applySessionListMetadata,
       wire: { viewSchema: sessionListMetadataSchema, view: state => state },
+      // Held at 1 although the fold changed. The unit carries `blank` and
+      // `lastPromptAt` under one row version, and a discarded row is refolded
+      // only for a Session that is opened again — `summarizeCold` serves the
+      // list from cached rows alone. Bumping it would drop `lastPromptAt` for
+      // every never-reopened Session, ordering and labelling the whole
+      // sidebar by creation time, to correct a `blank` verdict on the
+      // Sessions that ran a command before this build.
       stateVersion: 1,
     })
     await this.ctx.sessionProjections.register<'imageLimits', null>({
@@ -192,7 +304,138 @@ export class ApiSessionList {
    * @returns authorized bounded Session search results.
    */
   async search(query: string, signal: AbortSignal): Promise<SessionSearchValue> {
-    const normalizedQuery = normalizeSearchQuery(query)
+    const { provider, visibleIds } = await this.searchContext(signal)
+    if (visibleIds.size === 0) return { items: [], hasMore: false }
+    return this.collectSearchHits(
+      query,
+      signal,
+      (request, exec) => provider.searchSessions(request, exec),
+      (hit: SessionSearchHit): AdmittedHit<SessionSearchItem> | undefined => {
+        if (!visibleIds.has(hit.header.id)
+          || hit.bestMatch.sessionId !== hit.header.id
+          || hit.bestMatch.surface !== 'current'
+          || !MESSAGE_TYPES.has(hit.bestMatch.type)) return undefined
+        return {
+          key: hit.header.id,
+          item: {
+            sessionId: hit.header.id,
+            snippet: truncateUnicodeCodePoints(hit.bestMatch.snippet, SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS),
+          },
+        }
+      },
+    )
+  }
+
+  /**
+   * Return one page of current visible message content, addressed by event.
+   *
+   * {@link search} answers "which Sessions match", which cannot open anything:
+   * its page groups events and keeps one strong hit per Session. This returns
+   * the events themselves under the provider's own continuation cursor, so a
+   * caller can open the message a snippet came from and ask for the next page
+   * without the Host holding a result set it cannot bound.
+   *
+   * Admission runs after the provider page is read, so a page can arrive with
+   * fewer items than it asked for while still carrying a continuation cursor.
+   * @param request - literal message-content query and an optional cursor.
+   * @param signal - cancellation for list and search reads.
+   * @returns this page's authorized hits and the cursor for the next one.
+   */
+  async searchMessages(request: SessionMessageSearchRequest, signal: AbortSignal): Promise<SessionMessageSearchValue> {
+    const normalizedQuery = normalizeSearchQuery(request.query)
+    // Reject a cursor this Host did not issue before any listing runs, so an
+    // empty corpus cannot turn a malformed continuation into a silent empty page.
+    const continuation = decodeMessageContinuation(request.cursor)
+    const { provider, visibleIds } = await this.searchContext(signal)
+    if (visibleIds.size === 0) return { items: [] }
+    signal.throwIfAborted()
+    try {
+      let pageLimit = continuation.limit
+      while (true) {
+        signal.throwIfAborted()
+        let page
+        try {
+          page = await provider.searchMessages({
+            query: normalizedQuery,
+            eventFilters: [
+              { kind: 'type', values: ['user/message', 'assistant/message'] },
+              // Shadowing is a model-surface fact: the transcript keeps the
+              // conversation above the compaction marker, so those messages
+              // are still what the reader sees and can open.
+              { kind: 'surface', values: ['current', 'shadowed'] },
+            ],
+            limit: pageLimit,
+            ...continuation.cursor === undefined ? {} : { cursor: continuation.cursor },
+          }, { signal })
+          signal.throwIfAborted()
+        } catch (error: unknown) {
+          signal.throwIfAborted()
+          if (continuation.cursor === undefined
+            && error instanceof SessionQueryError
+            && error.code === 'SESSION_QUERY_INVALID_LIMIT'
+            && pageLimit > 1) {
+            pageLimit = Math.max(1, Math.floor(pageLimit / 2))
+            continue
+          }
+          throw error
+        }
+        if (page.items.length > pageLimit) {
+          throw new Error(`session search provider returned ${String(page.items.length)} items; maximum is ${String(pageLimit)}`)
+        }
+        const items: SessionMessageSearchItem[] = []
+        const accepted = new Set<string>()
+        for (const hit of page.items) {
+          if (!visibleIds.has(hit.sessionId)
+            || (hit.surface !== 'current' && hit.surface !== 'shadowed')
+            || !MESSAGE_TYPES.has(hit.type)) continue
+          const address = `${hit.sessionId}:${String(hit.seq)}`
+          if (accepted.has(address)) continue
+          accepted.add(address)
+          const snippet = truncateUnicodeCodePoints(hit.snippet, SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS)
+          const matches = boundedMatches(snippet, hit.matches)
+          items.push({
+            sessionId: hit.sessionId,
+            seq: hit.seq,
+            snippet,
+            ...matches === undefined ? {} : { matches },
+          })
+        }
+        return {
+          items,
+          ...page.nextCursor === undefined
+            ? {}
+            : { nextCursor: encodeMessageContinuation(page.nextCursor, pageLimit) },
+          ...page.coverage === undefined
+            ? {}
+            : { coverage: { status: page.coverage.status, skippedSessions: page.coverage.skippedSessions } },
+        }
+      }
+    } catch (error: unknown) {
+      signal.throwIfAborted()
+      if (error instanceof SessionQueryError) {
+        if (error.code === 'SESSION_QUERY_ABORTED') {
+          throw new RemoteError('gateway/cancelled', 'session search was aborted', {})
+        }
+        if (error.code === 'SESSION_QUERY_STALE_CURSOR') {
+          throw new RemoteError('session/search-cursor-stale', 'restart message search from its first page', {})
+        }
+        if (error.code === 'SESSION_QUERY_INVALID_CURSOR' || error.code === 'SESSION_QUERY_INVALID_LIMIT') {
+          throw new RemoteError('gateway/bad-request', 'message search cursor is not one this Host issued for this query', {})
+        }
+      }
+      throw new RemoteError('gateway/internal', `session search failed: ${String(error)}`, {})
+    }
+  }
+
+  /**
+   * Resolve the mounted query service and the Sessions this caller may see.
+   * @param signal - cancellation for the listing read.
+   * @returns the provider and the ids every hit is checked against.
+   */
+  private async searchContext(signal: AbortSignal): Promise<{
+    provider: SessionQueryEngine
+    visibleIds: Set<SessionId>
+  }> {
     signal.throwIfAborted()
     const provider = this.ctx.get('sessionQuery')
     if (provider === undefined) {
@@ -202,15 +445,44 @@ export class ApiSessionList {
         {},
       )
     }
-    try {
-      const visible = await provider.listSessions(signal)
-      signal.throwIfAborted()
-      const visibleIds = new Set(visible
+    const visible = await provider.listSessions(signal)
+    signal.throwIfAborted()
+    return {
+      provider,
+      visibleIds: new Set(visible
         .filter(record => record.header.cwd !== undefined)
-        .map(record => record.header.id))
-      if (visibleIds.size === 0) return { items: [], hasMore: false }
-      const authorized: SessionSearchItem[] = []
-      const acceptedIds = new Set<SessionId>()
+        .map(record => record.header.id)),
+    }
+  }
+
+  /**
+   * Collect bounded hits from one cursor-paged provider search.
+   *
+   * The grouped session read is the caller: it collects across pages until the
+   * result boundary is known, under one work budget, one limit-degradation
+   * ladder, the restarts its budget allows, and one repetition check. Message search
+   * returns a single page under its own cursor, so it does not come through
+   * here. The provider call and the per-hit admission arrive as arguments.
+   * @param query - literal message-content query.
+   * @param signal - cancellation for the reads behind this page sequence.
+   * @param fetchPage - calls the provider method this search reads from.
+   * @param admit - projects one provider hit, or rejects it with undefined.
+   * @returns admitted items and whether the provider held more than the limit.
+   */
+  private async collectSearchHits<TRow, TItem>(
+    query: string,
+    signal: AbortSignal,
+    fetchPage: (
+      request: SessionSearchRequest,
+      exec: { signal: AbortSignal },
+    ) => Promise<SessionSearchPage<TRow>>,
+    admit: (row: TRow) => AdmittedHit<TItem> | undefined,
+  ): Promise<{ items: TItem[]; hasMore: boolean }> {
+    const normalizedQuery = normalizeSearchQuery(query)
+    signal.throwIfAborted()
+    try {
+      const authorized: TItem[] = []
+      const accepted = new Set<string>()
       const seenCursors = new Set<SessionSearchCursor>()
       let cursor: SessionSearchCursor | undefined
       let providerCalls = 0
@@ -225,7 +497,7 @@ export class ApiSessionList {
         const requestedLimit = pageLimit
         let page
         try {
-          page = await provider.searchSessions({
+          page = await fetchPage({
             query: normalizedQuery,
             eventFilters: [
               { kind: 'type', values: ['user/message', 'assistant/message'] },
@@ -248,7 +520,7 @@ export class ApiSessionList {
             && error instanceof SessionQueryError
             && error.code === 'SESSION_QUERY_STALE_CURSOR') {
             authorized.length = 0
-            acceptedIds.clear()
+            accepted.clear()
             seenCursors.clear()
             cursor = undefined
             continue
@@ -258,18 +530,12 @@ export class ApiSessionList {
         if (page.items.length > requestedLimit) {
           throw new Error(`session search provider returned ${String(page.items.length)} items; maximum is ${String(requestedLimit)}`)
         }
-        for (const hit of page.items) {
+        for (const row of page.items) {
           if (authorized.length > SESSION_SEARCH_RESULT_LIMIT) continue
-          if (!visibleIds.has(hit.header.id)
-            || hit.bestMatch.sessionId !== hit.header.id
-            || hit.bestMatch.surface !== 'current'
-            || !MESSAGE_TYPES.has(hit.bestMatch.type)
-            || acceptedIds.has(hit.header.id)) continue
-          acceptedIds.add(hit.header.id)
-          authorized.push({
-            sessionId: hit.header.id,
-            snippet: truncateUnicodeCodePoints(hit.bestMatch.snippet, SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS),
-          })
+          const admitted = admit(row)
+          if (admitted === undefined || accepted.has(admitted.key)) continue
+          accepted.add(admitted.key)
+          authorized.push(admitted.item)
         }
         if (page.nextCursor !== undefined) {
           if (seenCursors.has(page.nextCursor)) {

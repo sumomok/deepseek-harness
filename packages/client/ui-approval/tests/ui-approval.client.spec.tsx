@@ -359,7 +359,7 @@ describe('ApprovalPanel', () => {
     expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Allow once' }).disabled).toBe(true)
   })
 
-  it('renders correlated detail and returns allow-once', async () => {
+  it('dispatches correlated detail by tool name and returns allow-once', async () => {
     const pending = new PendingApproval(id('s1'), {
       toolName: 'bash',
       callId: 'call-1' as ToolCallId,
@@ -370,14 +370,31 @@ describe('ApprovalPanel', () => {
 
     expect(screen.getByText('Run this exact command')).toBeTruthy()
     expect(screen.getByText('pnpm test')).toBeTruthy()
-    expect(renderSlot).toHaveBeenCalledWith('conversation.approval.detail', {
-      callId: 'call-1',
-    })
+    expect(renderSlot).toHaveBeenCalledWith(
+      'conversation.approval.detail',
+      { callId: 'call-1' },
+      { entryKey: 'bash' },
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Allow once' }))
     expect(document.querySelector('[data-approval-key] [data-state="ongoing"]')).not.toBeNull()
     expect(document.querySelector('[data-approval-key]')?.getAttribute('aria-busy')).toBe('true')
 
     await expect(pending.result).resolves.toBe('allowed-once')
+  })
+
+  it('dispatches an unregistered tool name so the key domain stays open', () => {
+    const pending = new PendingApproval(id('s1'), {
+      toolName: 'write',
+      callId: 'call-2' as ToolCallId,
+    })
+    const renderSlot = vi.fn(() => null)
+    render(<ApprovalPanel {...panelProps(pending, renderSlot)} />)
+
+    expect(renderSlot).toHaveBeenCalledWith(
+      'conversation.approval.detail',
+      { callId: 'call-2' },
+      { entryKey: 'write' },
+    )
   })
 
   it('keeps the audit reason intact and follows the UI language for presentation copy', () => {

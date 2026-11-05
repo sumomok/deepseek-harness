@@ -10,6 +10,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only: the Workspace registry's archive-admission family map this seam merges `job` into.
 import type {} from '@deepseek-ai/dsh-workspace/types'
 import type { JobId } from './brand.ts'
+import type { JobNotify } from './types.ts'
 
 /**
  * Job lifecycle: `running`, optionally `stopping`, then exactly one terminal
@@ -76,6 +77,8 @@ export interface JobView {
   readonly owner?: SessionId
   /** Producer-owned cap for complete model-facing notices and reads, in UTF-8 bytes. */
   readonly outputLimitBytes?: number
+  /** Whether the producer's settlement notice may open a turn on an idle owner. */
+  readonly notify?: JobNotify
   /** Current lifecycle state. */
   readonly status: JobStatus
   /** The producer's live progress line (`3/10`, the current phase); cleared at settlement. */

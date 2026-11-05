@@ -82,6 +82,7 @@ export const VIEWER_ENDPOINT_CLASSES = {
   // No reader role names these and no plugin offers them today, so the conservative class is
   // owner-only. A plugin that intends to expose one reclassifies it as 'plugin-offered', which still
   // only makes it eligible for the declaration path; the owner's per-share selection is the grant.
+  'session/probeTargets': 'owner-only', // stats absolute paths on the owner's filesystem; a reader must not learn which exist
   'account/ackBonusNotified': 'owner-only', // owner account and sign-in; the served page never reads it
   'account/cancelSignIn': 'owner-only', // owner account and sign-in; the served page never reads it
   'account/getBalance': 'owner-only', // owner account and sign-in; the served page never reads it
@@ -101,6 +102,7 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'session/initializeDefaultModel': 'owner-only', // owner initializes a Session default model
   'session/openWorkspacePath': 'owner-only', // owner opens a Workspace path
   'session/search': 'owner-only', // owner searches across Sessions
+  'session/searchMessages': 'owner-only', // owner opens an indexed message; a viewer sees one shared Session
   'session/selectModel': 'owner-only', // owner selects a Session model
   'session/updateQueue': 'owner-only', // owner edits queued input
   'session/workspacePathApplications': 'owner-only', // owner applies a Workspace path

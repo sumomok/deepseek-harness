@@ -9,6 +9,12 @@ describe('fileMediaUrl', () => {
       expect(url.searchParams.get('path')).toBe(path)
     },
   )
+  it('names the Session a non-owner read is scoped to, and only when given', () => {
+    const scoped = new URL(fileMediaUrl('https://host/', '/work/a b.png', 's 1&x')!)
+    expect(scoped.searchParams.get('path')).toBe('/work/a b.png')
+    expect(scoped.searchParams.get('sessionId')).toBe('s 1&x')
+    expect(new URL(fileMediaUrl('https://host/', '/work/a.png')!).searchParams.has('sessionId')).toBe(false)
+  })
   it.each(['image.png', '//host/image.png', '\\\\host\\image.png', '/work/\u0000.png', '/work/\n.png'])(
     'rejects a non-local or invalid path %s', (path) => {
       expect(fileMediaUrl('https://host/', path)).toBeUndefined()

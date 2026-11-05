@@ -73,7 +73,12 @@ export function PermissionRow({ load, select, usePermission, t }: PermissionRowP
         <Menu
           open={open}
           onClose={() => { setOpen(false) }}
-          items={state.options.map(option => ({ id: option.id, label: optionLabel(option) }))}
+          items={state.options.map(option => ({
+            id: option.id,
+            label: optionLabel(option),
+            // The tone set is closed at one member.
+            ...option.tone === 'danger' ? { danger: true } : {},
+          }))}
           selectedId={state.currentValue}
           onSelect={(id) => {
             setOpen(false)

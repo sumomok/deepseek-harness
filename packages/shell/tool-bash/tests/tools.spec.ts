@@ -351,7 +351,7 @@ describe('bash tool', () => {
     const pending = executeToolFixture(ctx, {
       callId: ToolCallId('call-abort'),
       name: 'bash',
-      arguments: { command: 'sleep 60', description: 'test command' },
+      arguments: { command: 'exec sleep 60', description: 'test command' },
       signal: controller.signal,
     })
     setTimeout(() => { controller.abort() }, 50)
@@ -396,6 +396,46 @@ describe('bash tool', () => {
     const result = await call(ctx, 'bash', args)
     expect(result.isError).toBe(true)
     expect(text(result)).toMatch(pattern)
+  })
+
+  it.each([
+    ['sleep 30; echo waited', true],
+    ['sleep 1m; echo waited', true],
+    ['  sleep 12', true],
+  ])('blocks a leading foreground sleep in %j', async (command) => {
+    const ctx = await setup()
+    const result = await call(ctx, 'bash', { command, description: 'wait' })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toMatch(/blocked: a leading sleep of \d+ seconds holds the turn/)
+    expect(text(result)).toContain('run_in_background: true')
+  })
+
+  it('leaves a short leading sleep alone', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'bash', { command: 'sleep 1; echo ok', description: 'short wait' })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('ok')
+  })
+
+  it('leaves a sleep that opens a loop alone', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'bash', { command: 'for i in 1; do sleep 0.1; done; echo ok', description: 'loop' })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('ok')
+  })
+
+  it('leaves a long sleep that is not leading alone', async () => {
+    const ctx = await setup()
+    // The deadline, not the guard, bounds this one: it must reach the timeout path.
+    const result = await call(ctx, 'bash', { command: 'echo start; sleep 30', description: 'later wait', timeoutMs: 100 })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('timed out')
+  })
+
+  it('allows a long sleep once the call is backgrounded', async () => {
+    const ctx = await setupWithJobs()
+    const result = await call(ctx, 'bash', { command: 'sleep 30', description: 'wait', run_in_background: true })
+    expect(result.isError).toBe(false)
   })
 
   it('rejects a non-JSON numeric argument before tool-specific validation', async () => {
@@ -558,7 +598,7 @@ describe('the background surface follows the job registry', () => {
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(backgroundAdvertised(ctx)).toBe(true)
     const started = await call(ctx, 'bash', { command: 'echo swapped', description: 'test command', run_in_background: true })
-    expect(text(started)).toBe(`started background job ${currentId(ctx)}`)
+    expect(text(started)).toBe(`started background job ${currentId(ctx)}. It will not reopen your turn — do not wait for it; job_output reads what it has produced so far.`)
     await callUntilText(ctx, 'job_output', { job_id: currentId(ctx) }, '[status: completed')
 
     // The registry leaves; the foreground-only variant returns in its place,
@@ -592,13 +632,19 @@ describe('background execution through the job runtime', () => {
     expect(started.isError).toBe(false)
     if (started.isError) throw new Error('expected background bash success')
     expect(started.value).toEqual({ kind: 'background', jobId: currentId(ctx), cwd: process.cwd() })
-    expect(text(started)).toBe(`started background job ${currentId(ctx)}`)
+    expect(text(started)).toBe(`started background job ${currentId(ctx)}. It will not reopen your turn — do not wait for it; job_output reads what it has produced so far.`)
 
     const read = await callUntilText(ctx, 'job_output', { job_id: currentId(ctx) }, 'bg-ok')
     expect(text(read)).toContain('bg-ok')
     // A later read reports the terminal outcome in the generic status line.
     const final = await callUntilText(ctx, 'job_output', { job_id: currentId(ctx) }, '[status: completed, exit code: 0]')
     expect(final.isError).toBe(false)
+  })
+
+  it('a wake call acks with the reopen promise instead', async () => {
+    const ctx = await setupWithJobs()
+    const started = await call(ctx, 'bash', { command: 'echo bg-wake', description: 'test command', run_in_background: true, notify: 'wake' })
+    expect(text(started)).toBe(`started background job ${currentId(ctx)}. Its completion will reopen your turn — do not poll it; job_output reads what it has produced so far.`)
   })
 
   it('a running background job is killable through the REAL job_kill tool', async () => {
@@ -608,8 +654,9 @@ describe('background execution through the job runtime', () => {
     const killed = await call(ctx, 'job_kill', { job_id: currentId(ctx) })
     expect(text(killed)).toBe(`requested cancellation of job ${currentId(ctx)}`)
     // The cancel reached the process handle; the task settles as killed with
-    // the signal detail mapped by processOutcome.
-    const final = await call(ctx, 'job_output', { job_id: currentId(ctx), wait: true })
+    // the signal detail mapped by processOutcome. A read never waits, so the
+    // outcome appears once the settlement has landed.
+    const final = await callUntilText(ctx, 'job_output', { job_id: currentId(ctx) }, '[status: killed, signal: SIGTERM]')
     expect(text(final)).toContain('[status: killed, signal: SIGTERM]')
   })
 
@@ -617,7 +664,7 @@ describe('background execution through the job runtime', () => {
     const ctx = await setupWithJobs()
     await call(ctx, 'bash', { command: 'kill -TERM $$', description: 'test command', run_in_background: true })
 
-    const final = await call(ctx, 'job_output', { job_id: currentId(ctx), wait: true })
+    const final = await callUntilText(ctx, 'job_output', { job_id: currentId(ctx) }, '[status: killed, signal: SIGTERM]')
     expect(text(final)).toContain('[status: killed, signal: SIGTERM]')
   })
 
@@ -626,7 +673,7 @@ describe('background execution through the job runtime', () => {
     const ctx = await setupWithJobs()
     const agent = await registerFakeAgent(ctx, 'sess-owner')
     const started = await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', run_in_background: true }, agent)
-    expect(text(started)).toBe(`started background job ${currentId(ctx, agent)}`)
+    expect(text(started)).toBe(`started background job ${currentId(ctx, agent)}. It will not reopen your turn — do not wait for it; job_output reads what it has produced so far.`)
 
     const anon = await call(ctx, 'job_output', { job_id: currentId(ctx, agent) })
     expect(anon.isError).toBe(true)
@@ -874,7 +921,7 @@ describe('sandbox escalation through the generic task producer', () => {
     // with the result, and the ordinal is never reused.
     expect(ctx.jobs.list(agent.id)).toEqual([])
     const background = await call(ctx, 'bash', { ...escalate, run_in_background: true }, agent)
-    expect(text(background)).toBe(`started background job ${currentId(ctx, agent)}`)
+    expect(text(background)).toBe(`started background job ${currentId(ctx, agent)}. It will not reopen your turn — do not wait for it; job_output reads what it has produced so far.`)
     expect(bash.modes).toEqual(['workspace-write', 'workspace-write'])
   })
 
@@ -1490,7 +1537,7 @@ describe('the model-facing bash tool builds its request from named args only (no
     // The call really went down the background path (the recorder sees the real
     // request the consumer built, so the absent env/stdin below is a real
     // negative, not a recorder that drops everything).
-    expect(text(result)).toBe(`started background job ${currentId(ctx)}`)
+    expect(text(result)).toBe(`started background job ${currentId(ctx)}. It will not reopen your turn — do not wait for it; job_output reads what it has produced so far.`)
     expect(bash.requests).toHaveLength(1)
     const request = bash.requests[0]!
     expect(request.command).toBe('sleep 1')
@@ -1528,8 +1575,10 @@ describe('resolved launch directory metadata', () => {
       expect(resolving).toHaveBeenCalledOnce()
       expect(resolving).toHaveBeenCalledWith(expect.objectContaining({ workdir: workdir === undefined ? current : join(current, workdir) }))
       expect(launch).toHaveBeenCalledWith(expect.objectContaining({ workdir: directory }))
-      expect(text(result)).toBe(background ? `started background job ${currentId(ctx, owner)}` : 'metadata-ok')
-      if (background) await call(ctx, 'job_output', { job_id: currentId(ctx, owner), wait: true }, owner)
+      expect(text(result)).toBe(background
+        ? `started background job ${currentId(ctx, owner)}. It will not reopen your turn — do not wait for it; job_output reads what it has produced so far.`
+        : 'metadata-ok')
+      if (background) await call(ctx, 'job_output', { job_id: currentId(ctx, owner) }, owner)
     } finally {
       ensure.mockRestore()
       resolving.mockRestore()

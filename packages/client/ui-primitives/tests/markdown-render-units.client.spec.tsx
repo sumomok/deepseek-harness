@@ -23,6 +23,7 @@ function makeContext(): MarkdownRenderContext {
     labels: markdownLabels,
     fileMentions: undefined,
     pathImages: undefined,
+    referents: undefined,
     omitHtml: false,
     targets: createReferenceTargets(),
     footnoteOrder: [],
@@ -221,6 +222,144 @@ describe('renderFootnoteSection edge shapes', () => {
     const item = container.querySelector('li')
     expect(item?.querySelector('.md-code-block')).not.toBeNull()
     expect(item?.textContent).toContain('↩')
+  })
+})
+
+describe('local-path link destinations (hand-built tree — a real parse cannot preserve two literal leading backslashes)', () => {
+  it('offers a UNC destination to resolveLink; a verified span renders the fileMention button style', () => {
+    const span = { start: 0, end: 1 }
+    const context: MarkdownRenderContext = {
+      ...makeContext(),
+      referents: {
+        scan: () => [],
+        open: () => {},
+        resolveLink: destination => (destination === '\\\\server\\share\\report.md' ? span : undefined),
+      },
+    }
+    const node: Md.Link = {
+      type: 'link',
+      url: '\\\\server\\share\\report.md',
+      children: [{ type: 'text', value: 'unc' }],
+    }
+    const container = renderNodes([{ type: 'paragraph', children: [node] }], context)
+    const button = container.querySelector('button')
+    expect(button?.className).toContain('fileMention')
+    expect(button?.textContent).toBe('unc')
+    expect(container.querySelector('a')).toBeNull()
+  })
+
+  it('flattens an image child (no readable text of its own) beside readable siblings, contributing nothing', () => {
+    let seenDisplayText: string | undefined
+    const context: MarkdownRenderContext = {
+      ...makeContext(),
+      referents: {
+        scan: () => [],
+        open: () => {},
+        resolveLink: (_destination, displayText) => {
+          seenDisplayText = displayText
+          return undefined
+        },
+      },
+    }
+    const node: Md.Link = {
+      type: 'link',
+      url: '/proj/report.md',
+      children: [{ type: 'text', value: 'report ' }, { type: 'image', url: 'x.png', alt: 'x' }],
+    }
+    const container = renderNodes([{ type: 'paragraph', children: [node] }], context)
+    expect(seenDisplayText).toBe('report ')
+    expect(container.querySelector('code')?.textContent).toBe('report ')
+  })
+
+  it('leaves an anchor wrapping only images to the anchor renderer, so the images survive', () => {
+    let resolveLinkCalls = 0
+    const context: MarkdownRenderContext = {
+      ...makeContext(),
+      pathImages: { resolve: destination => (destination === '/abs/x.png' ? 'blob:x' : undefined) },
+      referents: {
+        scan: () => [],
+        open: () => {},
+        resolveLink: () => {
+          resolveLinkCalls += 1
+          return { start: 0, end: 1 }
+        },
+      },
+    }
+    const node: Md.Link = {
+      type: 'link',
+      url: '/abs/x.png',
+      children: [{ type: 'image', url: '/abs/x.png', alt: 'alt' }],
+    }
+    const container = renderNodes([{ type: 'paragraph', children: [node] }], context)
+    // The image reaches its own renderer, pathImages rewrite included.
+    expect(container.querySelector('img')?.getAttribute('src')).toBe('blob:x')
+    expect(container.querySelector('img')?.getAttribute('alt')).toBe('alt')
+    // Neither empty stand-in the local-path branch would have produced is present.
+    expect(container.querySelector('button')).toBeNull()
+    expect(container.querySelector('code')).toBeNull()
+    expect(resolveLinkCalls).toBe(0)
+  })
+
+  it('flattens every link-child shape linkPlainText handles: inlineCode value, break as a space, and recursion into a nested-children node', () => {
+    let seenDisplayText: string | undefined
+    const context: MarkdownRenderContext = {
+      ...makeContext(),
+      referents: {
+        scan: () => [],
+        open: () => {},
+        resolveLink: (_destination, displayText) => {
+          seenDisplayText = displayText
+          return undefined
+        },
+      },
+    }
+    const node: Md.Link = {
+      type: 'link',
+      url: '/proj/report.md',
+      children: [
+        { type: 'inlineCode', value: 'code' },
+        { type: 'break' },
+        { type: 'strong', children: [{ type: 'text', value: 'bold' }] },
+      ],
+    }
+    renderNodes([{ type: 'paragraph', children: [node] }], context)
+    expect(seenDisplayText).toBe('code bold')
+  })
+})
+
+describe('local-path link destinations with a literal space (real parse — unlike UNC, both forms survive real CommonMark parsing)', () => {
+  it('parses an angle-bracket destination end to end, handing resolveLink the literal space unmodified', () => {
+    let seenDestination: string | undefined
+    const referents: MarkdownRenderContext['referents'] = {
+      scan: () => [],
+      open: () => {},
+      resolveLink: (destination) => {
+        seenDestination = destination
+        return { start: 0, end: destination.length }
+      },
+    }
+    const { container } = render(
+      <MarkdownText text="[verify 报告.md](</Users/haoran/Documents/workspace/verify 报告.md>)" referents={referents} />,
+    )
+    expect(seenDestination).toBe('/Users/haoran/Documents/workspace/verify 报告.md')
+    expect(container.querySelector('button')?.className).toContain('fileMention')
+  })
+
+  it('parses a %20-encoded destination end to end, decoding it to the same literal space before resolveLink sees it', () => {
+    let seenDestination: string | undefined
+    const referents: MarkdownRenderContext['referents'] = {
+      scan: () => [],
+      open: () => {},
+      resolveLink: (destination) => {
+        seenDestination = destination
+        return { start: 0, end: destination.length }
+      },
+    }
+    const { container } = render(
+      <MarkdownText text="[verify 报告.md](/Users/haoran/Documents/workspace/verify%20报告.md)" referents={referents} />,
+    )
+    expect(seenDestination).toBe('/Users/haoran/Documents/workspace/verify 报告.md')
+    expect(container.querySelector('button')?.className).toContain('fileMention')
   })
 })
 

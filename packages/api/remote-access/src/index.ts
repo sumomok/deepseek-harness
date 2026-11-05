@@ -181,7 +181,9 @@ export class RemoteAccessService extends TypertRemoteService {
   }
 
   /**
-   * Gateway-only: decide one request whose resources the Gateway resolved.
+   * Decide one request whose resources its caller resolved: the Gateway for
+   * calls and forwarded events, or the `serveNonOwner` access rule of an exact
+   * Connection Fetch route, which names its route path as the action.
    * The owner is allowed, and so is `remoteAccess/follow`: every Peer reads
    * its own snapshot. Otherwise the action is allowed only when, on every
    * listed resource, some binding of the principal's policy names that
@@ -194,7 +196,8 @@ export class RemoteAccessService extends TypertRemoteService {
    *   no binding allows, else `explain()`'s reason, else `no-allow`;
    *   `policy-failed` when `bindings()`, a condition, or `explain()` throws,
    *   logged once per policy until the next `invalidate()`. The Gateway
-   *   throws `remote-access/denied` for a denied call and drops a denied event.
+   *   throws `remote-access/denied` for a denied call and drops a denied event;
+   *   a route answers 403.
    */
   decide(request: RemoteAccessRequest<Principal>): RemoteAccessDecision {
     const { principal, action } = request

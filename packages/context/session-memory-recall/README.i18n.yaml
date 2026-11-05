@@ -1,0 +1,64 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/context/session-memory-recall/README.md
+/:
+  en: a0f1b67d0003dc4c
+  zh: 188dd507d6a72f83
+/deepseek-ai-dsh-session-memory-recall:
+  en: 0e6a2d8ff392f318
+  zh: dbabb71941cdc3a0
+/deepseek-ai-dsh-session-memory-recall/summary:
+  en: 988069189dc9ab95
+  zh: c6e9542964745031
+/deepseek-ai-dsh-session-memory-recall/table-of-contents:
+  en: 76368b6b1da79c80
+  zh: 52384aee991ac542
+/deepseek-ai-dsh-session-memory-recall/use-this-package:
+  en: 56959021b64beea2
+  zh: e5ff74a78ea1792f
+/deepseek-ai-dsh-session-memory-recall/use-this-package/what-the-agent-gets:
+  en: ce16f02a801f325b
+  zh: 172b698f5da2973f
+/deepseek-ai-dsh-session-memory-recall/use-this-package/scope-and-exclusions:
+  en: c81acbb7a9c14310
+  zh: d966c379a9a2a8f9
+/deepseek-ai-dsh-session-memory-recall/use-this-package/configuration:
+  en: 22c84755e00cda64
+  zh: c767b9987ca80d3b
+/deepseek-ai-dsh-session-memory-recall/understand-the-implementation:
+  en: ee4615a04fa6503d
+  zh: ee2c5fb2204a43cf
+/deepseek-ai-dsh-session-memory-recall/understand-the-implementation/trigger-and-cache:
+  en: 2997ba254db90bd2
+  zh: 7ae88aeb2d39d029
+/deepseek-ai-dsh-session-memory-recall/understand-the-implementation/dedup:
+  en: 1b3af6218160ae0d
+  zh: 0cf565453806b859
+/deepseek-ai-dsh-session-memory-recall/understand-the-implementation/failure-and-degradation:
+  en: 91eb6403e9d8c78e
+  zh: 7539aa3d7dd6b6c6
+/deepseek-ai-dsh-session-memory-recall/understand-the-implementation/companion-packages:
+  en: 19056d9994f050c4
+  zh: a252e05730a5d5d6
+/deepseek-ai-dsh-session-memory-recall/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-session-memory-recall/model-experience/recalled-prior-session-excerpt:
+  en: d9dfd9e798185323
+  zh: 6acf95a05ecd5212
+/deepseek-ai-dsh-session-memory-recall/model-experience/recalled-prior-session-excerpt/what-the-model-sees:
+  en: de5d4bb2d937fbdc
+  zh: d9bc29aa0437484e
+/deepseek-ai-dsh-session-memory-recall/model-experience/recalled-prior-session-excerpt/token-effect:
+  en: a764a018cc892fd7
+  zh: 29f0b6bff3cacbe5
+/deepseek-ai-dsh-session-memory-recall/model-experience/recalled-prior-session-excerpt/kv-cache-effect:
+  en: 96f076992863f7fb
+  zh: 60f86f2993075476
+/deepseek-ai-dsh-session-memory-recall/known-limitations-and-deferred-work:
+  en: f539df7d2c0f6ce7
+  zh: f4b457d4662ee213
+/deepseek-ai-dsh-session-memory-recall/known-limitations-and-deferred-work/dev-note:
+  en: 192dd76a129bc9d1
+  zh: 549eae27943e9848

@@ -38,14 +38,25 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       scope: 'session'
       props: ApprovalCardInput
       locale: 'approval'
-      children: { 'conversation.approval.detail': { kind: 'single'; scope: 'session' } }
+      children: { 'conversation.approval.detail': { kind: 'keyed'; scope: 'session' } }
     }
   }
 
   interface SlotMap {
-    /** Optional detail for the Tool call correlated with an approval request. */
+    /**
+     * Optional detail for the Tool call correlated with an approval request,
+     * dispatched by the wire Tool name. Register with `key: '<tool name>'` to
+     * own what the pending call shows above the decision buttons — the key
+     * domain is open (any wire tool name), so there is no compile-time key set
+     * and a typo simply never renders. A tool with no entry shows the
+     * request's reason alone, which is what every tool showed before any entry
+     * existed. The owner passes only the correlated call's identity; a
+     * renderer reads that call's arguments off the Chat snapshot, so the
+     * detail stays a pure function of what the session already knows and the
+     * approval package never learns a tool's argument fields.
+     */
     'conversation.approval.detail': {
-      kind: 'single'
+      kind: 'keyed'
       scope: 'session'
       owner: ApprovalDetailOwnerProps
     }
@@ -215,6 +226,8 @@ export interface ApprovalCardInput {
   subject?: { name: string; icon?: string }
   /** Optional tool-owned detail rendered through the existing child slot. */
   callId?: ToolCallId
+  /** Wire tool name keying that detail slot; absent when the caller has no tool identity. */
+  toolName?: string
   /** Caller-specific scope label; ordinary approvals use Allow once. */
   allowLabel?: string
   /** Whether the caller still accepts an answer. */

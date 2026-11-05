@@ -229,12 +229,64 @@ export interface SessionEventSearchDocument extends SessionEventRecord {
   text: string
 }
 
+/**
+ * Observable preparation of the full-text index that a search reads through.
+ *
+ * Every search first opens the index and compares the stored corpus with what
+ * the index already holds. That wait, not the query, is what a caller otherwise
+ * has to report as one undifferentiated "searching" state.
+ *
+ * This counts preparation work; it is not {@link SessionSearchCoverage}, which
+ * reports how much of the observed corpus the finished generation covers. A
+ * completed pass here can still end with unreadable Sessions left out.
+ */
+export interface SessionSearchIndexProgress {
+  /**
+   * `opening` while the backend module and handle open, `reconciling` while the
+   * observed corpus is compared with the index, and `ready` once the pass
+   * finished. A pass that fails reports nothing further, so the last value
+   * stays published until the next search starts another pass.
+   */
+  phase: 'opening' | 'reconciling' | 'ready'
+  /**
+   * Stored Sessions this pass finished deciding, skipped ones included. Live
+   * Sessions are observed in memory and are not part of a pass, so this counts
+   * the stored corpus only.
+   */
+  examined: number
+  /** Stored Sessions the persistence backend listed for this pass; `0` until that listing returns. */
+  total: number
+  /** Examined Sessions whose stored revision matched the indexed one, so their logs were not read again. */
+  skipped: number
+}
+
+/** How much of the logical corpus the indexed generation behind one page covers. */
+export interface SessionSearchCoverage {
+  /**
+   * `complete` when every Session in the observed corpus is indexed, `partial`
+   * when at least one could not be read. A partial page cannot answer "this
+   * does not exist", only "this was not found where it could be looked for".
+   */
+  status: 'complete' | 'partial'
+  /** Sessions the indexed generation could not read. */
+  skippedSessions: number
+}
+
 /** One cursor-paginated result page. */
 export interface SessionSearchPage<T> {
   /** Results for this page in contract-defined order. */
   items: readonly T[]
   /** Opaque continuation cursor, absent on the final page. */
   nextCursor?: SessionSearchCursor
+  /**
+   * Coverage of the indexed generation this page was read from.
+   *
+   * Absent means the provider reported nothing about it, which is not
+   * `complete`; a caller that needs the distinction must read absence as
+   * unknown. The count covers the whole observed corpus, not the Sessions this
+   * particular caller may see.
+   */
+  coverage?: SessionSearchCoverage
 }
 
 /** Event-search results bound to the indexed target-session observation. */
@@ -277,11 +329,46 @@ export interface SessionEventSearchRequest {
   cursor?: SessionSearchCursor
 }
 
+/** One matched span inside a search excerpt, in UTF-16 code units of that excerpt. */
+export interface SessionEventMatchRange {
+  /** Offset of the first matched code unit. */
+  start: number
+  /** Length of the match in code units. */
+  length: number
+}
+
 /** One event full-text search hit with a bounded plain-text excerpt. */
 export interface SessionEventSearchHit extends SessionEventRecord {
   /** Plain text excerpt selected around the match. */
   snippet: string
+  /**
+   * Matched spans inside `snippet`, in UTF-16 code units of that string.
+   *
+   * The provider reports them because it is the only layer that sees the
+   * index's own marking; a renderer cannot recover the spans from the excerpt
+   * after whitespace normalization and case folding.
+   */
+  matches?: readonly SessionEventMatchRange[]
 }
+
+/** A bounded excerpt and the spans inside it that matched. */
+export interface SessionEventSnippet {
+  /** Plain text excerpt selected around the match. */
+  snippet: string
+  /** Matched spans inside `snippet`, in UTF-16 code units of that string. */
+  matches: readonly SessionEventMatchRange[]
+}
+
+/**
+ * Cross-session message-level full-text search request.
+ *
+ * Carries the same normalized inputs as {@link SessionSearchRequest}; the two
+ * differ in what one page spans. A session page groups events and keeps the
+ * strongest event per session, while a message page is the events themselves,
+ * so one session can occupy many entries and each hit is addressed by its own
+ * `sessionId` and `seq`.
+ */
+export type SessionMessageSearchRequest = SessionSearchRequest
 
 /** One grouped cross-session hit, ranked by its strongest matching event. */
 export interface SessionSearchHit extends SessionRecord {

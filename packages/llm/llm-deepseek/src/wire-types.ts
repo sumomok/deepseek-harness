@@ -38,4 +38,6 @@ export type WireRequest = {
     /** Delays tool availability until a tool_addition block activates it. */
     defer_loading?: true
   }[]
+  /** Requires the answer to call one of `tools`. */
+  tool_choice?: { type: 'any' }
 }

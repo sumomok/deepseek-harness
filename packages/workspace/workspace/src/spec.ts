@@ -18,7 +18,8 @@ const sessionId = z.string().transform(value => brandString<SessionId>(value))
 
 /**
  * Durable shape of one workspace record. `path` is the `fs.realpath` canon
- * stamped at create; `sessionIds` is the ordered ownership account (array
+ * stamped at create and re-resolved at registry startup (see
+ * `Workspace.path`); `sessionIds` is the ordered ownership account (array
  * order is display order); timestamps are ISO-8601 strings.
  */
 export const workspaceRecord = z.object({

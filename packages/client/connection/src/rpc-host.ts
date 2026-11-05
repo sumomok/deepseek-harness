@@ -30,8 +30,13 @@ import type {
   ConnectionRequestRejection,
   ConnectionTrustRequest,
   HostConnectionHandle,
+  HostConnectionPeers,
   HostConnectionRpc,
+  PeerAdmitter,
 } from './rpc.ts'
+
+/** Default for Connection's `maxUnclaimedApiPeers` Config field. */
+export const DEFAULT_MAX_UNCLAIMED_API_PEERS = 64
 
 const INVALID_REQUEST_RPC_ID = RpcId('invalid-request')
 const CHANNEL_PATTERN = /^\/[A-Za-z0-9._~-]+$/
@@ -42,6 +47,11 @@ interface PeerRecord {
   ownsSocket: boolean
 }
 
+/** One admission together with the API credential record that authenticated it, if any. */
+type CredentialAdmission =
+  | { readonly peer: PeerScope; readonly record: PeerRecord | undefined }
+  | { readonly rejection: 401 | 403 }
+
 interface ConnectionRpcInterceptor {
   readonly matches: ConnectionRpcEndpointMatcher
   readonly fetchHandler: ConnectionFetchHandler
@@ -51,6 +61,7 @@ interface RegisteredFetchRoute {
   readonly methods: ReadonlySet<string>
   readonly requestBody: ConnectionFetchRoute['requestBody']
   readonly fetch: ConnectionFetchRoute['fetch']
+  readonly serveNonOwner: ConnectionFetchRoute['serveNonOwner']
 }
 
 interface ConnectionServerResponse {
@@ -70,9 +81,10 @@ declare module '@deepseek-ai/cordis' {
 export class HostConnectionService extends Service implements HostConnectionHandle {
   /** The Peer every authenticated browser connection shares. */
   readonly browserPeer: PeerScope
-  private readonly peers = new Map<PeerId, PeerRecord>()
+  private readonly apiPeers = new Map<PeerId, PeerRecord>()
   private readonly owner: Context
   private disposed = false
+  private admitter: PeerAdmitter | undefined
   private readonly interceptors = new Map<string, ConnectionRpcInterceptor>()
   private readonly fetchRoutes = new Map<string, RegisteredFetchRoute>()
 
@@ -83,19 +95,25 @@ export class HostConnectionService extends Service implements HostConnectionHand
    * @param ctx - owning Connection plugin context.
    * @param trustedHosts - deployment authorities accepted by the Host/Origin fence.
    * @param browserAuth - process token and persistent browser-session owner.
+   * @param requireAdmitter - while no Peer admitter is installed, refuse with 401 every request that passes
+   * the Host/Origin checks and browser or API authentication.
+   * @param maxUnclaimedApiPeers - while an admitter is installed or `requireAdmitter` is set, the most API
+   * credentials `/connect` keeps that no socket has claimed.
    */
   constructor(
     ctx: Context,
     private readonly trustedHosts: readonly string[],
     private readonly browserAuth: BrowserAuth,
+    private readonly requireAdmitter = false,
+    private readonly maxUnclaimedApiPeers = DEFAULT_MAX_UNCLAIMED_API_PEERS,
   ) {
     super(ctx, 'connection')
     this.owner = ctx
     this.browserPeer = new Peer(ctx, { principal: { kind: 'owner' } })
     ctx.effect(() => async () => {
       this.disposed = true
-      const peers = [this.browserPeer, ...Array.from(this.peers.values(), record => record.peer)]
-      this.peers.clear()
+      const peers = [this.browserPeer, ...Array.from(this.apiPeers.values(), record => record.peer)]
+      this.apiPeers.clear()
       await Promise.all(peers.map(peer => peer.dispose()))
     }, 'client-connection: Peer scopes')
     this.allowsRemoteAuthorities = trustedHosts.some(isRemoteAuthority)
@@ -119,21 +137,83 @@ export class HostConnectionService extends Service implements HostConnectionHand
     }
   }
 
-  /** Apply the Host/Origin fence and require an authenticated live Peer. */
-  requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection {
-    const admission = this.admit(request)
-    return 'rejection' in admission ? admission.rejection : undefined
+  /** Peer admission seam; the admitter registration belongs to the Context reading this service. */
+  get peers(): HostConnectionPeers {
+    const owner = this.ctx
+    return {
+      requireAdmitter: this.requireAdmitter,
+      admitWith: admitter => this.installAdmitter(owner, admitter),
+    }
   }
 
-  /** Browser requests share an owner Peer; API HTTP does not depend on an attached socket. */
+  /** Apply the Host/Origin fence and require an authenticated live owner Peer. */
+  requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection {
+    const admission = this.admit(request)
+    if ('rejection' in admission) return admission.rejection
+    // Routes gated here bypass every access check, so only the owner passes.
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- other packages merge non-owner kinds into PrincipalMap.
+    return admission.peer.principal.kind === 'owner' ? undefined : 403
+  }
+
+  /**
+   * Browser requests share an owner Peer; API HTTP does not depend on an attached socket.
+   * An installed admitter decides every authenticated request instead.
+   */
   admit(request: ConnectionTrustRequest): PeerAdmission {
+    const admission = this.admitCredential(request)
+    return 'rejection' in admission ? admission : { peer: admission.peer }
+  }
+
+  /** Admit one request and keep the API credential record its Cookie authenticated, whichever Peer it speaks for. */
+  private admitCredential(request: ConnectionTrustRequest): CredentialAdmission {
     if (!this.isTrusted(request)) return { rejection: 403 }
     if (this.disposed) return { rejection: 401 }
     const secure = this.owner.get('webServer')?.protocol === 'https:'
-    if (this.browserAuth.isAuthenticated(request, secure)) return { peer: this.browserPeer }
+    const browser = this.browserAuth.isAuthenticated(request, secure)
+    const record = browser ? undefined : this.apiRecordOf(request, secure)
+    if (!browser && record === undefined) return { rejection: 401 }
+    const admitter = this.admitter
+    if (admitter !== undefined) {
+      const admission = this.admitWithAdmitter(request, admitter)
+      return 'rejection' in admission ? admission : { peer: admission.peer, record }
+    }
+    if (this.requireAdmitter) return { rejection: 401 }
+    return { peer: record?.peer ?? this.browserPeer, record }
+  }
+
+  private apiRecordOf(request: ConnectionTrustRequest, secure: boolean): PeerRecord | undefined {
     const id = this.browserAuth.authenticateApi(request, secure)
-    const record = id === undefined ? undefined : this.peers.get(id)
-    return record === undefined ? { rejection: 401 } : { peer: record.peer }
+    return id === undefined ? undefined : this.apiPeers.get(id)
+  }
+
+  private admitWithAdmitter(request: ConnectionTrustRequest, admitter: PeerAdmitter): PeerAdmission {
+    let verdict: ReturnType<PeerAdmitter>
+    try {
+      verdict = admitter(request)
+    } catch (error) {
+      // A thrown message may quote request headers, so the log names only an Error's `name` or another value's `typeof`.
+      const thrown = error instanceof Error ? error.name : typeof error
+      this.owner.logger.error(`client-connection: the Peer admitter threw ${thrown}; refusing the request with 401`)
+      return { rejection: 401 }
+    }
+    if (verdict === 401 || verdict === 403) return { rejection: verdict }
+    if (verdict !== undefined && !verdict.signal.aborted) return { peer: verdict }
+    this.owner.logger.error(verdict === undefined
+      ? 'client-connection: the Peer admitter named no Peer; refusing the request with 401'
+      : 'client-connection: the Peer admitter returned a disposed Peer; refusing the request with 401')
+    return { rejection: 401 }
+  }
+
+  private installAdmitter(owner: Context, admitter: PeerAdmitter): () => Promise<void> {
+    return owner.effect(() => {
+      if (this.admitter !== undefined) {
+        throw new Error('connection: a Peer admitter is already installed')
+      }
+      this.admitter = admitter
+      return () => {
+        this.admitter = undefined
+      }
+    }, 'client-connection: Peer admitter')
   }
 
   /** Create one in-process Peer owned by the Context that read this service. */
@@ -141,20 +221,23 @@ export class HostConnectionService extends Service implements HostConnectionHand
     return new Peer(this.ctx, options)
   }
 
-  /** Claim API socket ownership synchronously; callers release on termination or failed upgrade. */
+  /**
+   * Claim API socket ownership synchronously; callers release on termination or failed upgrade. The claimed
+   * credential is the request's API Cookie, also when an admitter decides which Peer the socket speaks for.
+   */
   admitConnection(request: ConnectionTrustRequest): ConnectionAdmission {
-    const admission = this.admit(request)
+    const admission = this.admitCredential(request)
     if ('rejection' in admission) return admission
-    const record = this.peers.get(admission.peer.id)
-    if (record === undefined) return { ...admission, release: () => Promise.resolve() }
+    const { peer, record } = admission
+    if (record === undefined) return { peer, release: () => Promise.resolve() }
     if (record.ownsSocket) return { rejection: 409 }
     record.ownsSocket = true
     let released: Promise<void> | undefined
     return {
-      peer: record.peer,
+      peer,
       release: () => {
         if (released !== undefined) return released
-        this.peers.delete(record.peer.id)
+        this.apiPeers.delete(record.peer.id)
         released = record.peer.dispose()
         return released
       },
@@ -168,8 +251,24 @@ export class HostConnectionService extends Service implements HostConnectionHand
 
   private publishPeer(interactions: ConnectionInteractions): PeerId {
     const peer = new Peer(this.owner, { principal: { kind: 'owner' }, interactions })
-    this.peers.set(peer.id, { peer, ownsSocket: false })
+    this.apiPeers.set(peer.id, { peer, ownsSocket: false })
+    if (this.admitter !== undefined || this.requireAdmitter) this.retireUnclaimedApiPeers()
     return peer.id
+  }
+
+  /**
+   * Retire the oldest API credentials that no socket has claimed beyond `maxUnclaimedApiPeers`. A deployment
+   * with an admitter hands the launch token to every member, so each `/connect` would otherwise keep one owner
+   * API Peer for the Host's lifetime.
+   */
+  private retireUnclaimedApiPeers(): void {
+    const unclaimed = [...this.apiPeers.values()].filter(record => !record.ownsSocket)
+    for (const record of unclaimed.slice(0, Math.max(0, unclaimed.length - this.maxUnclaimedApiPeers))) {
+      this.apiPeers.delete(record.peer.id)
+      void record.peer.dispose().catch((error: unknown) => {
+        this.owner.logger.error('client-connection: disposing a retired API Peer failed', error)
+      })
+    }
   }
 
   /**
@@ -216,9 +315,9 @@ export class HostConnectionService extends Service implements HostConnectionHand
         const pathname = new URL(request.url).pathname
         const route = this.fetchRoutes.get(pathname)
         if (route?.methods.has(request.method) === true) {
-          // Exact routes bypass Gateway access checks, so only the owner reaches them.
+          // Exact routes bypass Gateway access checks, so only the owner reaches them unless the route declares its own rule.
           // oxlint-disable-next-line typescript/no-unnecessary-condition -- other packages merge non-owner kinds into PrincipalMap.
-          if (peer.principal.kind !== 'owner') return Promise.resolve(new Response('forbidden', { status: 403 }))
+          if (peer.principal.kind !== 'owner') return nonOwnerFetch(route, request, peer)
           return route.fetch(request)
         }
         const endpoint = endpointFromPath(channel, pathname)
@@ -240,6 +339,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
       methods: new Set(route.methods),
       requestBody: route.requestBody,
       fetch: route.fetch,
+      serveNonOwner: route.serveNonOwner,
     }
     return owner.effect(() => {
       if (this.fetchRoutes.has(route.path)) {
@@ -299,6 +399,14 @@ export class HostConnectionService extends Service implements HostConnectionHand
       }
     }, `client-connection: ${channel} rpc interceptor`)
   }
+}
+
+/** Hand a non-owner request to the route's own access rule; without one, refuse it. */
+function nonOwnerFetch(route: RegisteredFetchRoute, request: Request, peer: PeerScope): Promise<Response> {
+  if (route.serveNonOwner === undefined) return Promise.resolve(new Response('forbidden', { status: 403 }))
+  // The Peer may have been disposed while the bridge read the body or a connection/request listener awaited.
+  if (peer.signal.aborted) return Promise.resolve(new Response('unauthorized', { status: 401 }))
+  return route.serveNonOwner(request, peer)
 }
 
 function rpcFetchHandler(

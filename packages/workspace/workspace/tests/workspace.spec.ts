@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join, relative } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -39,6 +39,8 @@ interface HarnessOptions {
   liveSessions?: SessionHeader[]
   sessionStore?: boolean
   backend?: StorageBackend
+  /** Runs on the root context before the registry starts. */
+  beforeRegistry?: (ctx: Context) => void
 }
 
 /** Boot the real storage/domain/registry composition over controllable header-only peers. */
@@ -70,6 +72,7 @@ async function harness(options: HarnessOptions = {}) {
 
   const changes: DomainChanged[] = []
   ctx.on('domain/changed', (change) => { changes.push(change) })
+  options.beforeRegistry?.(ctx)
   const fiber = await ctx.plugin(WorkspaceRegistry)
   const initChanges = [...changes]
   changes.length = 0
@@ -752,6 +755,21 @@ describe('Workspace session ordering', () => {
     expect(workspace.sessionIds).toEqual([])
   })
 
+  it('writes no other workspace when no other workspace lists the attached session', async () => {
+    const dir = await makeDir('attach-alone')
+    const other = await makeDir('attach-other')
+    const [ownId, otherId] = [WorkspaceId('00000000-0000-4000-8000-000000000021'), WorkspaceId('00000000-0000-4000-8000-000000000022')]
+    const pool = storedPool(
+      [[ownId, record(dir, [])], [otherId, record(other, ['headerless'])]],
+      { initialized: true, workspaceIds: [ownId, otherId] },
+    )
+    const result = await harness({ pool, sessions: [header('s1', dir)] })
+    await result.registry.get(ownId)!.attachSession(SessionId('s1'))
+    // A write to the other record would also prune its filtered candidate.
+    expect(result.changes.map(change => change.key)).toEqual([ownId])
+    expect(storedRecord(pool, otherId).sessionIds).toEqual(['headerless'])
+  })
+
   it('decides detach/attach membership at domain write-chain slots', async () => {
     const dir = await makeDir('race')
     const result = await harness({ sessions: [header('s1', dir)] })
@@ -821,14 +839,17 @@ describe('header-validated membership projection', () => {
     const id = WorkspaceId('stat-missing-workspace')
     const pool = storedPool([[id, record(dir, ['kept'])]], { initialized: true, workspaceIds: [id] })
     const normalize = workspacePaths.realpathNormalize
+    let resolutions = 0
     const spy = vi.spyOn(workspacePaths, 'realpathNormalize').mockImplementation(async (path) => {
       const canonical = await normalize(path)
-      if (path === dir) await rm(dir, { recursive: true })
+      // Startup re-resolves the stored workspace path first; the header index resolves the session cwd second.
+      if (path === dir && ++resolutions === 2) await rm(dir, { recursive: true })
       return canonical
     })
     onTestFinished(() => { spy.mockRestore() })
     const result = await harness({ pool, sessions: [header('kept', dir)] })
     onTestFinished(() => result.ctx.fiber.dispose())
+    expect(resolutions).toBe(2)
     expect(result.registry.get(id)!.sessionIds).toEqual(['kept'])
   })
 
@@ -930,24 +951,19 @@ describe('header-validated membership projection', () => {
     expect(workspace.sessionIds).toEqual(['good'])
     expect(result.registry.list()[0]!.sessionIds).toEqual(['good'])
     expect(result.list).toHaveBeenCalledTimes(1)
-    expect(storedRecord(pool, id).sessionIds).toEqual(['good', 'mismatch', 'missing'])
+    // Startup durably detaches a cwd that resolves to another directory; an unresolved id waits for the next mutation.
+    expect(storedRecord(pool, id).sessionIds).toEqual(['good', 'missing'])
 
     await workspace.setTitle('pruned')
     expect(storedRecord(pool, id).sessionIds).toEqual(['good'])
     expect(workspace.sessionIds).not.toContain('cwd-only')
   })
 
-  it('rejects duplicate candidate ownership, duplicate paths, and initialized order drift', async () => {
+  it('rejects duplicate paths and initialized order drift', async () => {
     const first = await makeDir('corrupt-first')
     const second = await makeDir('corrupt-second')
     const firstId = '00000000-0000-4000-8000-000000000002'
     const secondId = '00000000-0000-4000-8000-000000000003'
-    const duplicateSession = storedPool(
-      [[firstId, record(first, ['dup'])], [secondId, record(second, ['dup'])]],
-      { initialized: true, workspaceIds: [WorkspaceId(firstId), WorkspaceId(secondId)] },
-    )
-    await expect(harness({ pool: duplicateSession })).rejects.toThrow(/accounted/)
-
     const duplicatePath = storedPool(
       [[firstId, record(first, [])], [secondId, record(first, [])]],
       { initialized: true, workspaceIds: [WorkspaceId(firstId), WorkspaceId(secondId)] },
@@ -1023,6 +1039,137 @@ describe('header-validated membership projection', () => {
       },
     )
     await expect(harness({ pool: corruptPending })).rejects.toThrow(/still present in registry order/)
+  })
+})
+
+describe('startup repair of a session listed by several workspaces', () => {
+  const ids = ['00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000012', '00000000-0000-4000-8000-000000000013']
+    .map(WorkspaceId)
+
+  /** Boot over stored records and capture the registry's info and warning lines. */
+  async function repaired(pool: MemoryMediaPool, sessions: SessionHeader[]) {
+    const infos: string[] = []
+    const warnings: string[] = []
+    const result = await harness({
+      pool,
+      sessions,
+      beforeRegistry: (ctx) => {
+        vi.spyOn(ctx.logger, 'info').mockImplementation((message: unknown) => { infos.push(String(message)) })
+        vi.spyOn(ctx.logger, 'warn').mockImplementation((message: unknown) => { warnings.push(String(message)) })
+      },
+    })
+    const written = result.initChanges.filter(change => change.table === 'workspaces').map(change => change.key)
+    return { ...result, infos, warnings, written }
+  }
+
+  it('keeps the session in the workspace at its canonical cwd and writes each other listing workspace once', async () => {
+    const [a, b, c] = [await makeDir('shared-a'), await makeDir('shared-b'), await makeDir('shared-c')]
+    const [aId, bId, cId] = ids as [WorkspaceId, WorkspaceId, WorkspaceId]
+    const pool = storedPool(
+      [[aId, record(a, ['dup', 'a-only'])], [bId, record(b, ['dup'])], [cId, record(c, ['c-only', 'dup'])]],
+      { initialized: true, workspaceIds: [aId, bId, cId] },
+    )
+    const sessions = [header('dup', b), header('a-only', a), header('c-only', c)]
+    const result = await repaired(pool, sessions)
+    expect(storedRecord(pool, aId).sessionIds).toEqual(['a-only'])
+    expect(storedRecord(pool, bId).sessionIds).toEqual(['dup'])
+    expect(storedRecord(pool, cId).sessionIds).toEqual(['c-only'])
+    expect(result.written).toEqual([aId, cId])
+    expect(result.infos).toEqual([
+      `workspace: session 'dup' was accounted by workspaces '${aId}', '${bId}', '${cId}'; kept in '${bId}', `
+      + `whose path is its canonical cwd, and detached from '${aId}', '${cId}'`,
+    ])
+    expect(result.warnings).toEqual([])
+    await result.ctx.fiber.dispose()
+
+    const again = await repaired(pool, sessions)
+    expect(again.written).toEqual([])
+    expect(again.infos).toEqual([])
+    expect(again.registry.list().map(workspace => workspace.sessionIds)).toEqual([['a-only'], ['dup'], ['c-only']])
+  })
+
+  it.each([
+    ['session header is missing', () => Promise.resolve([] as SessionHeader[])],
+    ['cwd does not resolve', async () => [header('dup', join(await makeDir('shared-root'), 'gone'))]],
+    ['cwd is elsewhere', async () => [header('dup', await makeDir('shared-elsewhere'))]],
+  ])('keeps the session in the listing workspace first in registry order when its %s', async (situation, sessions) => {
+    const [a, b] = [await makeDir('first-a'), await makeDir('first-b')]
+    const [aId, bId] = ids as [WorkspaceId, WorkspaceId]
+    const pool = storedPool(
+      [[aId, record(a, ['dup'])], [bId, record(b, ['dup'])]],
+      { initialized: true, workspaceIds: [bId, aId] },
+    )
+    const listed = await sessions()
+    const result = await repaired(pool, listed)
+    const cwd = listed[0]?.cwd
+    const reason = {
+      'session header is missing': 'session header is missing',
+      'cwd does not resolve': `cwd '${cwd}' does not resolve`,
+      'cwd is elsewhere': `canonical cwd '${cwd}' is no listing workspace's path; `
+        + `this start then detaches it from '${bId}' too unless the path of '${bId}' was kept as stored`,
+    }[situation]
+    expect(result.warnings).toContain(
+      `workspace: session 'dup' was accounted by workspaces '${bId}', '${aId}'; kept in '${bId}', `
+      + `first in registry order (${reason}), and detached from '${aId}'`,
+    )
+    expect(storedRecord(pool, aId).sessionIds).toEqual([])
+    // A cwd that resolves elsewhere then leaves the workspace that kept it as well.
+    expect(storedRecord(pool, bId).sessionIds).toEqual(situation === 'cwd is elsewhere' ? [] : ['dup'])
+  })
+
+  it('leaves a session whose cwd is elsewhere in the workspace that kept it when that workspace\'s path was kept as stored', async () => {
+    const [a, b] = [await makeDir('stored-a'), await makeDir('stored-b')]
+    const [aId, bId] = ids as [WorkspaceId, WorkspaceId]
+    const pool = storedPool(
+      [[aId, record(a, ['dup'])], [bId, record(b, ['dup'])]],
+      { initialized: true, workspaceIds: [bId, aId] },
+    )
+    await rm(b, { recursive: true })
+    await repaired(pool, [header('dup', await makeDir('stored-elsewhere'))])
+    expect(storedRecord(pool, aId).sessionIds).toEqual([])
+    expect(storedRecord(pool, bId).sessionIds).toEqual(['dup'])
+  })
+
+  it('keeps the first occurrence of a session a workspace lists more than once', async () => {
+    const a = await makeDir('repeat-a')
+    const [aId] = ids as [WorkspaceId]
+    const pool = storedPool(
+      [[aId, record(a, ['dup', 'a-only', 'dup', 'a-only', 'dup'])]],
+      { initialized: true, workspaceIds: [aId] },
+    )
+    const sessions = [header('dup', a), header('a-only', a)]
+    const result = await repaired(pool, sessions)
+    expect(storedRecord(pool, aId).sessionIds).toEqual(['dup', 'a-only'])
+    expect(result.written).toEqual([aId])
+    expect(result.warnings).toEqual([
+      `workspace '${aId}' listed sessions 'dup', 'a-only' more than once; kept the first occurrence of each`,
+    ])
+    expect(result.registry.list().map(workspace => workspace.sessionIds)).toEqual([['dup', 'a-only']])
+    await result.ctx.fiber.dispose()
+
+    const again = await repaired(pool, sessions)
+    expect(again.written).toEqual([])
+    expect(again.warnings).toEqual([])
+  })
+
+  it('writes a workspace once when it lists a session twice that another workspace also lists', async () => {
+    const [a, b] = [await makeDir('both-a'), await makeDir('both-b')]
+    const [aId, bId] = ids as [WorkspaceId, WorkspaceId]
+    const pool = storedPool(
+      [[aId, record(a, ['dup', 'a-only', 'dup'])], [bId, record(b, ['dup'])]],
+      { initialized: true, workspaceIds: [aId, bId] },
+    )
+    const result = await repaired(pool, [header('dup', b), header('a-only', a)])
+    expect(storedRecord(pool, aId).sessionIds).toEqual(['a-only'])
+    expect(storedRecord(pool, bId).sessionIds).toEqual(['dup'])
+    expect(result.written).toEqual([aId])
+    expect(result.warnings).toEqual([
+      `workspace '${aId}' listed sessions 'dup' more than once; kept the first occurrence of each`,
+    ])
+    expect(result.infos).toEqual([
+      `workspace: session 'dup' was accounted by workspaces '${aId}', '${bId}'; kept in '${bId}', `
+      + `whose path is its canonical cwd, and detached from '${aId}'`,
+    ])
   })
 })
 
@@ -1535,6 +1682,185 @@ describe('first-use Workspace preparation', () => {
     expect(storedState(pool).defaultWorkspaceId).toBeUndefined()
     await expect(realpath(join(h.directoryRoot, 'nested', 'Workspace'))).resolves.toBe(join(h.directoryRoot, 'nested', 'Workspace'))
     expect(await h.registry.initializeDefault(h.resolveDirectory)).toBeDefined()
+  })
+})
+
+describe('startup path re-canonicalization', () => {
+  const firstId = WorkspaceId('00000000-0000-4000-8000-000000000030')
+  const secondId = WorkspaceId('00000000-0000-4000-8000-000000000031')
+
+  async function start(options: HarnessOptions) {
+    const warnings: string[] = []
+    const result = await harness({
+      ...options,
+      beforeRegistry: (ctx) => {
+        vi.spyOn(ctx.logger, 'warn').mockImplementation((message: unknown) => { warnings.push(String(message)) })
+      },
+    })
+    return { ...result, warnings }
+  }
+
+  const recordWrites = (changes: readonly DomainChanged[]): string[] =>
+    changes.filter(change => change.table === 'workspaces').map(change => change.key)
+
+  it('rewrites a path whose parent became a symlink and keeps identity, order, and membership', async () => {
+    const project = await makeDir('home/CODE/project')
+    const other = await makeDir('other')
+    const stale = record(project, ['before'])
+    const unchanged = record(other, [])
+    const pool = storedPool(
+      [[firstId, stale], [secondId, unchanged]],
+      { initialized: true, workspaceIds: [secondId, firstId], defaultWorkspaceId: firstId },
+    )
+    await mkdir(join(base, 'ssd'))
+    await rename(join(base, 'home', 'CODE'), join(base, 'ssd', 'CODE'))
+    await symlink(join(base, 'ssd', 'CODE'), join(base, 'home', 'CODE'))
+    const moved = join(base, 'ssd', 'CODE', 'project')
+
+    const result = await start({
+      pool,
+      sessions: [header('before', project, 100), header('after', project, 200)],
+    })
+    const workspace = result.registry.get(firstId)!
+    expect(workspace.path).toBe(moved)
+    expect(storedRecord(pool, firstId)).toMatchObject({
+      path: moved, title: stale.title, sessionIds: ['before'], createdAt: stale.createdAt,
+    })
+    expect(workspace.updatedAt).not.toBe(stale.updatedAt)
+    expect(storedRecord(pool, secondId)).toEqual(unchanged)
+    expect(recordWrites(result.initChanges)).toEqual([firstId])
+    expect(result.registry.list().map(item => item.id)).toEqual([secondId, firstId])
+    expect(storedState(pool)).toMatchObject({ workspaceIds: [secondId, firstId], defaultWorkspaceId: firstId })
+    expect(workspace.sessionIds).toEqual(['before'])
+    expect(await result.registry.resolveByPath(project)).toBe(workspace)
+
+    await workspace.attachSession(SessionId('after'))
+    expect(workspace.sessionIds).toEqual(['after', 'before'])
+  })
+
+  it('re-canonicalizes before an interrupted bootstrap resumes, so one workspace keeps the directory', async () => {
+    const project = await makeDir('resume/CODE/project')
+    const pool = storedPool([[firstId, record(project, ['b1'])]], { initialized: false, workspaceIds: [firstId] })
+    await mkdir(join(base, 'resume-ssd'))
+    await rename(join(base, 'resume', 'CODE'), join(base, 'resume-ssd', 'CODE'))
+    await symlink(join(base, 'resume-ssd', 'CODE'), join(base, 'resume', 'CODE'))
+    const moved = join(base, 'resume-ssd', 'CODE', 'project')
+
+    const result = await start({ pool, sessions: [header('b1', project, 100), header('b2', project, 200)] })
+    expect(result.registry.list().map(item => [item.id, item.path])).toEqual([[firstId, moved]])
+    expect(result.registry.get(firstId)!.sessionIds).toEqual(['b2', 'b1'])
+    expect(pool.media.get('workspace')!.tables.get('workspaces')!.size).toBe(1)
+    expect(storedState(pool)).toMatchObject({ initialized: true, workspaceIds: [firstId] })
+    expect(result.warnings).toEqual([])
+  })
+
+  it('does not write a path that is already canonical', async () => {
+    const dir = await makeDir('canonical')
+    const stored = record(dir, [])
+    const pool = storedPool([[firstId, stored]], { initialized: true, workspaceIds: [firstId] })
+    const result = await start({ pool })
+    expect(recordWrites(result.initChanges)).toEqual([])
+    expect(storedRecord(pool, firstId)).toEqual(stored)
+    expect(result.warnings).toEqual([])
+  })
+
+  it('keeps and logs a path that no longer resolves', async () => {
+    await makeDir('unplugged')
+    const missing = join(base, 'unplugged', 'project')
+    const stored = record(missing, [])
+    const pool = storedPool([[firstId, stored]], { initialized: true, workspaceIds: [firstId] })
+    const result = await start({ pool })
+    expect(storedRecord(pool, firstId)).toEqual(stored)
+    expect(await result.registry.get(firstId)!.status()).toBe('missing-dir')
+    expect(result.warnings).toEqual([expect.stringContaining(`path '${missing}' kept as stored: it does not resolve`)])
+  })
+
+  it('keeps and logs a path that resolves to a file', async () => {
+    await makeDir('file-target')
+    const file = join(base, 'file-target', 'plain.txt')
+    await writeFile(file, 'not a directory')
+    const alias = join(base, 'file-link')
+    await symlink(file, alias)
+    const stored = record(alias, [])
+    const pool = storedPool([[firstId, stored]], { initialized: true, workspaceIds: [firstId] })
+    const result = await start({ pool })
+    expect(storedRecord(pool, firstId)).toEqual(stored)
+    expect(result.warnings).toEqual([expect.stringContaining(`resolves to '${file}', which is not a directory`)])
+  })
+
+  it('keeps and logs a path whose canonical form another record already stores', async () => {
+    const owned = await makeDir('owned-target')
+    const alias = join(base, 'owned-link')
+    await symlink(owned, alias)
+    const staleRecord = record(alias, [])
+    const ownerRecord = record(owned, [])
+    const pool = storedPool(
+      [[firstId, staleRecord], [secondId, ownerRecord]],
+      { initialized: true, workspaceIds: [firstId, secondId] },
+    )
+    const result = await start({ pool })
+    expect(storedRecord(pool, firstId)).toEqual(staleRecord)
+    expect(storedRecord(pool, secondId)).toEqual(ownerRecord)
+    expect(recordWrites(result.initChanges)).toEqual([])
+    expect(result.warnings).toEqual([
+      expect.stringContaining(`workspace '${firstId}' path '${alias}' kept as stored: its canonical path '${owned}' is claimed`),
+    ])
+  })
+
+  it('keeps and logs two paths that resolve to the same new canonical directory', async () => {
+    const shared = await makeDir('shared-target')
+    const left = join(base, 'left-link')
+    const right = join(base, 'right-link')
+    await symlink(shared, left)
+    await symlink(shared, right)
+    const pool = storedPool(
+      [[firstId, record(left, [])], [secondId, record(right, [])]],
+      { initialized: true, workspaceIds: [firstId, secondId] },
+    )
+    const result = await start({ pool })
+    expect(storedRecord(pool, firstId).path).toBe(left)
+    expect(storedRecord(pool, secondId).path).toBe(right)
+    expect(result.warnings).toHaveLength(2)
+    expect(result.registry.list().map(item => item.path)).toEqual([left, right])
+  })
+
+  it('completes an interrupted pass on the next startup', async () => {
+    const firstTarget = await makeDir('interrupted-first')
+    const secondTarget = await makeDir('interrupted-second')
+    const firstAlias = join(base, 'interrupted-first-link')
+    const secondAlias = join(base, 'interrupted-second-link')
+    await symlink(firstTarget, firstAlias)
+    await symlink(secondTarget, secondAlias)
+    const pool = storedPool(
+      [[firstId, record(firstAlias, [])], [secondId, record(secondAlias, [])]],
+      { initialized: true, workspaceIds: [firstId, secondId] },
+    )
+    await expect(harness({
+      pool,
+      backend: selectiveFailureBackend(pool, { putAt: 2 }),
+    })).rejects.toThrow(/selected bootstrap put failure/)
+    expect(storedRecord(pool, firstId).path).toBe(firstTarget)
+    expect(storedRecord(pool, secondId).path).toBe(secondAlias)
+    expect(storedState(pool)).toEqual({ initialized: true, workspaceIds: [firstId, secondId] })
+
+    const retried = await start({ pool })
+    expect(retried.registry.list().map(item => item.path)).toEqual([firstTarget, secondTarget])
+    expect(recordWrites(retried.initChanges)).toEqual([secondId])
+  })
+
+  it('recovers a marked interrupted create before re-canonicalizing', async () => {
+    const target = await makeDir('pending-target')
+    const alias = join(base, 'pending-link')
+    await symlink(target, alias)
+    const pool = storedPool(
+      [[firstId, record(alias, [])]],
+      { initialized: true, workspaceIds: [], pendingMutation: { operation: 'create', workspaceId: firstId } },
+    )
+    const result = await start({ pool })
+    expect(result.registry.list()).toEqual([])
+    expect(pool.media.get('workspace')!.tables.get('workspaces')!.has(firstId)).toBe(false)
+    expect(recordWrites(result.initChanges)).toEqual([firstId])
+    expect(result.warnings).toEqual([])
   })
 })
 

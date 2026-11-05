@@ -16,6 +16,7 @@
  * @module @deepseek-ai/dsh-session-projection-cache
  */
 
+import { isDeepStrictEqual } from 'node:util'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-util-values'
@@ -26,6 +27,7 @@ import type {
   SessionHeader,
   SessionId,
 } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {
   ProjectionCheckpoint,
   ProjectionKeySelection,
@@ -99,8 +101,10 @@ interface DirtyState {
  * (count/interval triggers from {@link Config}) plus three mandatory points —
  * session creation, `turn/end`, and session disposal (the live-to-cold
  * moment) — and serves the
- * cached rows for a session header. Every durable write is fail-soft:
- * failures log a warning and the cache self-heals on the next write.
+ * cached rows for a session header. A `session-persistence/relocated` event
+ * rebinds the moved session's record to its new cwd and drops the rows whose
+ * unit starts from a different value under the new header. Every durable write is fail-soft: failures log
+ * a warning and the cache self-heals on the next write.
  */
 export class SessionProjectionCache extends Service {
   static inject = ['storageDomain', 'sessionProjections', 'sessions']
@@ -114,12 +118,43 @@ export class SessionProjectionCache extends Service {
     super(ctx, 'sessionProjectionCache')
   }
 
-  /** Open the domain and install the write-behind listeners. */
+  /** Open the domain and install the write-behind and relocation listeners. */
   protected async [Service.init](): Promise<void> {
     const domain = await this.ctx.storageDomain.open(projectionCacheDomainSpec)
     this.ctx.effect(() => () => domain.close(), 'sessionProjectionCache.domainClose')
     this.table = domain.table('sessions')
     this.installWritePath()
+    this.ctx.on('session-persistence/relocated', (id, previous, current) => {
+      void this.rekey(id, previous, current.header).catch((error: unknown) => {
+        this.ctx.logger.warn(`session projection cache: re-keying relocated "${id}" failed (cache stays stale): ${String(error)}`)
+      })
+    })
+  }
+
+  /**
+   * Bind a relocated session's record to its new cwd. A record whose
+   * lifecycle (`createdAt`, `cwd`, `isSeeded`) matches the header before the
+   * move, at the current or a predecessor format generation, takes the new
+   * cwd. Relocation leaves every event unchanged and `apply` never reads the
+   * header, so a row stays valid exactly when its unit's `init` returns the
+   * same value for both headers; every other row, including one whose unit
+   * is not registered now, is dropped and folds again from the log.
+   */
+  private async rekey(id: SessionId, previous: SessionHeader, current: SessionHeader): Promise<void> {
+    const table = this.requireTable()
+    const record = table.get(id)
+    if (record === undefined || !lifecycleIdentityMatches(record.identity, lifecycleIdentityOf(previous))) return
+    const cut = record.identity.inheritedEventCount ?? SessionLogOffset(0)
+    const before = this.initialRows(previous, cut)
+    const after = this.initialRows(current, cut)
+    const rows = Object.fromEntries(Object.entries(record.rows).filter(([key]) =>
+      Object.hasOwn(before, key) && isDeepStrictEqual(before[key]?.val, after[key]?.val)))
+    await table.put(id, { identity: { ...record.identity, cwd: current.cwd }, rows })
+  }
+
+  /** Every registered unit's initial state for `header`, keyed like checkpoint rows. */
+  private initialRows(header: SessionHeader, inheritedEventCount: SessionLogOffset): ProjectionCheckpoint {
+    return this.ctx.sessionProjections.restore({}, [], SessionLogOffset(0), header, inheritedEventCount).checkpoint
   }
 
   /**

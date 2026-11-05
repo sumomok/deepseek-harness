@@ -3,12 +3,12 @@
 import type {} from '@deepseek-ai/dsh-agent/types'
 import type { NativeFileApplication } from '@deepseek-ai/dsh-native-command/types'
 import type {
-  ImageAttachmentLimits, ImageAttachmentRef, ImageMediaType,
+  ImageAttachmentLimits, ImageAttachmentRef, ImageMediaType, PromptReference,
 } from '@deepseek-ai/dsh-attachment'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { LlmAttemptId, MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { LlmModelBadge, TextBlock } from '@deepseek-ai/dsh-llm'
-import type { SessionId, SessionSeqCursor } from '@deepseek-ai/dsh-session/types'
+import type { SessionId, SessionSeq, SessionSeqCursor } from '@deepseek-ai/dsh-session/types'
 import type { SessionProjectionMap, SessionProjectionSummaryExcluded, SessionProjectionSummaryValues } from '@deepseek-ai/dsh-session-projection/types'
 import type { Principal } from '@deepseek-ai/dsh-typert-protocol'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
@@ -199,7 +199,11 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
       readonly requestedPreset: string
     }
     'session/attachment-invalid': { readonly reason: string }
+    /** `openWorkspacePath` resolved a path that does not exist on the Host filesystem. */
+    'session/path-not-found': { readonly path: string }
     'session/queue-item-not-found': { readonly itemId: MessageId }
+    /** The continuation cursor outlived the indexed generation it was issued against. */
+    'session/search-cursor-stale': Record<string, never>
     'session/steer-unavailable': { readonly itemId: MessageId }
     'session/title-invalid': { readonly sessionId: SessionId }
     'session/fork-unavailable': { readonly sessionId: SessionId }
@@ -259,6 +263,51 @@ export interface SessionSearchRequest {
 export interface SessionSearchValue {
   readonly items: readonly SessionSearchItem[]
   readonly hasMore: boolean
+}
+
+/** One matched span inside a search excerpt, in UTF-16 code units of that excerpt. */
+export interface SessionMessageMatchRange {
+  /** Offset of the first matched code unit. */
+  readonly start: number
+  /** Length of the match in code units. */
+  readonly length: number
+}
+
+/** One message-content search result addressed by the Session and event it came from. */
+export interface SessionMessageSearchItem {
+  /** Session that owns the matching event. */
+  readonly sessionId: SessionId
+  /** Event position inside that Session, which is what opens the message. */
+  readonly seq: SessionSeq
+  /** Bounded plain-text excerpt around the match. */
+  readonly snippet: string
+  /** Matched spans inside `snippet`, so a renderer need not re-find them. */
+  readonly matches?: readonly SessionMessageMatchRange[]
+}
+
+/** Message-level search request, paged by the provider's own continuation cursor. */
+export interface SessionMessageSearchRequest {
+  /** Literal message-content query. */
+  readonly query: string
+  /** Continuation cursor returned by an earlier page of the same query. */
+  readonly cursor?: Branded<'SessionSearchCursor'>
+}
+
+/** One message-level search page, spanning Sessions and keeping every match it admits. */
+export interface SessionMessageSearchValue {
+  readonly items: readonly SessionMessageSearchItem[]
+  /** Continuation cursor for the next page, absent when the provider finished. */
+  readonly nextCursor?: Branded<'SessionSearchCursor'>
+  /**
+   * Coverage of the index behind this page. `partial` means at least one
+   * Session could not be read, so an empty page is not proof of absence.
+   * Absent means the provider reported nothing, which is not `complete`. The
+   * count covers the whole observed corpus, not the Sessions this caller sees.
+   */
+  readonly coverage?: {
+    readonly status: 'complete' | 'partial'
+    readonly skippedSessions: number
+  }
 }
 
 /** Request for a Session for a new conversation. */
@@ -326,6 +375,8 @@ export interface SessionPromptRequest {
   /** At least one non-whitespace text part or attachment. */
   readonly content: readonly PromptContentPart[]
   readonly clientTimeZone?: string
+  /** Browser-owned references recorded on the accepted message source; they never count as content. */
+  readonly references?: readonly PromptReference[]
 }
 
 /** Receipt after one prompt enters the target Agent inbox. */
@@ -384,17 +435,62 @@ export interface SessionOpenWorkspacePathValue {
   readonly opened: true
 }
 
+/** Maximum paths accepted by one `probeTargets` call; a larger batch is refused before probing starts. */
+export const PROBE_TARGETS_MAX_PATHS = 64
+
+/**
+ * One `probeTargets` result, in the same order as its request's `paths`.
+ * `exists` is false for both ENOENT and every other stat failure alike (a
+ * permission denial, a non-directory path segment, a short-circuited UNC
+ * target, …) — the probe answers "clickable or not," not "why not."
+ */
+export interface ProbeResult {
+  /** Echoes the probed path exactly as requested. */
+  readonly path: string
+  readonly exists: boolean
+  /** Present only when `exists` is true. */
+  readonly kind?: 'file' | 'dir'
+}
+
+/**
+ * Batch existence/kind probe request for the three-layer clickable-reference
+ * verification stage: a read-only `stat` per path, never a directory listing
+ * or a content read, capped at {@link PROBE_TARGETS_MAX_PATHS} paths.
+ */
+export interface SessionProbeTargetsRequest {
+  readonly paths: readonly string[]
+}
+
+/** `probeTargets` response value. */
+export interface SessionProbeTargetsValue {
+  readonly results: readonly ProbeResult[]
+}
+
 /** Client-minted prompt identity used to reconcile optimistic and durable messages. */
 export type SessionRequestId = Branded<'session-request-id'>
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     /**
-     * Browser prompt correlation, optional Host-validated time zone, and the
-     * caller that submitted the prompt. `principal` is written only for a
-     * caller other than the owner, so an absent `principal` means the owner.
+     * Browser prompt correlation, optional Host-validated time zone, the
+     * caller that submitted the prompt, and optional Host-validated prompt
+     * references. `principal` is written only for a caller other than the
+     * owner, so an absent `principal` means the owner. `references` is absent
+     * when none were sent; it is display and owner data, not message content:
+     * the first-party provider serializers never put a user message's source
+     * into a provider request, and a history tool that returns raw Session
+     * events (`tool-session-query`'s `session_event_read`) exposes it inside a
+     * logged `tool/result`. An owner that wants model-visible text derived
+     * from it appends its own logged message from `agent/pre-step`, so every
+     * model input stays reconstructable from the Session log.
      */
-    'user-rpc': { kind: 'user'; rpcId: SessionRequestId; clientTimeZone?: string; principal?: Principal }
+    'user-rpc': {
+      kind: 'user'
+      rpcId: SessionRequestId
+      clientTimeZone?: string
+      principal?: Principal
+      references?: readonly PromptReference[]
+    }
   }
 }
 
@@ -473,6 +569,8 @@ export interface SessionPageRequest {
    */
   readonly throughSeq?: number
   readonly beforeSeq?: number
+  /** Exclusive lower cut for a forward page: the page starts after this offset. */
+  readonly afterSeq?: number
   readonly maxMessages?: number
   /** Stop at a Turn start after both minima, unless maxMessages or history exhaustion wins. */
   readonly turnWindow?: {
@@ -564,9 +662,38 @@ export type SessionFollowFrame =
   | SessionEventEntry
   | { readonly type: 'assistant-stream'; readonly frame: SessionAssistantStreamFrame }
 
+/**
+ * Observable preparation of the Host's full-text search index.
+ *
+ * A search waits for this preparation before it reads anything, so a client
+ * that can see it reports how long that wait still is instead of one
+ * undifferentiated "searching" state. It counts preparation work and says
+ * nothing about {@link SessionMessageSearchValue.coverage}.
+ */
+export interface SessionSearchIndexProgress {
+  /**
+   * `opening` while the Host opens the index, `reconciling` while it compares
+   * the stored corpus with what the index holds, and `ready` once that pass
+   * finished. A pass that fails reports nothing further, so the last value
+   * stays published until the next search starts another one.
+   */
+  readonly phase: 'opening' | 'reconciling' | 'ready'
+  /** Stored Sessions this pass finished deciding, the skipped ones included. */
+  readonly examined: number
+  /** Stored Sessions the pass must decide; `0` until the corpus listing returns. */
+  readonly total: number
+  /** Examined Sessions whose stored revision matched the index, so their logs were not read again. */
+  readonly skipped: number
+}
+
 /** Complete live control baseline emitted once per control stream generation. */
 export interface SessionControlBaseline {
   readonly projections: Readonly<Record<SessionId, SessionProjectionBaseline>>
+  /**
+   * Preparation the Host's full-text search index reported before this stream
+   * opened; absent when this Host runs no index or has not started one.
+   */
+  readonly searchIndex?: SessionSearchIndexProgress
 }
 
 /** One finished projection value and its durable watermark. */
@@ -577,10 +704,16 @@ export interface SessionProjectionUpdate {
   readonly seq: number
 }
 
-/** Host-wide live state stream. Each generation starts with exactly one baseline. */
+/**
+ * Host-wide live state stream. Each generation starts with exactly one baseline.
+ *
+ * A `search-index` frame is Host-wide rather than Session-scoped, so it is
+ * delivered to every subscriber that may search.
+ */
 export type SessionControlFrame =
   | { readonly type: 'baseline'; readonly value: SessionControlBaseline }
   | ({ readonly type: 'projection' } & SessionProjectionUpdate)
+  | { readonly type: 'search-index'; readonly value: SessionSearchIndexProgress }
 
 /** One pending live-Agent inbox item, preserving placement and content order. */
 export interface SessionQueuedItem {
@@ -640,6 +773,11 @@ export interface SessionWaitValue {
  */
 export interface SessionEventsPage extends SessionPage {
   readonly cursor: number
+  /**
+   * Whether events exist after this page and before the cut. Absent on pages
+   * written before forward paging existed, which is read as "no newer".
+   */
+  readonly hasNewer?: boolean
 }
 
 /** Address for a passive event subscription. */

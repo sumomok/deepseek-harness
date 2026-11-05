@@ -33,7 +33,7 @@ Choose it when several plugins should agree on one replay-based measurement — 
 
 ### Measuring pressure
 
-`ctx.tokenMeter` exposes two operations. `measure(session, requestHeader?)` returns a detached, deeply immutable snapshot at one consumed-log revision: `totalTokens` is request-and-response pressure, and `surfaceTokens` is the surface-only route-priced total equal to the sum of `nodes[].tokens`. An optional `requestHeader` override selects the priced route and pressure fields; the node set still describes the current session. `estimateMessage(message)` prices one message with the fixed heuristic. Every call clones the positional surface nodes, so measurement is O(surface).
+`ctx.tokenMeter` exposes three operations. `measure(session, requestHeader?)` returns a detached, deeply immutable snapshot at one consumed-log revision: `totalTokens` is request-and-response pressure, and `surfaceTokens` is the surface-only route-priced total equal to the sum of `nodes[].tokens`. An optional `requestHeader` override selects the priced route and pressure fields; the node set still describes the current session. `hasSystemMessage(session)` answers from the same incremental replay state whether the current surface contains a `system/message`, including a later or empty system node; it does not scan the surface, and callers must use it against the current state rather than an earlier measurement. `estimateMessage(message)` prices one message with the fixed heuristic. Every measurement call clones the positional surface nodes, so measurement is O(surface).
 
 ```text
 const { totalTokens, surfaceTokens, nodes } = ctx.tokenMeter.measure(session)
@@ -67,6 +67,8 @@ Both plugins have usable defaults. The meter consumes only the optional `llm` se
 
 Occupancy is a reference figure, not a billing record: nothing in the harness makes decisions from it, and compaction reads `measure()` instead. A UI computes occupancy by dividing measured pressure by the separately resolved capacity for the selected model. The `contextBreakdown` figures are estimates that will not sum to `projectedTokens`, whose provider anchor carries exactly the heuristic error — CJK text and JSON schemas underprice badly at four characters per token.
 
+That error matters wherever a decision turns on a *ratio* between two texts of different scripts, so the module also exports a dense profile: `estimateDenseTextTokens` and `estimateDenseMessageTokens` price every CJK code point as one token and other text at 3.5 characters per token. The dense figure is the conservative side of the estimate, and compaction compares a candidate summary against its span with it; nothing folds it into occupancy, which stays on the fixed heuristic so projections agree with the appended prices they replay.
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -79,9 +81,9 @@ This section explains the design behind the service; the observable behavior is 
 
 ### Design philosophy
 
-The service separates fixed-size recovery facts from rebuildable positional prices. `tokenMeasurement` preserves one current header reference, one step boundary, and one usage anchor. The private price cache retains the current and pre-assistant node prices and their two header payloads. Restoring the projection folds only later events; a cold price cache can still scan the complete log. Synchronous reads before plugin activation use the same pure metadata fold locally.
+The service separates fixed-size recovery facts from rebuildable positional prices. `tokenMeasurement` preserves one current header reference, one step boundary, and one usage anchor. The private price cache retains the current and pre-assistant node prices and their two header payloads. Restoring the projection folds only later events; a cold price cache can still scan the complete log. Synchronous reads before plugin activation use the same pure metadata fold locally. Each session also tracks current system seqs and the open step boundary; surface appends and replacements update the system set in the same commit as the priced surface.
 
-Provider usage anchors a measurement only when its canonical envelope matches and its total is no lower than the full route-priced cost of the same call; otherwise the complete envelope and surface are estimated. Both surfaces are repriced per measurement, including current image prices and file-handle text. No projection fold performs I/O or invokes runtime hooks.
+Provider usage anchors a measurement only when its canonical envelope matches and its total is no lower than the full route-priced cost of the same call; otherwise the complete envelope and surface are estimated. Both surfaces are repriced per measurement, including current image prices and file-handle text. No projection fold performs I/O or invokes runtime hooks. The route-independent `heuristicTokens` field keeps replacement shadow-price projections deterministic, and a malformed event fails before any mutation, so the same log fails identically on every retry.
 
 ### Source map
 

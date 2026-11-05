@@ -84,7 +84,7 @@ describe('Client Session contracts', () => {
     if (!cut.ok) throw new Error('expected a successful history page')
     expect(cut.value.records.map(record => record.event.seq)).toEqual([0, 1, 2])
     await expect(rule({ address, throughSeq: -1 })).resolves.toEqual({
-      ok: true, value: { cursor: -1, records: [], hasMore: false },
+      ok: true, value: { cursor: -1, records: [], hasMore: false, hasNewer: false },
     })
   })
 

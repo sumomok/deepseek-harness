@@ -227,6 +227,17 @@ describe('released event and payload inventory', () => {
     }
   })
 
+  it('admits the optional command/run engagement declaration, and only as a boolean', () => {
+    const run = validPayloads['command/run'] as Record<string, SessionFormatJsonValue>
+    // Absent is the ordinary engaging command, which is what every log
+    // written before the declaration existed carries.
+    expect(() => { assertPayload('command/run', run) }).not.toThrow()
+    expect(() => { assertPayload('command/run', { ...run, engages: false }) }).not.toThrow()
+    expect(() => { assertPayload('command/run', { ...run, engages: true }) }).not.toThrow()
+    expect(() => { assertPayload('command/run', { ...run, engages: 'false' }) })
+      .toThrow(/engages must be a boolean/)
+  })
+
   it('refuses an unexpected member on every known payload', () => {
     for (const [type, data] of Object.entries(validPayloads)) {
       const changed = { ...(data as Record<string, SessionFormatJsonValue>), unexpected: true }

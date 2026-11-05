@@ -59,6 +59,7 @@ import {
   type NormalizeContext,
 } from '@deepseek-ai/dsh-session-snapshot'
 import type { Profile, ProfileContext } from '@deepseek-ai/dsh-app-boot'
+import { isolatedSkillRootEnv } from '@deepseek-ai/dsh-loader-smoke'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type {
@@ -539,11 +540,12 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   // the resolved harness home so a scaffold sharing another's home — the
   // cross-port persistence scenario — pins the same roots the settings and
   // credentials rows were configured with.
-  const skillRootEnvironment = {
-    DSH_HOME: harnessHome,
-    DSH_AGENTS_HOME: join(workspaceCwd, '.agents-home'),
-    DSH_BUNDLED_SKILL_DIR: join(workspaceCwd, '.bundled-skills'),
-  }
+  const skillRootEnvironment = isolatedSkillRootEnv(workspaceCwd, {
+    dshHome: harnessHome,
+    agentsHome: join(workspaceCwd, '.agents-home'),
+    claudeHome: join(workspaceCwd, '.claude-home'),
+    bundledSkillDir: join(workspaceCwd, '.bundled-skills'),
+  })
   const originalSkillRootEnvironment = Object.fromEntries(
     Object.keys(skillRootEnvironment).map(key => [key, process.env[key]]),
   )
@@ -628,12 +630,17 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     { id: 'session-title-llm', disabled: true },
     // Fixture sessions must never leave the process: the shipped row defaults
     // to the production OTLP endpoint (or whatever DSH_TELEMETRY_OTLP_URL
-    // names in the ambient environment). A scenario with a local collector
-    // preserves the shipped disabled setting instead of overriding it.
+    // names in the ambient environment). This fork ships the row off
+    // (packages/bundle/base/cordis.patch.yml), so a scenario that pins a local
+    // collector also has to turn it back on: those scenarios are about the
+    // row's own behavior, not about whether it is mounted by default. The
+    // `otel` service row it injects ships off with it and comes back with it.
+    ...options.telemetryUrl === undefined ? [] : [{ id: 'otel', disabled: false }],
     options.telemetryUrl === undefined
       ? { id: 'session-telemetry-otel', disabled: true }
       : {
         id: 'session-telemetry-otel',
+        disabled: false,
         config: {
           mode: options.telemetryMode ?? 'FEEDBACK_ONLY',
           exporter: { url: options.telemetryUrl },

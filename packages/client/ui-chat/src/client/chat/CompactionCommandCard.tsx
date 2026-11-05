@@ -1,16 +1,22 @@
 // Only a structured checkpoint uses the compaction marker; all other outcomes
-// retain the command's complete settlement text.
+// retain the command's complete settlement text, localized when it is one of
+// the Host command's fixed texts.
 
 import type { ChatViewSlotProps, CommandRowOwnerProps } from '../contract/slots.ts'
+import { localizedOutcome } from './compact-result.ts'
 import { CompactionItem } from './CompactionItem.tsx'
 import { GenericCommandCard } from './GenericCommandCard.tsx'
 
 interface CompactionCommandCardProps extends CommandRowOwnerProps {
   t: ChatViewSlotProps['t']
+  /** The request waits for a running turn and has not started compacting. */
+  waiting?: boolean
+  /** The Host process exited while the request waited; no command/done will come. */
+  exited?: boolean
 }
 
 /** Render one manual compaction lifecycle without duplicating its checkpoint marker. */
-export function CompactionCommandCard({ node, compaction, t }: CompactionCommandCardProps) {
+export function CompactionCommandCard({ node, compaction, waiting = false, exited = false, t }: CompactionCommandCardProps) {
   if (compaction !== undefined) {
     return (
       <CompactionItem
@@ -21,6 +27,15 @@ export function CompactionCommandCard({ node, compaction, t }: CompactionCommand
       />
     )
   }
-  if (node.outcome !== null) return <GenericCommandCard node={node} t={t} />
-  return <GenericCommandCard node={node} t={t} runningSummary={t('message.compaction.running')} />
+  if (node.outcome !== null) return <GenericCommandCard node={localizedOutcome(node, t)} t={t} />
+  if (exited) {
+    return <GenericCommandCard node={{ ...node, outcome: { kind: 'error', text: t('message.compaction.exited') } }} t={t} />
+  }
+  return (
+    <GenericCommandCard
+      node={node}
+      t={t}
+      runningSummary={t(waiting ? 'message.compaction.waiting' : 'message.compaction.running')}
+    />
+  )
 }

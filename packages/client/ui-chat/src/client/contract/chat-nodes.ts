@@ -59,6 +59,27 @@ export interface ToolChatData {
 export interface ManualCompactionChatData {
   readonly command: CommandNode
   readonly compaction: CompactionSummaryNode | null
+  /**
+   * The command is unsettled and its compaction has not opened a bracket:
+   * the request is waiting for a running turn's step boundary or end.
+   */
+  readonly waiting: boolean
+  /**
+   * The command is unsettled, its compaction never opened a bracket, and the
+   * turn it ran in was closed as `interrupted` by crash recovery: the Host
+   * process exited while the request waited.
+   */
+  readonly exited: boolean
+}
+
+/**
+ * One automatic compaction bracket that closed on an error. The render
+ * position comes from the node's `anchorSeq`, so the payload carries only what
+ * the card shows: the backend's own failure text, for the diagnostic `title`.
+ */
+export interface CompactionFailureChatData {
+  /** Failure text the bracket recorded, or null when it recorded none usable. */
+  readonly reason: string | null
 }
 
 /** One durable retry chain rendered as a single row. */

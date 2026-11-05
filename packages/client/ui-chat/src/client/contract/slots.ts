@@ -1,7 +1,9 @@
 /** Chat-owned Slot declarations and composed component props. */
-import type { RefObject } from 'react'
+import type { ReactNode, RefObject } from 'react'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
+import type { ReferentKind } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId, SessionSeq } from '@deepseek-ai/dsh-session/types'
+import type { ChatRevealFailureReport } from './reveal.ts'
 import type { PendingSubmission } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { InboxState } from '@deepseek-ai/dsh-agent/types'
@@ -17,7 +19,11 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { ConnectionStateSource } from '@deepseek-ai/dsh-client-connection/client'
-import type { MarkdownFileMentions, MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
+// Type-only: the navigation request a Session open carries to the transcript.
+import type { SessionRevealRequest } from '@deepseek-ai/dsh-client-ui-workspace/client'
+import type {
+  MarkdownFileMentions, MarkdownLabels, MarkdownProseReferents,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: the Session-scope access Hook (`useAccess`) the Chat entries read.
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
@@ -26,6 +32,7 @@ import type { ChatPresentationPolicy } from '../presentation-policy.ts'
 import type { FlowMotionRows } from '../chat/flow-motion.ts'
 import type { ToolCallId } from './store.ts'
 import type { ChatConversationViewNode, ChatNode, ChatNodeKind } from './chat-nodes.ts'
+import type { ChatRevealTarget } from './reveal.ts'
 import type {
   ChatNodeProcessSource, ChatNodeSource, ChatSnapshot, ChatTurnProcessPresentation,
 } from './snapshot.ts'
@@ -65,6 +72,37 @@ export interface TurnTailOwnerProps {
 export interface AssistantActionOwnerProps {
   messageId: MessageId
 }
+
+/**
+ * Owner currency of the user-message action strip: where the addressed message
+ * sits in the durable log, plus the text its bubble rendered. A user message
+ * carries no message id — `messageId` is the assistant-side identity space —
+ * so `seq` addresses it.
+ */
+export interface UserActionOwnerProps {
+  /** Log position of the `user/message` event this strip addresses. */
+  seq: number
+  /** The message's joined text, the same string the built-in copy action writes. */
+  text: string
+}
+
+/**
+ * Owner share of the session token-usage pill and its dialog: the same figures
+ * the shipped pill prints, so an occupant of either usage seat reads the
+ * session's billed totals without importing the chat implementation.
+ */
+export interface StatsUsageOwnerProps {
+  /** Every prompt-side billing bucket plus output over the whole durable log, exact. */
+  totalTokens: number
+  /**
+   * Cache-hit share of billed input as the pill prints it (the bare number,
+   * e.g. "93"), or null when nothing was billed yet.
+   */
+  cacheHitPercent: string | null
+}
+
+/** Slot-backed renderer for the actions one user-side message offers. */
+export type RenderUserActions = (owner: UserActionOwnerProps) => ReactNode
 
 /** Stable quota failure codes retained in the Session log; both raise the frame-wide notice. */
 export type QuotaNoticeCode = 'QUOTA' | 'ACCOUNT_QUOTA'
@@ -145,6 +183,96 @@ declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Optional prose file-mention provider. */
     chatFileMentions: ChatFileMentions
+  }
+}
+
+/**
+ * One clickable reference a {@link ProseReferents} scan found in a rendered
+ * text run.
+ */
+export interface ProseReferentSpan {
+  /** Start offset into the scanned text, inclusive. */
+  readonly start: number
+  /** End offset into the scanned text, exclusive. */
+  readonly end: number
+  /** Open target's kind; see {@link ReferentKind}. */
+  readonly kind: ReferentKind
+  /** Resolved target the default open action acts on (an absolute path for `file`/`dir`, a URL string for `url`). */
+  readonly target: string
+  /** The raw text exactly as it appeared at the span's source, before resolution. */
+  readonly raw: string
+}
+
+/**
+ * Optional prose-referent scanning provider, consumed via
+ * `ctx.get('proseReferents')` (optional-service convention, mirrors
+ * {@link ChatFileMentions}): the chat view asks it to scan a rendered text
+ * run — plain prose or inline code — for clickable references and threads
+ * the result into MarkdownText. Absent service — the providing plugin
+ * composed out of cordis.yml — turns the surface off; prose and inline code
+ * render exactly as they did before this seam existed.
+ *
+ * Three-layer invariant (nominate → verify → open): a span this interface
+ * ever hands back to the renderer is, by construction, already verified —
+ * unverified candidates never leave the provider. `scan` and `resolveLink`
+ * both hold to this; only a session truth index hit or a host `stat` may
+ * promote a candidate to a returned span.
+ */
+export interface ProseReferents {
+  /**
+   * Scan one rendered text run and return only its **verified** clickable
+   * spans — unverified candidates stay out of the return value entirely, so
+   * "blue = openable" holds structurally: no unverified data ever reaches
+   * the renderer. Pure and synchronous: no IO, no filesystem `stat` runs
+   * here — verification against the session truth index or a prior `stat`
+   * result is a cache read, never a fresh probe.
+   * @param text - Exact text content of the node being rendered.
+   * @param context - `cwd`/`home` resolve a relative candidate. `cwd` is the
+   * session's current working directory at this call, or its header
+   * directory when no working directory is recorded (undefined wherever the
+   * session/workspace has neither — the provider decides whether that
+   * suppresses a span or not); `inlineCode` is true for an inline-code
+   * token, false for plain prose text.
+   * @returns Non-overlapping, verified spans in ascending `start` order.
+   */
+  scan(
+    text: string,
+    context: { cwd?: string | undefined; home?: string | undefined; inlineCode: boolean },
+  ): readonly ProseReferentSpan[]
+  /**
+   * Nominate a non-web-scheme markdown link destination (a local path shape
+   * the renderer itself detected — see `render.tsx`'s link handling) and
+   * return its verified span, or `undefined` to keep the link inert. Pure
+   * and synchronous, same verified-only contract as {@link scan}: a defined
+   * return is already verified, never a fresh probe.
+   * @param destination - The link's decoded destination text.
+   * @param displayText - The link's rendered text, for a provider that logs
+   * or disambiguates by what the reader actually sees.
+   * @param context - `cwd`/`home` resolve a relative destination, as in {@link scan}.
+   * @returns The verified span, or `undefined` when the destination is not
+   * (yet, or ever) verified — the renderer then keeps the link inert.
+   */
+  resolveLink?(
+    destination: string,
+    displayText: string,
+    context: { cwd?: string | undefined; home?: string | undefined },
+  ): ProseReferentSpan | undefined
+  /**
+   * Subscribe to verification progress: called once a batch of pending
+   * candidates finishes its host `stat` round, so a host that already
+   * rendered unverified-as-plain-text spans can re-scan and reveal whatever
+   * just verified. Optional — a provider with no asynchronous verification
+   * (everything decided synchronously in `scan`/`resolveLink`) omits it.
+   * @param listener - Called with no arguments after each verification tick.
+   * @returns Unsubscribe function.
+   */
+  subscribe?(listener: () => void): () => void
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Prose-referent scanning provider (e.g. clickable-refs); reach via ctx.get — optional. */
+    proseReferents: ProseReferents
   }
 }
 
@@ -233,7 +361,20 @@ export interface ChatNodeOwnerProps {
   forkAt: (seq: number) => void
   /** Session-authorized image loader supplied by the Chat view. */
   loadImage: MessageImageLoader
+  /**
+   * Render the contributed actions of one user-side message. A chat node
+   * decides whether its message has a durable position to address; the pending
+   * steering bubble has none and receives no strip.
+   */
+  renderUserActions: RenderUserActions
   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
+  /**
+   * Prose-referent scanner/opener from the optional {@link ProseReferents}
+   * service, bound to this session's cwd/home. Undefined when the service is
+   * absent — prose and inline code render exactly as before this seam
+   * existed.
+   */
+  referents: MarkdownProseReferents | undefined
   /** Turn-process state when this Node belongs to a projected Turn. */
   turnProcess?: TurnProcessOwnerProps | undefined
 }
@@ -251,6 +392,12 @@ export interface UserContentData {
   readonly extraBlocks: readonly unknown[]
   /** Labels displayed in the caller-provided reference summary. */
   readonly referenceLabels?: readonly string[]
+  /**
+   * Labels of the prompt references recorded on the message source, in
+   * reference order; the attachment row shows each as a chip. Absent when the
+   * message carries none.
+   */
+  readonly promptReferenceLabels?: readonly string[]
 }
 
 /** Public content rendering input; reference renderers own their injected actions. */
@@ -321,6 +468,11 @@ export interface ChatViewInjected {
     interactionIds: ObservableSnapshot<readonly string[]>
     /** Live presentation policy derived from the accepted work-details mode. */
     presentation: ObservableSnapshot<ChatPresentationPolicy>
+    /**
+     * Message this Session's navigation asked the transcript to show; null
+     * once the view consumed the request. Bound as `useReveal`.
+     */
+    reveal: HostObservable<SessionRevealRequest | null>
   }
   keyedHooks: {
     /** Resolve the stable source for one Chat Node key. */
@@ -338,6 +490,27 @@ export interface ChatViewInjected {
   loadOlder: () => void
   /** Jump loader: page history back through seq; resolves when the window covers it. */
   loadThrough: (seq: SessionSeq) => Promise<void>
+  /** Replace the display window with one direct read ending at the position. */
+  openAt: (seq: SessionSeq) => Promise<boolean>
+  /** Restore the live, tail-following window after a direct history read. */
+  openTail: () => Promise<void>
+  /** Append the next forward page to a direct history window. */
+  loadNewer: () => Promise<boolean>
+  /**
+   * Resolve one durable message position to the visible row that renders it,
+   * read from the live Chat snapshot rather than the render's copy: the page
+   * history this Session just prepended is already in the snapshot.
+   * @param seq - durable event position a navigation asked to show.
+   * @returns the row to land on, or undefined when the loaded window cannot place it.
+   */
+  locateReveal: (seq: SessionSeq) => ChatRevealTarget | undefined
+  /**
+   * Consume a reveal request once this view landed on it or refused it.
+   * @param id - request identity the view handled.
+   */
+  settleReveal: (id: number) => void
+  /** Report one reveal this view could not place; the reason is diagnostic, not copy. */
+  notifyRevealFailure: (failure: ChatRevealFailureReport) => void
   loadImage: MessageImageLoader
   chatScroll: {
     save: (position: ChatScrollPosition | null) => void
@@ -345,6 +518,12 @@ export interface ChatViewInjected {
   }
   forkAt: (seq: number) => void
   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
+  /**
+   * Prose-referent scanner/opener from the optional {@link ProseReferents}
+   * service (resolved live, like {@link fileMentions}), bound to this
+   * session's cwd/host home. Undefined when the service is absent.
+   */
+  referents: MarkdownProseReferents | undefined
 }
 
 /** Session-owned node sources shared with the view, plus the flow's connection state. */
@@ -357,7 +536,7 @@ export type ChatFlowDataInjected = Pick<ChatViewInjected, 'keyedHooks'> & {
 
 /** Ordered rows and reconciled local echoes rendered inside one Chat viewport. */
 export interface ChatFlowOwnerProps extends Pick<ChatNodeOwnerProps,
-  'cwd' | 'openFile' | 'inspectCall' | 'forkAt' | 'loadImage' | 'fileMentions'> {
+  'cwd' | 'openFile' | 'inspectCall' | 'forkAt' | 'loadImage' | 'fileMentions' | 'referents'> {
   readonly entries: readonly RenderEntry[]
   readonly pendingInputs: readonly (PendingSubmission | InboxState['next-step'][number])[]
   readonly lastInputTurn: number | undefined
@@ -367,7 +546,7 @@ export interface ChatFlowOwnerProps extends Pick<ChatNodeOwnerProps,
 /** Full props of the Chat-owned flow renderer. */
 export type ChatFlowSlotProps =
   PropsRuntime<'conversation.chat.flow'>
-  & PropsRenderSlots<'conversation.chat.node'>
+  & PropsRenderSlots<'conversation.chat.node' | 'conversation.chat.user-actions'>
   & PropsRenderFactories
   & PropsStore<ChatStore>
   & InjectFace<ChatFlowDataInjected>
@@ -480,6 +659,36 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * that entry. With no entries, the standard action row remains unchanged.
      */
     'conversation.chat.assistant-actions': { kind: 'list'; scope: 'session'; owner: AssistantActionOwnerProps }
+    /**
+     * Action strip attached to one user or admitted-steering message, rendered
+     * inside that message's IconActions row. The Chat flow declares this seat
+     * and hands every node a `renderUserActions` share: the `user` and
+     * `steering` entries both render it, and a child key has exactly one
+     * declaring entry. The render site passes the addressed message's log
+     * position and rendered text, so contributors add per-message actions
+     * without importing the chat implementation. Entries render by ascending
+     * `order`.
+     */
+    'conversation.chat.user-actions': { kind: 'list'; scope: 'session'; owner: UserActionOwnerProps }
+    /**
+     * Leading segment of the session token-usage pill's label, in place of the
+     * shipped token total. The cache-hit segment the pill appends after it is
+     * unaffected, and an unoccupied seat prints the token total. The button
+     * carries no `aria-label`: its accessible name is whatever this seat and
+     * the cache-hit segment render. The token-total fallback covers an empty
+     * seat only — an occupant that throws is replaced by the error face, not
+     * by the fallback, so an occupant carries its own failure reading.
+     */
+    'conversation.chat.stats.usageLabel': { kind: 'single'; scope: 'session'; owner: StatsUsageOwnerProps }
+    /**
+     * Extra rows at the end of the token-usage dialog's bucket list, after the
+     * output row. Each entry renders one or more `dt`/`dd` pairs and inherits
+     * the list's skin; they land one level below the `dl`, inside the render
+     * site's `display: contents` slot anchor, which keeps them grid items of
+     * the list and out of the accessibility tree. Entries render by ascending
+     * `order`; with no entries the dialog is exactly the shipped one.
+     */
+    'conversation.chat.stats.usageRows': { kind: 'list'; scope: 'session'; owner: StatsUsageOwnerProps }
     /**
      * Frame-wide quota notice chain. The Chat-owned host in `shell.overlay`
      * offers the one live notice; the first entry whose selector claims its

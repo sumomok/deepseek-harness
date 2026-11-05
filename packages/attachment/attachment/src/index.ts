@@ -25,6 +25,9 @@ export { AttachmentError, isAttachmentError, isImageAdmissionError } from './err
 export type { AttachmentErrorCode, ImageAdmissionErrorCode } from './error.ts'
 export { admitEncodedFile, admitEncodedImages } from './admission.ts'
 export { longEdgeDimensions, requestImageDimensions } from './request-projection.ts'
+export {
+  MAX_PROMPT_REFERENCE_DATA_BYTES, MAX_PROMPT_REFERENCE_LABEL_CHARS, MAX_PROMPT_REFERENCES, promptReferencesProblem,
+} from './prompt-references.ts'
 export type { ProjectedDimensions } from './request-projection.ts'
 export type {
   AttachmentId as AttachmentIdType,
@@ -38,6 +41,8 @@ export type {
   ImageRequestTarget,
   ImageMediaType,
   PromptContentPart,
+  PromptReference,
+  PromptReferenceJson,
   RequestImageAttachment,
   SaveFileAttachment,
   SaveFileStreamAttachment,

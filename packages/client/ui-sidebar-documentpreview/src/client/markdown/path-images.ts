@@ -6,9 +6,15 @@ import { fileMediaUrl, isAbsoluteWorkspacePath, pathPartsOf } from '@deepseek-ai
  * @param base - document base URI, including any deployment prefix.
  * @param documentPath - absolute source path reported by the Host, when available.
  * @param destination - authored Markdown image URL; query and fragment are not filename components.
+ * @param sessionId - Session the previewed file belongs to, named in the URL for a non-owner Peer's read.
  * @returns a Web or Desktop file URL, or undefined for unsupported or malformed destinations.
  */
-export function markdownImageUrl(base: string, documentPath: string | undefined, destination: string): string | undefined {
+export function markdownImageUrl(
+  base: string,
+  documentPath: string | undefined,
+  destination: string,
+  sessionId?: string,
+): string | undefined {
   const suffix = destination.search(/[?#]/u)
   let path: string
   try {
@@ -24,5 +30,5 @@ export function markdownImageUrl(base: string, documentPath: string | undefined,
     if (documentPath === undefined) return undefined
     path = pathPartsOf(documentPath).directory + path
   }
-  return fileMediaUrl(base, path)
+  return fileMediaUrl(base, path, sessionId)
 }

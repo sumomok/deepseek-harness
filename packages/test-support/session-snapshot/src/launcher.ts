@@ -38,7 +38,7 @@ import {
   type SessionNotification,
 } from '@agentclientprotocol/sdk'
 import { entryListSchema, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
-import { resolveExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
+import { isolatedSkillRootEnv, resolveExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
 
 const EXIT_MARKER_GRACE_MS = 250
 
@@ -129,8 +129,7 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
     ...agent.profile === undefined ? {} : { sourceImport: 'tsx/esm' },
     env: {
       ...options.env,
-      DSH_HOME: join(cwd, '.dsh'),
-      DSH_AGENTS_HOME: join(cwd, '.agents'),
+      ...isolatedSkillRootEnv(cwd),
     },
   })
   const child = spawn(

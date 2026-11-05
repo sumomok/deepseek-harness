@@ -1,8 +1,10 @@
 /** Session Remote owner: cold reads, explicit Agent commands, and live control state. */
 
+import { stat } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import { resolve } from 'node:path'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { promptReferencesProblem } from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-fs'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -31,8 +33,10 @@ import { buildModelCatalog, hasProviderApiKey } from './catalog.ts'
 import { SessionSkillCatalog } from './skill-catalog.ts'
 import { SessionMediaReferences } from './media-references.ts'
 import { ArchivedSessionGate } from './archived-session-gate.ts'
+import { PROBE_TARGETS_MAX_PATHS } from './types.ts'
 import type {
   ModelCatalog,
+  ProbeResult,
   SessionWorkspacePathApplication,
   SessionAddress,
   SessionAttachmentRequest,
@@ -50,10 +54,21 @@ import type {
   SessionListValue,
   SessionOpenWorkspacePathRequest,
   SessionOpenWorkspacePathValue,
-  SessionEventsPage, SessionPageRequest, SessionEventFrame, SessionObserveEventRequest,
-  SessionProjectionFrame, SessionStateRequest, SessionState, SessionWaitRequest, SessionWaitValue,
+  SessionEventsPage,
+  SessionPageRequest,
+  SessionEventFrame,
+  SessionObserveEventRequest,
+  SessionProbeTargetsRequest,
+  SessionProbeTargetsValue,
+  SessionProjectionFrame,
+  SessionState,
+  SessionStateRequest,
+  SessionWaitRequest,
+  SessionWaitValue,
   SessionPromptRequest,
   SessionPromptValue,
+  SessionMessageSearchRequest,
+  SessionMessageSearchValue,
   SessionRenameRequest,
   SessionRenameValue,
   SessionSearchRequest,
@@ -296,6 +311,23 @@ export class SessionController extends TypertRemoteService {
   }
 
   /**
+   * Search visible Session content at message granularity, addressing every hit
+   * by the Session and event it came from. Unlike {@link search}, which reports
+   * matching Sessions, each item names one message so a client can open it, and
+   * paging continues through the cursor this returns.
+   * @param request - literal message-content query and an optional continuation cursor.
+   * @param signal - cancellation for list and search reads.
+   * @returns this page's authorized hits and the cursor for the next one.
+   */
+  @Remote('searchMessages')
+  searchMessages(request: SessionMessageSearchRequest, signal: AbortSignal): Promise<SessionMessageSearchValue> {
+    return this.listState.searchMessages(request, signal).then(result => ({
+      ...result,
+      items: result.items.filter(item => this.ctx.remoteAccess.allows({ kind: 'session', id: item.sessionId })),
+    }))
+  }
+
+  /**
    * Create one ordinary Session for a new conversation, reusing the named blank Session while it is reusable.
    * @param request - optional blank Session to reuse, location, and Agent preset.
    * @returns the created or reused Session identity and its preset when configured.
@@ -361,11 +393,20 @@ export class SessionController extends TypertRemoteService {
   }
 
   /**
-   * Verify one path through the composed filesystem and open it on the Host desktop.
+   * Verify one path through the composed filesystem and open or reveal it on
+   * the Host desktop. A does-not-exist path is checked explicitly before the
+   * opener runs: the opener is a shelled-out platform command (`open`,
+   * `xdg-open`, PowerShell's `Invoke-Item`), never a Node fs call, so it
+   * never raises a `NodeJS.ErrnoException` this process could read a reliable
+   * code from — its "no such file" text is platform-specific and unparsed.
+   * The pre-check leaves every other failure (permission, no registered
+   * application, the platform command itself missing) exactly as it was:
+   * folded into `gateway/internal` below.
    * @param request - path after best-effort Session workspace resolution.
    * @param signal - caller lifetime; abort terminates the native command.
    * @returns confirmation after the native opener accepts the path.
-   * @throws RemoteError when the request is invalid, has no verified Host mapping, is cancelled, or the opener fails.
+   * @throws RemoteError when the request is invalid, has no verified Host mapping, the path does
+   * not exist, is cancelled, or the opener fails.
    */
   @Remote('openWorkspacePath')
   async openWorkspacePath(
@@ -374,6 +415,21 @@ export class SessionController extends TypertRemoteService {
   ): Promise<SessionOpenWorkspacePathValue> {
     try {
       const path = await this.verifyDesktopPath(request.path, signal)
+      try {
+        await stat(path)
+      } catch (error: unknown) {
+        if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') {
+          throw new RemoteError('session/path-not-found', `path does not exist: ${path}`, { path })
+        }
+        // Any other stat failure (permission, a non-directory path segment, a
+        // transient sharing violation, ...) is not this check's call to make:
+        // fall through and let the opener report it.
+      }
+      // The stat above is itself an await: an abort landing while it was in
+      // flight would otherwise reach the opener already-fired, which an
+      // opener that only listens for the live abort event (rather than also
+      // polling `signal.aborted` up front) would never observe.
+      signal.throwIfAborted()
       if (request.action === 'reveal') await this.revealPath(path, signal)
       else if (request.application !== undefined) await this.openFileApplication(path, request.application, signal)
       else await this.openPath(path, signal)
@@ -426,6 +482,33 @@ export class SessionController extends TypertRemoteService {
   }
 
   /**
+   * Batch existence/kind probe for the three-layer clickable-reference
+   * verification stage: a read-only `stat` per path, never a directory
+   * listing or a content read. Always available — unlike a directory
+   * picker's browse capability, this makes no filesystem choice a
+   * deployment might want to withhold beyond what `openWorkspacePath`'s own
+   * pre-check already performs per path. Capped at
+   * {@link PROBE_TARGETS_MAX_PATHS} paths per call (a larger or empty batch
+   * fails `gateway/bad-request` before probing starts) and run with bounded
+   * internal concurrency, so a caller with more candidates issues several
+   * calls rather than one unbounded one.
+   * @param request - paths to probe, in the order results are returned.
+   * @returns one result per requested path, in the same order.
+   * @throws RemoteError when the batch is empty or exceeds the size cap.
+   */
+  @Remote('probeTargets')
+  async probeTargets(request: SessionProbeTargetsRequest): Promise<SessionProbeTargetsValue> {
+    if (request.paths.length === 0 || request.paths.length > PROBE_TARGETS_MAX_PATHS) {
+      throw new RemoteError(
+        'gateway/bad-request',
+        `session.probeTargets accepts 1 to ${String(PROBE_TARGETS_MAX_PATHS)} paths`,
+        {},
+      )
+    }
+    return { results: await probeTargetsBatch(request.paths) }
+  }
+
+  /**
    * Rename one Session after explicitly resuming it.
    * @param request - Session identity and proposed title.
    * @returns the accepted title and durable event sequence.
@@ -456,8 +539,10 @@ export class SessionController extends TypertRemoteService {
   }
 
   /**
-   * Admit one prompt after explicitly resuming its Session.
-   * @param request - Session identity, prompt content, source metadata, and delivery mode.
+   * Admit one prompt after explicitly resuming its Session. Empty content and
+   * out-of-bounds references are rejected with `gateway/bad-request`; accepted
+   * references are recorded on the message source only, after `principal`.
+   * @param request - Session identity, prompt content, references, source metadata, and delivery mode.
    * @param signal - caller cancellation before prompt admission begins.
    * @returns acknowledgement that the Agent accepted the prompt.
    */
@@ -477,6 +562,9 @@ export class SessionController extends TypertRemoteService {
         { value: request.clientTimeZone },
       )
     }
+    const references = request.references ?? []
+    const referencesProblem = promptReferencesProblem(references)
+    if (referencesProblem !== undefined) throw new RemoteError('gateway/bad-request', referencesProblem, {})
     // The caller is recorded only when it is not the owner, so owner messages keep their exact source.
     const principal = principalOf(this.ctx.invocation)
     const source: MessageSource = {
@@ -484,6 +572,7 @@ export class SessionController extends TypertRemoteService {
       rpcId: request.requestId,
       ...(clientTimeZone === undefined ? {} : { clientTimeZone }),
       ...(principal === undefined ? {} : { principal }),
+      ...(references.length === 0 ? {} : { references }),
     }
     return this.commands.prompt(request, source)
   }
@@ -637,6 +726,11 @@ export class SessionController extends TypertRemoteService {
         case 'projection':
           if (this.ctx.remoteAccess.allows({ kind: 'session', id: frame.sessionId })) yield frame
           break
+        case 'search-index':
+          // Host-wide preparation, not a Session fact: every subscriber that
+          // may issue a search waits on the same index.
+          yield frame
+          break
         /* v8 ignore next -- closed control-frame union. */
         default:
           assertNever(frame)
@@ -645,4 +739,47 @@ export class SessionController extends TypertRemoteService {
   }
 }
 
+/** How many `stat` calls `probeTargets` runs at once, regardless of how many paths one call requests. */
+const PROBE_TARGETS_CONCURRENCY = 8
+
+/**
+ * Bounded-concurrency stat: exists=false for ENOENT and for any other stat
+ * failure alike — the probe answers clickable-or-not, not why not. A
+ * `\\`-prefixed target short-circuits to `exists:false` before any `stat`
+ * runs: on Windows, `stat`-ing a UNC path (`\\server\share\…`) opens an SMB
+ * connection and can leak the current user's NTLM credentials to whatever
+ * host the path names, with no user gesture — this probe answers
+ * local-filesystem existence only, and this check does not trust a caller
+ * to have already filtered UNC targets out (a client-side nomination layer
+ * may, but this is the wire boundary, and a caller cannot be trusted to
+ * pre-filter it).
+ */
+async function probeOneTarget(path: string): Promise<ProbeResult> {
+  if (path.startsWith('\\\\')) return { path, exists: false }
+  try {
+    const info = await stat(path)
+    return { path, exists: true, kind: info.isDirectory() ? 'dir' : 'file' }
+  } catch {
+    return { path, exists: false }
+  }
+}
+
+/** Fixed-size worker pool: each worker claims the next unclaimed index until none remain. */
+async function probeTargetsBatch(paths: readonly string[]): Promise<ProbeResult[]> {
+  const results = new Array<ProbeResult>(paths.length)
+  let nextIndex = 0
+  async function worker(): Promise<void> {
+    for (;;) {
+      const index = nextIndex++
+      if (index >= paths.length) return
+      results[index] = await probeOneTarget(paths[index] as string)
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(PROBE_TARGETS_CONCURRENCY, paths.length) }, worker),
+  )
+  return results
+}
+
+export { buildModelCatalog }
 export default SessionController

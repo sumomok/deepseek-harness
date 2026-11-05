@@ -8,7 +8,8 @@ import {
   createScope, MutableSessionEventSource,
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import type {
-  ISessions, SessionBinding, SessionEventLike, SessionFace, SessionListState, SessionSnapshot,
+  ISessions, SessionBinding, SessionEventLike, SessionFace, SessionListState,
+  SessionSearchIndexProgress, SessionSnapshot,
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import {
   ConversationEventRegistry, ConversationNodeAssembler, ConversationViewRegistry, UiConversation,
@@ -49,6 +50,9 @@ function fakeSession(): SessionFace {
     subscribe: listener => snapshot.subscribe(listener),
     beginSubmission: () => ({ requestId: 'test-req' as never, abandon: () => {} }),
     prompt: () => Promise.reject(new Error('unused fake Session operation')),
+    openAt: () => Promise.resolve(false),
+    openTail: () => Promise.resolve(),
+    loadNewer: () => Promise.resolve(false),
     readAttachment: () => Promise.reject(new Error('unused fake Session operation')),
     updateQueue: () => Promise.reject(new Error('unused fake Session operation')),
     cancel: () => Promise.reject(new Error('unused fake Session operation')),
@@ -82,7 +86,9 @@ function fakeSessions(ctx: Context): { sessions: ISessions; binding: SessionBind
   }
   const sessions: ISessions = {
     list,
+    searchIndex: createSnapshotStore<SessionSearchIndexProgress | undefined>(undefined),
     searchResultLimit: 50,
+    searchMessages: async () => ({ ok: true, value: { items: [] } }),
     create: () => Promise.reject(new Error('unused fake Sessions operation')),
     retain: () => reference,
     using: async (_target, _options, operation) => await operation(reference),

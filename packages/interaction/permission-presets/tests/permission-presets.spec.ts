@@ -10,6 +10,7 @@ import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import PermissionPresetService, {
   AUTO_PRESET, CUSTOM_PRESET,
 } from '@deepseek-ai/dsh-permission-presets'
+import type { PresetGlyph, PresetTone } from '@deepseek-ai/dsh-permission-presets'
 import { liveConfig } from '../../../settings/settings/tests/live-config.ts'
 
 const configurations = new WeakMap<Context, Awaited<ReturnType<typeof liveConfig>>>()
@@ -269,6 +270,51 @@ describe('PermissionPresetService', () => {
     const bare = await mounted({ config: { presets: { plain: { sandbox: 'workspace-write', approval: 'ask' } } } })
     expect(bare.permissionPresets.optionOf('plain')).toEqual({ value: 'plain', name: 'plain' })
     expect(() => ctx.permissionPresets.optionOf('plan')).toThrow(/unknown preset/)
+  })
+
+  it('carries a configured design-set glyph into the option and rejects any other name at load', async () => {
+    const ctx = await mounted({
+      config: {
+        presets: {
+          'workspace-write': { sandbox: 'workspace-write', approval: 'ask' },
+          'read-only': { sandbox: 'read-only', approval: 'ask', glyph: 'read-only' },
+          'yolo-access': { sandbox: 'danger-full-access', approval: 'ask', name: 'Reviewed full access', glyph: 'danger-full-access' },
+        },
+      },
+    })
+    expect(ctx.permissionPresets.optionOf('yolo-access')).toEqual({
+      value: 'yolo-access', name: 'Reviewed full access', glyph: 'danger-full-access',
+    })
+    // A preset naming no glyph keeps the option it always had.
+    expect(ctx.permissionPresets.optionOf('workspace-write')).toEqual({ value: 'workspace-write', name: 'workspace-write' })
+    // The glyph set is closed: the client draws artwork, not a host-named file.
+    const outside: NonNullable<Parameters<typeof PermissionPresetService.Config>[0]> = {
+      presets: { plain: { sandbox: 'workspace-write', approval: 'ask', glyph: 'sparkles' as string as PresetGlyph } },
+    }
+    await expect(mounted({ config: outside })).rejects.toThrow(/\$\.presets\.plain\.glyph expected .* but got "sparkles"/)
+  })
+
+  it('carries a configured tone into the option and rejects any other tone at load', async () => {
+    const ctx = await mounted({
+      config: {
+        presets: {
+          'workspace-write': { sandbox: 'workspace-write', approval: 'ask' },
+          'danger-full-access': {
+            sandbox: 'danger-full-access', approval: 'never', name: 'Full access', tone: 'danger',
+          },
+        },
+      },
+    })
+    expect(ctx.permissionPresets.optionOf('danger-full-access')).toEqual({
+      value: 'danger-full-access', name: 'Full access', tone: 'danger',
+    })
+    // A preset naming no tone keeps the option it always had.
+    expect(ctx.permissionPresets.optionOf('workspace-write')).toEqual({ value: 'workspace-write', name: 'workspace-write' })
+    // The tone set is closed: the client owns the palette, not the host.
+    const outside: NonNullable<Parameters<typeof PermissionPresetService.Config>[0]> = {
+      presets: { plain: { sandbox: 'workspace-write', approval: 'ask', tone: 'caution' as string as PresetTone } },
+    }
+    await expect(mounted({ config: outside })).rejects.toThrow(/\$\.presets\.plain\.tone expected .* but got "caution"/)
   })
 
   it('rejects a table entry named custom (reserved for the derived state)', async () => {

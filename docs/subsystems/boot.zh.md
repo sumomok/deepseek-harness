@@ -134,9 +134,12 @@ entries(): Entry[]
 configuration(): Array<{ entry: Entry; inherited: Record<string, unknown>; override: Record<string, unknown> }>
 
 /** Validate, persist, and reconcile a plugin's next config; ordinary fields keep normal lifecycle rules.
+ * The next config may carry a Loader expression only where the current or inherited config holds an identical one
+ * at the same path; the check precedes validation, so a refused expression is never evaluated.
  * @param entry Current Loader entry, also used to detect replacement during the write.
  * @param change Derive a raw config from the current entry and its inherited layer.
  * @returns Fulfillment after Loader reconciliation completes.
+ * @throws ConfigExpressionRejectedError when the next config adds or changes an expression; nothing is written or reconciled.
  */
 async edit( entry: Entry, change: (current: Record<string, unknown>, inherited: Record<string, unknown>) => Record<string, unknown>, ): Promise<void>
 ```
@@ -236,10 +239,12 @@ Manage profile files and apply their declared reload lifecycle.
  */
 @Remote async listPlugins(): Promise<PluginInfo[]>
 
-/** Read installed, installation-provided, and offline Official catalog bundles, plus selected non-bundle names.
- * A dependency without a bundle patch is listed, as a `not-bundle` problem, only while it is selected.
+/** Read installed, installation-provided, launcher-shipped, and offline Official catalog bundles, plus selected
+ * non-bundle names; the profile manifest's `dsh.profile.shipped` names the launcher-shipped ones.
+ * A dependency without a bundle patch is listed, as a `not-bundle` problem, only while it is selected or shipped.
  * @returns Package versions, manifest descriptions, the installable spec of profile dependencies, rows, optional
- * display metadata, activation selections, whether the installation offers the bundle, and removal availability.
+ * display metadata, activation selections, whether the installation offers the bundle, whether the launcher ships it,
+ * and removal availability.
  */
 @Remote listBundles(): Promise<BundleInfo[]>
 

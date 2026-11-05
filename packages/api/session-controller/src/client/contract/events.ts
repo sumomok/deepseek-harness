@@ -161,6 +161,16 @@ export class MutableSessionEventSource implements SessionEventSource {
   }
 
   /**
+   * Append one forward history page.
+   * @param entries - contiguous entries after the current window.
+   */
+  appendPage(entries: readonly SessionEventLikeEntry[]): void {
+    if (entries.length === 0) return
+    this.window = concat(this.window, leaf(entries))
+    this.publish(this.snapshot.hasMore, { kind: 'append', entries })
+  }
+
+  /**
    * Append one contiguous live entry.
    * @param entry - live tail entry.
    */

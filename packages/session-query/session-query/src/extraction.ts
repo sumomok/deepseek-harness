@@ -15,9 +15,11 @@ import type {} from '@deepseek-ai/dsh-tool-todo'
 export function extractSessionEventText(event: SessionEvent): string {
   switch (event.type) {
     case 'user/message':
-      return contentText(event.data.content)
+      return proseText(event.data.content)
     case 'assistant/message':
-      return contentText(event.data.message.content)
+      // Tool calls and their arguments are process, not the answer a person
+      // asked for; only the visible prose of the reply is searchable.
+      return proseText(event.data.message.content)
     case 'tool/call':
       return joinText([event.data.name, event.data.arguments])
     case 'tool/result':
@@ -65,6 +67,11 @@ type SessionContentBlock = SessionEvent<'user/message'>['data']['content'][numbe
 
 function contentText(content: readonly SessionContentBlock[]): string {
   return joinText(content.flatMap(blockText))
+}
+
+/** Text a reader sees in a message body: text blocks only, never tool calls or reasoning. */
+function proseText(content: readonly SessionContentBlock[]): string {
+  return joinText(content.flatMap(block => block.type === 'text' ? [block.text] : []))
 }
 
 function blockText(block: SessionContentBlock): string[] {

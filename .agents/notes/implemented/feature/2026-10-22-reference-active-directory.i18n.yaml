@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-10-22-reference-active-directory.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-22-reference-active-directory.md
+/agent-note-file-references-resolve-against-the-current-working-directory-when-clicked:
+  en: 2ae45df8720a8c52
+  zh: 854c3c4736540dbb
+/agent-note-file-references-resolve-against-the-current-working-directory-when-clicked/problem:
+  en: 41ae2e0f870406a5
+  zh: 132144ce8c177afa
+/agent-note-file-references-resolve-against-the-current-working-directory-when-clicked/decision:
+  en: 61c6eb6a9c30f721
+  zh: db7442d623ce2221
+/agent-note-file-references-resolve-against-the-current-working-directory-when-clicked/alternatives-considered:
+  en: 1f66e06c53484b5f
+  zh: 558f85b838bfd047
+/agent-note-file-references-resolve-against-the-current-working-directory-when-clicked/consequences:
+  en: d609f59dee74f75c
+  zh: a6cbb41b9c059ca4

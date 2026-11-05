@@ -226,6 +226,11 @@ export function apply(ctx: Context, config: Config = {}): void {
       ? await ctx.skills.snapshot({ cwd: await ctx.workingDirectory.ensure(agent, signal), signal, scope: agent })
       : { skills: [], complete: true }
     signal.throwIfAborted()
+    // An incomplete observation publishes what it reached with a discovery
+    // warning and `incomplete: true`, including when it reached nothing: the
+    // warning tells the model the absence is unconfirmed, which a silent
+    // last-good catalog cannot. The count is of what this catalog would carry,
+    // so surviving skills the model may not invoke do not stand in for a view.
     const skills = snapshot.skills.filter(isModelInvocable)
     const entries = catalogSourceEntries(skills, catalogDescriptionMaxLength)
     const incomplete = !snapshot.complete

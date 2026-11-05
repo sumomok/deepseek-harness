@@ -4,12 +4,16 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { CommandDefinitionId } from '@deepseek-ai/dsh-commands/brand'
 import Schema from '@deepseek-ai/schemastery'
 import { brandString } from '@deepseek-ai/dsh-brand'
+import type {} from '@deepseek-ai/dsh-api-remote-access'
 import type {} from '@deepseek-ai/dsh-attachment'
+import type { PeerScope } from '@deepseek-ai/dsh-client-connection'
 import type { CommandResult } from '@deepseek-ai/dsh-commands'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { SessionLineageNode } from '@deepseek-ai/dsh-session-query'
 import {
   DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
   flushLiveSessionLog,
+  measureSessionLogZip,
   readSessionLogText,
   sessionLogExportDeps,
   sessionLogZipFilename,
@@ -17,12 +21,19 @@ import {
   type SessionLogCompressionLevel,
   type SessionLogExportReady,
 } from './archive.ts'
+import {
+  SESSION_EXPORT_BYTES_HEADER,
+  SESSION_EXPORT_ENTRIES_HEADER,
+  SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER,
+  type SessionLogExportExtent,
+} from './export-extent.ts'
 import { formatSessionMarkdown } from './markdown.ts'
 import { SESSION_LOG_EXPORT_PATH, SESSION_MARKDOWN_EXPORT_PATH } from './routes.ts'
 
 export {
   DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
   flushLiveSessionLog,
+  measureSessionLogZip,
   readSessionLogText,
   serializeSessionLog,
   SESSION_LOG_FILENAME,
@@ -37,6 +48,12 @@ export type {
   SessionLogExportReady,
   SessionLogZipEntry,
 } from './archive.ts'
+export {
+  SESSION_EXPORT_BYTES_HEADER,
+  SESSION_EXPORT_ENTRIES_HEADER,
+  SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER,
+} from './export-extent.ts'
+export type { SessionLogExportExtent } from './export-extent.ts'
 export { formatSessionMarkdown } from './markdown.ts'
 
 export const name = 'session-log-download'
@@ -63,6 +80,7 @@ interface SessionLogConnection {
       readonly methods: readonly ('GET' | 'HEAD')[]
       readonly requestBody: 'buffered'
       readonly fetch: (request: Request) => Promise<Response>
+      readonly serveNonOwner: (request: Request, peer: PeerScope) => Promise<Response>
     }): () => Promise<void>
   }
 }
@@ -86,19 +104,25 @@ export function apply(ctx: Context, config: Config = {}): void {
       ? REQUESTED
       : { kind: 'error', text: 'The Web /export command does not accept a path.' }),
   }), 'session-log-download: command')
+  const respond = async (request: Request, query: SessionLogExportQuery | undefined): Promise<Response> => {
+    const response = await sessionLogExportResponse(
+      ctx,
+      request,
+      query,
+      config.compressionLevel ?? DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
+    )
+    if (request.method === 'GET') return response
+    await response.body?.cancel()
+    return new Response(null, { status: response.status, headers: response.headers })
+  }
   connectionOf(ctx).fetch.register({
     path: SESSION_LOG_EXPORT_PATH,
     methods: ['GET', 'HEAD'],
     requestBody: 'buffered',
-    fetch: async (request) => {
-      const response = await sessionLogExportResponse(
-        ctx,
-        request,
-        config.compressionLevel ?? DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
-      )
-      if (request.method === 'GET') return response
-      await response.body?.cancel()
-      return new Response(null, { status: response.status, headers: response.headers })
+    fetch: request => respond(request, sessionLogExportQuery(request)),
+    serveNonOwner: async (request, peer) => {
+      const query = sessionLogExportQuery(request)
+      return query !== undefined && await exportsAllowed(ctx, request, query, peer) ? respond(request, query) : forbidden()
     },
   })
   connectionOf(ctx).fetch.register({
@@ -111,11 +135,86 @@ export function apply(ctx: Context, config: Config = {}): void {
       await response.body?.cancel()
       return new Response(null, { status: response.status, headers: response.headers })
     },
+    serveNonOwner: async (request, peer) => {
+      const query = sessionLogExportQuery(request)
+      if (query === undefined || !await exportsAllowed(ctx, request, { ...query, includeDescendants: false }, peer)) return forbidden()
+      const response = await sessionMarkdownResponse(ctx, request)
+      if (request.method === 'GET') return response
+      await response.body?.cancel()
+      return new Response(null, { status: response.status, headers: response.headers })
+    },
   })
 }
 
+function forbidden(): Response {
+  return new Response('forbidden', { status: 403 })
+}
+
+/** The Session and archive extent one export request names. */
+interface SessionLogExportQuery {
+  readonly sessionId: SessionId
+  readonly includeDescendants: boolean
+}
+
+/**
+ * Parse the export query once per request. The owner's export and a non-owner
+ * access rule both read this result, so the rule decides the Session and
+ * extent the archive then contains. A repeated parameter takes its last value.
+ * @returns undefined for a missing or empty `sessionId`, or an
+ * `includeDescendants` other than `true` or `false`.
+ */
+function sessionLogExportQuery(request: Request): SessionLogExportQuery | undefined {
+  const query = Object.fromEntries(new URL(request.url).searchParams)
+  const sessionIdValue = query['sessionId']
+  const descendantsValue = query['includeDescendants']
+  if (sessionIdValue === undefined || sessionIdValue.length === 0
+    || (descendantsValue !== undefined && descendantsValue !== 'true' && descendantsValue !== 'false')) {
+    return undefined
+  }
+  return { sessionId: brandString<SessionId>(sessionIdValue), includeDescendants: descendantsValue === 'true' }
+}
+
+/**
+ * Whether remote access allows a non-owner Peer to export what the parsed
+ * query names: the action `SESSION_LOG_EXPORT_PATH` on the requested Session
+ * and, with `includeDescendants`, on every subagent descendant the archive
+ * would include. The requested Session is decided before any lineage read.
+ * @returns false for a Host without remote access or Session query, an
+ * unreadable lineage, or any denial.
+ */
+async function exportsAllowed(ctx: Context, request: Request, query: SessionLogExportQuery, peer: PeerScope): Promise<boolean> {
+  const remoteAccess = ctx.get('remoteAccess')
+  if (remoteAccess === undefined) return false
+  const allowed = (ids: readonly SessionId[]): boolean => remoteAccess.decide({
+    principal: peer.principal,
+    action: SESSION_LOG_EXPORT_PATH,
+    resources: ids.map(id => ({ kind: 'session', id })),
+  }).kind === 'allow'
+  if (!allowed([query.sessionId])) return false
+  if (!query.includeDescendants) return true
+  const sessionQuery = ctx.get('sessionQuery')
+  if (sessionQuery === undefined) return false
+  let descendants: readonly SessionLineageNode[]
+  try {
+    descendants = (await sessionQuery.traceSession(query.sessionId, request.signal)).descendants
+  } catch {
+    // A lineage this route cannot read is not shown to be allowed; the owner's path reports such failures.
+    request.signal.throwIfAborted()
+    return false
+  }
+  const ids: SessionId[] = []
+  const collect = (nodes: readonly SessionLineageNode[]): void => {
+    for (const node of nodes) {
+      ids.push(node.session.header.id)
+      collect(node.descendants)
+    }
+  }
+  collect(descendants)
+  return ids.length === 0 || allowed(ids)
+}
+
 function connectionOf(ctx: Context): SessionLogConnection {
-  return Reflect.get(ctx, 'connection') as SessionLogConnection
+  return Reflect.get(ctx, 'connection')
 }
 
 /**
@@ -173,17 +272,13 @@ function isSessionNotFound(error: unknown): boolean {
 async function sessionLogExportResponse(
   ctx: Context,
   request: Request,
+  query: SessionLogExportQuery | undefined,
   compressionLevel: SessionLogCompressionLevel,
 ): Promise<Response> {
-  const url = new URL(request.url)
-  const query = Object.fromEntries(url.searchParams)
-  const sessionIdValue = query['sessionId']
-  const descendantsValue = query['includeDescendants']
-  if (sessionIdValue === undefined || sessionIdValue.length === 0
-    || (descendantsValue !== undefined && descendantsValue !== 'true' && descendantsValue !== 'false')) {
+  if (query === undefined) {
     return new Response('missing or invalid sessionId query parameter', { status: 400 })
   }
-  const sessionId = brandString<SessionId>(sessionIdValue)
+  const { sessionId, includeDescendants } = query
   const deps = sessionLogExportDeps(ctx)
   if (deps.sessionQuery === undefined
     || deps.sessionPersistence === undefined
@@ -214,12 +309,29 @@ async function sessionLogExportResponse(
   if (rootContent === undefined) {
     return new Response('session not found', { status: 404 })
   }
-  const response = new Response(
+  let extent: SessionLogExportExtent | undefined
+  try {
+    extent = await measureSessionLogZip(
+      ready, rootContent, sessionId, includeDescendants, compressionLevel, request.signal,
+    )
+  } catch {
+    // Measuring walks the same lineage and the same persistence reads the
+    // producer walks, so every failure reachable here — a missing descendant
+    // log, an unreadable handle, a lineage error — is reached again by the
+    // stream, which owns the outcome and errors the response body rather than
+    // shipping a truncated archive. Measuring never reads a stored image, so
+    // an unreadable attachment never reaches here; the stream records that one
+    // inside the archive and still completes. Swallowing a measurement failure
+    // only drops the browser to an indeterminate progress bar; cancellation is
+    // not a measurement failure and is rethrown.
+    request.signal.throwIfAborted()
+  }
+  return new Response(
     streamSessionLogZip(
       ready,
       rootContent,
       sessionId,
-      descendantsValue === 'true',
+      includeDescendants,
       compressionLevel,
       request.signal,
     ),
@@ -227,8 +339,12 @@ async function sessionLogExportResponse(
       headers: {
         'content-type': 'application/zip',
         'content-disposition': `attachment; filename="${sessionLogZipFilename(sessionId)}"`,
+        ...extent === undefined ? {} : {
+          [SESSION_EXPORT_ENTRIES_HEADER]: String(extent.entries),
+          [SESSION_EXPORT_BYTES_HEADER]: String(extent.bytes),
+          [SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER]: String(extent.estimatedWireBytes),
+        },
       },
     },
   )
-  return response
 }

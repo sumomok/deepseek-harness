@@ -41,6 +41,8 @@ export interface WindowResult {
   totalLines: number
   /** Whether selected output hit the byte cap. */
   truncatedByBytes: boolean
+  /** Whether one or more returned lines were shortened to `maxLineLength`. */
+  truncatedLines?: true
 }
 
 /** Outcome of a bounded text read — what {@link formatReadOutput} renders. */
@@ -60,10 +62,11 @@ interface WindowAccumulator {
   totalLines: number
   outputBytes: number
   truncatedByBytes: boolean
+  truncatedLines: boolean
 }
 
 function newAccumulator(): WindowAccumulator {
-  return { lines: [], totalLines: 0, outputBytes: 0, truncatedByBytes: false }
+  return { lines: [], totalLines: 0, outputBytes: 0, truncatedByBytes: false, truncatedLines: false }
 }
 
 function truncateLine(line: string, maxLineLength: number): string {
@@ -79,6 +82,7 @@ function consumeLine(acc: WindowAccumulator, rawLine: string, request: ReadWindo
   if (acc.truncatedByBytes || acc.totalLines < request.offset || acc.lines.length >= request.limit) return
 
   const text = truncateLine(rawLine, request.maxLineLength)
+  if (text !== rawLine) acc.truncatedLines = true
   const bytes = lineByteSize(text, acc.lines.length)
   if (acc.outputBytes + bytes > request.maxBytes) {
     acc.truncatedByBytes = true
@@ -96,7 +100,12 @@ function finish(acc: WindowAccumulator, request: ReadWindow, displayPath: string
   if (!acc.truncatedByBytes && request.offset > acc.totalLines && !(acc.totalLines === 0 && request.offset === 1)) {
     throw new FsError(`offset ${request.offset} is out of range for "${displayPath}" (${acc.totalLines} lines)`, 'FS_NOT_FOUND')
   }
-  return { lines: acc.lines, totalLines: acc.totalLines, truncatedByBytes: acc.truncatedByBytes }
+  return {
+    lines: acc.lines,
+    totalLines: acc.totalLines,
+    truncatedByBytes: acc.truncatedByBytes,
+    ...acc.truncatedLines ? { truncatedLines: true as const } : {},
+  }
 }
 
 /**

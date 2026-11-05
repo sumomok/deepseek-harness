@@ -41,10 +41,10 @@ import { chooseGitTransport, sshGitSpec } from './git-transport.ts'
 import { newerVersions, VERSION_FIELDS, VERSION_LIST_FIELDS, versionFacts } from './versions.ts'
 import type {
   BundleDetail, BundleInfo, BundleRowInfo, ChangeResult, InspectOptions, InstallBundleOptions, ListVersionsOptions, ManagementError,
-  PackageResult, PluginChange, PluginEntryId, PluginInfo, PluginInstallCancellation, PluginInstallProgress, PluginInstallRequestId,
-  PluginRegistries, PluginSpecInspection, PluginUpdateResult, PluginUpdateStep, PluginVersion, PluginVersionList, Registry,
+  PackageResult, PluginChange, PluginEntryId, PluginInfo, PluginInstallCancellation, PluginInstallProgress,
+  PluginInstallRequestId, PluginOperation, PluginOperationId, PluginRegistries, PluginSpecInspection,
+  PluginUpdateResult, PluginUpdateStep, PluginVersion, PluginVersionList, ReadOnlyReason, Registry,
   RegistryAttempt, UpdateBundleOptions,
-  PluginOperation, PluginOperationId,
 } from './types.ts'
 export type * from './types.ts'
 export { classifyInstallFailure, type InstallFailureFacts } from './install-failure.ts'
@@ -74,6 +74,13 @@ export interface Config {
    * unless that is npm's own registry or one of these.
    */
   fallbackRegistries?: string[]
+  /**
+   * Module names this deployment requires, in addition to the manager's own management components. A plugin row
+   * naming one, and every bundle whose patch inserts such a row, cannot be switched off or removed and reads
+   * `deployment-required`, or `management-required` for a bundle that also inserts a management component. A name that
+   * no started bundle inserts is logged as one warning when the manager starts.
+   */
+  requiredModules?: string[]
   /** How many of the newest versions above the installed one a version listing reads and returns. */
   versionListLimit?: number
   /** How many single-version registry lookups a version listing runs at once. */
@@ -321,6 +328,7 @@ export class PluginManager extends TypertRemoteService {
     idleTimeoutMs: z.number().step(1).min(1000).default(600000),
     registry: z.string().pattern(REGISTRY_URL),
     fallbackRegistries: z.array(z.string().pattern(REGISTRY_URL)).default([NPMMIRROR_REGISTRY]),
+    requiredModules: z.array(z.string().min(1)).default([]),
     versionListLimit: z.number().step(1).min(1).default(20),
     versionLookupConcurrency: z.number().step(1).min(1).default(4),
     detailMaxBytes: z.natural().min(1).default(1024 * 1024),
@@ -328,8 +336,12 @@ export class PluginManager extends TypertRemoteService {
     detailFetchTimeoutMs: z.natural().min(1).max(MAX_TIMER_DELAY_MS).default(15000),
     detailNpmFileSources: z.array(z.union(NPM_FILE_SOURCES)).min(1).default([...NPM_FILE_SOURCES]),
   })
-  /** Management bundles remain protected if their files become unreadable. */
-  private readonly managementBundles = new Set<string>()
+  /** Protected bundles and why, kept protected if their files become unreadable. */
+  private readonly protectedBundles = new Map<string, ReadOnlyReason>()
+  /** The modules `requiredModules` names. */
+  private readonly requiredModules: ReadonlySet<string>
+  /** The last unusable `dsh.profile.shipped` value warned about, as JSON, so a repeated read warns once. */
+  private warnedShipped: string | undefined
   /**
    * The registry each package was last installed from by this manager in this process. pnpm verifies lockfile tarball
    * URLs against its default registry unless they belong to a named registry, so a later removal names it again.
@@ -359,7 +371,9 @@ export class PluginManager extends TypertRemoteService {
     this.ownerEntryId = ctx.fiber.entry?.id
     this.ownerContext = ctx
     this.profile = ctx.profileContext
-    for (const name of this.profile.startedBundles) this.protectsManager(name)
+    this.requiredModules = new Set((config as Required<Config>).requiredModules)
+    for (const name of this.profile.startedBundles) this.protectionOf(name)
+    this.warnUnmatchedRequired()
     this.outputBytes = (config as Required<Config>).outputBytes
     this.lockWaitMs = (config as Required<Config>).lockWaitMs
     this.inspectTimeoutMs = (config as Required<Config>).inspectTimeoutMs
@@ -472,6 +486,7 @@ export class PluginManager extends TypertRemoteService {
       if (PROTECTED_PLUGINS.has(entry.moduleName) || entry.entryId === this.ownerEntryId) {
         return { ...entry, readOnlyReason: 'management-required' as const }
       }
+      if (this.requiredModules.has(entry.moduleName)) return { ...entry, readOnlyReason: 'deployment-required' as const }
       if (candidate === undefined || candidates.length > 1 || candidate.name !== entry.moduleName
         || actual?.parent.tree.ctx.fiber.entry?.id !== 'include') {
         return { ...entry, readOnlyReason: 'unaddressable' as const }
@@ -480,10 +495,12 @@ export class PluginManager extends TypertRemoteService {
     })
   }
 
-  /** Read installed, installation-provided, and offline Official catalog bundles, plus selected non-bundle names.
-   * A dependency without a bundle patch is listed, as a `not-bundle` problem, only while it is selected.
+  /** Read installed, installation-provided, launcher-shipped, and offline Official catalog bundles, plus selected
+   * non-bundle names; the profile manifest's `dsh.profile.shipped` names the launcher-shipped ones.
+   * A dependency without a bundle patch is listed, as a `not-bundle` problem, only while it is selected or shipped.
    * @returns Package versions, manifest descriptions, the installable spec of profile dependencies, rows, optional
-   * display metadata, activation selections, whether the installation offers the bundle, and removal availability.
+   * display metadata, activation selections, whether the installation offers the bundle, whether the launcher ships it,
+   * and removal availability.
    */
   @Remote
   listBundles(): Promise<BundleInfo[]> {
@@ -497,16 +514,20 @@ export class PluginManager extends TypertRemoteService {
     const selected = bundleSelection(manifest)
     const recorded = manifest.dependencies ?? {}
     const dependencies = Object.keys(recorded)
+    const shippedNames = this.shippedNames(manifest.dsh?.profile?.shipped)
     const installation = JSON.parse(readFileSync(this.profile.installAnchor, 'utf8')) as InstallationManifest
     const catalog = new Map(OFFICIAL_ON_DEMAND_CATALOG.map(entry => [entry.packageName, entry]))
-    const names = [...new Set([...selected, ...dependencies, ...Object.keys(installation.dependencies ?? {}), ...catalog.keys()])]
+    const names = [...new Set([
+      ...selected, ...dependencies, ...Object.keys(installation.dependencies ?? {}), ...shippedNames, ...catalog.keys(),
+    ])]
     const bundles: Omit<BundleInfo, 'updatable'>[] = []
     const runtimeVersion = getDshRuntimeVersion()
     for (const name of names) {
       const installed = dependencies.includes(name)
       const optional = OPTIONAL_BUNDLES.includes(name)
       const enabled = selected.includes(name)
-      const shipped = Object.hasOwn(installation.dependencies ?? {}, name)
+      const installationShips = Object.hasOwn(installation.dependencies ?? {}, name)
+      const launcherShipped = shippedNames.includes(name)
       const offered = catalog.get(name)
       const official = optional || offered !== undefined
       let target: Pick<BundleInfo, 'installTarget'> = {}
@@ -516,32 +537,33 @@ export class PluginManager extends TypertRemoteService {
         catch (error) { targetError = managementError(error) }
       }
       const catalogMeta = offered === undefined ? {} : { meta: offered.meta }
-      if (offered !== undefined && !installed && !shipped) {
+      if (offered !== undefined && !installed && !installationShips && !launcherShipped) {
         let platformError: ManagementError | undefined
         try { assertBundlePlatform(offered.platforms, process.platform) }
         catch (error) { platformError = managementError(error) }
         const error = platformError ?? targetError ?? (enabled ? { code: 'not-bundle' as const } : undefined)
         bundles.push({ name, official, availability: 'missing', ...catalogMeta, ...target, enabled, installed, optional,
           ...platformError?.code === 'unsupported-platform' ? { listedByDefault: false } : {},
-          removable: enabled, rows: [], overrides: [],
+          shipped: launcherShipped, removable: enabled, rows: [], overrides: [],
           ...error === undefined ? {} : { error } })
         continue
       }
       // Installation-owned copies remain protected even if a profile also declares their names.
-      const owned = installed && !shipped
-      const removable = owned || (enabled && !installed && !shipped)
+      const owned = installed && !installationShips
+      const removable = owned || (enabled && !installed && !installationShips && !launcherShipped)
       const sourceOf = (packageName?: string): { source?: string } =>
         owned ? { source: dependencySpec(name, recorded[name] as string, this.profile.dir, packageName) } : {}
-      const readOnlyReason = this.protectsManager(name) ? 'management-required' as const : undefined
+      const readOnlyReason = this.protectionOf(name)
       let availability: BundleInfo['availability'] = 'missing'
       let version: string | undefined
       let listing: Pick<BundleInfo, 'listedByDefault'> = {}
       try {
         const info = bundleManifest(name, this.profile.dir, this.profile.installAnchor)
-        availability = shipped ? 'installation' : 'profile'
+        availability = installationShips ? 'installation' : 'profile'
         if (info === undefined) {
-          if (enabled || offered !== undefined) bundles.push({ name, official, availability, ...catalogMeta, ...target,
-            ...sourceOf(), enabled, installed, optional, removable: removable && readOnlyReason === undefined,
+          if (enabled || launcherShipped || offered !== undefined) bundles.push({ name, official, availability, ...catalogMeta,
+            ...target, ...sourceOf(), enabled, installed, optional, shipped: launcherShipped,
+            removable: removable && readOnlyReason === undefined,
             ...(readOnlyReason === undefined ? {} : { readOnlyReason }), error: targetError ?? { code: 'not-bundle' }, rows: [], overrides: [] })
           continue
         }
@@ -563,14 +585,16 @@ export class PluginManager extends TypertRemoteService {
         bundles.push({ name, official, availability, ...listing, ...target, ...(version === undefined ? {} : { version }),
           ...(info.description === undefined || info.description === '' ? {} : { description: info.description }),
           ...meta === undefined ? {} : { meta },
-          ...sourceOf(info.name), enabled, installed, optional, removable: removable && readOnlyReason === undefined,
+          ...sourceOf(info.name), enabled, installed, optional, shipped: launcherShipped,
+          removable: removable && readOnlyReason === undefined,
           ...(readOnlyReason === undefined ? {} : { readOnlyReason }),
           ...this.declaredRows(name, info),
           ...error === undefined ? {} : { error } })
       } catch (error) {
-        if (enabled || installed || optional || offered !== undefined) {
+        if (enabled || installed || optional || launcherShipped || offered !== undefined) {
           bundles.push({ name, official, availability, ...listing, ...catalogMeta, ...target, ...(version === undefined ? {} : { version }),
-            ...sourceOf(), enabled, installed, optional, removable: removable && readOnlyReason === undefined,
+            ...sourceOf(), enabled, installed, optional, shipped: launcherShipped,
+            removable: removable && readOnlyReason === undefined,
             ...(readOnlyReason === undefined ? {} : { readOnlyReason }),
             error: targetError ?? managementError(error), rows: [], overrides: [] })
         }
@@ -1168,13 +1192,29 @@ export class PluginManager extends TypertRemoteService {
       }
     }
     if (!enabled && previous.includes(name)) {
-      if (this.protectsManager(name)) throw new ManagementFailure('management-required')
+      const reason = this.protectionOf(name)
+      if (reason !== undefined) throw new ManagementFailure(reason)
     }
     const bundles = enabled ? [...previous, ...previous.includes(name) ? [] : [name]] : previous.filter(item => item !== name)
     if (JSON.stringify(previous) === JSON.stringify(bundles)) return
     manifest.dsh = { ...manifest.dsh, profile: { ...manifest.dsh?.profile, bundles } }
     await saveManifest(this.profile.dir, manifest)
-    if (enabled) this.protectsManager(name)
+    if (enabled) this.protectionOf(name)
+  }
+
+  /**
+   * The bundle names a profile manifest's `dsh.profile.shipped` lists. The launcher writes the file, so a value that
+   * is not an array of strings is read as no names, with one warning per distinct value.
+   */
+  private shippedNames(value: unknown): string[] {
+    if (value === undefined) return []
+    if (Array.isArray(value) && value.every(name => typeof name === 'string')) return value
+    const printed = JSON.stringify(value)
+    if (this.warnedShipped !== printed) {
+      this.warnedShipped = printed
+      this.ownerContext.logger.warn(`Ignoring dsh.profile.shipped in ${this.profile.dir}: expected an array of bundle names, found ${printed}`)
+    }
+    return []
   }
 
   private bundleRows(name: string): EntryOptions[] {
@@ -1184,16 +1224,36 @@ export class PluginManager extends TypertRemoteService {
     return flatten(composeEntries([bundlePatchPaths(dir, info.dsh.bundle).flatMap(file => loadOverlayPatches('dsh', file))]))
   }
 
-  private protectsManager(name: string): boolean {
-    if (this.managementBundles.has(name)) return true
+  /** Why a bundle cannot be switched off or removed: it inserts a management row, else a row the deployment requires. */
+  private protectionOf(name: string): ReadOnlyReason | undefined {
+    const known = this.protectedBundles.get(name)
+    if (known !== undefined) return known
     let rows: EntryOptions[]
     try { rows = this.bundleRows(name) } catch (_error) {
       // Unreadable bundles contribute no new rows; listBundles reports their diagnostics.
-      return false
+      return undefined
     }
-    const protectedBundle = rows.some(row => PROTECTED_PLUGINS.has(row.name) || `include:${row.id}` === this.ownerEntryId)
-    if (protectedBundle) this.managementBundles.add(name)
-    return protectedBundle
+    const reason = rows.some(row => PROTECTED_PLUGINS.has(row.name) || `include:${row.id}` === this.ownerEntryId)
+      ? 'management-required' as const
+      : rows.some(row => this.requiredModules.has(row.name)) ? 'deployment-required' as const : undefined
+    if (reason !== undefined) this.protectedBundles.set(name, reason)
+    return reason
+  }
+
+  /** Warn about each `requiredModules` name that no row of the started bundles inserts. */
+  private warnUnmatchedRequired(): void {
+    if (this.requiredModules.size === 0) return
+    const inserted = new Set<string>()
+    for (const name of this.profile.startedBundles) {
+      try {
+        for (const row of this.bundleRows(name)) inserted.add(row.name)
+      } catch (_error) {
+        // An unreadable bundle inserts nothing; listBundles reports its diagnostic.
+      }
+    }
+    for (const name of this.requiredModules) {
+      if (!inserted.has(name)) this.ownerContext.logger.warn(`requiredModules names ${name}, which no started bundle of profile ${this.profile.name} inserts`)
+    }
   }
 
   private configure<T>(operation: () => Promise<T>): Promise<T> {

@@ -22,6 +22,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
+import { isolatedSkillRootEnv } from '@deepseek-ai/dsh-loader-smoke'
 import { acceptsNpmPlatform } from '../npm-platform.ts'
 import { releaseFamily } from './families.ts'
 import { capture, isEntry } from './process.ts'
@@ -40,8 +41,7 @@ function consumerEnvironment(consumerRoot: string): NodeJS.ProcessEnv {
   delete environment.NPM_CONFIG_USER_AGENT
   delete environment.NODE_OPTIONS
   delete environment.NODE_PATH
-  environment.DSH_HOME = resolve(consumerRoot, '.dsh')
-  environment.DSH_AGENTS_HOME = resolve(consumerRoot, '.agents')
+  Object.assign(environment, isolatedSkillRootEnv(consumerRoot))
   environment.DSH_TELEMETRY_DISABLED = '1'
   return environment
 }

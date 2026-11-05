@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "compaction-rehydration",
+    "description": "Restores pruned context from the session events that recorded it."
+  }
+}

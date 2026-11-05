@@ -70,6 +70,8 @@ interface PagingPosition {
 
 const READING_INTENTS = ['wheel', 'touchstart', 'pointerdown', 'keydown', 'beforematch'] as const
 const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '])
+/** Arrival wash after landing on a message a navigation asked for; the design holds it for 1.2s. */
+const LANDING_WASH_MS = 2600
 
 /** Owns one Chat scrollport's DOM operations, event listeners, and size observer. */
 export class ChatViewport {
@@ -92,6 +94,8 @@ export class ChatViewport {
   private tailInput = false
   /** Switches the running batch to a tail landing; null while no batch runs. */
   private retarget: (() => void) | null = null
+  /** Row carrying the arrival wash, and the timer that clears it. */
+  private landing: { readonly element: HTMLElement; readonly timer: ReturnType<typeof setTimeout> } | null = null
   /** Transition state and row callbacks owned by this viewport's attachment. */
   readonly motion = createFlowMotion(
     () => this.foldDriver(),
@@ -137,6 +141,7 @@ export class ChatViewport {
   /** Disconnect DOM resources and clear observations for the detached view. */
   detach(): void {
     this.stopPreserving()
+    this.clearLanding()
     this.motion.clear()
     if (this.elements !== null) this.elements.scroller.style.overflowAnchor = ''
     this.dropClosing()
@@ -744,6 +749,107 @@ export class ChatViewport {
   }
 
   /**
+   * Land on one mounted Chat row and wash it as the arrival.
+   *
+   * A row inside a process group is clipped by that group's capped body, a
+   * scrollport of its own, so the body scrolls to the row before the outer
+   * column aligns the group itself. A row that is not mounted, or that a Turn
+   * fold hides, resolves to null: the caller opens the fold and retries.
+   * @param key - stable Chat row anchor key.
+   * @returns the actual landing, or null when no visible row carries that key.
+   */
+  revealNode(key: string): ViewportLanding | null {
+    const located = this.locateNode(key)
+    if (located === null) return null
+    this.wash(located.row)
+    return located.landing
+  }
+
+  /**
+   * Re-align a row a reveal already landed, after a commit shifted it.
+   *
+   * A correction moves the row only. Repeating the arrival wash here would
+   * restart an animation the reader has already seen and force a style flush
+   * in the middle of the page commit that caused the shift.
+   * @param key - stable Chat row anchor key.
+   * @returns the corrected landing, or null when no visible row carries that key.
+   */
+  realignNode(key: string): ViewportLanding | null {
+    return this.locateNode(key)?.landing ?? null
+  }
+
+  /**
+   * Place the scrollport on one mounted row without marking the arrival.
+   * @param key - stable Chat row anchor key.
+   * @returns the row that carries the key and its landing, or null when unmounted.
+   */
+  private locateNode(key: string): { row: HTMLElement; landing: ViewportLanding } | null {
+    const row = this.anchor(key, 'node') ?? this.revealSearchableRow(key)
+    if (row === null) return null
+    const body = row.closest<HTMLElement>('[data-step-process-body]')
+    if (body !== null) {
+      const within = row.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop
+      const target = Math.max(0, Math.min(body.scrollHeight - body.clientHeight, within - 8))
+      if (Math.abs(body.scrollTop - target) > 0.5) body.scrollTop = target
+    }
+    const outer = body?.closest<HTMLElement>('[data-chat-group-key]') ?? row
+    const turn = Number(outer.dataset.chatTurn)
+    const landing = this.align(outer, 24, Number.isSafeInteger(turn) ? turn : null)
+    return landing === null ? null : { row, landing }
+  }
+
+  /**
+   * Ask the fold that hides a row to open, so the next frame can anchor it.
+   *
+   * Folded groups and process disclosures hide their rows with `hidden="until-found"`
+   * and listen for `beforematch`, the event a browser's own find fires before it
+   * scrolls a match into view. A landing is the same request from another surface,
+   * so it fires the same event on each hidden ancestor and reports nothing this
+   * frame: the reveal is a state change that lands on a later commit.
+   * @param key - Chat Node identity to reveal.
+   * @returns null; the caller retries after the fold's commit.
+   */
+  private revealSearchableRow(key: string): null {
+    if (this.elements === null) return null
+    const list = this.elements.list
+    const row = queryNodeByKey(list, key)
+    if (row === null) return null
+    let node: HTMLElement | null = row
+    while (node !== null && node !== list) {
+      if (node.getAttribute('hidden') === 'until-found') node.dispatchEvent(new Event('beforematch'))
+      node = node.parentElement
+    }
+    return null
+  }
+
+  /** Wash the landed row, restarting it when the same row lands twice. */
+  private wash(row: HTMLElement): void {
+    const previous = this.landing?.element ?? null
+    this.clearLanding()
+    // Removing and re-adding the attribute in one frame does not restart the
+    // animation unless a style flush happens between them, so only a second
+    // landing on the same row pays for that forced layout.
+    if (previous === row) void row.offsetWidth
+    row.dataset.chatLanded = ''
+    this.landing = {
+      element: row,
+      timer: setTimeout(() => {
+        this.landing = null
+        delete row.dataset.chatLanded
+      }, LANDING_WASH_MS),
+    }
+  }
+
+  /** Release the arrival wash and its timer. */
+  private clearLanding(): void {
+    const landing = this.landing
+    if (landing === null) return
+    clearTimeout(landing.timer)
+    this.landing = null
+    delete landing.element.dataset.chatLanded
+  }
+
+  /**
    * Align the nearest available fallback for an unavailable turn anchor.
    * @param turn - minimum turn number for a mounted fallback row.
    * @returns the fallback landing, or null when no eligible row exists.
@@ -948,6 +1054,23 @@ export class ChatViewport {
     this.stopPreserving()
     this.events?.interact()
   }
+}
+
+/**
+ * Bind viewport resource ownership to the component's layout lifetime.
+ * @returns one viewport owner and the element refs attached for this mount.
+ */
+/**
+ * Find one rendered Chat row by its identity, including inside a folded subtree.
+ * @param list - transcript list root.
+ * @param key - Chat Node identity.
+ * @returns the row element, or null when it is not rendered at all.
+ */
+function queryNodeByKey(list: HTMLElement, key: string): HTMLElement | null {
+  for (const element of list.querySelectorAll<HTMLElement>('[data-chat-node-key]')) {
+    if (element.dataset.chatNodeKey === key) return element
+  }
+  return null
 }
 
 /**

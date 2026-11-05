@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-01-chat-prose-referents-seam-port.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-01-chat-prose-referents-seam-port.md
+/agent-note-porting-the-chat-prose-prosereferents-seam-onto-the-0-1-2-reorganization:
+  en: 2ac1a0221e869827
+  zh: 24a76ea5cafd41a1
+/agent-note-porting-the-chat-prose-prosereferents-seam-onto-the-0-1-2-reorganization/problem:
+  en: 04fe18350b566991
+  zh: e85599bcfed5ff32
+/agent-note-porting-the-chat-prose-prosereferents-seam-onto-the-0-1-2-reorganization/decision:
+  en: 5200be136fec74bd
+  zh: 07d624abee6e7b49
+/agent-note-porting-the-chat-prose-prosereferents-seam-onto-the-0-1-2-reorganization/alternatives-considered:
+  en: 7958ad9292ec2f09
+  zh: a7811236f0435cc7
+/agent-note-porting-the-chat-prose-prosereferents-seam-onto-the-0-1-2-reorganization/consequences:
+  en: a9513fa78e4f510f
+  zh: 4b0c525493db5dd8

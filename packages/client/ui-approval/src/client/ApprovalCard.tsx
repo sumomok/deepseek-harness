@@ -16,7 +16,10 @@ export function ApprovalCard(props: FactoryComponentPropsOf<'conversation.approv
 
 function ApprovalFlow(props: FactoryComponentPropsOf<'conversation.approval.card'>) {
   const { requestKey, title, description, subject, allowLabel, canAnswer, onAllow, onReject, onAlways, t } = props
-  const detail = props.callId === undefined ? null : props.renderSlot('conversation.approval.detail', { callId: props.callId })
+  const detail = props.callId === undefined
+    ? null
+    : props.renderSlot('conversation.approval.detail', { callId: props.callId },
+      props.toolName === undefined ? {} : { entryKey: props.toolName })
   const [answered, setAnswered] = useState(false)
   const waiting = useRef(false)
   const active = useRef(true)

@@ -26,7 +26,7 @@ async function expectOnboardingSettled(page: Page): Promise<Locator> {
   await page.getByRole('textbox', { name: '选择工作区' }).waitFor({ timeout: 30_000 })
   await openSettings(page, 'zh')
   const dialog = page.getByRole('dialog', { name: '设置' })
-  await dialog.getByRole('button', { name: '模型', exact: true }).click()
+  await dialog.getByRole('button', { name: '提供方与模型', exact: true }).click()
   await dialog.getByRole('button', { name: '添加模型提供商', exact: true }).waitFor({ timeout: 15_000 })
   expect(await page.getByRole('dialog', { name: WELCOME_NOTICE_COPY.zh.title }).count()).toBe(0)
   return dialog

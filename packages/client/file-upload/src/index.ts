@@ -3,12 +3,14 @@
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-api-remote-access'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type { CommandFileReceiptResolver } from '@deepseek-ai/dsh-commands'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
-import { Remote, RemoteError, remoteErrorOf, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
-import { handleFileUploadHttp } from './http-route.ts'
+import { Remote, RemoteError, remoteErrorOf, TypertRemoteService, type PeerScope } from '@deepseek-ai/dsh-typert-protocol'
+import { handleFileUploadHttp, handleSessionFileUploadHttp } from './http-route.ts'
 import { FILE_UPLOAD_PATH } from './protocol.ts'
 import type {
   EncodedFileUploadRequest, FileUploadReceiptId, FileUploadValue, ImageUploadValue, StagedAttachment,
@@ -82,11 +84,30 @@ export class FileUploads extends TypertRemoteService {
         methods: ['POST'],
         requestBody: 'streaming',
         fetch: request => handleFileUploadHttp(this, request),
+        serveNonOwner: (request, peer) => this.serveNonOwner(request, peer),
       }),
       'file-upload: streaming route',
     )
     ctx.on('session/event', (session, event) => { this.observeSessionEvent(session, event) })
     ctx.on('session/disposed', (session) => { this.stagedFiles.delete(session) })
+  }
+
+  /**
+   * Accept a non-owner Peer's raw upload only into a Session on which remote
+   * access allows the route path; refuse with 403, before reading the body,
+   * a missing `sessionId`, a Host without remote access, or a denial. The
+   * upload goes to the `sessionId` value this rule decided, never to a second
+   * reading of the query.
+   */
+  private serveNonOwner(request: Request, peer: PeerScope): Promise<Response> {
+    const sessionId = new URL(request.url).searchParams.get('sessionId')
+    const decision = sessionId === null || sessionId === '' ? undefined : this.ctx.get('remoteAccess')?.decide({
+      principal: peer.principal,
+      action: FILE_UPLOAD_PATH,
+      resources: [{ kind: 'session', id: brandString<SessionId>(sessionId) }],
+    })
+    if (decision?.kind !== 'allow') return Promise.resolve(new Response('forbidden', { status: 403 }))
+    return handleSessionFileUploadHttp(this, request, sessionId)
   }
 
   /**

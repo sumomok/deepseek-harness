@@ -736,7 +736,7 @@ describe('sandbox escalation through ctx.approval', () => {
     // with the result, and the ordinal is never reused.
     expect(ctx.jobs.list(agent.id)).toEqual([])
     const background = await call(ctx, 'pwsh', { ...escalate, run_in_background: true }, agent)
-    expect(text(background)).toBe(`started background job ${currentId(ctx, agent)}`)
+    expect(text(background)).toBe(`started background job ${currentId(ctx, agent)}. It will not reopen your turn — do not wait for it; job_output reads what it has produced so far.`)
     expect(bash.modes).toEqual(['workspace-write', 'workspace-write'])
   })
 
@@ -820,7 +820,7 @@ describe('background execution through the job runtime', () => {
     expect(started.isError).toBe(false)
     if (started.isError) throw new Error('expected background pwsh success')
     expect(started.value).toEqual({ kind: 'background', jobId: currentId(ctx), cwd: process.cwd() })
-    expect(text(started)).toBe(`started background job ${currentId(ctx)}`)
+    expect(text(started)).toBe(`started background job ${currentId(ctx)}. It will not reopen your turn — do not wait for it; job_output reads what it has produced so far.`)
 
     const read = await callUntilText(ctx, 'job_output', { job_id: currentId(ctx) }, 'bg-ok')
     expect(text(read)).toContain('bg-ok')
@@ -846,7 +846,7 @@ describe('background execution through the job runtime', () => {
     const { ctx } = await setupWithJobs()
     const agent = await registerFakeAgent(ctx, 'sess-owner')
     const started = await call(ctx, 'pwsh', { command: 'Start-Sleep -Seconds 60', description: 'test command', run_in_background: true }, agent)
-    expect(text(started)).toBe(`started background job ${currentId(ctx, agent)}`)
+    expect(text(started)).toBe(`started background job ${currentId(ctx, agent)}. It will not reopen your turn — do not wait for it; job_output reads what it has produced so far.`)
 
     const anon = await call(ctx, 'job_output', { job_id: currentId(ctx, agent) })
     expect(anon.isError).toBe(true)
@@ -965,7 +965,7 @@ describe('the background surface follows the job registry', () => {
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(backgroundAdvertised(ctx)).toBe(true)
     const started = await call(ctx, 'pwsh', { command: 'Write-Output swapped', description: 'test command', run_in_background: true })
-    expect(text(started)).toBe(`started background job ${currentId(ctx)}`)
+    expect(text(started)).toBe(`started background job ${currentId(ctx)}. It will not reopen your turn — do not wait for it; job_output reads what it has produced so far.`)
 
     // The registry leaves; the foreground-only variant returns in its place,
     // and the tool never disappears in between.
@@ -1094,9 +1094,9 @@ describe('UI presentation', () => {
     const { ctx } = await setup()
     const result = ctx.tools.get('pwsh')!.presentResult!(
       { command: 'Start-Sleep -Seconds 60', description: 'long wait', run_in_background: true },
-      { content: [{ type: 'text', text: 'started background job pwsh-1' }], isError: false },
+      { content: [{ type: 'text', text: 'started background job pwsh-1. It will not reopen your turn — do not wait for it; job_output reads what it has produced so far.' }], isError: false },
     )
-    expect(result).toEqual({ card: 'generic', content: [{ type: 'text', text: '```console\nstarted background job pwsh-1\n```' }] })
+    expect(result).toEqual({ card: 'generic', content: [{ type: 'text', text: '```console\nstarted background job pwsh-1. It will not reopen your turn — do not wait for it; job_output reads what it has produced so far.\n```' }] })
   })
 
   it('presentResult: an isError result is a generic card (no real process exit to report)', async () => {
@@ -1268,7 +1268,7 @@ describe('resolved launch directory metadata', () => {
       expect(resolving).toHaveBeenCalledOnce()
       expect(resolving).toHaveBeenCalledWith(expect.objectContaining({ workdir: workdir === undefined ? current : join(current, workdir) }))
       expect(launch).toHaveBeenCalledWith(expect.objectContaining({ workdir: directory }))
-      expect(text(result)).toBe(background ? `started background job ${currentId(ctx, owner)}` : 'metadata-ok')
+      expect(text(result)).toBe(background ? `started background job ${currentId(ctx, owner)}. It will not reopen your turn — do not wait for it; job_output reads what it has produced so far.` : 'metadata-ok')
       if (background) await call(ctx, 'job_output', { job_id: currentId(ctx, owner), wait: true }, owner)
     } finally {
       ensure.mockRestore()

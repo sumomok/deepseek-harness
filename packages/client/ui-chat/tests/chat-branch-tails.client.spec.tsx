@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ReactNode } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
@@ -22,7 +23,7 @@ import { unusedImageLoader } from './reasoning-component-fixture.tsx'
 import { createUserContentFixture } from './user-content-component-fixture.tsx'
 import { useDisclosure } from '../src/client/chat/use-disclosure.ts'
 import { useSearchableHidden } from '../src/client/chat/searchable-hidden.ts'
-import { ActivityPill, UsagePill, type StatPillProps } from '../src/client/chat/StatsPills.tsx'
+import { ActivityPill, UsagePill, type UsagePillProps } from '../src/client/chat/StatsPills.tsx'
 import { zh } from '../src/client/locale.ts'
 import { chatSnapshotFixture } from './chat-snapshot-fixture.client.ts'
 
@@ -41,6 +42,8 @@ const userSlots: PropsRenderSlots<'conversation.chat.user.before'> = {
 }
 let renderUserContent: ReturnType<typeof createUserContentFixture>
 beforeEach(() => { renderUserContent = createUserContentFixture() })
+// These arms assert bubble chrome, so the contributed-action seat stays empty.
+const renderUserActions: ChatNodeViewProps['renderUserActions'] = () => null
 const RETRY_ID = 'retry-fixture' as Extract<ConversationNode, { kind: 'model-retry' }>['retryId']
 
 // Recency scans the whole transcript; a detached fixture is its own latest row.
@@ -83,7 +86,7 @@ function MessageItem({ node, t: translate, referenceLabels, skillNames }: Messag
   }
   const props: Partial<Omit<ChatNodeViewProps, 'node'>> & { node: ChatConversationViewNode } = {
     node: viewNode, t: translate, loadImage: unusedImageLoader, renderFactorySlot: renderUserFactory,
-    openFile: vi.fn(), useChat: useDetachedChat,
+    openFile: vi.fn(), useChat: useDetachedChat, renderUserActions,
   }
   switch (node.kind) {
     case 'user':
@@ -1086,13 +1089,16 @@ describe('small branch tails', () => {
     }] as const
     const snap = chatSnapshotFixture({ nodes })
     const source = { getSnapshot: () => snap, subscribe: () => () => {} }
-    const pillProps: StatPillProps = {
+    const pillProps: UsagePillProps = {
       usePerformanceUsage: selector => selector('detailed'),
       t,
       useChat: bindSnapshotSelector(source),
       useProjection: (key: string) => key === 'tokenUsage'
         ? { uncachedInputTokens: 0, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0 }
         : undefined,
+      renderSlot: ((_key: string, _owner: unknown, opts?: { fallback?: ReactNode }) =>
+        opts?.fallback ?? null) as UsagePillProps['renderSlot'],
+      SessionProvider: ({ children }) => <>{children}</>,
     }
     const view = render(
       <>

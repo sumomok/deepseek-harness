@@ -27,6 +27,7 @@ import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controlle
 import { SessionSeq, type SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { KeyedSnapshotSelectorHook, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import type { MarkdownProseReferents, MarkdownProseSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { allowAllAccess, bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { createSnapshotStore, type ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { ConnectionState } from '@deepseek-ai/dsh-client-connection/client'
@@ -43,16 +44,19 @@ import { en, zh, pt } from '../src/client/locale.ts'
 import { AssistantNodeView } from '../src/client/chat/AssistantNodeView.tsx'
 import { CommandNodeView, ManualCompactionNodeView } from '../src/client/chat/CommandNodeView.tsx'
 import {
-  CompactionNodeView, ContextMessageNodeView, RetryNodeView, TurnErrorNodeView,
+  CompactionFailureNodeView, CompactionNodeView, CompactionRunningNodeView, ContextMessageNodeView, RetryNodeView, TurnErrorNodeView,
   TurnMaxTokensNodeView, UnknownNodeView, UserMessageNodeView,
 } from '../src/client/chat/MessageItem.tsx'
 import { TurnTailNodeView } from '../src/client/chat/TurnTailNodeView.tsx'
 import { TurnProcessNodeView } from '../src/client/chat/TurnProcessNodeView.tsx'
 import { SystemPromptNodeView } from '../src/client/chat/SystemPromptRow.tsx'
+import type { UserActionOwnerProps } from '../src/client/contract/slots.ts'
 import { formatRunDuration as durationParts } from '../src/client/chat/message-chrome.ts'
 import { ChatSnapshotBuilder } from '../src/client/conversation-nodes/chat-snapshot-builder.ts'
 import { ProcessState } from '../src/client/conversation-nodes/process-groups.ts'
 import type { TurnProcessSpec } from '../src/client/contract/turn-process.ts'
+import { resolveChatRevealTarget, type ChatRevealTarget } from '../src/client/contract/reveal.ts'
+import type { SessionRevealRequest } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { chatSnapshotFixture } from './chat-snapshot-fixture.client.ts'
 import { installTurnNavigatorObserver } from './turn-navigator-fixture.ts'
 import { renderReasoningSlot } from './reasoning-component-fixture.tsx'
@@ -61,8 +65,9 @@ import { ConversationGroupStore } from '../../ui-conversation/src/client/convers
 
 function installGroupedSnapshot(
   builder: ChatSnapshotBuilder, state: ProcessState, groups: ConversationGroupStore<ProcessGroupData>, source: ChatSnapshot,
+  extra: readonly ChatNode[] = [],
 ): ChatSnapshot {
-  const snapshot = builder.replace({ nodes: source.nodes.values(), timeline: source.timeline })
+  const snapshot = builder.replace({ nodes: [...source.nodes.values(), ...extra], timeline: source.timeline })
   const input = builder.groupInput()
   state.accept(input)
   const update = state.output()
@@ -343,6 +348,10 @@ function HarnessChatNode({
       return <ManualCompactionNodeView {...nodeProps} node={owner.node} />
     case 'compaction':
       return <CompactionNodeView {...nodeProps} node={owner.node} />
+    case 'compaction-running':
+      return <CompactionRunningNodeView t={nodeProps.t} />
+    case 'compaction-failure':
+      return <CompactionFailureNodeView node={owner.node} t={nodeProps.t} />
     case 'model-retry':
       return <RetryNodeView {...nodeProps} node={owner.node} />
     case 'turn-error':
@@ -398,6 +407,13 @@ function makeHarness(
   const session = makeSessionSource({ ...sessionInit, ...sessionOverrides })
   const useTestSession = bindSnapshotSelector(session.source)
   const chatSource = makeChatSource(chatSlice, initialChat ?? chatSnapshot)
+  // Message landings a navigation raises for this Session; a test replaces the
+  // source value to drive one.
+  const revealSource = createSnapshotStore<SessionRevealRequest | null>(null)
+  const settleReveal = vi.fn<(id: number) => void>()
+  const notifyRevealFailure = vi.fn<() => void>()
+  const locateReveal = (seq: SessionSeq): ChatRevealTarget | undefined =>
+    resolveChatRevealTarget(chatSource.source.getSnapshot(), seq)
   const useChatNode = bindKeyedSnapshotSelector(
     key => chatSource.source.getSnapshot().nodes.source(key),
   )
@@ -420,6 +436,7 @@ function makeHarness(
   const openUserFile = vi.fn<(path: string) => void>()
   const renderUserContent = createUserContentFixture({ openFile: openUserFile })
   const loadOlder = vi.fn()
+  const openAt = vi.fn<(seq: number) => Promise<boolean>>().mockResolvedValue(false)
   const loadThrough = vi.fn<(seq: number) => Promise<void>>().mockResolvedValue(undefined)
   // Mutable outline holder: tests swap the value and drive a re-render via set().
   let outlineValue: unknown
@@ -440,6 +457,7 @@ function makeHarness(
   const originRenderer = createSnapshotStore<UserChainState>({ renderer: undefined })
   const t = makeTranslate(zh, commonZh)
   const toolOwners: ToolOwner[] = []
+  const userActionOwners: UserActionOwnerProps[] = []
   const usePerformanceUsage = bindSnapshotSelector(performanceUsage)
   const useOriginRenderer = bindSnapshotSelector(originRenderer)
   let nodeSlotOverride: NodeRenderer | undefined
@@ -463,6 +481,11 @@ function makeHarness(
     fallback?: React.ReactNode
     hookContext?: unknown
   }) => {
+    if (key === 'conversation.chat.user-actions') {
+      const actionOwner = owner as UserActionOwnerProps
+      userActionOwners.push(actionOwner)
+      return <span data-testid={`user-action-${actionOwner.seq}`} data-user-action-text={actionOwner.text} />
+    }
     if (key === 'conversation.chat.node') {
       return renderNodeSlot(key, owner as RoutedChatNodeOwner, opts as Parameters<NodeRenderer>[2])
     }
@@ -529,6 +552,10 @@ function makeHarness(
     },
     useStore: bindSnapshotSelector(chat),
     actions: chat.actions,
+    useReveal: bindSnapshotSelector(revealSource),
+    locateReveal,
+    settleReveal,
+    notifyRevealFailure,
     useInteractionIds: bindSnapshotSelector(createSnapshotStore<readonly string[]>([])),
     dispatchInteraction: () => null,
     usePresentation: bindSnapshotSelector(derivePresentationPolicy(transcriptView, collapseTiming, foldedReplies)),
@@ -543,11 +570,15 @@ function makeHarness(
     openExternalLink: vi.fn(),
     loadOlder,
     loadThrough,
+    openAt,
+    openTail: vi.fn(async () => {}), loadNewer: vi.fn(async () => false),
     loadImage: vi.fn(() => Promise.reject(new Error('not used'))),
     chatScroll,
     forkAt,
     // Absent-service default; mention tests override with a real resolver.
     fileMentions: () => undefined,
+    // Absent-service default: no proseReferents provider composed in.
+    referents: undefined,
     t,
   }
   const set = (next: HarnessUpdate): void => {
@@ -570,10 +601,12 @@ function makeHarness(
   }
   return {
     set, setSession: session.set, setChat: chatSource.set, ChatView, props,
+    setReveal: (request: SessionRevealRequest | null) => { revealSource.set(request) },
+    revealSource, settleReveal, notifyRevealFailure,
     setConnection: (state: ConnectionState) => { connection.set(state) },
     openFile, openUserFile, loadOlder, loadThrough, openView,
     setOutline: (value: unknown) => { outlineValue = value },
-    chatScroll, forkAt, toolOwners,
+    chatScroll, forkAt, toolOwners, userActionOwners,
     setPerformanceUsage: (mode: 'compact' | 'detailed') => { performanceUsage.set(mode) },
     setGrouped: (value: ConversationGroupedView<ProcessGroupData> | undefined) => {
       grouped = value
@@ -705,6 +738,18 @@ function formatRunDuration(ms: number, t: Parameters<typeof durationParts>[1]): 
 }
 
 describe('Chat node rendering', () => {
+  it('offers the user-actions seat on user and steering bubbles only, addressed by log position and rendered text', () => {
+    const h = makeHarness({ nodes: [user(1, 'first ask'), assistant(2, 'answer'), steering(3, 'mid-turn note', 1)] })
+    const view = render(<h.ChatView {...h.props} />)
+    // The assistant tail owns a separate seat, so it contributes no entry here.
+    expect(h.userActionOwners).toEqual([
+      { seq: 1, text: 'first ask' },
+      { seq: 3, text: 'mid-turn note' },
+    ])
+    expect(view.getByTestId('user-action-1').getAttribute('data-user-action-text')).toBe('first ask')
+    expect(view.getByTestId('user-action-3').getAttribute('data-user-action-text')).toBe('mid-turn note')
+    expect(view.queryByTestId('user-action-2')).toBeNull()
+  })
 
   it('opens Markdown references to unmodified files with line navigation', () => {
     const h = makeHarness({
@@ -749,6 +794,24 @@ describe('Chat node rendering', () => {
     fireEvent.click(mention)
     // The vocabulary was built from the closing message's own owner currency.
     expect(h.openFile).toHaveBeenCalledWith('for-seq-4/site/report.html')
+  })
+
+  it('threads the injected prose referents into assistant prose through the flow', () => {
+    const h = makeHarness({
+      nodes: [user(1, 'where is it'), assistant(2, 'See notes.md for details.', 1)],
+      turnEnds: new Map([[1, 2]]),
+    })
+    const opened: MarkdownProseSpan[] = []
+    const referents: MarkdownProseReferents = {
+      scan: (text) => {
+        const start = text.indexOf('notes.md')
+        return start === -1 ? [] : [{ start, end: start + 'notes.md'.length }]
+      },
+      open: (span) => { opened.push(span) },
+    }
+    const view = render(<h.ChatView {...h.props} referents={referents} />)
+    fireEvent.click(view.getByRole('button', { name: 'notes.md' }))
+    expect(opened).toEqual([{ start: 4, end: 12 }])
   })
 
   it('formatRunDuration localizes units and floors partial seconds', () => {
@@ -900,6 +963,181 @@ describe('ChatView', () => {
     fireEvent.click(control)
     expect(bodies.every(body => !body.hasAttribute('hidden'))).toBe(true)
     expect([...view.container.querySelectorAll<HTMLElement>('[data-chat-group-key]')]).toEqual(roots)
+  })
+
+  it('keeps a running automatic compaction row outside the collapsed process group until the marker lands', () => {
+    const legacy = [userInTurn(1, 'question', 1), reasoningAssistant(2, 'analysis', 1, 1), toolResult(3, 'before')]
+    const fixture = chatSnapshotFixture({ nodes: legacy, turnTimings: new Map([[1, { startTime: 0 }]]) })
+    const turn = fixture.timeline.turns.get(1)
+    if (turn === undefined) throw new Error('expected an open Turn')
+    const running: ChatNode<'compaction-running'> = {
+      key: 'fixture:compaction-running:4', id: '4', target: 'chat', kind: 'compaction-running',
+      anchorSeq: 4, location: { kind: 'turn', turn }, visibility: 'visible', groupTree: 'process', data: null,
+    }
+    const landed: ChatNode<'compaction'> = {
+      key: 'fixture:compaction-running:4', id: '4', target: 'chat', kind: 'compaction',
+      anchorSeq: 6, location: { kind: 'turn', turn }, visibility: 'visible',
+      data: compaction({ seq: 6, summaryEventSeq: 5 }),
+    }
+    const builder = new ChatSnapshotBuilder()
+    const groups = new ConversationGroupStore<ProcessGroupData>()
+    const state = new ProcessState()
+    const project = (nodes: readonly ChatNode[]) => installGroupedSnapshot(builder, state, groups, fixture, nodes)
+    const h = makeHarness({ chat: project([running]) }, { running: true })
+    h.setGrouped(groups)
+    const view = render(<h.ChatView {...h.props} />)
+    const group = view.container.querySelector<HTMLElement>('[data-chat-group-key]')!
+    expect(group.querySelector('[data-step-process-body]')!.hasAttribute('hidden')).toBe(true)
+    const row = view.container.querySelector<HTMLElement>('[data-chat-flow-kind="compaction-running"]')!
+    expect(row.closest('[data-chat-group-key]')).toBeNull()
+    expect(row.closest('[hidden]')).toBeNull()
+    expect(within(row).getByRole('button').textContent).toBe('正在压缩…')
+
+    act(() => { h.set({ chat: project([landed]) }) })
+    expect(view.container.querySelector('[data-chat-flow-kind="compaction-running"]')).toBeNull()
+    const marker = view.container.querySelector<HTMLElement>('[data-chat-flow-kind="compaction"]')!
+    expect(marker.closest('[data-chat-group-key]')).not.toBeNull()
+  })
+
+  it('keeps a manual /compact refused inside a running Turn outside the collapsed process group', () => {
+    const legacy = [userInTurn(1, 'question', 1), reasoningAssistant(2, 'analysis', 1, 1), toolResult(3, 'before')]
+    const fixture = chatSnapshotFixture({ nodes: legacy, turnTimings: new Map([[1, { startTime: 0 }]]) })
+    const turn = fixture.timeline.turns.get(1)
+    if (turn === undefined) throw new Error('expected an open Turn')
+    const refusal = 'Compaction is unavailable because this process has an active compaction, or the agent is not idle.'
+    const refused: ChatNode<'manual-compaction'> = {
+      key: 'fixture:manual-compaction:4', id: '4', target: 'chat', kind: 'manual-compaction',
+      anchorSeq: 4, location: { kind: 'turn', turn }, visibility: 'visible', groupTree: 'turn',
+      data: {
+        command: command({
+          seq: 4, commandId: 'cmd-busy' as CommandNode['commandId'], name: 'compact', args: null,
+          outcome: { kind: 'error', text: refusal },
+        }),
+        compaction: null,
+        waiting: false,
+        exited: false,
+      },
+    }
+    const builder = new ChatSnapshotBuilder()
+    const groups = new ConversationGroupStore<ProcessGroupData>()
+    const state = new ProcessState()
+    const h = makeHarness({ chat: installGroupedSnapshot(builder, state, groups, fixture, [refused]) }, { running: true })
+    h.setGrouped(groups)
+    const view = render(<h.ChatView {...h.props} />)
+    const group = view.container.querySelector<HTMLElement>('[data-chat-group-key]')!
+    expect(group.querySelector('[data-step-process-body]')!.hasAttribute('hidden')).toBe(true)
+    const card = view.container.querySelector<HTMLElement>('[data-chat-flow-kind="manual-compaction"]')!
+    expect(card.closest('[data-chat-group-key]')).toBeNull()
+    expect(card.closest('[hidden]')).toBeNull()
+    expect(card.textContent).toContain(zh['message.compaction.result.busy'])
+    expect(card.textContent).not.toContain(refusal)
+  })
+
+  it('keeps a failed automatic compaction inside a running Turn outside the collapsed process group', () => {
+    const legacy = [userInTurn(1, 'question', 1), reasoningAssistant(2, 'analysis', 1, 1), toolResult(3, 'before')]
+    const fixture = chatSnapshotFixture({ nodes: legacy, turnTimings: new Map([[1, { startTime: 0 }]]) })
+    const turn = fixture.timeline.turns.get(1)
+    if (turn === undefined) throw new Error('expected an open Turn')
+    const failed: ChatNode<'compaction-failure'> = {
+      key: 'fixture:compaction-failure:5', id: '5', target: 'chat', kind: 'compaction-failure',
+      anchorSeq: 5, location: { kind: 'turn', turn }, visibility: 'visible', groupTree: 'turn',
+      data: { reason: 'summarizer unavailable' },
+    }
+    const builder = new ChatSnapshotBuilder()
+    const groups = new ConversationGroupStore<ProcessGroupData>()
+    const state = new ProcessState()
+    const h = makeHarness({ chat: installGroupedSnapshot(builder, state, groups, fixture, [failed]) }, { running: true })
+    h.setGrouped(groups)
+    const view = render(<h.ChatView {...h.props} />)
+    const group = view.container.querySelector<HTMLElement>('[data-chat-group-key]')!
+    expect(group.querySelector('[data-step-process-body]')!.hasAttribute('hidden')).toBe(true)
+    const card = view.container.querySelector<HTMLElement>('[data-chat-flow-kind="compaction-failure"]')!
+    expect(card.closest('[data-chat-group-key]')).toBeNull()
+    expect(card.closest('[hidden]')).toBeNull()
+    expect(card.textContent).toContain('上下文压缩失败')
+  })
+
+  it('keeps manual compaction cards and the failure row visible after a completed Turn folds', () => {
+    const first = {
+      ...assistant(2, 'earlier reply', 1, 1),
+      blocks: [
+        { kind: 'reasoning' as const, text: 'inspect the repository' },
+        { kind: 'text' as const, text: 'earlier reply' },
+      ],
+    }
+    const fixture = chatSnapshotFixture({
+      nodes: [user(1, 'question'), first, toolResult(3, 'a'), assistant(7, 'final answer', 1, 2)],
+      turnTimings: new Map([[1, { startTime: 1_000, endTime: 5_000 }]]),
+      turnEnds: new Map([[1, 8]]),
+    })
+    const turn = fixture.timeline.turns.get(1)
+    if (turn === undefined) throw new Error('expected a closed Turn')
+    const location = { kind: 'turn' as const, turn }
+    const waited: ChatNode<'manual-compaction'> = {
+      key: 'fixture:manual-compaction:4', id: '4', target: 'chat', kind: 'manual-compaction',
+      anchorSeq: 4, location, visibility: 'visible', groupTree: 'turn',
+      data: {
+        command: command({
+          seq: 4, commandId: 'cmd-step' as CommandNode['commandId'], name: 'compact', args: null,
+          outcome: { kind: 'error', text: 'Compaction could not produce a useful summary. The attempt is recorded in the session log.' },
+        }),
+        compaction: null,
+        waiting: false,
+        exited: false,
+      },
+    }
+    const failed: ChatNode<'compaction-failure'> = {
+      key: 'fixture:compaction-failure:5', id: '5', target: 'chat', kind: 'compaction-failure',
+      anchorSeq: 5, location, visibility: 'visible', groupTree: 'turn',
+      data: { reason: 'summarizer unavailable' },
+    }
+    const builder = new ChatSnapshotBuilder()
+    const groups = new ConversationGroupStore<ProcessGroupData>()
+    const state = new ProcessState()
+    const h = makeHarness({ chat: installGroupedSnapshot(builder, state, groups, fixture, [waited, failed]) })
+    h.setGrouped(groups)
+    const view = render(<h.ChatView {...h.props} />)
+    const toggle = view.getByRole('button', { name: '已完成，用时 4秒' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    const members = [...view.container.querySelectorAll<HTMLElement>('[data-turn-process-member]')]
+    expect(members.length).toBeGreaterThan(0)
+    expect(members.every(member => member.getAttribute('hidden') === 'until-found')).toBe(true)
+    for (const kind of ['manual-compaction', 'compaction-failure']) {
+      const row = view.container.querySelector<HTMLElement>(`[data-chat-flow-kind="${kind}"]`)!
+      expect(row.closest('[data-turn-process-member]')).toBeNull()
+      expect(row.closest('[hidden]')).toBeNull()
+    }
+    expect(view.container.querySelector('[data-chat-flow-kind="manual-compaction"]')!.textContent)
+      .toContain(zh['message.compaction.result.summary'])
+    expect(view.getByText('final answer')).toBeTruthy()
+  })
+
+  it('labels a manual compaction that waits for the running Turn, and one whose Host exited', () => {
+    const fixture = chatSnapshotFixture({ nodes: [userInTurn(1, 'question', 1)], turnTimings: new Map([[1, { startTime: 0 }]]) })
+    const turn = fixture.timeline.turns.get(1)
+    if (turn === undefined) throw new Error('expected an open Turn')
+    const pending = (waiting: boolean, exited = false): ChatNode<'manual-compaction'> => ({
+      key: 'fixture:manual-compaction:2', id: '2', target: 'chat', kind: 'manual-compaction',
+      anchorSeq: 2, location: { kind: 'turn', turn }, visibility: 'visible', groupTree: 'turn',
+      data: {
+        command: command({ seq: 2, commandId: 'cmd-wait' as CommandNode['commandId'], name: 'compact', args: null, outcome: null }),
+        compaction: null,
+        waiting,
+        exited,
+      },
+    })
+    const h = makeHarness({ chat: chatSnapshotFixture({ nodes: [userInTurn(1, 'question', 1)] }) }, { running: true })
+    const builder = new ChatSnapshotBuilder()
+    const groups = new ConversationGroupStore<ProcessGroupData>()
+    const view = render(<h.ChatView {...h.props} />)
+    act(() => { h.set({ chat: installGroupedSnapshot(builder, new ProcessState(), groups, fixture, [pending(true)]) }) })
+    const card = (): HTMLElement => view.container.querySelector<HTMLElement>('[data-chat-flow-kind="manual-compaction"]')!
+    expect(card().textContent).toContain(zh['message.compaction.waiting'])
+    act(() => { h.set({ chat: installGroupedSnapshot(builder, new ProcessState(), groups, fixture, [pending(false)]) }) })
+    expect(card().textContent).toContain(zh['message.compaction.running'])
+    act(() => { h.set({ chat: installGroupedSnapshot(builder, new ProcessState(), groups, fixture, [pending(false, true)]) }) })
+    expect(card().textContent).toContain(zh['message.compaction.exited'])
+    expect(card().textContent).not.toContain(zh['message.compaction.running'])
   })
 
   it.each(['compact', 'standard', 'detailed', 'verbose'] as const)(
@@ -2049,6 +2287,66 @@ describe('ChatView', () => {
     expect(view.getAllByText('same steering')).toHaveLength(2)
     expect(view.container.querySelectorAll('[data-pending-steering]')).toHaveLength(1)
   })
+
+  it('renders prompt reference labels as chips on the echo, pending steering, and durable bubbles only', withClock(2_000, () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const references = [
+      { source: 'owner', label: '新增', data: { entry: 'e1', point: { ref: 'e42' } } },
+      { source: 'owner', label: '所属专题', data: {} },
+    ]
+    const chipsIn = (element: Element | null): (string | null)[] =>
+      [...element?.querySelectorAll('[data-reference-chip]') ?? []].map(chip => chip.getAttribute('title'))
+    const pending = {
+      id: 'steer-ref' as never,
+      role: 'user' as const,
+      source: { kind: 'user' as const, references },
+      content: [{ type: 'text' as const, text: '插话看这里' }],
+    }
+    const h = makeHarness(
+      { nodes: [assistant(1, 'working')] },
+      {
+        running: true,
+        testInbox: { 'next-turn': [], 'next-step': [pending] },
+        pendingSubmissions: [{
+          requestId: 'req-ref' as never, placement: 'transcript',
+          time: 1_000, text: '这两个有什么区别', attachments: [],
+          references: references.map(({ source, label }) => ({ source, label })),
+        }],
+      },
+    )
+    const view = render(<h.ChatView {...h.props} />)
+    const echo = view.getByText('这两个有什么区别').closest('[data-submission-echo]')
+    expect(chipsIn(echo)).toEqual(['新增', '所属专题'])
+    const steering = view.getByText('插话看这里').closest('[data-pending-steering]')
+    expect(chipsIn(steering)).toEqual(['新增', '所属专题'])
+    fireEvent.click(within(steering as HTMLElement).getByRole('button', { name: '复制' }))
+    expect(writeText).toHaveBeenCalledWith('插话看这里')
+
+    act(() => {
+      h.setSession({ pendingSubmissions: [], testInbox: { 'next-turn': [], 'next-step': [] } })
+      h.setChat({
+        nodes: [
+          assistant(1, 'working'),
+          {
+            kind: 'user', seq: 2, time: 2_000,
+            content: [{ type: 'text', text: '这两个有什么区别' }] as never,
+            source: { kind: 'user', rpcId: 'req-ref', references },
+          },
+          {
+            kind: 'user', seq: 3, time: 2_000,
+            content: [{ type: 'text', text: '坏记录' }] as never,
+            source: { kind: 'user', references: [{ label: 7 }, { label: '保留' }] },
+          },
+        ],
+      })
+    })
+    const durable = view.getByText('这两个有什么区别').closest('[class*="userRow"]')
+    expect(chipsIn(durable)).toEqual(['新增', '所属专题'])
+    expect(durable?.textContent).not.toMatch(/e42|entry|owner/u)
+    expect(chipsIn(view.getByText('坏记录').closest('[class*="userRow"]'))).toEqual(['保留'])
+    expect(view.container.textContent).not.toContain('e42')
+  }))
 
   it('renders local submission echoes at the flow tail and swaps atomically with the durable node', () => {
     const h = makeHarness(
@@ -3690,6 +3988,15 @@ describe('ChatView', () => {
     })
     expect(view.getByText('已停止')).toBeTruthy()
     expect(view.container.querySelectorAll('h1')).toHaveLength(2)
+  })
+
+  it('names the viewed Session in a settled assistant image\'s file URL', () => {
+    const h = makeHarness({ nodes: [assistant(2, '![diagram](/work/graph.png)')] })
+    const view = render(<h.ChatView {...h.props} />)
+    const url = new URL(view.getByAltText('diagram').getAttribute('src')!)
+    expect(url.pathname).toBe('/api/file')
+    expect(url.searchParams.get('path')).toBe('/work/graph.png')
+    expect(url.searchParams.get('sessionId')).toBe(SID)
   })
 
   it('streaming partial frames update the tail without replacing a sibling Tool row', () => {

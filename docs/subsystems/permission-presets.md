@@ -8,7 +8,7 @@ Source: [`packages/interaction/permission-presets/src/index.ts`](../../packages/
 
 ## The preset table
 
-A preset maps one stable key to a sandbox/approval bundle plus optional client presentation. The default configured table ships `workspace-write` (`workspace-write` + `ask`) and `danger-full-access` (`danger-full-access` + `never`); `custom` and `auto` are reserved and cannot be configured.
+A preset maps one stable key to a sandbox/approval bundle plus optional client presentation — a label, a description, one glyph from the selector's closed design set, and one tone from the access-mode menus' closed palette. The default configured table ships `workspace-write` (`workspace-write` + `ask`) and `danger-full-access` (`danger-full-access` + `never`); `custom` and `auto` are reserved and cannot be configured.
 
 ```ts type-equiv
 /** One preset's sandbox/approval bundle and optional client presentation. */
@@ -21,7 +21,31 @@ interface PresetSpec {
   name?: string
   /** One user-facing sentence on what the preset means; omitted when not configured. */
   description?: string
+  /** Which design-set glyph the selector shows; a preset whose id is itself a glyph name needs none. */
+  glyph?: PresetGlyph
+  /** Which tone the access-mode menus paint this preset's row in; omitted rows take the plain label color. */
+  tone?: PresetTone
 }
+```
+
+```ts type-equiv
+/**
+ * One glyph of the permission selector's design set. The set is closed: a
+ * presentation layer draws exactly these three, so a host names one instead of
+ * supplying artwork.
+ */
+type PresetGlyph = 'read-only' | 'workspace-write' | 'danger-full-access'
+```
+
+```ts type-equiv
+/**
+ * One tone of the access-mode menus' palette — the composer's access-mode menu
+ * and the Settings default-preset row. The set is closed: the client owns the
+ * colors, so a host names the meaning instead of supplying a color, and
+ * `danger` marks an entry the deployment treats as destructive. A preset
+ * naming none renders in the plain label color.
+ */
+type PresetTone = 'danger'
 ```
 
 ```ts type-equiv
@@ -54,7 +78,7 @@ Registering or removing Auto emits the payload-free `permission-presets/catalog-
 
 `current(session)` derives the effective preset from the required `permissions` projection. The unit folds the session's sandbox mode, approval policy, and recorded selection; values absent within that state fall back to the executor's configured mode and the approval service config, then `ask`. A missing projection key fails explicitly. The service prefers a still-matching selection, including a recorded Auto selection under the `never` approval policy, then the first matching configured entry, and otherwise returns `CUSTOM_PRESET` (`'custom'`). `custom` is derived-only: clients may display it as the current value, but it is never a switch target or an event payload.
 
-`names` lists configured presets in declaration order followed by Auto while its integration is live. `catalog()` returns those selectable entries as one process-level snapshot. `optionOf(name)` builds an available entry (its label falls back to the key) or the derived `custom` presentation, and throws for any other name. Clients join the catalog with the Session projection; `custom` may label the current value but never becomes a catalog entry.
+`names` lists configured presets in declaration order followed by Auto while its integration is live. `catalog()` returns those selectable entries as one process-level snapshot. `optionOf(name)` builds an available entry (its label falls back to the key; its glyph and tone pass through unchanged) or the derived `custom` presentation, and throws for any other name. Clients join the catalog with the Session projection; `custom` may label the current value but never becomes a catalog entry.
 
 ```ts type-equiv
 /** Presentation for an available preset or the derived `custom` current value. */
@@ -65,6 +89,10 @@ interface PresetOption {
   name: string
   /** One user-facing sentence on what the value means; omitted when not configured. */
   description?: string
+  /** Which design-set glyph the selector shows; a preset whose id is itself a glyph name needs none. */
+  glyph?: PresetGlyph
+  /** Which tone the access-mode menus paint this row in; omitted rows take the plain label color. */
+  tone?: PresetTone
 }
 ```
 

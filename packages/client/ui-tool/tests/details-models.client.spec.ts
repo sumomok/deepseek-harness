@@ -176,8 +176,22 @@ describe('inspection detail adapters', () => {
         session: {} as never, inheritedEventCount: 0 as never, target: event as never,
         events: [event as never], startSeq: 2 as never, endSeq: 2 as never,
       },
+      undefined,
+      { full: false, offset: 0, maxChars: 16_000 },
+      JSON.stringify(event, null, 2),
     )
     expect(details('session_event_read', eventRead)?.items[0]?.title).toBe('tool/call')
+    const pagedRead = presentation.formatEventRead(
+      's1' as never, title,
+      {
+        session: {} as never, inheritedEventCount: 0 as never, target: event as never,
+        events: [event as never], startSeq: 2 as never, endSeq: 2 as never,
+      },
+      undefined,
+      { full: false, offset: 0, maxChars: 10 },
+      JSON.stringify(event, null, 2),
+    )
+    expect(details('session_event_read', pagedRead)).toBeNull()
     expect(details('session_search', 'No prior session matches found.')?.summary).toBe('0 matches')
     expect(details('session_event_search', 'Session s1 — Session one\n\nNo prior event matches found.')?.summary).toBe('0 matches')
   })

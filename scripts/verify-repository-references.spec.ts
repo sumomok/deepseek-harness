@@ -106,6 +106,19 @@ describe('maintained repository reference policy', () => {
     ])
   })
 
+  it('skips generated dependency lock files but still checks maintained text', () => {
+    // A lock file records this byte count as a decimal run that is also a unique repository commit prefix;
+    // the numeric separators keep that run out of this file's own scanned text.
+    const byteCount = 6_344_383
+    const size = `size = ${String(byteCount)}`
+    const commits = new Set([String(byteCount)])
+    for (const file of ['python/sdk/uv.lock', 'pnpm-lock.yaml', 'nested/dir/uv.lock']) {
+      expect(findRepositoryReferences(file, size, commits)).toEqual([])
+    }
+    expect(findRepositoryReferences('docs/notes.md', size, commits))
+      .toEqual([{ file: 'docs/notes.md', line: 1, kind: 'commit-hash' }])
+  })
+
   it('does not fetch missing commits from a partial clone\'s promisor remote', (test) => {
     const remote = repository(test)
     remote.git(['config', 'uploadpack.allowFilter', 'true'])

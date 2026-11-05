@@ -317,12 +317,27 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Owns isolated per-session replay folds; pressure consumers share immutable revisioned measurements.',
   },
   {
+    key: 'compactionPolicy',
+    pkg: 'compaction-basic',
+    title: 'Live automatic-compaction policy',
+    mode: 'seam',
+    consumers: ['compaction-basic'],
+    note: 'Host-plane providers answer the pressure switch and threshold ratio from user settings; the backend reads them per step and falls back to its configuration when unmounted.',
+  },
+  {
     key: 'toolResultPruner',
     pkg: 'compaction-tool-result-pruner',
     title: 'Model-free tool-result pruning',
     mode: 'core',
     consumers: ['compaction-basic'],
     note: 'Rewrites oversized current tool results through replayable single-node surface replacements before summary compaction.',
+  },
+  {
+    key: 'microcompact',
+    pkg: 'compaction-microcompact',
+    title: 'Idle tool-result microcompaction',
+    mode: 'service',
+    note: 'Optional idle pass that clears old text results to session-sequence pointers; no shipped composition mounts it.',
   },
   {
     key: 'sessions',
@@ -816,6 +831,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['compaction-basic'],
     consumers: ['compaction-basic'],
     note: 'The basic backend consumes post-step pressure and request-error recovery events; there is no model-facing compact tool.',
+  },
+  {
+    key: 'manualCompactionTiming',
+    pkg: 'compaction',
+    title: 'Busy-state manual compaction timing',
+    mode: 'seam',
+    implementations: ['client-ui-chat'],
+    consumers: ['command-compact'],
+    note: 'The Web Chat plugin answers from a user setting whether a /compact sent during a running turn waits for its next step boundary or its end; without a provider the request is refused as busy.',
   },
   {
     key: 'subagents',

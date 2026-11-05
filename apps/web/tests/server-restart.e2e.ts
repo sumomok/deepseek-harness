@@ -6,6 +6,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { isolatedSkillRootEnv } from '@deepseek-ai/dsh-loader-smoke'
 import { chromium } from 'playwright'
 import { expect, it, onTestFailed, onTestFinished } from 'vitest'
 import { REPO_ROOT, newEnglishPage, saveFailureShot, writeComposerDraft } from './support.ts'
@@ -31,7 +32,7 @@ class RestartableServer {
       cwd: this.world,
       env: {
         ...process.env, NODE_OPTIONS: '',
-        DSH_HOME: join(this.world, 'home'), DSH_AGENTS_HOME: join(this.world, 'agents'),
+        ...isolatedSkillRootEnv(this.world, { dshHome: join(this.world, 'home'), agentsHome: join(this.world, 'agents') }),
         DSH_TELEMETRY_DISABLED: '1', DEEPSEEK_API_KEY: 'keyless-server-restart-fixture',
         DEEPSEEK_BASE_URL: this.modelUrl,
         DSH_WEB_RESTART_HOLD_STARTUP: holdStartup ? '1' : '0',

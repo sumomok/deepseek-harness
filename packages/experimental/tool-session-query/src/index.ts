@@ -49,9 +49,17 @@ const TEXT_OUTPUT = {
 }
 
 const PROMPT_TEXT =
-  'Use session_search to find relevant work from prior sessions, or session_event_search to search earlier '
-  + 'events in one session. Search results are cursor-free and workspace-scoped. Follow a useful hit with '
-  + 'session_trace, session_event_trace, or session_event_read when you need lineage, relationships, or exact data.'
+  'Use session_search to find relevant work in prior sessions other than this one, or session_event_search to '
+  + 'search earlier events in one session, including this one: omit session_id and the call covers the events '
+  + 'before the current step, which is how a decision a checkpoint replaced is checked. session_search never '
+  + 'returns this session. Search results are cursor-free and workspace-scoped. Follow a useful hit with '
+  + 'session_trace, session_event_trace, or bounded session_event_read excerpts; use full: true only when '
+  + 'the complete event is necessary. Treat settled decisions as part of the task rather than something the '
+  + 'person has to remind you of: before proposing a plan, a split, or a new ticket set for an object this '
+  + 'conversation has touched (a ticket, a label, a module, a page), search these events for that object and '
+  + 'reconcile the proposal with what was already decided there. Do it on your own initiative — a miss is not '
+  + 'proof that nothing was decided, and making someone repeat a decision is the failure this search exists to '
+  + 'prevent. Search one identifier or keyword at a time; a whole phrase rarely matches.'
 
 /** Register all five tools and their shared model guidance. */
 export function apply(ctx: Context, config: Config): void {
@@ -64,7 +72,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'session_search',
-    description: 'Search prior sessions in the caller workspace and return the strongest matching event from each session.',
+    description: 'Search prior sessions other than this one in the caller workspace and return the strongest matching event from each session.',
     parameters: toolInput.sessionSearchParameters,
     output: TEXT_OUTPUT,
     timeoutMs: resolved.searchTimeoutMs,
@@ -74,7 +82,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'session_event_search',
-    description: 'Search prior events in one authorized session; the current session excludes the step performing this call.',
+    description: 'Search prior events in one authorized session, by default this one; a call for the current session excludes the step performing it.',
     parameters: toolInput.eventSearchParameters,
     output: TEXT_OUTPUT,
     timeoutMs: resolved.searchTimeoutMs,
@@ -107,12 +115,15 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'session_event_read',
-    description: 'Read one full unabridged event and optional neighboring raw-event summaries from an authorized session.',
+    description: 'Read a bounded excerpt of one event, or the complete event with full: true.',
     parameters: {
       ...toolInput.targetSessionParameter,
       seq: { type: 'integer', required: true, description: 'Target event sequence number.' },
       before: { type: 'integer', description: 'Number of preceding raw events to summarize. Omit for none.' },
       after: { type: 'integer', description: 'Number of following raw events to summarize. Omit for none.' },
+      offset: { type: 'integer', description: 'Zero-based character offset into the formatted event JSON; use nextOffset from the previous page.' },
+      maxChars: { type: 'integer', description: 'Characters per page (2–100000). Defaults to 16000.' },
+      full: { type: 'boolean', description: 'Return the complete unabridged event. Cannot be combined with offset or maxChars.' },
     },
     output: TEXT_OUTPUT,
     isConcurrencySafe: () => true,

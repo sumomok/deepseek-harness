@@ -1,17 +1,21 @@
 /**
  * Web reference source coverage: Remote-backed file/session discovery,
- * deterministic ordering and labels, quoted-path suppression, pick projections, codec
- * round-trip, and registration lifecycle.
+ * Workspace-root candidates from the Client projection, deterministic ordering
+ * and labels, quoted-path suppression, pick projections, codec round-trip, and
+ * registration lifecycle.
  */
 import { Context, Service } from '@deepseek-ai/cordis'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
+import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import { UiConversation } from '@deepseek-ai/dsh-client-ui-conversation/src/client/conversation/assembly.ts'
+import { ClientReferent, type ReferentRef } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import { FileReference, FolderReference, type FileReferenceInjected } from '../src/client/FileReference.tsx'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { RemoteError, TestSessions } from '@deepseek-ai/dsh-client-test-runtime'
+import { RemoteError, TestSessions, TestWorkspaces } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionFixture } from '@deepseek-ai/dsh-client-test-runtime'
 import type {
   CandidateRequest, ClientSessionContext, InputTriggerCandidate, InputTriggerSource,
@@ -102,6 +106,7 @@ async function bench(
 ) {
   const ctx = new Context()
   ctx.provide('sidebarRight', { openResource: vi.fn() })
+  new ClientReferent(ctx)
   let source: InputTriggerSource | undefined
   ctx.provide('inputTriggers', {
     registerSource(candidate: InputTriggerSource) {
@@ -119,7 +124,13 @@ async function bench(
   new RemoteService(ctx)
   ctx.provide('remote.fileReferences', { list: files })
   ctx.provide('remote.sessionReferenceResolver', { candidates: sessions })
-  ctx.provide('locale', new LocaleRuntime(ctx))
+  const locale = new LocaleRuntime(ctx)
+  ctx.provide('locale', locale)
+  // The shipped locale plugin owns the common namespace; the reference source
+  // reads the default Workspace name from it.
+  locale.register('common', 'en', commonEn)
+  const workspaces = new TestWorkspaces(async (action) => { await action() })
+  ctx.provide('workspaces', workspaces)
   const sessionStore = new TestSessions(async (action) => { await action() }, ctx)
   onTestFinished(async () => {
     await sessionStore.disposeScopes()
@@ -136,13 +147,24 @@ async function bench(
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   if (source === undefined) throw new Error('reference source was not registered')
-  return { ctx, fiber, source, sessions: sessionStore, owner }
+  return { ctx, fiber, source, sessions: sessionStore, workspaces, owner }
+}
+
+function workspaceView(id: string, path: string, title: string): WorkspaceView {
+  return {
+    workspaceId: id as WorkspaceId,
+    path,
+    title,
+    sessionIds: [],
+    createdAt: new Date(CREATED_AT).toISOString(),
+    updatedAt: new Date(UPDATED_AT).toISOString(),
+  }
 }
 
 describe('apply', () => {
   it('declares its services and releases the @ reference registration on disposal', async () => {
     expect(inject).toEqual([
-      'inputTriggers', 'locale', 'sessions', 'remote', 'remote.fileReferences',
+      'inputTriggers', 'locale', 'sessions', 'workspaces', 'referent', 'remote', 'remote.fileReferences',
       'remote.sessionReferenceResolver', 'sidebarRight', 'slots', 'uiConversation',
     ])
     const { fiber } = await bench()
@@ -150,6 +172,7 @@ describe('apply', () => {
     const ctx = new Context()
     onTestFinished(() => ctx.fiber.dispose())
     ctx.provide('sidebarRight', { openResource: vi.fn() })
+    new ClientReferent(ctx)
     ctx.provide('inputTriggers', {
       registerSource(source: InputTriggerSource) {
         registered = source
@@ -167,6 +190,7 @@ describe('apply', () => {
     ctx.provide('remote.fileReferences', { list: () => Promise.resolve({ ok: true, value: [] }) })
     ctx.provide('remote.sessionReferenceResolver', { candidates: () => Promise.resolve({ ok: true, value: [] }) })
     ctx.provide('locale', new LocaleRuntime(ctx))
+    ctx.provide('workspaces', new TestWorkspaces(async (action) => { await action() }))
     const sessions = new TestSessions(async (action) => { await action() }, ctx)
     onTestFinished(() => sessions.disposeScopes())
     ctx.provide('sessions', sessions)
@@ -540,6 +564,136 @@ describe('candidates', () => {
   })
 })
 
+describe('workspace roots', () => {
+  const noFiles = () => vi.fn(() => Promise.resolve({
+    ok: true as const, value: [] as FileReferenceCandidate[],
+  }))
+  const noSessions = () => vi.fn(() => Promise.resolve({
+    ok: true as const, value: [] as SessionReferenceMentionCandidate[],
+  }))
+
+  async function withWorkspaces(...views: WorkspaceView[]) {
+    const b = await bench(noFiles(), noSessions())
+    await b.workspaces.update((draft) => { draft.items = views })
+    return b
+  }
+
+  it('places registered roots after files and before sessions', async () => {
+    const files = vi.fn(() => Promise.resolve({
+      ok: true as const,
+      value: [{ path: 'src', kind: 'directory' as const }],
+    }))
+    const sessions = vi.fn(() => Promise.resolve({
+      ok: true as const,
+      value: [{
+        sessionId: sid('source'),
+        label: 'Research',
+        cwd: `${HOME}/project`,
+        sameWorkspace: false,
+        createdAt: CREATED_AT,
+        mention: '@[Research](dsh-session:InNvdXJjZSI)',
+      }],
+    }))
+    const b = await bench(files, sessions, { source: { updatedAt: UPDATED_AT } })
+    await b.workspaces.update((draft) => {
+      draft.items = [
+        workspaceView('alpha', `${HOME}/projects/alpha`, 'Alpha'),
+        workspaceView('beta', '/srv/beta', 'Beta'),
+      ]
+    })
+    const candidates = await b.source.candidates(session, request(''))
+    expect(candidates.map(candidate => ({
+      name: candidate.name,
+      description: candidate.description,
+      icon: candidate.icon,
+      section: candidate.section,
+    }))).toEqual([
+      { name: 'src/', description: undefined, icon: 'folder', section: 'Files & folders' },
+      { name: 'Alpha', description: '~/projects/alpha', icon: 'folder', section: 'Workspaces' },
+      { name: 'Beta', description: '/srv/beta', icon: 'folder', section: 'Workspaces' },
+      { name: 'Research', description: '~/project · 1h', icon: 'session', section: 'Sessions' },
+    ])
+    expect(candidates[1]?.value).toBe(JSON.stringify({
+      kind: 'file',
+      fileKind: 'directory',
+      label: 'Alpha',
+      mention: '@/Users/dev/projects/alpha/',
+    }))
+    expect(candidates[1]).not.toHaveProperty('drill')
+  })
+
+  it('matches the displayed title and the canonical path', async () => {
+    const b = await withWorkspaces(
+      workspaceView('alpha', `${HOME}/work/alpha`, 'Alpha'),
+      workspaceView('data', '/srv/data/gamma', 'Research'),
+    )
+    await expect(b.source.candidates(session, request('alp'))).resolves.toEqual([
+      expect.objectContaining({ name: 'Alpha' }),
+    ])
+    await expect(b.source.candidates(session, request('SRV'))).resolves.toEqual([
+      expect.objectContaining({ name: 'Research' }),
+    ])
+    await expect(b.source.candidates(session, request('zzz'))).resolves.toEqual([])
+  })
+
+  it('keeps roots out of an explicitly quoted file path', async () => {
+    const b = await withWorkspaces(workspaceView('alpha', `${HOME}/work/alpha`, 'Alpha'))
+    await expect(b.source.candidates(session, request('', { quoted: true }))).resolves.toEqual([])
+  })
+
+  it('labels the automatic default root and keeps one mentionable row per path', async () => {
+    const b = await withWorkspaces(
+      workspaceView('first', `${HOME}/work/shared`, 'First'),
+      workspaceView('duplicate', `${HOME}/work/shared/`, 'Duplicate'),
+      workspaceView('untitled', '/srv/untitled', ''),
+      workspaceView('default', `${HOME}/Documents/deepseek-harness/default-workspace`, 'default-workspace'),
+      workspaceView('windows', 'C:\\work\\win', 'Win'),
+      workspaceView('root', '/', 'Root'),
+      workspaceView('unnameable', `${HOME}/bad"name`, 'Bad'),
+      workspaceView('empty', '', 'Empty'),
+    )
+    const rows = await b.source.candidates(session, request(''))
+    expect(rows.map(row => ({ name: row.name, description: row.description }))).toEqual([
+      { name: 'First', description: '~/work/shared' },
+      { name: 'untitled', description: '/srv/untitled' },
+      { name: 'Default workspace', description: '~/Documents/deepseek-harness/default-workspace' },
+      { name: 'Win', description: 'C:\\work\\win' },
+      { name: 'Root', description: '/' },
+    ])
+    expect(rows.map(row => (JSON.parse(row.value ?? '{}') as { mention: string }).mention)).toEqual([
+      '@/Users/dev/work/shared/',
+      '@/srv/untitled/',
+      '@/Users/dev/Documents/deepseek-harness/default-workspace/',
+      '@C:/work/win/',
+      '@/',
+    ])
+  })
+
+  it('settles a root atomically as a complete quoted folder reference', async () => {
+    const b = await withWorkspaces(workspaceView('spaced', `${HOME}/My Projects/alpha`, 'Alpha'))
+    const [row] = await b.source.candidates(session, request(''))
+    const mention = '@"/Users/dev/My Projects/alpha/"'
+    expect(b.source.onPick({
+      candidate: row!,
+      session,
+      position: 'inline',
+      via: 'menu',
+      action: 'pick',
+      span: { start: 0, end: 1, draftRev: 1 },
+    })).toEqual({
+      insert: {
+        source: 'reference',
+        ref: mention,
+        label: 'Alpha/',
+        appearance: 'folder',
+        clipboardText: mention,
+      },
+    })
+    expect(b.source.codec?.clipboardText(mention)).toBe(mention)
+    await expect(b.source.codec?.serialize(mention, new AbortController().signal)).resolves.toBe(mention)
+  })
+})
+
 describe('directory header', () => {
   const drilledRequest = (query: string, quoted = false): CandidateRequest => ({
     query,
@@ -683,11 +837,127 @@ describe('reference preview', () => {
     const entry = ctx.slots.entries('conversation.user.text.node').find(candidate => candidate.options.key === 'file')!
     const factory = entry.inject as NonNullable<typeof entry.inject> & ((id: SessionId) => FileReferenceInjected)
     const openResource = vi.spyOn(ctx.sidebarRight, 'openResource')
-    factory(session.sessionId).openFile('docs/a b.md')
-    factory(sid('other')).openFile('notes.md')
+    await factory(session.sessionId).openFile('docs/a b.md')
+    await factory(sid('other')).openFile('notes.md')
     expect(openResource.mock.calls).toEqual([
       ['dsh-resource://file/session/target/docs/a%20b.md'],
       ['dsh-resource://file/session/other/notes.md'],
+    ])
+  })
+
+  it('rejects the returned open when the Sidebar default throws', async () => {
+    const { ctx } = await bench()
+    const entry = ctx.slots.entries('conversation.user.text.node').find(candidate => candidate.options.key === 'file')!
+    const factory = entry.inject as NonNullable<typeof entry.inject> & ((id: SessionId) => FileReferenceInjected)
+    vi.spyOn(ctx.sidebarRight, 'openResource').mockImplementation(() => { throw new Error('no sidebar') })
+    await expect(factory(sid('in-project')).openFile('x.md')).rejects.toThrow('no sidebar')
+  })
+
+  it('dispatches each inline file action through referent/open before the Sidebar default', async () => {
+    const { ctx, sessions } = await bench()
+    await sessions.add({ id: 'in-project', summary: { cwd: '/proj' } })
+    const entry = ctx.slots.entries('conversation.user.text.node').find(candidate => candidate.options.key === 'file')!
+    const factory = entry.inject as NonNullable<typeof entry.inject> & ((id: SessionId) => FileReferenceInjected)
+    const openResource = vi.spyOn(ctx.sidebarRight, 'openResource')
+    const seen: ReferentRef[] = []
+    ctx.on('referent/open', async (ref, next) => {
+      seen.push(ref)
+      // A listener claims the click by returning without next().
+      if (ref.raw !== 'claimed.md') await next()
+    })
+    await factory(sid('in-project')).openFile('claimed.md')
+    expect(openResource).not.toHaveBeenCalled()
+    await factory(sid('in-project')).openFile('docs/a b.md')
+    expect(openResource.mock.calls).toEqual([['dsh-resource://file/session/in-project/docs/a%20b.md']])
+    expect(seen).toEqual([
+      {
+        kind: 'file', target: '/proj/claimed.md', raw: 'claimed.md', sessionId: 'in-project',
+        source: 'user-text.file-reference', enteredAs: 'user-text',
+      },
+      {
+        kind: 'file', target: '/proj/docs/a b.md', raw: 'docs/a b.md', sessionId: 'in-project',
+        source: 'user-text.file-reference', enteredAs: 'user-text',
+      },
+    ])
+  })
+
+  it('resolves each inline file action against the Session directory current at the click', async () => {
+    const { ctx, sessions } = await bench()
+    await sessions.add({ id: 'in-project', summary: { cwd: '/proj' } })
+    using _reference = sessions.retain(sid('in-project'))
+    const entry = ctx.slots.entries('conversation.user.text.node').find(candidate => candidate.options.key === 'file')!
+    const factory = entry.inject as NonNullable<typeof entry.inject> & ((id: SessionId) => FileReferenceInjected)
+    const openResource = vi.spyOn(ctx.sidebarRight, 'openResource')
+    const seen: string[] = []
+    ctx.on('referent/open', async (ref, next) => {
+      seen.push(ref.target)
+      await next()
+    })
+    const open = factory(sid('in-project')).openFile
+    // No working directory recorded yet: the header directory is the base.
+    await open('notes.md')
+    await sessions.setProjection('in-project', 'workingDirectory', '/proj/child')
+    await open('notes.md')
+    // An absolute path keeps its own spelling whatever the current directory.
+    await open('/proj/top.md')
+    // Outside the header workspace the address keeps the absolute path.
+    await sessions.setProjection('in-project', 'workingDirectory', '/tmp/wt')
+    await open('docs/a b.md')
+    // A null projection means no recorded directory: back to the header.
+    await sessions.setProjection('in-project', 'workingDirectory', null)
+    await open('notes.md')
+    expect(seen).toEqual([
+      '/proj/notes.md', '/proj/child/notes.md', '/proj/top.md', '/tmp/wt/docs/a b.md', '/proj/notes.md',
+    ])
+    expect(openResource.mock.calls).toEqual([
+      ['dsh-resource://file/session/in-project/notes.md'],
+      ['dsh-resource://file/session/in-project/child/notes.md'],
+      ['dsh-resource://file/session/in-project/top.md'],
+      ['dsh-resource://file/session/in-project//tmp/wt/docs/a%20b.md'],
+      ['dsh-resource://file/session/in-project/notes.md'],
+    ])
+  })
+
+  it('resolves Windows paths against the current directory in either separator spelling', async () => {
+    const { ctx, sessions, source } = await bench()
+    await sessions.add({ id: 'win', summary: { cwd: 'C:\\proj' } })
+    using _reference = sessions.retain(sid('win'))
+    const entry = ctx.slots.entries('conversation.user.text.node').find(candidate => candidate.options.key === 'file')!
+    const factory = entry.inject as NonNullable<typeof entry.inject> & ((id: SessionId) => FileReferenceInjected)
+    const openResource = vi.spyOn(ctx.sidebarRight, 'openResource')
+    const seen: string[] = []
+    ctx.on('referent/open', async (ref, next) => {
+      seen.push(ref.target)
+      await next()
+    })
+    await sessions.setProjection('win', 'workingDirectory', 'C:\\proj\\child')
+    await factory(sid('win')).openFile('notes\\a.md')
+    expect(source.openReference?.({ sessionId: sid('win') }, { ref: '@notes/b.md', appearance: 'file' })).toBe(true)
+    await sessions.setProjection('win', 'workingDirectory', 'D:\\wt')
+    await factory(sid('win')).openFile('a.md')
+    expect(seen).toEqual(['C:\\proj\\child\\notes\\a.md', 'D:\\wt\\a.md'])
+    expect(openResource.mock.calls).toEqual([
+      ['dsh-resource://file/session/win/child/notes/a.md'],
+      ['dsh-resource://file/session/win/child/notes/b.md'],
+      ['dsh-resource://file/session/win/D:/wt/a.md'],
+    ])
+  })
+
+  it('opens a composer file chip against the Session directory current at the click', async () => {
+    const { ctx, sessions, source } = await bench()
+    await sessions.add({ id: 'in-project', summary: { cwd: '/proj' } })
+    using _reference = sessions.retain(sid('in-project'))
+    const composer = { sessionId: sid('in-project') }
+    const openResource = vi.spyOn(ctx.sidebarRight, 'openResource')
+    expect(source.openReference?.(composer, { ref: '@notes.md', appearance: 'file' })).toBe(true)
+    await sessions.setProjection('in-project', 'workingDirectory', '/proj/child')
+    expect(source.openReference?.(composer, { ref: '@"a b.md"', appearance: 'file' })).toBe(true)
+    await sessions.setProjection('in-project', 'workingDirectory', '/elsewhere')
+    expect(source.openReference?.(composer, { ref: '@notes.md', appearance: 'file' })).toBe(true)
+    expect(openResource.mock.calls).toEqual([
+      ['dsh-resource://file/session/in-project/notes.md'],
+      ['dsh-resource://file/session/in-project/child/a%20b.md'],
+      ['dsh-resource://file/session/in-project//elsewhere/notes.md'],
     ])
   })
 

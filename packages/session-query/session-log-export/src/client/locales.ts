@@ -12,10 +12,14 @@ export const zh = {
   'toast.clipboardFailed': '无法写入剪贴板，请检查剪贴板权限后重试',
   'dialog.preparingTitle': '正在导出 Session',
   'dialog.preparingDescription': '正在准备包含当前 Session、子 Session 和附件的 ZIP 文件。',
-  'dialog.successTitle': 'Session 导出已开始下载',
-  'dialog.successDescription': '浏览器正在下载 Session ZIP 文件。',
-  'dialog.errorTitle': 'Session 导出失败',
+  'dialog.transferringDescription': '正在传输包含当前 Session、子 Session 和附件的 ZIP 文件。',
+  'dialog.progressLabel': '导出进度',
+  'dialog.progress': '已导出 {size}',
+  'dialog.successTitle': '导出完成',
+  'dialog.successDescription': '已交给浏览器保存。',
+  'dialog.errorTitle': '导出失败',
   'dialog.close': '关闭',
+  'dialog.cancel': '取消',
   'dialog.commandFailed': '无法启动 Session 导出。',
 } as const
 
@@ -30,14 +34,18 @@ export const en: Record<keyof typeof zh, string> = {
   'toast.clipboardFailed': 'Could not write to the clipboard. Check clipboard permission and try again.',
   'dialog.preparingTitle': 'Exporting Session',
   'dialog.preparingDescription': 'Preparing a ZIP containing this Session, its sub-Sessions, and attachments.',
-  'dialog.successTitle': 'Session download started',
-  'dialog.successDescription': 'The browser is downloading the Session ZIP.',
-  'dialog.errorTitle': 'Session export failed',
+  'dialog.transferringDescription': 'Transferring a ZIP containing this Session, its sub-Sessions, and attachments.',
+  'dialog.progressLabel': 'Export progress',
+  'dialog.progress': 'Exported {size}',
+  'dialog.successTitle': 'Export complete',
+  'dialog.successDescription': 'Handed to the browser to save.',
+  'dialog.errorTitle': 'Export failed',
   'dialog.close': 'Close',
+  'dialog.cancel': 'Cancel',
   'dialog.commandFailed': 'Could not start the Session export.',
 }
 
-/** Stable locale keys consumed by the shared modal. */
+/** Stable locale keys consumed by the shared panel. */
 export type SessionLogDownloadKey = keyof typeof zh
 
 /** Japanese copy, checked against the English keys. */
@@ -56,6 +64,10 @@ export const ja = {
   'dialog.errorTitle': 'セッションのエクスポートに失敗しました',
   'dialog.close': '閉じる',
   'dialog.commandFailed': 'セッションのエクスポートを開始できませんでした。',
+  'dialog.transferringDescription': 'Transferring a ZIP containing this Session, its sub-Sessions, and attachments.',
+  'dialog.progressLabel': 'Export progress',
+  'dialog.progress': 'Exported {size}',
+  'dialog.cancel': 'Cancel',
 } satisfies Record<keyof typeof en, string>
 
 /** Spanish dictionary, checked against the English keys. */
@@ -74,6 +86,10 @@ export const es = {
   'dialog.errorTitle': 'Error al exportar la sesión',
   'dialog.close': 'Cerrar',
   'dialog.commandFailed': 'No se pudo iniciar la exportación de la sesión.',
+  'dialog.transferringDescription': 'Transferring a ZIP containing this Session, its sub-Sessions, and attachments.',
+  'dialog.progressLabel': 'Export progress',
+  'dialog.progress': 'Exported {size}',
+  'dialog.cancel': 'Cancel',
 } satisfies Record<keyof typeof en, string>
 
 /** French dictionary, checked against the English keys. */
@@ -92,6 +108,10 @@ export const fr = {
   'dialog.errorTitle': "Échec de l'exportation de la session",
   'dialog.close': 'Fermer',
   'dialog.commandFailed': "Impossible de démarrer l'exportation de session.",
+  'dialog.transferringDescription': 'Transferring a ZIP containing this Session, its sub-Sessions, and attachments.',
+  'dialog.progressLabel': 'Export progress',
+  'dialog.progress': 'Exported {size}',
+  'dialog.cancel': 'Cancel',
 } satisfies Record<keyof typeof en, string>
 
 /** German dictionary, checked against the English keys. */
@@ -110,6 +130,10 @@ export const de = {
   'dialog.errorTitle': 'Der Sitzungsexport ist fehlgeschlagen',
   'dialog.close': 'Schließen',
   'dialog.commandFailed': 'Der Sitzungsexport konnte nicht gestartet werden.',
+  'dialog.transferringDescription': 'Transferring a ZIP containing this Session, its sub-Sessions, and attachments.',
+  'dialog.progressLabel': 'Export progress',
+  'dialog.progress': 'Exported {size}',
+  'dialog.cancel': 'Cancel',
 } satisfies Record<keyof typeof en, string>
 
 /** Russian dictionary, checked against the English keys. */
@@ -128,6 +152,10 @@ export const ru = {
   'dialog.errorTitle': 'Экспорт сеанса не удался',
   'dialog.close': 'Закрыть',
   'dialog.commandFailed': 'Не удалось начать экспорт сеанса.',
+  'dialog.transferringDescription': 'Transferring a ZIP containing this Session, its sub-Sessions, and attachments.',
+  'dialog.progressLabel': 'Export progress',
+  'dialog.progress': 'Exported {size}',
+  'dialog.cancel': 'Cancel',
 } satisfies Record<keyof typeof en, string>
 
 /** Portuguese dictionary, checked against the English keys. */
@@ -146,4 +174,8 @@ export const pt = {
   'dialog.errorTitle': 'Falha na exportação da sessão',
   'dialog.close': 'Fechar',
   'dialog.commandFailed': 'Não foi possível iniciar a exportação da sessão.',
+  'dialog.transferringDescription': 'Transferring a ZIP containing this Session, its sub-Sessions, and attachments.',
+  'dialog.progressLabel': 'Export progress',
+  'dialog.progress': 'Exported {size}',
+  'dialog.cancel': 'Cancel',
 } satisfies Record<keyof typeof en, string>
