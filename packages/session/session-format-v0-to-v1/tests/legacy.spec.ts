@@ -321,7 +321,7 @@ describe('released v0 legacy normalization', () => {
     ])).toThrow(/permission\/preset 0 data has unexpected member "foo"/)
   })
 
-  it('renumbers a version-2 subagent descriptor and refuses every other old version', () => {
+  it('carries released subagent descriptor generations through unchanged', () => {
     const descriptor = {
       version: 2, mode: 'continuable', provider: 'spawn', label: '调研黄金类资产与矿股PE',
       agentProvider: 'deepseek-official', agentModel: 'deepseek-v4-flash-vision-exp',
@@ -331,10 +331,12 @@ describe('released v0 legacy normalization', () => {
       { type: 'subagent/descriptor', seq: 0, time: 1787709640297, data: descriptor },
     ]).events
 
-    expect(events[0]?.data).toEqual({ ...descriptor, version: 3 })
-    expect(() => migrate([
-      { type: 'subagent/descriptor', seq: 0, time: 1787709640297, data: { ...descriptor, version: 1 } },
-    ])).toThrow(/subagent\/descriptor 0 uses unsupported descriptor version 1/)
+    expect(events[0]?.data).toEqual(descriptor)
+    // Version 1 is a released generation too, so the identity edge leaves it as written.
+    const legacy = { version: 1, provider: 'spawn', label: 'old child' }
+    expect(migrate([
+      { type: 'subagent/descriptor', seq: 0, time: 1787709640297, data: legacy },
+    ]).events[0]?.data).toEqual(legacy)
   })
 
   it('carries every server-console content event through as ignorable', () => {
