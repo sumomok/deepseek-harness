@@ -63,6 +63,11 @@ async function checkExistingPath(filePath: string): Promise<'symlink' | 'file' |
  * - Existing symlinks are removed before extraction to prevent TOCTOU attacks
  * - Directories are created with proper permissions
  *
+ * Extraction runs in two phases: regular files and directories land first,
+ * then symlinks are created. A ZIP entry order that places a symlink before
+ * its target (e.g. Electron's `Versions/Current` → `Versions/A`) would
+ * otherwise fail the `realpath` check with ENOENT.
+ *
  * @param zipPath - Path to the ZIP file
  * @param options - Extraction options including target directory
  * @throws Error if path traversal, invalid symlink, or extraction error is detected
@@ -74,7 +79,10 @@ export async function safeExtractZip(zipPath: string, options: ExtractOptions): 
 
   const targetDirReal = await realpath(targetDir)
 
-  return new Promise<void>((resolvePromise, rejectPromise) => {
+  /** Symlinks collected in phase 1, created in phase 2 after all targets exist. */
+  const pendingSymlinks: { entryPath: string; linkTarget: string }[] = []
+
+  await new Promise<void>((resolvePromise, rejectPromise) => {
     yauzl.open(zipPath, { lazyEntries: true, strictFileNames: true }, (err, zipfile) => {
       if (err !== null || zipfile === undefined) {
         rejectPromise(err ?? new Error('Failed to open ZIP file'))
@@ -136,20 +144,9 @@ export async function safeExtractZip(zipPath: string, options: ExtractOptions): 
 
                 validateSymlinkTarget(targetDir, entryPath, linkTarget)
 
-                const linkTargetAbsolute = resolve(dirname(entryPath), linkTarget)
-                const linkTargetReal = await realpath(linkTargetAbsolute).catch((error: unknown) => {
-                  if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-                    throw new Error(
-                      `Symlink target does not exist: "${linkTarget}" (from "${entry.fileName}"). ` +
-                      'Dangling symlinks are rejected to prevent TOCTOU attacks.',
-                    )
-                  }
-                  throw error
-                })
-
-                validatePathContainment(targetDirReal, linkTargetReal)
-
-                await symlink(linkTarget, entryPath)
+                // Defer symlink creation to phase 2: the target may not have
+                // been extracted yet when this entry is read.
+                pendingSymlinks.push({ entryPath, linkTarget })
               } else {
                 const writeStream = createWriteStream(entryPath, { mode: entry.externalFileAttributes >>> 16 })
                 await pipeline(readStream, writeStream)
@@ -177,4 +174,19 @@ export async function safeExtractZip(zipPath: string, options: ExtractOptions): 
       })
     })
   })
+
+  // Phase 2: create ALL symlinks first, then validate. Some links form chains
+  // (e.g. `Electron Framework` → `Versions/Current/Electron Framework` →
+  // `Versions/A/Electron Framework`), so realpath() on an early link would
+  // fail if a later link in its chain has not been created yet.
+  for (const { entryPath, linkTarget } of pendingSymlinks) {
+    await symlink(linkTarget, entryPath)
+  }
+
+  for (const { entryPath, linkTarget } of pendingSymlinks) {
+    const linkTargetAbsolute = resolve(dirname(entryPath), linkTarget)
+    const linkTargetReal = await realpath(linkTargetAbsolute)
+
+    validatePathContainment(targetDirReal, linkTargetReal)
+  }
 }
