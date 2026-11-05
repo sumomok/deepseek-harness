@@ -75,7 +75,7 @@ Web 与桌面端的通用设置底部显示当前发布版本，使用构建注�
 
 ### 账本投影
 
-导航是 `settings.section` 账本**遮蔽胜出项**的投影，因此同一分区 id 上的两个条目只贡献出口实际渲染的那一行；导航 label 可以是跟随语言的 thunk，经 `resolveSlotLabel` 解析，并在分区账本更新或 locale revision 变化时重新渲染（`ctx.get('locale')` 可选读取，无硬 locale 依赖）。分组是外壳里一张固定的分区 id 表（`nav-groups.ts`）：注册项只带 `id`/`order`/`label`/`priority`，客户端引导线上根本没有 config 字段，客户端一面的 `Config` 参数只会取到 schema 默认值，注册方无从自报分组。被点名的分组按表内顺序而非账本顺序排列成员；组标题是外壳自有文案，并各自标注一个 `role="group"`，让两级结构抵达辅助技术。引导账本按升序投影；当前注册方会收到该条目的 id、`complete()` 与 `openSection(id)` 回调，完成或跳过当前步骤后，所有权转交给下一项。
+导航是 `settings.section` 账本的投影；导航 label 可以是跟随语言的 thunk，经 `resolveSlotLabel` 解析，并在分区账本更新或 locale revision 变化时重新渲染（`ctx.get('locale')` 可选读取，无硬 locale 依赖）。每行渲染匹配的 `settings.section.icon` 贡献；没有贡献时，已知内置分区使用各自的图标，其他 id 使用设置齿轮。引导账本按升序投影；当前注册方会收到该条目的 id、`complete()` 与 `openSection(id)` 回调，完成或跳过当前步骤后，所有权转交给下一项。 导航是 `settings.section` 账本**遮蔽胜出项**的投影，因此同一分区 id 上的两个条目只贡献出口实际渲染的那一行；导航 label 可以是跟随语言的 thunk，经 `resolveSlotLabel` 解析，并在分区账本更新或 locale revision 变化时重新渲染（`ctx.get('locale')` 可选读取，无硬 locale 依赖）。分组是外壳里一张固定的分区 id 表（`nav-groups.ts`）：注册项只带 `id`/`order`/`label`/`priority`，客户端引导线上根本没有 config 字段，客户端一面的 `Config` 参数只会取到 schema 默认值，注册方无从自报分组。被点名的分组按表内顺序而非账本顺序排列成员；组标题是外壳自有文案，并各自标注一个 `role="group"`，让两级结构抵达辅助技术。引导账本按升序投影；当前注册方会收到该条目的 id、`complete()` 与 `openSection(id)` 回调，完成或跳过当前步骤后，所有权转交给下一项。
 
 ### 连接恢复
 

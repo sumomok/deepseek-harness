@@ -40,7 +40,7 @@ import type { SessionReferenceMentionCandidate } from '@deepseek-ai/dsh-session-
 import {
   abbreviateHomePath, fileAddressFor, resolveWorkspacePath, workspaceTitleOf,
 } from '@deepseek-ai/dsh-util-workspace-path'
-import { en, es, fr, de, ja, pt, ru, NS, zh } from './locales.ts'
+import { en, ja, es, fr, de, ru, pt, NS, zh } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-api-session-controller/client' {
   interface SessionReferenceSourceMap {
@@ -71,6 +71,7 @@ export function apply(ctx: ClientContext): void {
       name: 'conversation.user.text.node', key: 'file', priority: 100, locale: NS,
       inject: (sessionId: UserTextNodeProps<'file'>['sessionId']): FileReferenceInjected => ({
         // referent/open first: a listener may claim the click before the Sidebar opens the file.
+        resolveFilePath: path => resolveWorkspacePath(sessions.list.getSnapshot().byId[sessionId]?.cwd, path),
         openFile: (path) => {
           const file = locateFile(sessions, sessionId, path)
           const ref: ReferentRef = {

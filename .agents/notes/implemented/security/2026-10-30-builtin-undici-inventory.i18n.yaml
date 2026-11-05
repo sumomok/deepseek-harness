@@ -1,0 +1,37 @@
+# Bilingual-pair consistency record for 2026-10-30-builtin-undici-inventory.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/security/2026-10-30-builtin-undici-inventory.md
+/builtin-undici-inventory-npm-overrides-do-not-patch-node-electron-runtimes:
+  en: a94e30e47a905419
+  zh: 2921f1193f0b539e
+/builtin-undici-inventory-npm-overrides-do-not-patch-node-electron-runtimes/summary:
+  en: a8c74ccef8374bec
+  zh: e1119822c37a12ad
+/builtin-undici-inventory-npm-overrides-do-not-patch-node-electron-runtimes/inventory:
+  en: 975539506130ca12
+  zh: 6710e476c230ab4e
+/builtin-undici-inventory-npm-overrides-do-not-patch-node-electron-runtimes/inventory/node-js-runtime-requirement:
+  en: f2600fd2a7583a64
+  zh: 46da242e17d3c037
+/builtin-undici-inventory-npm-overrides-do-not-patch-node-electron-runtimes/inventory/electron-runtime:
+  en: e9ddeacd626f304c
+  zh: 80d8cc5402237d74
+/builtin-undici-inventory-npm-overrides-do-not-patch-node-electron-runtimes/residual-risk:
+  en: c91ce69c3e9b15cc
+  zh: 89b906a365649062
+/builtin-undici-inventory-npm-overrides-do-not-patch-node-electron-runtimes/residual-risk/npm-overrides-scope:
+  en: a070dfdd3cdb2027
+  zh: 3512fd9cb006d0ee
+/builtin-undici-inventory-npm-overrides-do-not-patch-node-electron-runtimes/residual-risk/vulnerability-exposure:
+  en: 5c18f6fc5ef27d01
+  zh: ec25276bbb6f2f48
+/builtin-undici-inventory-npm-overrides-do-not-patch-node-electron-runtimes/residual-risk/mitigation:
+  en: 7356ce3846f5491f
+  zh: 7f90963877bd75be
+/builtin-undici-inventory-npm-overrides-do-not-patch-node-electron-runtimes/residual-risk/recommendation:
+  en: eaa547ebfd6f3fc5
+  zh: e214f15537a274de
+/builtin-undici-inventory-npm-overrides-do-not-patch-node-electron-runtimes/references:
+  en: 785e47dd7e3b5b30
+  zh: 88c6a226c24f5a0f

@@ -5,6 +5,8 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-safe-binary-write
 
+English | [中文](README.zh.md)
+
 ## Summary
 
 Use `dsh-safe-binary-write` when writing binary data (screenshots, images, artifacts) that must stay within a workspace boundary. It rejects dangling symlinks, refuses to follow symlinks that escape the allowed root, and mitigates TOCTOU races by writing to a temporary file in the same directory and renaming atomically. This zero-dependency library is designed for scenarios like screenshot restore where following a symlink could write outside the intended workspace.
@@ -13,7 +15,6 @@ Use `dsh-safe-binary-write` when writing binary data (screenshots, images, artif
 
 - [Use this package](#use-this-package)
 - [Understand the implementation](#understand-the-implementation)
-- [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 
 -----

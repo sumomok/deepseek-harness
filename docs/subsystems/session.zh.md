@@ -821,6 +821,29 @@ interface PluginRecord {
 
 可选的 `application` 指定文件关联应用，不修改系统默认值；`workspacePathApplications({ path })` 在校验 Host 路径后返回当前关联应用、名称、图标和默认项。
 
+## Session 日志上传排除条件
+
+`ctx.sessionLogDeepSeek.registerExclusion()` 注册归调用方所有的判断函数，输入为 `SessionLogUploadRequest`。任意条件匹配时，在读取 Session 事件前省略日志贡献与接受回调。没有条件匹配时保留普通上传资格判断。[包 README](../../packages/session/session-log-deepseek/README.zh.md#upload-exclusions) 定义失败与释放行为。
+
+```ts type-equiv
+/** Request identity inspected before preparing a Session-log contribution. */
+interface SessionLogUploadRequest {
+  /** Live Session whose canonical log would be contributed. */
+  readonly sessionId: SessionId
+  /** Auxiliary request classification; absent for ordinary conversation requests. */
+  readonly purpose?: string
+}
+```
+
+```ts type-equiv
+/**
+ * Synchronous, side-effect-free upload exclusion owned by its registering plugin.
+ * @param request - request identity; the predicate must not mutate it.
+ * @returns `true` to omit the log field and acceptance callback, or `false` to keep checking eligibility.
+ */
+type SessionLogUploadExclusion = (request: SessionLogUploadRequest) => boolean
+```
+
 Host 级 `control` 流先发一条 `SessionControlBaseline`，随后不断产出替换帧。`projection` 帧按 seq 替换某个 Session 的一个 projection 值；`search-index` 帧携带 Host 当前的全文索引准备状态——阶段、已检查数、总数与跳过的已存储会话数——它是 Host 级而非 Session 级的，因此不按 Session 访问控制过滤。新 baseline 携带该流打开前最近一次发布的准备状态；Host 未运行索引或尚未开始时则省略该字段，字段语义见 [session-query.md](session-query.zh.md)。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
@@ -1020,10 +1043,10 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
 @Remote({ mode: 'stream' }) observeEvent(request: SessionObserveEventRequest, signal: AbortSignal): AsyncIterable<SessionEventFrame>
 
 /**
- * Subscribe to sparse Session projection changes.
+ * Subscribe to Session projection changes.
  * @param request - target Session.
  * @param signal - subscription cancellation.
- * @returns readiness and sparse projection changes.
+ * @returns readiness followed by one projection change frame per committed event.
  */
 @Remote({ mode: 'stream' }) observeProjections(request: SessionProjectionsRequest, signal: AbortSignal): AsyncIterable<SessionProjectionFrame>
 
@@ -1079,6 +1102,26 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
 Types: [SessionId](core.zh.md) · [SessionMessageSearchRequest](session-query.zh.md) · [SessionSearchRequest](session-query.zh.md)
 
 Source: [`packages/api/session-controller/src/index.ts`](../../packages/api/session-controller/src/index.ts)
+
+<a id="ctxsessionlogdeepseek--sessionlogdeepseekservice"></a>
+
+### `ctx.sessionLogDeepSeek` — `SessionLogDeepSeekService`
+
+Incremental Session-log contributor with caller-owned upload exclusions.
+
+```ts cordis-catalog
+/**
+ * Exclude matching requests before reading or preparing their log contribution.
+ * Any matching rule suppresses both the field and its acceptance callback. With
+ * no matching rules, normal upload eligibility applies. A throwing rule fails
+ * this contribution; the request-extension registry omits it and reports the error.
+ * @param exclude - synchronous, side-effect-free predicate; `true` skips this upload.
+ * @returns effect disposer that removes this registration when called or when the caller unloads.
+ */
+registerExclusion(exclude: SessionLogUploadExclusion): () => Promise<void>
+```
+
+Source: [`packages/session/session-log-deepseek/src/index.ts`](../../packages/session/session-log-deepseek/src/index.ts)
 
 <a id="ctxsessions--sessionstore"></a>
 

@@ -661,8 +661,8 @@ export class SessionManager {
   // ---- Live control and Host-event sinks ----
 
   /**
-   * Apply a complete control baseline or one later replacement frame.
-   * @param frame - baseline or live control replacement from Session Controller.
+   * Apply a complete control baseline or one later per-event projection frame.
+   * @param frame - baseline or live per-event projection change from Session Controller.
    */
   handleControlFrame(frame: SessionControlFrame): void {
     if (frame.type === 'baseline') {
@@ -674,7 +674,9 @@ export class SessionManager {
       this.notifier.markDirty()
       return
     }
-    this.projectionStore(frame.sessionId).apply(frame.key, frame.value, SessionSeq(frame.seq))
+    const store = this.projectionStore(frame.sessionId)
+    const seq = SessionSeq(frame.seq)
+    for (const change of frame.changes) store.apply(change.key, change.val, seq)
     this.notifier.markDirty()
   }
 

@@ -1,5 +1,7 @@
 # Builtin Undici Inventory — npm overrides do not patch Node/Electron runtimes
 
+English | [中文](2026-10-30-builtin-undici-inventory.zh.md)
+
 **Status:** Implemented
 **Date:** 2026-10-30
 **Context:** CVE P0/P1 residuals for core-patches branch

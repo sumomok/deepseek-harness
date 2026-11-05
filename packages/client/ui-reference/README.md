@@ -41,6 +41,8 @@ One unavailable or failed candidate domain yields no rows for that domain while 
 
 Click a file reference in the composer to preview its current contents in the right Sidebar. Quoted paths retain their spaces, and a relative path resolves against the composer Session's current working directory at the moment of the click, the same directory the `@` menu lists files from. Folder and Session references retain their editing behavior.
 
+Interactive file chips obtain `useContextMenu` from their Session Slot and receive path resolution through the file-reference registration. Paths resolve against the live workspace root when the gesture begins; the Session’s working directory does not change reference meaning. Display-only chips install no context-menu handlers, and no Markdown provider is needed.
+
 -----
 
 <a id="understand-the-implementation"></a>
