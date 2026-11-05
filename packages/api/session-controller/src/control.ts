@@ -6,11 +6,11 @@ import type {} from '@deepseek-ai/dsh-session-query'
 import type {
   Session, SessionId,
 } from '@deepseek-ai/dsh-session'
-import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type {
   SessionControlBaseline,
   SessionControlFrame,
   SessionProjectionBaseline,
+  SessionProjectionUpdate,
   SessionProjectionValues,
 } from './types.ts'
 
@@ -20,13 +20,13 @@ export class SessionControlController {
 
   /** @param ctx - Host context carrying live Agent and projection services. */
   constructor(private readonly ctx: Context) {
-    ctx.sessionProjections.onChanged((session, key, value, seq) => {
+    ctx.sessionProjections.onEventChanged((session, changes, seq) => {
       this.broadcast({
         type: 'projection',
         sessionId: session.id,
-        key,
-        value: value as JsonValue,
         seq,
+        // Every projection definition validates its value before change publication.
+        changes: changes as SessionProjectionUpdate['changes'],
       })
     })
     // A search waits for this index preparation, so its progress reaches the

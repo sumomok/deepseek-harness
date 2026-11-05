@@ -641,4 +641,22 @@ Preparation of the full-text index behind session search advanced.
 ```
 
 Source: [`packages/session-query/session-query/src/index.ts`](../../packages/session-query/session-query/src/index.ts)
+
+<a id="session-querywarmup-requested--emit"></a>
+
+#### `session-query/warmup-requested` — emit
+
+A deployment reports that the UI which searches has been served, so the backend may prepare its index before the first search. Repeats are allowed: each backend prepares at most once per instance.
+
+```ts cordis-catalog
+/**
+ * A deployment reports that the UI which searches has been served, so the
+ * backend may prepare its index before the first search. Repeats are
+ * allowed: each backend prepares at most once per instance.
+ * @mode emit
+ */
+'session-query/warmup-requested'(): void
+```
+
+Source: [`packages/session-query/session-query/src/index.ts`](../../packages/session-query/session-query/src/index.ts)
 <!-- END GENERATED cordis-surface -->

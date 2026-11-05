@@ -1,0 +1,43 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/util/safe-binary-write/README.md
+/:
+  en: 9ae6036704c52a4f
+  zh: 65f55c18bc6a89f5
+/deepseek-ai-dsh-safe-binary-write:
+  en: 5dc3fd66947232e5
+  zh: 39cc96344b760c83
+/deepseek-ai-dsh-safe-binary-write/summary:
+  en: 8e8d8abef8d42e26
+  zh: 4df0494131e5820e
+/deepseek-ai-dsh-safe-binary-write/table-of-contents:
+  en: 9b5366e846a11c72
+  zh: 6dcc911cb88bbe5b
+/deepseek-ai-dsh-safe-binary-write/use-this-package:
+  en: abe19c0c9d0e74e5
+  zh: 18b77e5bbdc13108
+/deepseek-ai-dsh-safe-binary-write/use-this-package/writing-binary-data-safely:
+  en: a6cb599c9e854893
+  zh: 98c3d04038cc7cc9
+/deepseek-ai-dsh-safe-binary-write/use-this-package/failures-to-plan-for:
+  en: 35d310aab840f28b
+  zh: 4b4cb2eb7131dcf0
+/deepseek-ai-dsh-safe-binary-write/understand-the-implementation:
+  en: 42b15ac6321706aa
+  zh: ee2ce1dc8684642e
+/deepseek-ai-dsh-safe-binary-write/understand-the-implementation/source-map:
+  en: 90c09726b44cea88
+  zh: 5c3c5d61c63b1092
+/deepseek-ai-dsh-safe-binary-write/understand-the-implementation/write-path:
+  en: cd8758d20320446e
+  zh: 1ffe674a202fb50f
+/deepseek-ai-dsh-safe-binary-write/understand-the-implementation/why-the-write-stays-safe:
+  en: e8978bfc3aefb8b7
+  zh: 3670d016c57802e5
+/deepseek-ai-dsh-safe-binary-write/known-limitations-and-deferred-work:
+  en: 2d98c6678e850c0f
+  zh: 03d1d468e136ecc4
+/deepseek-ai-dsh-safe-binary-write/known-limitations-and-deferred-work/dev-note:
+  en: b1c532ff6940566b
+  zh: 8a845bbc1ce6c456

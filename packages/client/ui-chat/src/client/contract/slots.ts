@@ -21,9 +21,9 @@ import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { ConnectionStateSource } from '@deepseek-ai/dsh-client-connection/client'
 // Type-only: the navigation request a Session open carries to the transcript.
 import type { SessionRevealRequest } from '@deepseek-ai/dsh-client-ui-workspace/client'
-import type {
-  MarkdownFileMentions, MarkdownLabels, MarkdownProseReferents,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import type { FileDragActions, MarkdownFileMentions, MarkdownLabels, MarkdownProseReferents } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { ContextMenuTriggerProps } from '@deepseek-ai/dsh-client-ui-context-menu/client'
+import type { ChatKey } from '../locale.ts'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: the Session-scope access Hook (`useAccess`) the Chat entries read.
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
@@ -115,16 +115,22 @@ export interface QuotaNoticeState {
   seq: number
 }
 
-/** Original model-provided reasoning offered to the expanded Body Slot. */
+/** Original and display-ready reasoning offered to the expanded Body Slot. */
 export interface ReasoningBodyOwnerProps {
-  /** Complete or streaming reasoning text. */
+  /** Complete or streaming model output. */
+  readonly rawText: string
+  /** Reasoning text prepared for display. */
   readonly text: string
   /** Whether the reasoning tail is still streaming. */
   readonly running: boolean
 }
 
 /** Session-independent original or derived display input to the Content Factory. */
-export interface ReasoningContentInput extends ReasoningBodyOwnerProps {
+export interface ReasoningContentInput {
+  /** Caller-selected Markdown. */
+  readonly text: string
+  /** Whether the supplied text is still streaming. */
+  readonly running: boolean
   /** Localized Markdown controls, used unchanged when supplied; omission uses Chat's defaults. */
   readonly labels?: MarkdownLabels
 }
@@ -174,9 +180,12 @@ export interface ChatFileMentions {
    * Resolve prose links for one closing Turn.
    * @param owner - closing-Turn identity and file opener.
    * @param sessionId - viewed Session, including when history is inherited from a fork.
+   * @param getFileTriggerProps - ordinary gesture binding for a resolved file path.
    * @returns link resolver when available.
    */
-  forClosing(owner: TurnTailOwnerProps, sessionId: SessionId): MarkdownFileMentions | undefined
+  forClosing(
+    owner: TurnTailOwnerProps, sessionId: SessionId, getFileTriggerProps?: (path: string) => ContextMenuTriggerProps,
+  ): MarkdownFileMentions | undefined
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -367,7 +376,8 @@ export interface ChatNodeOwnerProps {
    * steering bubble has none and receives no strip.
    */
   renderUserActions: RenderUserActions
-  fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
+  /** Resolve closing-Turn mentions with the supplied ordinary file gesture callback. */
+  fileMentions: (owner: TurnTailOwnerProps, getFileTriggerProps: NonNullable<Parameters<ChatFileMentions['forClosing']>[2]>) => MarkdownFileMentions | undefined
   /**
    * Prose-referent scanner/opener from the optional {@link ProseReferents}
    * service, bound to this session's cwd/home. Undefined when the service is
@@ -460,7 +470,9 @@ export interface PerformanceUsageInjected {
 /** Business callbacks injected into the Chat view. */
 export interface ChatViewInjected {
   /** File preparation and failure callbacks owned by the file-drag plugin. */
-  readonly fileDrag: import('@deepseek-ai/dsh-client-ui-primitives').FileDragActions
+  readonly fileDrag: FileDragActions
+  /** Resolve the reference against this Session and its current path base when the gesture begins. */
+  resolveFilePath: (path: string) => string
   /** Dispatch one gesture to the Conversation plugin registry. */
   dispatchInteraction: (gesture: TextInteractionGesture) => string | null
   hooks: {
@@ -517,7 +529,8 @@ export interface ChatViewInjected {
     read: () => ChatScrollPosition | null
   }
   forkAt: (seq: number) => void
-  fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
+  /** Resolve closing-Turn mentions with the supplied ordinary file gesture callback. */
+  fileMentions: (owner: TurnTailOwnerProps, getFileTriggerProps: NonNullable<Parameters<ChatFileMentions['forClosing']>[2]>) => MarkdownFileMentions | undefined
   /**
    * Prose-referent scanner/opener from the optional {@link ProseReferents}
    * service (resolved live, like {@link fileMentions}), bound to this
@@ -572,7 +585,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
   interface LocaleNamespaceMap {
     /** Chat target, transcript node, statistics, and details copy. */
-    chat: import('../locale.ts').ChatKey
+    chat: ChatKey
   }
 
   interface SlotFactoryMap {
@@ -642,9 +655,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'conversation.chat.commandview': { kind: 'keyed'; scope: 'session'; owner: CommandRowOwnerProps }
     /**
-     * Expanded reasoning body with the unchanged model text. The official entry
+     * Expanded reasoning body with raw and display-ready text. The official entry
      * has priority 100 and calls the reasoning Content Factory; smaller priority
-     * values replace it. Contributions must preserve access to the original text.
+     * values replace it. Contributions must preserve access to untranslated display text.
      */
     'conversation.chat.reasoning.body': { kind: 'single'; scope: 'session'; owner: ReasoningBodyOwnerProps }
     /**

@@ -69,7 +69,7 @@ kind: "package-reference"
 
 无法生成地址、或 notice 放不下字符预算时，结果保持原样，而不是在没有回查途径时静默剪掉中间。同步 `pruneSession()` 仍是旧的、无地址入口；使用它的组合保持旧行为。
 
-`session_event_read` 只由桌面组合挂载，base、web、headless 组合没有它。指针仍指向可持久化的 seq，但没有该工具的模型无法解析；宿主或 UI 可以通过 `ctx.sessionQuery` 读取同一 seq。旧版本已经剪掉的结果没有地址，本版本不会重写。
+`session_event_read` 只由显式挂载它的组合提供——客户端的桌面应用挂载了它，base、web、headless 组合没有。指针仍指向可持久化的 seq，但没有该工具的模型无法解析；宿主或 UI 可以通过 `ctx.sessionQuery` 读取同一 seq。旧版本已经剪掉的结果没有地址，本版本不会重写。
 
 -----
 
@@ -146,7 +146,7 @@ kind: "package-reference"
 - **字符预算不是 token 预算**——不同提供方的 token 密度各异，因此 `ctx.tokenMeter` 仍负责判定修剪是否缓解了请求压力。
 - **剪枝只基于语法**——它保留开头与结尾，不解释中间哪些行在语义上重要。
 - **字素簇可能被拆分**——按码点切片可保护代理项对，但不会执行考虑区域设置的字素簇分割。
-- **回查工具只在桌面组合**——base、web、headless 不挂载 `session_event_read`；这些组合里的模型无法解析指针，但宿主仍可读取该 seq。
+- **回查工具并非通用**——base、web、headless 组合不挂载 `session_event_read`；这些组合里的模型无法解析指针，但宿主仍可读取该 seq。
 - **旧替换没有地址**——本版本不迁移、不重写已剪枝历史；只有新的恢复感知替换才带 `{sessionId, seq}` 或 spill ref。
 - **无地址结果保持完整**——含图片等无法寻址的结果，以及 notice 放不下的结果，保持原文，不会静默丢失中段。
 

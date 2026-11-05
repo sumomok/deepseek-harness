@@ -19,6 +19,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { auditStartupEntries } from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
+import type {} from '@deepseek-ai/dsh-session-query'
 import * as FrontendStatic from '@deepseek-ai/dsh-host-frontend-static'
 import { bindUrlHost, isLoopbackHost } from '@deepseek-ai/dsh-host-webserver'
 import { launchedThroughSsh, launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
@@ -203,6 +204,13 @@ export function apply(ctx: Context, config: Config): void {
   /** The advertised root: the canonical `publicUrl`, or the listener's own origin. */
   const appRootUrl = (): string => publicUrl ?? ctx.webServer.getOrigin()
   ctx.provide('webApp', { getAdvertisedUrl: appRootUrl } satisfies WebApp)
+  // Serving the page that carries search is what a deployment reports as "the
+  // UI is up": the search backend may then prepare its index before the first
+  // query. A backend without a configured warmup delay ignores the request, and
+  // one that has already scheduled returns early, so repeats are cheap.
+  ctx.effect(() => ctx.on('webserver/index-inject', () => {
+    ctx.emit('session-query/warmup-requested')
+  }), 'webApp.searchWarmup')
   ctx.plugin(FrontendStatic, { distIndex: internals.resolveDistIndex() })
   if (config.surfaceContext) {
     ctx.inject(['shellEnv'], (runtimeCtx) => {

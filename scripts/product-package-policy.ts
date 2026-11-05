@@ -39,6 +39,7 @@ export const PRODUCT_PACKAGE_POLICY: Readonly<Record<string, ProductPackagePolic
   'packages/context/session-memory-recall': { category: 'optional', reason: 'Same-workspace recall requires explicit enablement and a SessionQuery backend.' },
   'packages/compaction/compaction-microcompact': { category: 'optional', reason: 'Idle tool-result clearing requires explicit enablement and transcript readback.' },
   'packages/fs/tool-str-replace-editor': { category: 'optional', reason: 'Explicit alternative to the default filesystem editing tools.' },
+  'packages/fs/fs-observation-policy': { category: 'optional', reason: 'Read-before-mutation guard that a deployment enables on the disabled dsh-base row.' },
   'packages/llm/plugin-package-inventory-deepseek': { category: 'optional', reason: 'This product ships its base and sdk-minimal rows off; a profile patch turns the inventory report to DeepSeek back on.' },
   'packages/session/session-telemetry': { category: 'optional', reason: 'Reached only through session-telemetry-otel, whose base row this product ships off.' },
   'packages/session/session-telemetry-otel': { category: 'optional', reason: 'This product ships its base row off; a profile patch turns session telemetry to DeepSeek back on together with the otel row.' },

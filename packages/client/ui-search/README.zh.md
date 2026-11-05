@@ -7,18 +7,18 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
-## Summary
+## 概述
 
 `dsh-client-ui-search` 在工作区的所有会话之上放一个搜索框。输入即读取 Host 已建索引的消息内容，按 Host 给出的游标一页页取回，并把每条命中画成「某会话里的某条消息」——而不是「曾经提过这个词的会话」。回车打开选中的命中，Esc 关闭浮层。面板对按键做防抖、取消被取代的读取，并在下一页加载期间保留上一页内容。
 
-## Table of Contents
+## 目录
 
 - [使用本包](#use-this-package)
 - [实现说明](#understand-the-implementation)
 - [延伸阅读](#further-exploration)
 - [模型体验](#model-experience)
 - [已知限制与后续工作](#known-limitations-and-deferred-work)
-- [开发说明](#dev-note)
+- [开发备注](#dev-note)
 
 <a id="use-this-package"></a>
 ## 使用本包
@@ -63,6 +63,6 @@ kind: "package-reference"
 - 只有在 Host 的消息索引打开时本面板才挂载。现成的 Web profile 让索引保持关闭，因此该 profile 中这一行被禁用；要启用内容检索的部署，在覆盖 `openAt` 的同时加上这一行。
 
 <a id="dev-note"></a>
-### 开发说明
+### 开发备注
 
 所有可见文案由字典持有，面板内没有字面文案。行内高亮来自 Host 返回的命中区间，那些区间已裁剪到摘要窗口之内；面板只负责把摘要切成片段，不会二次检索。

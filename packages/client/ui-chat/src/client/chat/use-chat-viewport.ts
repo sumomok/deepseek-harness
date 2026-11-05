@@ -1073,6 +1073,10 @@ function queryNodeByKey(list: HTMLElement, key: string): HTMLElement | null {
   return null
 }
 
+/**
+ * Bind viewport resource ownership to the component's layout lifetime.
+ * @returns one viewport owner and the element refs attached for this mount.
+ */
 export function useChatViewport(): {
   viewport: ChatViewport
   listRef: RefObject<HTMLDivElement>

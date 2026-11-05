@@ -69,7 +69,7 @@ A deployment that runs an older pruner without these two entries keeps the legac
 
 When no address can be produced, or the notice cannot fit the character budget, the result is kept unchanged rather than pruned without a way back. The synchronous `pruneSession()` remains the address-free legacy entry; deployments that use it keep the old behavior.
 
-`session_event_read` is mounted by the desktop composition, not by the base, web, or headless bundles. A pointer still names the durable sequence, but a model without that tool cannot resolve it; the host or a UI can read the same sequence through `ctx.sessionQuery`. A result pruned by an older build has no address and is not rewritten.
+`session_event_read` is mounted by compositions that opt into it — the client's desktop app does, while the base, web, and headless bundles do not. A pointer still names the durable sequence, but a model without that tool cannot resolve it; the host or a UI can read the same sequence through `ctx.sessionQuery`. A result pruned by an older build has no address and is not rewritten.
 
 -----
 
@@ -146,7 +146,7 @@ These limits define when trimming is a poor fit or needs special care; they are 
 - **Character budgets are not token budgets** — provider token density varies, so `ctx.tokenMeter` remains the authority for deciding whether trimming relieved request pressure.
 - **Pruning is syntactic** — it retains the beginning and end without interpreting which middle lines are semantically important.
 - **Grapheme clusters can split** — code-point slicing protects surrogate pairs but does not perform locale-aware grapheme segmentation.
-- **The read-back tool is desktop-only** — base, web, and headless compositions do not mount `session_event_read`; their models cannot resolve a pointer, though the host can still read the sequence.
+- **The read-back tool is not universal** — the base, web, and headless compositions do not mount `session_event_read`; their models cannot resolve a pointer, though the host can still read the sequence.
 - **Older replacements have no address** — this build does not migrate or rewrite already-pruned history; only new recovery-aware replacements carry `{sessionId, seq}` or a spill ref.
 - **Unaddressable results stay whole** — image-bearing or otherwise non-addressable results, and results whose notice cannot fit, are left unpruned rather than silently losing their middle.
 

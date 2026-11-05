@@ -26,11 +26,15 @@
   },
   "license": "MIT",
   "files": [
-    "lib/**/*.js",
+    "lib/index.js",
     "lib/types/**/*.d.ts"
   ],
   "devDependencies": {
     "@types/node": "^22.20.1",
-    "fast-check": "^4.9.0"
+    "fast-check": "^4.9.0",
+    "@deepseek-ai/cordis": "workspace:~"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:~"
   }
 }

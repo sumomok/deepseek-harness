@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "recuperação de memória de sessão",
+    "description": "Recupera turnos anteriores da sessão que uma solicitação precisa."
+  }
+}

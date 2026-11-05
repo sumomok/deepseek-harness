@@ -184,6 +184,7 @@ export class FixtureSession implements SessionFace {
 
   /**
    * Fail-loud stub; supply `openTail` on the fixture's session face to exercise it.
+   * @returns never — the stub always throws.
    */
   openTail(): never {
     throw new Error(`test session "${this.sessionId}": openTail is not stubbed — supply it on the fixture's session face`)

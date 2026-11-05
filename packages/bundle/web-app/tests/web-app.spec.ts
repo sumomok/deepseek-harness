@@ -12,6 +12,7 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import * as AppBoot from '@deepseek-ai/dsh-app-boot'
 import { createLaunchEnvironmentSnapshot, DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment'
 import { bindUrlHost, type WebServer } from '@deepseek-ai/dsh-host-webserver'
+import type {} from '@deepseek-ai/dsh-session-query'
 import { apply, Config, internals } from '../src/index.ts'
 
 vi.mock('node:child_process', async importOriginal => ({
@@ -97,6 +98,22 @@ interface BashContribution {
 }
 
 describe('web-app runtime glue', () => {
+  it('requests a search warmup once the searchable page is served', async () => {
+    stageDist()
+    const ctx = new Context()
+    onTestFinished(() => ctx.fiber.dispose())
+    ctx.provide('webServer', fakeHttpServer().server)
+    provideConnection(ctx)
+    provideLoader(ctx)
+    const warmups: number[] = []
+    ctx.on('session-query/warmup-requested', () => { warmups.push(Date.now()) })
+    apply(ctx, new Config({ openBrowser: false, printUrl: false, surfaceContext: false }))
+    ctx.emit('webserver/index-inject', [], {} as never)
+    expect(warmups).toHaveLength(1)
+    ctx.emit('webserver/index-inject', [], {} as never)
+    expect(warmups).toHaveLength(2)
+  })
+
   it.each([
     '127.0.0.1',
     '::ffff:127.0.0.1',

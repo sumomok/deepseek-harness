@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "réhydratation de compaction",
+    "description": "Restaure le contexte élagué à partir des événements de session qui l’ont enregistré."
+  }
+}

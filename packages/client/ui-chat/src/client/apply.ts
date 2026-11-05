@@ -1,3 +1,4 @@
+import type {} from '@deepseek-ai/dsh-client-ui-context-menu/client'
 /** Register the Chat Conversation target, renderers, stats, and details surface. */
 import type {} from '@deepseek-ai/dsh-client-ui-file-drag/client'
 import type {} from '@deepseek-ai/dsh-client-product-analytics/client'
@@ -29,12 +30,13 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {
   ChatFlowDataInjected, ChatFlowInjected, ChatNodeInjected, ChatScrollPosition, ChatViewInjected, ProseReferentSpan,
-  QuotaNoticeInjected, QuotaNoticeState, TurnTailOwnerProps,
+  QuotaNoticeInjected, QuotaNoticeState,
 } from './contract/slots.ts'
 import { resolveChatRevealTarget } from './contract/reveal.ts'
 import type { ChatSnapshot } from './contract/snapshot.ts'
 import { EMPTY_CHAT_SNAPSHOT } from './contract/snapshot.ts'
 import { ApprovalCommand } from './chat/ApprovalCommand.tsx'
+import { sessionFilePath } from './file-path.ts'
 import { ChatView } from './chat/ChatView.tsx'
 import { ChatFlow } from './chat/ChatFlow.tsx'
 import { registerChatNodeRenderers } from './chat/register-node-renderers.ts'
@@ -430,7 +432,7 @@ export function apply(ctx: Context): void {
               conversation.input.for(actx).notify('error', t('reveal.missing'))
             }
           },
-          fileMentions: (owner: TurnTailOwnerProps) => ctx.get('chatFileMentions')?.forClosing(owner, sessionId),
+          fileMentions: (owner, getFileTriggerProps) => ctx.get('chatFileMentions')?.forClosing(owner, sessionId, getFileTriggerProps),
           referents: buildProseReferents(
             ctx, ctx.sessions, connection, sessionId,
             (id, text) => {
@@ -488,6 +490,7 @@ export function apply(ctx: Context): void {
               await Promise.resolve()
             })
           },
+          resolveFilePath: sessionFilePath(ctx, sessionId),
           openExternalLink: (url) => {
             if (linkOpening.getSnapshot() === 'sidebar' && ctx.get('sidebarRightTabs')?.get('browser') !== undefined) {
               ctx.sidebarRight.openTab('browser', { params: { url } })

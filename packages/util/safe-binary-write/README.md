@@ -1,9 +1,11 @@
 ---
 description: "Safe binary file write with symlink containment and TOCTOU mitigation for screenshot restore and artifact output."
-kind: "package-library"
+kind: "package-reference"
 ---
 
 # @deepseek-ai/dsh-safe-binary-write
+
+English | [中文](README.zh.md)
 
 ## Summary
 
@@ -13,7 +15,6 @@ Use `dsh-safe-binary-write` when writing binary data (screenshots, images, artif
 
 - [Use this package](#use-this-package)
 - [Understand the implementation](#understand-the-implementation)
-- [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 
 -----
@@ -90,14 +91,6 @@ Regular filesystem errors (EACCES, ENOSPC) propagate as-is. The temporary file i
 
 -----
 
-## Model Experience
-
-None, as this is a pure filesystem write primitive that registers nothing model-facing.
-
-### KV Cache effect
-
-Nothing here enters a request prefix, so provider cache reuse is unaffected.
-
 ## Known Limitations and Deferred Work
 
 These limits define where the package is not the right tool. They are current package constraints, not a task backlog.
@@ -107,3 +100,11 @@ These limits define where the package is not the right tool. They are current pa
 - **No durability guarantee** — no `fsync` of file or directory, so after crash the write may be unwound
 - **Residual TOCTOU** — narrow window between final symlink check and system call; accepted for this threat model where untrusted paths, not untrusted code, are the concern
 - **Rejects all symlinks in path** — conservative policy; legitimate in-workspace symlinks are blocked
+
+### Dev Note
+
+The upload path and the screenshot restore path both need a file to appear at a
+known name with either its whole previous content or none of it. This package
+owns only that byte-level guarantee: containment checks against symlinks in the
+destination path, and a temporary file that is renamed into place. Callers that
+need text semantics or conflict policy own those decisions.
