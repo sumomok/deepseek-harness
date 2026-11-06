@@ -18,6 +18,8 @@ it('injects configured contact options and removes the listener on disposal', as
   expect(table).toEqual([{ kind: 'global', name: CONTACT_CONFIG_GLOBAL, value: {
     contactFormUrl: config.contactFormUrl, contactSource: config.contactSource,
     bonusAckRetryDelayMs: 25, bonusAckRetryMaxDelayMs: 100,
+    detailsRetryDelayMs: config.detailsRetryDelayMs, detailsRetryMaxDelayMs: config.detailsRetryMaxDelayMs,
+    detailsRetryAttempts: config.detailsRetryAttempts,
   } }])
   await ctx.fiber.dispose()
   table.length = 0

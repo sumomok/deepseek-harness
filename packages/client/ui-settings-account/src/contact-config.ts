@@ -11,6 +11,12 @@ export interface ContactConfig {
   bonusAckRetryDelayMs: number
   /** Ceiling for the acknowledgement retry backoff. */
   bonusAckRetryMaxDelayMs: number
+  /** First delay before re-reading account details the first frame left missing. */
+  detailsRetryDelayMs: number
+  /** Ceiling for the account detail retry backoff. */
+  detailsRetryMaxDelayMs: number
+  /** Retries allowed for one signed-in account before the recovery chain stops. */
+  detailsRetryAttempts: number
 }
 /** Validate public questionnaire options. */
 export const ContactConfigFields = {
@@ -18,6 +24,9 @@ export const ContactConfigFields = {
   contactSource: z.string().default(''),
   bonusAckRetryDelayMs: z.number().min(1).default(1_000),
   bonusAckRetryMaxDelayMs: z.number().min(1).default(60_000),
+  detailsRetryDelayMs: z.number().min(1).default(1_500),
+  detailsRetryMaxDelayMs: z.number().min(1).default(30_000),
+  detailsRetryAttempts: z.number().min(0).max(10).step(1).default(4),
 }
 /** Validate public questionnaire options. */
 export const ContactConfig: z<Partial<ContactConfig>, ContactConfig> = z.object(ContactConfigFields)
