@@ -39,9 +39,16 @@ class FakeMutationObserver {
   disconnect(): void {}
 }
 
-/** The root element's published facts, in the two properties the preload reads. */
+/** The root element's published facts, in the properties the preload reads and writes. */
 interface FakeDocument {
-  documentElement: { dataset: Record<string, string>; style: { colorScheme: string } }
+  documentElement: {
+    dataset: Record<string, string>
+    style: {
+      colorScheme: string
+      setProperty(name: string, value: string): void
+      getPropertyValue(name: string): string
+    }
+  }
   readyState: string
 }
 
@@ -50,11 +57,19 @@ interface FakeDocument {
  * @param facts - published theme source, painted palette, and whatever else the root carries.
  * @returns the document the preload ran against, for later mutation.
  */
-function runPreload(facts: { source?: string; scheme?: string } = {}): FakeDocument {
+function runPreload(facts: { source?: string; scheme?: string } = {}, platform = 'darwin'): FakeDocument {
   const dataset: Record<string, string> = {}
   if (facts.source !== undefined) dataset.dsThemeSource = facts.source
+  const properties: Record<string, string> = {}
   const document: FakeDocument = {
-    documentElement: { dataset, style: { colorScheme: facts.scheme ?? '' } },
+    documentElement: {
+      dataset,
+      style: {
+        colorScheme: facts.scheme ?? '',
+        setProperty: (name, value) => { properties[name] = value },
+        getPropertyValue: name => properties[name] ?? '',
+      },
+    },
     readyState: 'complete',
   }
   const ipcRenderer = { send: (channel: string, payload: unknown): void => { fixture.sent.push({ channel, payload }) } }
@@ -62,7 +77,7 @@ function runPreload(facts: { source?: string; scheme?: string } = {}): FakeDocum
   const window = { addEventListener: (): void => {} }
   const electron = { contextBridge, ipcRenderer }
   // `process` shadows the global so the platform mark is the same on every host.
-  const processStub = { platform: 'darwin' }
+  const processStub = { platform }
   new Function('require', 'exports', 'document', 'window', 'MutationObserver', 'process', PRELOAD)(
     (id: string) => (id === 'electron' ? electron : undefined),
     {},
@@ -87,6 +102,18 @@ beforeEach(() => {
 describe('the window preload theme report', () => {
   it('marks the document as the platform it runs on', () => {
     expect(runPreload().documentElement.dataset.platform).toBe('darwin')
+  })
+
+  it('reserves the Windows caption strip and its height', () => {
+    const document = runPreload({}, 'win32')
+    expect(document.documentElement.dataset.windowsTitlebar).toBe('')
+    expect(document.documentElement.style.getPropertyValue('--dsh-windows-titlebar-height')).toBe('40px')
+  })
+
+  it('leaves other platforms without a caption strip', () => {
+    const document = runPreload({}, 'darwin')
+    expect(document.documentElement.dataset.windowsTitlebar).toBeUndefined()
+    expect(document.documentElement.style.getPropertyValue('--dsh-windows-titlebar-height')).toBe('')
   })
 
   it('reports the palette the served UI published when observation starts', () => {

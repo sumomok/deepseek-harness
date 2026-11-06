@@ -1278,6 +1278,7 @@ function createBootWindow(receipt?: string): BootView {
     } : {},
     ...process.platform === 'win32' ? {
       titleBarStyle: 'hidden' as const,
+      // 40 mirrors WINDOWS_TITLEBAR_HEIGHT in preload.cts: the page reserves the same strip.
       titleBarOverlay: { height: 40, color: PALETTES[appearance].background, symbolColor: PALETTES[appearance].text },
     } : {},
     // macOS: the click that activates the window also reaches the control under the pointer.

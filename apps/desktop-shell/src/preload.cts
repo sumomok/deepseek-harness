@@ -17,6 +17,9 @@ const SHORTCUT_CHANNELS = {
 /** Mirrors `theme-channels.ts`; a sandboxed preload cannot import it. */
 const THEME_CHANNEL = 'dsh-desktop:theme-report'
 
+/** Height of the Windows title-bar overlay; mirrors `createBootWindow`'s option. */
+const WINDOWS_TITLEBAR_HEIGHT = 40
+
 /** Marks `<html data-platform>` before the page's first script reads it. */
 function markPlatform(): void {
   const mark = (): void => { document.documentElement.dataset.platform = process.platform }
@@ -27,6 +30,28 @@ function markPlatform(): void {
 }
 
 markPlatform()
+
+/**
+ * Mark the Windows caption strip before the page lays out its first frame.
+ *
+ * Windows draws its caption buttons inside the BrowserWindow's title-bar
+ * overlay; the served UI reserves the same height only when this marker and
+ * its height variable are present. A preload runs before the document root
+ * exists, so the marker waits for `DOMContentLoaded` in that case.
+ */
+function markWindowsTitlebar(): void {
+  if (process.platform !== 'win32') return
+  const mark = (): void => {
+    const root = document.documentElement as HTMLElement | null
+    if (root === null) return
+    root.dataset.windowsTitlebar = ''
+    root.style.setProperty('--dsh-windows-titlebar-height', `${WINDOWS_TITLEBAR_HEIGHT}px`)
+  }
+  if ((document.documentElement as HTMLElement | null) === null) window.addEventListener('DOMContentLoaded', mark)
+  else mark()
+}
+
+markWindowsTitlebar()
 
 /**
  * Report the palette the page is painting to the shell.
