@@ -1,15 +1,13 @@
 /**
  * Durable decision types.
  *
- * A decision is a versioned statement about a scope's units: which units it
- * covers, what happens to them, and which earlier decisions it replaces.
- * Decisions reach the log as one `user/message` ledger entry per revision, so
- * every model-visible view stays reconstructable from the Session log.
+ * A decision settles units of one scope. Each committed record carries the
+ * complete scope state after the change, so replay never has to merge deltas.
+ * Records are experimental plugin records: they stay out of the model-visible
+ * surface, survive fork and resume, and their owner validates them on restore.
  *
  * @module @deepseek-ai/dsh-decision-state/types
  */
-
-import type {} from '@deepseek-ai/dsh-llm'
 
 /** Disposition a submission may assign to one open unit. */
 export const DISPOSITIONS = ['new', 'existing', 'unchanged', 'defer', 'exclude'] as const
@@ -19,7 +17,7 @@ export type Disposition = (typeof DISPOSITIONS)[number]
 
 /** A recorded decision about the units it names. */
 export interface Decision {
-  /** Stable id within the scope; later entries supersede it by id. */
+  /** Stable id within the scope; later records replace it by id. */
   readonly decisionId: string
   /** Units this decision settles. */
   readonly unitIds: readonly string[]
@@ -31,16 +29,13 @@ export interface Decision {
   readonly sourceEventSeqs: readonly number[]
 }
 
-/** One durable ledger entry appended by the host. */
-export interface LedgerEntry {
-  readonly kind: 'decide'
+/** One committed record: the complete effective state of a scope. */
+export interface DecisionRecord {
   readonly scope: string
-  /** Monotonic revision; the next entry uses `previous + 1`. */
+  /** Monotonic revision; the next record uses `previous + 1`. */
   readonly revision: number
-  /** Decisions established by this revision. */
-  readonly decisions: readonly Decision[]
-  /** Decision ids this revision replaces. */
-  readonly supersedes: readonly string[]
+  /** Every decision that remains effective after this revision. */
+  readonly active: readonly Decision[]
 }
 
 /** Effective decisions of one scope. */
@@ -49,15 +44,9 @@ export interface ScopeState {
   readonly active: readonly Decision[]
 }
 
-declare module '@deepseek-ai/dsh-llm' {
-  interface MessageSourceMap {
-    /** Decision ledger entry; readers without this plugin keep the recorded text. */
-    'decision-state': {
-      readonly kind: 'decision-state'
-      /** Scope the entry settles. */
-      readonly scope: string
-      /** Revision this message carries. */
-      readonly revision: number
-    }
+declare module '@deepseek-ai/dsh-session/types' {
+  interface PluginRecordMap {
+    /** Complete effective decisions of one scope after one host change. */
+    'plugin:decision-state/record': DecisionRecord
   }
 }

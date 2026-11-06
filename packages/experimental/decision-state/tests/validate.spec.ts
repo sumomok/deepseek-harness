@@ -1,17 +1,12 @@
 import { expect, it } from 'vitest'
-import { applyLedgerEntry, EMPTY_SCOPE } from '../src/state.ts'
-import type { LedgerEntry } from '../src/types.ts'
+import { decide, record } from './helpers.ts'
+import { EMPTY_SCOPE, foldRecord } from '../src/state.ts'
 import { assemble, renderView, validateSubmission, type Submission } from '../src/validate.ts'
 
 const catalog = ['a', 'b', 'c', 'd']
-const decided: LedgerEntry = {
-  kind: 'decide',
-  scope: 's',
-  revision: 1,
-  decisions: [{ decisionId: 'd1', unitIds: ['a'], disposition: 'existing', targetIds: ['#1'], sourceEventSeqs: [3] }],
-  supersedes: [],
-}
-const state = applyLedgerEntry(EMPTY_SCOPE, decided)
+const folded = foldRecord(EMPTY_SCOPE, record(1, [decide('d1', ['a'])]))
+if (!folded.ok) throw new Error(folded.reason)
+const state = folded.state
 
 const submission = (overrides: Partial<Submission> = {}): Submission => ({
   scope: 's',
@@ -32,7 +27,6 @@ it('accepts a complete submission and merges the decided units into the proposal
   const proposal = assemble(state, submission())
   expect(proposal.dispositions[0]).toEqual({ unitId: 'a', disposition: 'existing', targetIds: ['#1'] })
   expect(proposal.dispositions.map(entry => entry.unitId)).toEqual(['a', 'b', 'c', 'd'])
-  expect(proposal.revision).toBe(1)
 })
 
 it('rejects a submission that rewrites a decided unit', () => {
@@ -61,14 +55,22 @@ it('rejects a stale revision, an unknown unit and a missing target', () => {
   expect(codes(validateSubmission(submission({ dispositions: [{ unitId: 'b', disposition: 'existing' }, { unitId: 'c', disposition: 'new' }, { unitId: 'd', disposition: 'defer' }] }), state, catalog))).toContain('target-missing')
 })
 
-it('renders a bounded view with an omission count', () => {
-  const many = applyLedgerEntry(EMPTY_SCOPE, {
-    kind: 'decide', scope: 's', revision: 1, supersedes: [],
-    decisions: Array.from({ length: 3 }, (_, index) => ({ decisionId: `d${index}`, unitIds: ['#{index}'], disposition: 'existing' as const, targetIds: [`#${index}`], sourceEventSeqs: [1] })),
-  })
-  const view = renderView(many, catalog, 2)
+it('renders revision, decided rows and open ids', () => {
+  const view = renderView(state, catalog)
   expect(view).toContain('revision 1')
-  expect(view).toContain('另有 1 条')
-  expect(view).toContain('其余 4 个单元待处置')
-  expect(renderView(EMPTY_SCOPE, catalog)).toBe('')
+  expect(view).toContain('已定 1 条')
+  expect(view).toContain('待处置单元：b、c、d')
+})
+
+it('renders open ids for an empty ledger and blocks a corrupt scope', () => {
+  expect(renderView(EMPTY_SCOPE, catalog)).toContain('待处置单元：a、b、c、d')
+  expect(renderView(state, catalog, 40, 4000, true)).toContain('校验失败')
+})
+
+it('truncates the view at the configured budget', () => {
+  const wide = foldRecord(EMPTY_SCOPE, record(1, [decide('d1', Array.from({ length: 200 }, (_, index) => `unit-${index}`))]))
+  if (!wide.ok) throw new Error(wide.reason)
+  const view = renderView(wide.state, Array.from({ length: 200 }, (_, index) => `unit-${index}`), 40, 600)
+  expect(view.length).toBeLessThanOrEqual(600)
+  expect(view.endsWith('（视图超限，已截断）')).toBe(true)
 })

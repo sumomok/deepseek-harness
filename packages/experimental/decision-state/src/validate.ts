@@ -49,6 +49,7 @@ export interface ValidationError {
     | 'task-unit-decided'
     | 'task-unit-duplicate'
     | 'new-unit-uncovered'
+    | 'state-corrupt'
   readonly detail: string
 }
 
@@ -135,21 +136,45 @@ export function assemble(state: ScopeState, submission: Submission): AssembledPr
   }
 }
 
+/** Maximum open unit ids listed before the view reports an omission count. */
+const MAX_LISTED_OPEN_UNITS = 200
+
+/** Maximum characters of the assembled view. */
+const DEFAULT_VIEW_BUDGET = 4000
+
 /**
  * Render the bounded decision view shown to the model.
  * @param state - effective scope state.
  * @param catalog - every unit of the scope, in product order.
  * @param limit - maximum decided rows rendered.
- * @returns one line per decision plus an omission count; empty when nothing is decided.
+ * @param budget - maximum characters of the assembled view.
+ * @param corrupt - whether the scope's latest record failed validation.
+ * @returns the view; a corrupt scope renders a blocking notice instead.
  */
-export function renderView(state: ScopeState, catalog: readonly string[], limit = 40): string {
-  const decisions = state.active.slice(0, limit)
-  if (decisions.length === 0) return ''
-  const lines = decisions.map((decision: Decision) => {
-    const targets = decision.targetIds.length === 0 ? '' : ` → ${decision.targetIds.join(', ')}`
-    return `- ${decision.unitIds.join('、')}: ${decision.disposition}${targets}`
-  })
-  const omitted = state.active.length - decisions.length
-  const tail = omitted === 0 ? '' : `\n… 另有 ${omitted} 条已定决定未展开（revision ${state.revision}）；完整状态按 ID 读取。`
-  return `已定决定（不可改写，revision ${state.revision}）：\n${lines.join('\n')}${tail}\n其余 ${openUnits(state, catalog).length} 个单元待处置。`
+export function renderView(
+  state: ScopeState,
+  catalog: readonly string[],
+  limit = 40,
+  budget = DEFAULT_VIEW_BUDGET,
+  corrupt = false,
+): string {
+  if (corrupt) return `范围状态校验失败，暂停提交（revision ${state.revision}）。请让宿主检查决策账本后重试。`
+  const open = openUnits(state, catalog)
+  const decided = state.active.slice(0, limit)
+  const lines = [
+    `revision ${state.revision}：已定 ${state.active.length} 条（不可改写），待处置 ${open.length} 个。`,
+    ...decided.map((decision: Decision) => {
+      const targets = decision.targetIds.length === 0 ? '' : ` → ${decision.targetIds.join(', ')}`
+      return `- ${decision.unitIds.join('、')}: ${decision.disposition}${targets}`
+    }),
+  ]
+  if (state.active.length > decided.length) lines.push(`… 另有 ${state.active.length - decided.length} 条已定决定未展开。`)
+  if (open.length === 0) lines.push('没有待处置单元。')
+  else {
+    const listed = open.slice(0, MAX_LISTED_OPEN_UNITS)
+    lines.push(`待处置单元：${listed.join('、')}${open.length > listed.length ? ` …（另有 ${open.length - listed.length} 个未列出）` : ''}`)
+  }
+  const text = lines.join('\n')
+  if (text.length <= budget) return text
+  return `${text.slice(0, budget - 20)}…（视图超限，已截断）`
 }

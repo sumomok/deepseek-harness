@@ -3,52 +3,63 @@ description: "An experimental decision ledger: recorded decisions become constan
 kind: "package-reference"
 ---
 
-# @deepseek-ai/dsh-decision-state
+# @deepseek-ai/dsh-experimental-decision-state
 
 English | [中文](README.zh.md)
 
 ## Summary
 
-Records versioned decisions about a scope's units as durable Session messages, folds them into an effective state, validates model submissions against that state, and assembles the delivered proposal from decisions plus accepted open dispositions.
+Records the complete effective decisions of a work scope as experimental plugin records, folds them into a per-scope state, contributes a bounded runtime-context view, validates model submissions against that state, and assembles the delivered proposal from decisions plus accepted open dispositions.
 
-A decision settles units. Decided units are constants: a submission that rewrites one, or dispatches one into a task again, is rejected with a structured error. Submissions must carry the current revision, dispose every open unit, and cover every `new` unit with a task. `assemble()` merges the effective decisions back into the delivered proposal, so the model never writes the decided part.
+A decision settles units. Decided units are constants: a submission that rewrites one, or dispatches one into a task again, is rejected with a structured error. Submissions must carry the current revision, dispose every open unit, and cover every `new` unit with a task. The accepted proposal is assembled by the host, so the model never writes the decided part.
 
-This package currently exposes the pure fold, validation, assembly and bounded view. The service, projection, context provider and tool registration follow on the same branch.
+The tool schema is static, so a decided unit remains addressable; the host rejects it on submission. The guarantee lives at the submission and delivery boundary, not in the schema.
 
 ## Use this package
 
-```ts
-import { applyLedgerEntry, EMPTY_SCOPE, validateSubmission, assemble, renderView } from '@deepseek-ai/dsh-decision-state'
-
-const state = applyLedgerEntry(EMPTY_SCOPE, entry)
-const result = validateSubmission(submission, state, catalog)
-if (result.ok) deliver(assemble(state, submission))
+```yaml
+- name: '@deepseek-ai/dsh-experimental-decision-state'
+  config:
+    scopes:
+      demo:
+        units: [a, b, c, d]
 ```
+
+The host records a change when it observes one, for example after the user accepts a plan:
+
+```ts
+ctx.decisionState.record(agent, {
+  scope: 'demo',
+  decisions: [{ decisionId: 'd1', unitIds: ['a'], disposition: 'existing', targetIds: ['#1'], sourceEventSeqs: [42] }],
+  supersedes: [],
+})
+```
+
+From then on, `propose_open_work` is the model's only writable path into the scope: it carries the current revision, dispositions of the remaining units, and the task grouping. An accepted proposal concludes the turn; a rejected one returns the error codes the model must fix.
 
 ## Model Experience
 
 ### What the model sees
 
-`renderView()` returns one line per active decision plus the number of open units, bounded by a row limit with an explicit omission count. The view is for visibility only; enforcement happens on the submission, not on the text.
+One runtime-context section per configured scope: the current revision, one line per active decision (bounded), and the open unit ids (up to 200 per scope). The section is required, is not prompt-interpolated, and is regenerated after compaction.
 
 ### Token effect
 
-The view is bounded by the caller's row limit; omission counts are explicit rather than silent truncation.
+`viewLimit` bounds decided rows and `viewBudget` bounds the section's characters; both are configuration. Omission counts are explicit.
 
 ## Known Limitations and Deferred Work
 
-- The decided part of a delivered proposal is only as correct as the ledger entry that recorded it. The host records entries at decision time; this package does not detect decisions by itself.
-- Rules that cannot be expressed as a unit disposition remain context-only.
-- Enforcement covers the controlled submission. Free prose and side-channel actions stay outside this boundary.
-- The view reaches the request one step after the ledger message commits, because it is assembled from committed events; hosts record between turns in practice.
+- The decided part of a delivered proposal is only as correct as the record the host wrote. The host records at decision time; this package does not detect decisions by itself.
+- Scope catalogs are static configuration. Units cannot be added at runtime, and a scope whose latest record fails validation blocks submissions until a later valid record replaces it.
+- Open unit ids are listed up to 200 per scope; a larger catalog needs a read path that this package does not provide.
+- Enforcement covers the controlled submission and its rendered result. Free prose and side-channel actions stay outside this boundary.
+- Mounting through the Loader in a real profile and compaction end to end are not verified yet; the integration test drives a real Agent loop, tools registry and projection directly.
 
 ## Dev Note
 
-- `src/state.ts` — deterministic fold; stale entries return the previous reference.
-- `src/validate.ts` — submission validation, host assembly, bounded view.
-- `src/types.ts` — decision and ledger types plus the `decision-state` message source.
-- `src/projection.ts` — fold of `decision-state` messages into per-scope state.
-- `src/service.ts` — queued host recording flushed as durable messages on pre-step.
-- `src/tool.ts` — `propose_open_work`, the model's only writable path into a scope.
-- `tests/integration.spec.ts` — real Agent loop, tools and projections: the ledger message, the injected view, a rejected rewrite and an accepted, turn-concluding submission.
-- `tests/` — fold, validation and view behavior; run `pnpm exec vitest run packages/experimental/decision-state`.
+- `src/types.ts` — decision and record types plus the `plugin:decision-state/record` declaration.
+- `src/state.ts` — fold of complete records, open/decided sets, replacement by id.
+- `src/projection.ts` — folds records per scope; unreadable or contradictory records mark the scope corrupt instead of reopening units.
+- `src/service.ts` — immediate host recording, the bounded view and the scope catalog.
+- `src/tool.ts` — `propose_open_work` validation, assembly and rendered results.
+- `tests/` — fold, validation, view, projection and a real Agent-loop integration test; run `pnpm exec vitest run packages/experimental/decision-state`.

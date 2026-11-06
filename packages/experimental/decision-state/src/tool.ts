@@ -11,7 +11,8 @@ import { z } from 'zod'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { defineTool, type ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { DISPOSITIONS } from './types.ts'
-import { assemble, validateSubmission, type Submission } from './validate.ts'
+import { assemble, validateSubmission, type Submission, type ValidationError } from './validate.ts'
+import { UNKNOWN_SCOPE } from './projection.ts'
 import type { DecisionStateService } from './service.ts'
 
 /** One scope's unit catalog, declared by the host. */
@@ -25,6 +26,8 @@ export const Config = z.object({
   scopes: z.record(z.string(), ScopeConfig).default({}),
   /** Maximum decided rows rendered per scope in the model view. */
   viewLimit: z.number().int().min(1).max(200).default(40),
+  /** Maximum characters of one scope's rendered view. */
+  viewBudget: z.number().int().min(500).max(20000).default(4000),
 }).prefault({})
 
 /** Validated tool configuration. */
@@ -78,7 +81,12 @@ export function createProposeOpenWorkTool(service: DecisionStateService, config:
           errors: { type: 'json' },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: value.status === 'accepted' ? '方案已接受，含已定单元。' : '方案被拒绝：请按 errors 修正后重新提交。' }],
+      render: (_args, value) => [{
+        type: 'text',
+        text: value.status === 'accepted'
+          ? `方案已接受，本轮结束。最终提案：${JSON.stringify(value.proposal)}`
+          : `方案被拒绝：${JSON.stringify(value.errors)}。按这些错误修正后重新提交，revision 以当前视图为准。`,
+      }],
     },
     execute: (args, exec) => Promise.resolve(propose(service, config, args, exec)),
   })
@@ -94,6 +102,11 @@ const propose = (service: DecisionStateService, config: Config, args: {
   if (agent === undefined) throw new HarnessError('propose_open_work requires an agent', 'DECISION_NO_AGENT')
   const scope = config.scopes[args.scope]
   if (scope === undefined) throw new HarnessError(`unknown scope: ${args.scope}`, 'DECISION_UNKNOWN_SCOPE')
+  const projection = service.state(agent)
+  if (projection.corrupt.includes(args.scope) || projection.corrupt.includes(UNKNOWN_SCOPE)) {
+    const errors: readonly ValidationError[] = [{ code: 'state-corrupt', detail: `scope ${args.scope} 的账本校验失败` }]
+    return { status: 'rejected' as const, errors: errors.map(error => ({ code: String(error.code), detail: error.detail })) }
+  }
   const state = service.scope(agent, args.scope)
   const submission: Submission = {
     scope: args.scope,

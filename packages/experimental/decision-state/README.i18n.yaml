@@ -5,27 +5,27 @@
 /:
   en: 5f37e1634997e794
   zh: ed0979a2c008bc40
-/deepseek-ai-dsh-decision-state:
-  en: e2a18a44203074a5
-  zh: 3e057a6ecf493a7a
-/deepseek-ai-dsh-decision-state/summary:
-  en: 7da160cadb3843cd
-  zh: fbc2d5f3d6cfa166
-/deepseek-ai-dsh-decision-state/use-this-package:
-  en: bbff250eba0f1b89
-  zh: 0a618f05cc88ee2b
-/deepseek-ai-dsh-decision-state/model-experience:
+/deepseek-ai-dsh-experimental-decision-state:
+  en: cd1fe24ac3b27b88
+  zh: a0faeaefe45af4e2
+/deepseek-ai-dsh-experimental-decision-state/summary:
+  en: 7718c26477dafd0b
+  zh: 03c91d1e6bf1a4bf
+/deepseek-ai-dsh-experimental-decision-state/use-this-package:
+  en: 96ac0f6556e764c1
+  zh: 1299c18344509376
+/deepseek-ai-dsh-experimental-decision-state/model-experience:
   en: 215e7ba838619b7b
   zh: a311da3843709f90
-/deepseek-ai-dsh-decision-state/model-experience/what-the-model-sees:
-  en: d067c4b72656bcdf
-  zh: 6eb6e44c969dfdcc
-/deepseek-ai-dsh-decision-state/model-experience/token-effect:
-  en: 92e9f6c6833050ae
-  zh: 13ce57e9fb5a2a17
-/deepseek-ai-dsh-decision-state/known-limitations-and-deferred-work:
-  en: b8f63cae9da0df07
-  zh: 61c25604c04d7137
-/deepseek-ai-dsh-decision-state/dev-note:
-  en: c95c80d9a0b962a9
-  zh: 800bf4ef0eb21b0a
+/deepseek-ai-dsh-experimental-decision-state/model-experience/what-the-model-sees:
+  en: ee03c2e92cd00b39
+  zh: d0c28b1478f9cf2f
+/deepseek-ai-dsh-experimental-decision-state/model-experience/token-effect:
+  en: 7bd69cadfd2be40d
+  zh: 50586388c00c4686
+/deepseek-ai-dsh-experimental-decision-state/known-limitations-and-deferred-work:
+  en: 4399a9ba8a6f0c7e
+  zh: 0cdcb1fab369e8b8
+/deepseek-ai-dsh-experimental-decision-state/dev-note:
+  en: 0e5780144ee8a5a1
+  zh: ad9267c6626f39d2

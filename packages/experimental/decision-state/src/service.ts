@@ -1,36 +1,28 @@
 /**
  * Host-side decision recorder.
  *
- * The host queues a decision when it observes one (an accepted proposal, an
- * external receipt); the recorder turns the queue into durable ledger messages
- * on the next pre-step and exposes the effective state through the projection.
+ * The host records a change when it observes one; the record is committed
+ * immediately as an experimental plugin record carrying the complete next
+ * scope state. There is no in-memory queue, so a failed request cannot lose a
+ * recorded decision.
  *
  * @module @deepseek-ai/dsh-decision-state/service
  */
 
 import { Service, type Context } from '@deepseek-ai/cordis'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { appendPluginRecord } from '@deepseek-ai/dsh-session'
+import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
-import { applyEntryToProjection, decisionStateProjection, type DecisionProjectionState } from './projection.ts'
-import { EMPTY_SCOPE } from './state.ts'
+import { decisionStateProjection, RECORD_TYPE, UNKNOWN_SCOPE, type DecisionProjectionState } from './projection.ts'
+import { EMPTY_SCOPE, openUnits, replaceDecisions } from './state.ts'
 import { renderView } from './validate.ts'
 import { Config, createProposeOpenWorkTool } from './tool.ts'
-import type { Decision, LedgerEntry, ScopeState } from './types.ts'
-
-/** One queued state change; the recorder assigns the revision when it flushes. */
-export interface DecisionChange {
-  readonly scope: string
-  /** Decisions established by this change. */
-  readonly decisions: readonly Decision[]
-  /** Decision ids this change replaces. */
-  readonly supersedes: readonly string[]
-}
+import type { Decision, DecisionRecord, ScopeState } from './types.ts'
 
 /**
- * Runtime-context placement after the centrally allocated slots (the highest,
- * WEB_SURFACE, is 210); the decision view follows task state and precedes
- * process-specific paths.
+ * Runtime-context placement between the task-state slot (TEAM_IDENTITY, 125)
+ * and the process-specific slots (HARNESS_SOURCE, 200).
  */
 const CONTEXT_ORDER = 130
 
@@ -40,20 +32,13 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/**
- * Turn one queued change into the next ledger entry.
- * @param state - effective state of the scope before the change.
- * @param change - queued change.
- * @returns the entry with the next revision.
- */
-export function nextEntry(state: ScopeState, change: DecisionChange): LedgerEntry {
-  return {
-    kind: 'decide',
-    scope: change.scope,
-    revision: state.revision + 1,
-    decisions: change.decisions,
-    supersedes: change.supersedes,
-  }
+/** One queued state change; the recorder assigns the revision when it commits. */
+export interface DecisionChange {
+  readonly scope: string
+  /** Decisions established by this change. */
+  readonly decisions: readonly Decision[]
+  /** Decision ids this change replaces. */
+  readonly supersedes: readonly string[]
 }
 
 /** Records decisions for one agent and exposes the folded state. */
@@ -62,7 +47,6 @@ export class DecisionStateService extends Service {
   static Config = Config
 
   private projection!: ProjectionHandle<DecisionProjectionState>
-  private readonly pending = new Map<Agent, DecisionChange[]>()
 
   /**
    * @param ctx - owning plugin context.
@@ -79,42 +63,37 @@ export class DecisionStateService extends Service {
       name: 'decision-state:view',
       order: CONTEXT_ORDER,
       required: true,
+      interpolate: false,
       text: context => context.agent === undefined ? '' : this.renderView(context.agent),
     })
-    this.ctx.on('agent/pre-step', async ({ agent }, next) => {
-      const decision = await next()
-      if (decision.kind === 'reject') return decision
-      const changes = this.pending.get(agent)
-      if (changes === undefined || changes.length === 0) return decision
-      this.pending.delete(agent)
-      let state = this.state(agent)
-      const messages = changes.map((change) => {
-        const scopeState = state.scopes[change.scope] ?? EMPTY_SCOPE
-        const entry = nextEntry(scopeState, change)
-        state = applyEntryToProjection(state, entry)
-        return createUserMessage({
-          source: { kind: 'decision-state', scope: change.scope, revision: entry.revision },
-          content: [{ type: 'text', text: JSON.stringify(entry) }],
-        })
-      })
-      return { ...decision, messages: [...decision.messages, ...messages] }
-    }, { prepend: true })
   }
 
   /**
-   * Queue a decision change; it becomes durable on the agent's next pre-step.
+   * Commit one decision change; the record carries the complete next state.
    * @param agent - agent whose Session records the change.
-   * @param change - decisions to establish and ids to supersede.
+   * @param change - decisions to establish and ids to replace.
+   * @throws HarnessError when the scope is unknown or its recorded state failed validation.
    */
   record(agent: Agent, change: DecisionChange): void {
-    const queue = this.pending.get(agent) ?? []
-    queue.push(change)
-    this.pending.set(agent, queue)
+    if (!Object.hasOwn(this.config.scopes, change.scope)) {
+      throw new HarnessError(`unknown decision scope: ${change.scope}`, 'DECISION_UNKNOWN_SCOPE')
+    }
+    const projection = this.state(agent)
+    if (projection.corrupt.includes(change.scope) || projection.corrupt.includes(UNKNOWN_SCOPE)) {
+      throw new HarnessError(`decision state for ${change.scope} failed validation`, 'DECISION_STATE_CORRUPT')
+    }
+    const state = this.scope(agent, change.scope)
+    const record: DecisionRecord = {
+      scope: change.scope,
+      revision: state.revision + 1,
+      active: replaceDecisions(state, change.supersedes, change.decisions),
+    }
+    appendPluginRecord(agent.session, RECORD_TYPE, record)
   }
 
   /**
    * Effective decisions per scope.
-   * @param agent - agent whose Session carries the ledger.
+   * @param agent - agent whose Session carries the records.
    * @returns the folded projection state.
    */
   state(agent: Agent): DecisionProjectionState {
@@ -123,27 +102,40 @@ export class DecisionStateService extends Service {
 
   /**
    * Render the bounded view of every configured scope.
-   * @param agent - agent whose Session carries the ledger.
-   * @returns one section per scope with active decisions; empty when nothing is decided.
+   * @param agent - agent whose Session carries the records.
+   * @returns one section per scope; empty when no scope is configured.
    */
   renderView(agent: Agent): string {
+    const projection = this.state(agent)
     const sections: string[] = []
     for (const [scopeId, scope] of Object.entries(this.config.scopes)) {
       const state = this.scope(agent, scopeId)
-      const view = renderView(state, scope.units, this.config.viewLimit)
-      if (view !== '') sections.push(`范围 ${scopeId}\n${view}`)
+      const corrupt = projection.corrupt.includes(scopeId) || projection.corrupt.includes(UNKNOWN_SCOPE)
+      sections.push(`范围 ${scopeId}\n${renderView(state, scope.units, this.config.viewLimit, this.config.viewBudget, corrupt)}`)
     }
     return sections.join('\n\n')
   }
 
   /**
    * Effective decisions of one scope.
-   * @param agent - agent whose Session carries the ledger.
+   * @param agent - agent whose Session carries the records.
    * @param scope - scope id.
    * @returns the scope state, empty before the first recorded decision.
    */
   scope(agent: Agent, scope: string): ScopeState {
-    return this.state(agent).scopes[scope] ?? EMPTY_SCOPE
+    const scopes = this.state(agent).scopes
+    return Object.hasOwn(scopes, scope) ? scopes[scope] ?? EMPTY_SCOPE : EMPTY_SCOPE
+  }
+
+  /**
+   * Units the model may still submit.
+   * @param agent - agent whose Session carries the records.
+   * @param scope - scope id.
+   * @returns the configured catalog minus decided units; empty for an unknown scope.
+   */
+  open(agent: Agent, scope: string): string[] {
+    const configured = Object.hasOwn(this.config.scopes, scope) ? this.config.scopes[scope] : undefined
+    return configured === undefined ? [] : openUnits(this.scope(agent, scope), configured.units)
   }
 }
 

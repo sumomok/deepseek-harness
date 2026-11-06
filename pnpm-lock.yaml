@@ -75,6 +75,9 @@ importers:
       '@deepseek-ai/dsh-experimental-cua-macos':
         specifier: workspace:*
         version: link:packages/experimental/cua-macos
+      '@deepseek-ai/dsh-experimental-decision-state':
+        specifier: workspace:*
+        version: link:packages/experimental/decision-state
       '@deepseek-ai/dsh-experimental-forge':
         specifier: workspace:*
         version: link:packages/experimental/forge

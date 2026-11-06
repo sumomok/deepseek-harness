@@ -41,15 +41,16 @@ it('injects recorded decisions, rejects rewrites, and assembles the accepted pro
   expect((first.tools ?? []).some(tool => tool.name === PROPOSE_OPEN_WORK)).toBe(true)
   const textOf = (request: (typeof adapter.requests)[number]) => (request.messages ?? [])
     .flatMap(message => message.content).map(block => 'text' in block ? block.text : '').join('\n')
-  // The ledger message lands in this request; the projection-driven view is assembled from
-  // committed events, so it appears from the next request on.
-  expect(textOf(first)).toContain('"kind":"decide"')
-  const second = textOf(adapter.requests[1]!)
-  expect(second).toContain('已定决定（不可改写')
-  expect(second).toContain('revision 1')
+  // The decision is committed before the turn, so the view is already present and the
+  // record itself never enters the model-visible surface.
+  const firstText = textOf(first)
+  expect(firstText).toContain('revision 1')
+  expect(firstText).toContain('待处置单元：b、c、d')
+  expect(firstText).not.toContain('"decisionId"')
 
   // The rejected rewrite comes back to the model; the accepted submission concludes the
   // turn, so the adapter sees exactly two requests and no follow-up text turn.
-  expect(textOf(adapter.requests[1]!)).toContain('拒绝')
+  expect(textOf(adapter.requests[1]!)).toContain('方案被拒绝')
+  expect(textOf(adapter.requests[1]!)).toContain('unit-decided')
   expect(adapter.requests).toHaveLength(2)
 })

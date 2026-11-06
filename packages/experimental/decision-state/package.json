@@ -1,5 +1,5 @@
 {
-  "name": "@deepseek-ai/dsh-decision-state",
+  "name": "@deepseek-ai/dsh-experimental-decision-state",
   "description": "Experimental decision ledger: recorded decisions become constants the model cannot rewrite, and the host assembles the final proposal",
   "version": "0.2.2-rc.1",
   "type": "module",
@@ -40,5 +40,10 @@
   ],
   "publishConfig": {
     "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/experimental/decision-state"
   }
 }
