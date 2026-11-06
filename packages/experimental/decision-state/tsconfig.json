@@ -1,0 +1,18 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "references": [
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../core/session"
+    }
+  ],
+  "include": [
+    "src"
+  ]
+}
