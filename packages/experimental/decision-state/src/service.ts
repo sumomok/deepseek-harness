@@ -14,6 +14,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import { applyEntryToProjection, decisionStateProjection, type DecisionProjectionState } from './projection.ts'
 import { EMPTY_SCOPE } from './state.ts'
+import { renderView } from './validate.ts'
 import { Config, createProposeOpenWorkTool } from './tool.ts'
 import type { Decision, LedgerEntry, ScopeState } from './types.ts'
 
@@ -25,6 +26,13 @@ export interface DecisionChange {
   /** Decision ids this change replaces. */
   readonly supersedes: readonly string[]
 }
+
+/**
+ * Runtime-context placement after the centrally allocated slots (the highest,
+ * WEB_SURFACE, is 210); the decision view follows task state and precedes
+ * process-specific paths.
+ */
+const CONTEXT_ORDER = 130
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -50,7 +58,7 @@ export function nextEntry(state: ScopeState, change: DecisionChange): LedgerEntr
 
 /** Records decisions for one agent and exposes the folded state. */
 export class DecisionStateService extends Service {
-  static inject = ['sessionProjections', 'tools']
+  static inject = ['sessionProjections', 'tools', 'systemPrompt']
   static Config = Config
 
   private projection!: ProjectionHandle<DecisionProjectionState>
@@ -67,6 +75,12 @@ export class DecisionStateService extends Service {
   protected async [Service.init](): Promise<void> {
     this.projection = await this.ctx.sessionProjections.register(decisionStateProjection)
     this.ctx.tools.register(createProposeOpenWorkTool(this, this.config))
+    this.ctx.systemPrompt.context({
+      name: 'decision-state:view',
+      order: CONTEXT_ORDER,
+      required: true,
+      text: context => context.agent === undefined ? '' : this.renderView(context.agent),
+    })
     this.ctx.on('agent/pre-step', async ({ agent }, next) => {
       const decision = await next()
       if (decision.kind === 'reject') return decision
@@ -105,6 +119,21 @@ export class DecisionStateService extends Service {
    */
   state(agent: Agent): DecisionProjectionState {
     return this.projection.stateOf(agent.session)
+  }
+
+  /**
+   * Render the bounded view of every configured scope.
+   * @param agent - agent whose Session carries the ledger.
+   * @returns one section per scope with active decisions; empty when nothing is decided.
+   */
+  renderView(agent: Agent): string {
+    const sections: string[] = []
+    for (const [scopeId, scope] of Object.entries(this.config.scopes)) {
+      const state = this.scope(agent, scopeId)
+      const view = renderView(state, scope.units, this.config.viewLimit)
+      if (view !== '') sections.push(`范围 ${scopeId}\n${view}`)
+    }
+    return sections.join('\n\n')
   }
 
   /**

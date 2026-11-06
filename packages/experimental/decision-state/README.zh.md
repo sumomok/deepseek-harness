@@ -40,7 +40,7 @@ if (result.ok) deliver(assemble(state, submission))
 - 交付物中已定部分的正确性，取决于写入账本的那条记录。记录由宿主在决定发生时写入；本包自身不识别决定。
 - 无法表达为单元处置的规则仍然只能靠上下文提醒。
 - 强制只覆盖受控提交；自由正文与旁路操作不在边界内。
-- 上下文提供者（按请求注入视图）与端到端 agent 测试尚未实现。
+- 视图在账本消息提交后的下一个请求才出现（它由已提交事件折叠而来）；实际使用中宿主在轮次之间记录，不构成延迟。
 
 ## 开发说明
 
@@ -50,4 +50,5 @@ if (result.ok) deliver(assemble(state, submission))
 - `src/projection.ts` —— 把 `decision-state` 消息折叠为按范围的状态。
 - `src/service.ts` —— 宿主排队写入，在 pre-step 落成持久消息。
 - `src/tool.ts` —— `propose_open_work`，模型写入某个范围的唯一通道。
+- `tests/integration.spec.ts` —— 真实 Agent 循环、工具与投影：账本消息、注入视图、被拒绝的改写、被接受并结束本轮的提交。
 - `tests/` —— 折叠、校验与视图行为；运行 `pnpm exec vitest run packages/experimental/decision-state`。

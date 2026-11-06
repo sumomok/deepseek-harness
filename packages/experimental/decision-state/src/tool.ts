@@ -23,6 +23,8 @@ export const ScopeConfig = z.object({
 /** Deployment configuration: scopes and their catalogs. */
 export const Config = z.object({
   scopes: z.record(z.string(), ScopeConfig).default({}),
+  /** Maximum decided rows rendered per scope in the model view. */
+  viewLimit: z.number().int().min(1).max(200).default(40),
 }).prefault({})
 
 /** Validated tool configuration. */
