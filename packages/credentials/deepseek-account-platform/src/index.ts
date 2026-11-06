@@ -104,6 +104,8 @@ export class PlatformAccount extends DeepSeekAccount {
    * cached identity from answering for a credential that has since changed.
    */
   private lastProfile: { readonly token: string; readonly profile: Extract<AccountDetails['profile'], { status: 'ready' }> } | undefined
+  /** Profile read shared by every caller that needs this grant's identity. */
+  private profileRead: { readonly lifetime: AbortController; readonly token: string; readonly read: Promise<AccountDetails['profile'] | null> } | undefined
   private detailsLifetime = new AbortController()
   private closed = false
   private removing: Promise<AccountView> | undefined
@@ -192,7 +194,7 @@ export class PlatformAccount extends DeepSeekAccount {
     const lifetime = this.detailsLifetime
     const stored = await this.readCurrentGrant(lifetime)
     if (stored === null || lifetime.signal.aborted) return null
-    const result = await this.getDetail('profile', this.detailHeaders(client), { lifetime, stored })
+    const result = await this.profileDetail(lifetime, stored, this.detailHeaders(client))
     if (this.detailsLifetime !== lifetime) return null
     if (result !== null) this.cacheProfile(stored.token, result)
     if (result?.status !== 'failed') return result
@@ -257,7 +259,7 @@ export class PlatformAccount extends DeepSeekAccount {
     // A profile already read for this same captured grant names the account, so a bonus read or
     // acknowledgement reuses it instead of issuing another current query.
     if (this.lastProfile?.token === stored.token) return this.identityOf(this.lastProfile.profile)
-    const details = await this.getDetail('profile', headers, { lifetime, stored })
+    const details = await this.profileDetail(lifetime, stored, headers)
     if (details === null) return null
     if (details.status === 'failed') {
       // The query named no identity, and the cache is empty or belongs to another grant.
@@ -290,6 +292,30 @@ export class PlatformAccount extends DeepSeekAccount {
   private identityOf(profile: Extract<AccountDetails['profile'], { status: 'ready' }>): AccountUserId {
     if (profile.value.id === null) throw new PlatformAuthError('protocol')
     return profile.value.id
+  }
+
+  /**
+   * One in-flight profile read per captured grant, joined by every caller that
+   * needs the same account identity. The client's detail refresh and a bonus
+   * lookup start together after sign-in; sharing their request keeps the first
+   * frame from spending two `users/current` calls on the same answer. The read
+   * stays bound to one credential lifetime and grant token, so a replaced
+   * credential never inherits it, and the first caller's client identity
+   * headers are the ones sent because the answer is account-scoped data rather
+   * than a per-caller projection.
+   * @param lifetime - credential lifetime the grant was captured under.
+   * @param stored - captured grant the read answers for.
+   * @param headers - client identity headers of the first caller.
+   * @returns the profile outcome, or null after a credential change.
+   */
+  private profileDetail(lifetime: AbortController, stored: z.infer<typeof grant>,
+    headers: Record<string, string>): Promise<AccountDetails['profile'] | null> {
+    const active = this.profileRead
+    if (active !== undefined && active.lifetime === lifetime && active.token === stored.token) return active.read
+    const read = this.getDetail('profile', headers, { lifetime, stored })
+    this.profileRead = { lifetime, token: stored.token, read }
+    void read.finally(() => { if (this.profileRead?.read === read) this.profileRead = undefined })
+    return read
   }
 
   private async getDetail<K extends keyof AccountDetails>(field: K, headers: Record<string, string>,
@@ -507,6 +533,7 @@ export class PlatformAccount extends DeepSeekAccount {
 
   private invalidateDetails(): void {
     this.lastProfile = undefined
+    this.profileRead = undefined
     this.detailsLifetime.abort()
     this.detailsLifetime = new AbortController()
   }
