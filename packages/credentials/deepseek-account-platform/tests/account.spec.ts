@@ -101,6 +101,11 @@ async function fixture(
       detailsStarted.resolve(undefined)
       if (detailsHold || (balanceHold && req.url === '/api/v0/users/get_user_summary')) await release.promise
       if (status !== 200) { res.writeHead(status).end(); return }
+      if (req.url === '/api/v0/users/get_unnotified_bonuses') {
+        res.setHeader('content-type', 'application/json')
+        res.end(JSON.stringify({ code: 0, data: { biz_code: 0, biz_data: [] } }))
+        return
+      }
       if (detailCode !== 0) { res.end(JSON.stringify({ code: detailCode, data: null })); return }
       const value = req.url === '/auth-api/v0/users/current'
         ? { id: 'test-user', token: 'never-copy-response-token', ...contact,
@@ -410,6 +415,20 @@ it('queries Platform Web endpoints with the stored grant and projects only maske
   expect(await f.ctx.credentials.readRecord(credentialKey('deepseek-account-platform', 'default'))).toMatchObject({
     payload: { token: 'test-platform-grant' },
   })
+})
+
+it('answers one in-flight profile query for both the detail refresh and a bonus identity lookup', async () => {
+  const f = await fixture()
+  await storeAccount(f)
+  f.holdDetails()
+  const profile = f.account.getProfile(clientMetadata())
+  await f.detailsStarted.promise
+  const bonus = f.account.getUnnotifiedBonuses(clientMetadata())
+  await new Promise<void>((resolve) => { setTimeout(resolve, 50) })
+  f.release.resolve(undefined)
+  expect(await profile).toMatchObject({ status: 'ready' })
+  await bonus
+  expect(f.detailRequests.filter(request => request.path === '/auth-api/v0/users/current')).toHaveLength(1)
 })
 
 it('retains profile data when balance fails instead of reporting a zero balance', async () => {
