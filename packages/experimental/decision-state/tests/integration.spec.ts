@@ -5,8 +5,8 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import DecisionState from '../src/service.ts'
-import { PROPOSE_OPEN_WORK } from '../src/tool.ts'
+import DecisionState from '@deepseek-ai/dsh-experimental-decision-state'
+import { PROPOSE_OPEN_WORK } from '@deepseek-ai/dsh-experimental-decision-state'
 
 it('injects recorded decisions, rejects rewrites, and assembles the accepted proposal', async () => {
   const ctx = new Context()
