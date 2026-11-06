@@ -8,7 +8,7 @@ import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deep
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import { BasicCompactionEngine } from '@deepseek-ai/dsh-compaction-basic'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import DecisionState, { PROPOSE_OPEN_WORK } from '@deepseek-ai/dsh-experimental-decision-state'
+import DecisionState, { Config, PROPOSE_OPEN_WORK } from '@deepseek-ai/dsh-experimental-decision-state'
 
 class SmallWindowAdapter extends MockAdapter {
   override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
@@ -39,7 +39,7 @@ it('condenses under pressure and keeps the record, its view and its guard', asyn
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(TokenMeter)
   await ctx.plugin(FixedSummaryEngine, { thresholdRatio: 0.35, retainTokens: 100, headroomTokens: 0, maxTokens: 64 })
-  await ctx.plugin(DecisionState, { scopes: { demo: { units: ['a', 'b', 'c', 'd'] } } })
+  await ctx.plugin(DecisionState, Config.parse({ scopes: { demo: { units: ['a', 'b', 'c', 'd'] } } }))
   const events: SessionEvent[] = []
   ctx.on('session/event', (session, event) => { if (session.id === 'decision-auto-compaction') events.push(event) })
   const harness = await mountAgentLoopTestHarness(ctx)
@@ -75,10 +75,14 @@ it('condenses under pressure and keeps the record, its view and its guard', asyn
   const ends = events.filter(event => event.type === 'compaction/end')
   expect(starts.length).toBeGreaterThan(0)
   expect(ends.length).toBe(starts.length)
-  const end = ends.at(-1)!
-  const summary = events.filter(event => event.type === 'compaction/summary' && event.data.compactionId === end.data.compactionId).at(-1)!
+  const end = ends.at(-1)
+  if (end?.type !== 'compaction/end') throw new Error('no compaction end')
+  const summary = events.findLast(event =>
+    event.type === 'compaction/summary' && event.data.compactionId === end.data.compactionId)
+  if (summary?.type !== 'compaction/summary') throw new Error('no matching compaction summary')
   expect(end.data.error).toBeUndefined()
-  const firstHistory = events.find(event => event.type === 'user/message' && JSON.stringify(event.data).includes('片段 0'))!
+  const firstHistory = events.find(event => event.type === 'user/message' && JSON.stringify(event.data).includes('片段 0'))
+  if (firstHistory?.type !== 'user/message') throw new Error('no first history message')
   expect(summary.data.shadowedSeqs).toContain(firstHistory.seq)
   expect(agent.session.surface.nodes).not.toContain(firstHistory.seq)
 
@@ -98,7 +102,7 @@ it('condenses under pressure and keeps the record, its view and its guard', asyn
   agent.followup(createUserMessage({ content: [{ type: 'text', text: '继续' }], source: { kind: 'user' } }))
   await agent.whenIdle()
   const textOf = (request: (typeof adapter.requests)[number]) => (request.messages ?? [])
-    .flatMap(message => message.content).map(block => block.text ?? '').join('\n')
+    .flatMap(message => message.content).map(block => 'text' in block ? block.text : '').join('\n')
   const rewriting = textOf(adapter.requests.at(-1)!)
   expect(rewriting).toContain('COMPACTED SUMMARY')
   expect(rewriting).toContain('revision 1')

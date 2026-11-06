@@ -53,7 +53,7 @@ ctx.decisionState.record(agent, {
 - 范围目录是静态配置，运行期不能新增单元；最新记录校验失败的范围会阻止提交，直到宿主用 `repair()` 或以一条后续有效记录恢复；服务在追加前先用重放 schema 校验并折叠每次变更，因此自身写入不会制造该阻断；`repair()` 只接受损坏的范围。
 - 每个范围最多列出 200 个开放单元 id；更大的目录需要本包尚未提供的读取通道。单次提交最多 200 条、标识符最长 200 字符、每条处置最多 32 个目标 id，组装结果不超过 64 KiB；无法容纳进 `viewBudget` 的目录在加载时拒绝。
 - 强制只覆盖受控提交及其渲染结果；自由正文与旁路操作不在边界内。
-- 测试中已验证 surface 替换与真实自动压力压缩后记录和视图仍然有效，`cordis.yml` 的 Loader 启动通过源码 shim 验证；已构建的 `lib/` 入口与隔离 profile 运行尚未验证。
+- 测试中已验证真实自动压力压缩后记录、开放目录与视图仍然有效，`cordis.yml` 的 Loader 启动通过源码 shim 验证；已构建的 `lib/` 入口与隔离 profile 运行尚未验证。
 
 ## 开发说明
 
@@ -62,4 +62,4 @@ ctx.decisionState.record(agent, {
 - `src/projection.ts` —— 按范围折叠记录；不可读或自相矛盾的记录把范围标为损坏，而不是重新开放单元。
 - `src/service.ts` — 宿主即时记录、有界视图与范围目录。
 - `src/tool.ts` —— `propose_open_work` 的校验、组装与渲染结果。
-- `tests/` — 折叠、校验、视图、投影、包入口契约、Loader 启动、真实 Agent 循环集成测试、surface 替换与自动压力压缩测试；运行 `pnpm exec vitest run packages/experimental/decision-state`。
+- `tests/` — 折叠、校验、视图、投影、包入口契约、Loader 启动、真实 Agent 循环集成测试与自动压力压缩测试；运行 `pnpm exec vitest run packages/experimental/decision-state`。

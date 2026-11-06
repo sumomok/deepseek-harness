@@ -5,14 +5,14 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId, appendPluginRecord, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import DecisionState from '@deepseek-ai/dsh-experimental-decision-state'
+import DecisionState, { Config } from '@deepseek-ai/dsh-experimental-decision-state'
 import { PROPOSE_OPEN_WORK } from '@deepseek-ai/dsh-experimental-decision-state'
 
 it('injects recorded decisions, rejects rewrites, and assembles the accepted proposal', async () => {
   const ctx = new Context()
   onTestFinished(async () => { await ctx.fiber.dispose() })
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(DecisionState, { scopes: { demo: { units: ['a', 'b', 'c', 'd'] } } })
+  await ctx.plugin(DecisionState, Config.parse({ scopes: { demo: { units: ['a', 'b', 'c', 'd'] } } }))
   const harness = await mountAgentLoopTestHarness(ctx)
 
   const rewrite = toolCallResponse('call-1', PROPOSE_OPEN_WORK, {
@@ -39,9 +39,9 @@ it('injects recorded decisions, rejects rewrites, and assembles the accepted pro
   agent.followup(createUserMessage({ content: [{ type: 'text', text: '继续' }], source: { kind: 'user' } }))
   await agent.whenIdle()
 
-  const first = adapter.requests[0]
+  const first = adapter.requests[0]!
   expect((first.tools ?? []).some(tool => tool.name === PROPOSE_OPEN_WORK)).toBe(true)
-  const textOf = (request: (typeof adapter.requests)[number]) => (request.messages ?? [])
+  const textOf = (request: (typeof adapter.requests)[number] | undefined) => (request?.messages ?? [])
     .flatMap(message => message.content).map(block => 'text' in block ? block.text : '').join('\n')
   // The decision is committed before the turn, so the view is already present and the
   // record itself never enters the model-visible surface.
@@ -72,14 +72,14 @@ it('rejects a catalog that cannot fit the view budget', async () => {
   onTestFinished(async () => { await ctx.fiber.dispose() })
   await mountAgentLoopTestDependencies(ctx)
   const units = Array.from({ length: 50 }, (_, index) => `${index}`.padEnd(100, 'x'))
-  await expect(ctx.plugin(DecisionState, { scopes: { demo: { units } } })).rejects.toThrowError(/viewBudget/)
+  await expect(ctx.plugin(DecisionState, Config.parse({ scopes: { demo: { units } } }))).rejects.toThrowError(/viewBudget/)
 })
 
 it('refuses a duplicate unit before writing and repairs a corrupt scope', async () => {
   const ctx = new Context()
   onTestFinished(async () => { await ctx.fiber.dispose() })
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(DecisionState, { scopes: { demo: { units: ['a', 'b', 'c'] } } })
+  await ctx.plugin(DecisionState, Config.parse({ scopes: { demo: { units: ['a', 'b', 'c'] } } }))
   const harness = await mountAgentLoopTestHarness(ctx)
   const agent = await harness.create(SessionId('decision-repair'), { provider: 'mock', model: 'mock' })
 
@@ -128,7 +128,7 @@ it('rejects an oversized nested submission before concluding the turn', async ()
   const ctx = new Context()
   onTestFinished(async () => { await ctx.fiber.dispose() })
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(DecisionState, { scopes: { demo: { units: ['a', 'b'] } } })
+  await ctx.plugin(DecisionState, Config.parse({ scopes: { demo: { units: ['a', 'b'] } } }))
   const harness = await mountAgentLoopTestHarness(ctx)
   const oversized = toolCallResponse('call-1', PROPOSE_OPEN_WORK, {
     scope: 'demo', revision: 0,
