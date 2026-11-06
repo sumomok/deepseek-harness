@@ -53,7 +53,7 @@ One runtime-context section per configured scope: the current revision, one line
 - Scope catalogs are static configuration. Units cannot be added at runtime, and a scope whose latest record fails validation blocks submissions until a later valid record replaces it.
 - Open unit ids are listed up to 200 per scope; a larger catalog needs a read path that this package does not provide.
 - Enforcement covers the controlled submission and its rendered result. Free prose and side-channel actions stay outside this boundary.
-- A surface replacement leaves the record and the view intact in tests, and a `cordis.yml` Loader boot is tested through a source shim; the committed `lib/` entry and automatic pressure compaction are not verified yet.
+- A surface replacement and a real automatic pressure compaction leave the record and the view intact in tests, and a `cordis.yml` Loader boot is tested through a source shim; the committed `lib/` entry and an isolated-profile run are not verified yet.
 
 ## Dev Note
 
@@ -62,4 +62,4 @@ One runtime-context section per configured scope: the current revision, one line
 - `src/projection.ts` — folds records per scope; unreadable or contradictory records mark the scope corrupt instead of reopening units.
 - `src/service.ts` — immediate host recording, the bounded view and the scope catalog.
 - `src/tool.ts` — `propose_open_work` validation, assembly and rendered results.
-- `tests/` — fold, validation, view, projection, the package entry contract, a Loader boot, a real Agent-loop integration test and a surface-replacement test; run `pnpm exec vitest run packages/experimental/decision-state`.
+- `tests/` — fold, validation, view, projection, the package entry contract, a Loader boot, a real Agent-loop integration test, a surface replacement and an automatic pressure compaction; run `pnpm exec vitest run packages/experimental/decision-state`.
