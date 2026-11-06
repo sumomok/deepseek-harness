@@ -91,7 +91,12 @@ export function apply(ctx: Context): void {
   ctx.effect(() => () => { notices.end() }, 'account: bonus notice lifetime')
   let revision = 0
   let refreshing: Promise<void> | undefined
-  const refresh = (): Promise<void> => {
+  /**
+   * Read the account details this surface still needs, reusing one in-flight request.
+   * @param fields - detail fields this call needs; the default reads both.
+   * @returns settlement of the shared request.
+   */
+  const refresh = (fields: readonly (keyof AccountDetails)[] = ['profile', 'balance']): Promise<void> => {
     if (snapshot.view?.status !== 'credential-stored') return Promise.resolve()
     if (refreshing !== undefined) return refreshing
     const generation = revision
@@ -103,24 +108,61 @@ export function apply(ctx: Context): void {
       if (value?.status === 'failed') console.error('[deepseek-account] account read failed', { field })
       if (generation === revision && value !== null) publish({ ...snapshot, details: { ...snapshot.details, [field]: value } })
     }
-    const request = Promise.all([
-      read('profile', async () => {
+    const reads: Promise<void>[] = []
+    if (fields.includes('profile')) {
+      reads.push(read('profile', async () => {
         const result = await ctx.remote.account.getProfile(client())
         if (!result.ok) throw new Error('account profile failed')
         if (generation === revision && result.value?.status === 'ready') avatar.setUrl(result.value.value.avatarUrl)
         return result.value
-      }),
-      read('balance', async () => {
+      }))
+    }
+    if (fields.includes('balance')) {
+      reads.push(read('balance', async () => {
         const result = await ctx.remote.account.getBalance(client())
         if (!result.ok) throw new Error('account balance failed')
         return result.value
-      }),
-    ]).then(() => undefined)
+      }))
+    }
+    const request = Promise.all(reads).then(() => undefined)
     refreshing = request
     void request.finally(() => { if (refreshing === request) refreshing = undefined })
     return request
   }
+  // A first read that the browser saw cancelled, time out, or fail leaves the
+  // account signed in with no identity, and no later frame is guaranteed. One
+  // bounded chain re-reads only the fields still missing; every trigger shares
+  // its attempt budget, so a Platform outage cannot become a request loop.
+  let retryAttempts = 0
+  let retryTimer: ReturnType<typeof setTimeout> | undefined
+  const cancelRetry = (): void => {
+    if (retryTimer !== undefined) clearTimeout(retryTimer)
+    retryTimer = undefined
+  }
+  /** @returns the detail fields still missing for a stored credential, empty while signed out or complete. */
+  const missingDetails = (): (keyof AccountDetails)[] => {
+    if (snapshot.view?.status !== 'credential-stored') return []
+    const missing: (keyof AccountDetails)[] = []
+    if (snapshot.details?.profile === undefined || snapshot.details.profile.status === 'failed') missing.push('profile')
+    if (snapshot.details?.balance === undefined || snapshot.details.balance.status === 'failed') missing.push('balance')
+    return missing
+  }
+  const scheduleRetry = (): void => {
+    if (retryTimer !== undefined) return
+    const fields = missingDetails()
+    if (fields.length === 0 || retryAttempts >= config.detailsRetryAttempts) return
+    const delay = Math.min(config.detailsRetryDelayMs * 2 ** retryAttempts, config.detailsRetryMaxDelayMs)
+    retryAttempts++
+    retryTimer = setTimeout(() => {
+      retryTimer = undefined
+      const pending = missingDetails()
+      if (pending.length === 0) return
+      void refresh(pending).finally(scheduleRetry)
+    }, delay)
+  }
+  ctx.effect(() => () => { cancelRetry() }, 'account: detail retry lifetime')
   ctx.effect(() => () => { revision++ }, 'account: details request lifetime')
+
   // The account stream, and the reads it starts, follow access to this host's account state.
   ctx.remoteAccess.whenAccess('account/watch', function* () {
     const stream = ctx.remote.$stream<AccountView>({
@@ -138,6 +180,8 @@ export function apply(ctx: Context): void {
       grant.ended = true
       revision++
       refreshing = undefined
+      cancelRetry()
+      retryAttempts = 0
       avatar.reset()
       browser.dispose()
       const { loginFailed: _loginFailed, ...current } = snapshot
@@ -151,6 +195,15 @@ export function apply(ctx: Context): void {
         if (grant.ended) return
         revision++
         refreshing = undefined
+        // A new account or sign-in attempt starts a fresh retry budget; repeats
+        // of the same view do not, so frames cannot extend it.
+        const previousView = snapshot.view
+        const viewChanged = previousView === undefined
+          || frame.value.status !== previousView.status || frame.value.attempt?.id !== previousView.attempt?.id
+        if (viewChanged) {
+          cancelRetry()
+          retryAttempts = 0
+        }
         avatar.reset()
         const initialize = frame.value.status === 'credential-stored' && frame.value.attempt?.phase === 'succeeded'
           && snapshot.view?.attempt?.phase !== 'succeeded'
@@ -169,7 +222,7 @@ export function apply(ctx: Context): void {
             console.error('[deepseek-account] default model initialization failed', { reason: 'disconnected' })
           }
         })()
-        void refresh()
+        void refresh().finally(scheduleRetry)
       }
     })().catch(() => { if (!grant.ended) publish({ ...snapshot, failed: true }) })
   })

@@ -174,6 +174,34 @@ it('shares account actions across seats, publishes dialog ownership, and opens c
   expect(c.ctx.slots.entries('settings.launcher')).toHaveLength(0)
 }, 60_000)
 
+it('re-reads account details a failed first read left behind, without another frame', async ({ start }) => {
+  vi.stubGlobal(CONTACT_CONFIG_GLOBAL, { detailsRetryDelayMs: 1, detailsRetryMaxDelayMs: 2, detailsRetryAttempts: 3 })
+  const c = await start()
+  const actions = operations(c)
+  let calls = 0
+  c.mock.remote.account.getProfile.mockImplementation(async () => ok(calls++ === 0 ? { status: 'failed' } : profile))
+  c.mock.remote.account.getBalance.mockResolvedValue(ok({ status: 'ready', value: [], bonusWallets: [] }))
+  c.mock.streams.push('account/watch', stored)
+  await vi.waitFor(() => { expect(actions.hooks.account.getSnapshot().details?.profile).toEqual(profile) })
+  expect(c.mock.remote.account.getProfile).toHaveBeenCalledTimes(2)
+  // The retry read only the missing field; the balance was already answered.
+  expect(c.mock.remote.account.getBalance).toHaveBeenCalledOnce()
+}, 60_000)
+
+it('re-reads a cancelled profile read and stops after the configured attempts', async ({ start }) => {
+  vi.stubGlobal(CONTACT_CONFIG_GLOBAL, { detailsRetryDelayMs: 1, detailsRetryMaxDelayMs: 2, detailsRetryAttempts: 2 })
+  const c = await start()
+  const actions = operations(c)
+  c.mock.remote.account.getProfile.mockResolvedValue(ok(null))
+  c.mock.remote.account.getBalance.mockResolvedValue(ok({ status: 'ready', value: [], bonusWallets: [] }))
+  c.mock.streams.push('account/watch', stored)
+  await vi.waitFor(() => { expect(c.mock.remote.account.getProfile).toHaveBeenCalledTimes(3) })
+  await new Promise<void>((resolve) => { setTimeout(resolve, 40) })
+  expect(c.mock.remote.account.getProfile).toHaveBeenCalledTimes(3)
+  expect(c.mock.remote.account.getBalance).toHaveBeenCalledOnce()
+  expect(actions.hooks.account.getSnapshot().details?.profile).toBeUndefined()
+}, 60_000)
+
 it('prefills the native device description from the Desktop bridge on every click', async ({ start }) => {
   const open = vi.spyOn(window, 'open').mockReturnValue(null)
   const deviceInfo = vi.fn(async () => 'platform=darwin; os=15.0; app_arch=arm64; cpu=Apple M3; memory_gib=16.0')
