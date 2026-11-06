@@ -1,0 +1,304 @@
+# The desktop application's deployment layer. `apps/desktop-shell`'s profile seed
+# names this package after dsh-base, dsh-web-app, and every built-in plugin
+# layer in the desktop profile's `dsh.profile.bundles`, and before the user
+# layers — `$DSH_HOME/profiles/desktop-shell/cordis.patch.yml`, then
+# `$DSH_HOME/cordis.patch.yml`, then any `--patch` overlay — so a row here is a
+# deployment default the user's own patch layer can still replace.
+#
+# A patch replaces the targeted row's whole `config`, so each row restates
+# every key it owns.
+
+# Full-text session search over conversation content, which dsh-base and
+# dsh-web-app both ship off (`openAt: never`, so `searchSessions` fails with
+# SESSION_QUERY_SEARCH_DISABLED and the sidebar matches titles and Workspace
+# names only). `first-search` defers the node:sqlite import and the index open
+# until a search actually asks for one, so an app start that never searches
+# costs nothing. The index is a derived database this deployment owns, separate
+# from the session-persistence store under `dshHomePath('sessions')`; keeping it
+# durable rather than `:memory:` means only new and changed logs are read after
+# the first index build, instead of the whole corpus on every launch.
+- id: session-query-sqlite
+  config:
+    path: !!js dshHomePath('session-search/desktop.db')
+    openAt: first-search
+    warmupAfterReadyMs: 3000
+
+# The model's own reach into session history: upstream's five read-only
+# session tools (`session_search`, `session_event_search`, `session_trace`,
+# `session_event_trace`, `session_event_read`) and their one prior-history
+# prompt section, which dsh-base and dsh-web-app ship unmounted. Once a
+# conversation is compacted, the summary and the pruned tool results are all
+# the model has of what came before; these tools let it look the details up
+# again in the session logs, its own session's and those of the other
+# sessions in the same workspace. A target session is readable only when its
+# `cwd` is exactly the caller's.
+#
+# The row is a Host row, as the package's own mount reference is
+# (`snapshots/session/session-query-spill/cordis.yml`), not a row inside an
+# agent preset. Every service it injects — `tools`, `systemPrompt`,
+# `sessionQuery` (the `session-query-sqlite` row above), and
+# `sessionProjections` — is a Host row dsh-web-app leaves on, so the five
+# tools register in the tool registry's deployment-global layer, which every
+# agent scope inherits: a session on the `standard`, `ptc`, or `minimal`
+# preset or on the Creator preset, and a child that session delegates to,
+# unless the delegation names a tool allow-list that leaves them out. A
+# preset's own rows sit in its `config.plugins`, where no id-targeted patch
+# reaches, so mounting them there would mean restating every shipped preset's
+# whole plugin list in this layer.
+# The prompt section is global too; a `minimal` session drops it with the rest
+# of the prompt, because that preset's persona is `complete`, and its model
+# still sees the five schemas.
+#
+# A search returns at most the package's own `maxSearchResults` (100) hits,
+# and dsh-base's `spill-policy` row, which dsh-web-app leaves on, bounds a long
+# trace or event read inline. The row carries no `config`, so both of the
+# package's fields take their schema defaults. `@deepseek-ai/dsh` does not
+# depend on its module, so this package lists it in `dependencies`: the
+# runtime resolver supplies a row's module only from the installation's
+# dependency closure and from each selected bundle's own.
+- insert:
+    - id: tool-session-query
+      name: '@deepseek-ai/dsh-tool-session-query'
+
+# How long a rate-limited request may wait before the turn gives up. When a
+# provider answers 429 with `Retry-After`, dsh-llm-retry accepts that wait only
+# while it fits inside `maxDelayMs`, and a `normal` policy that finds it too
+# long delegates to the next handler instead — which ends the turn with the
+# original error. The shipped ceiling is 10 seconds while DeepSeek's rate-limit
+# windows commonly run 30 to 120 seconds, so a wait the provider explicitly
+# asked for arrives as a failed turn. Five minutes covers those windows, and
+# the browser half already counts the remaining seconds down in the transcript,
+# so the wait is visible rather than a stalled screen. The ceiling bounds one
+# wait, not a step: a provider delay inside it is waited out verbatim, and the
+# five-retry cap is counted per step (`step/start` and `turn/end` reset it), so
+# a step's worst case is five ceilings — 25 minutes at this value, 2.5 to 10
+# minutes across those windows — and every wait aborts the moment the user
+# stops the turn. Local backoff does not move with it: it is `min(500 * 2 **
+# (retry - 1), maxDelayMs)` under a tenth of jitter over at most five retries,
+# so the ceiling never binds it and its longest wait stays 8.8 seconds either
+# way. Only the `Retry-After` value this deployment is willing to honor
+# changes. The retry executor itself (`llm-retry`) takes no config at all — it
+# rejects every key, `retryPolicy` with a message naming this row — because the
+# policy belongs to the provider whose route it retries.
+#
+# The row sets the retry policy and nothing else. Without `models`, the
+# adapter's `resolveModels` reads `config.models ?? DEFAULT_MODELS`, so the
+# picker lists `@deepseek-ai/dsh-llm-deepseek`'s own catalog, as upstream
+# ships it.
+- id: llm-deepseek
+  config:
+    retryPolicy:
+      mode: normal
+      backoff:
+        maxDelayMs: 300000
+
+# Where an image sent on a model without vision moves the session to.
+# Absent a `target`, @haoran/dsh-vision-switch falls back to a DEFAULT_TARGET
+# compiled into it (`deepseek-official` / `deepseek-flash`), which is also the
+# model `agent-default-model` starts every session on. An auto-switch that
+# moves a session off its own default onto a different vision model is a
+# switch the user did not ask for, so the two have to stay one model. Naming
+# the target here settles it from composition rather than from the plugin's
+# compiled-in constant, and
+# `apps/desktop-shell/tests/desktop-composition-layer.spec.ts` holds the two to the
+# same model.
+#
+# `enabled` is restated because an id-targeted patch replaces the whole
+# `config`, and the plugin's own layer is where it is set; those two keys are
+# the plugin's entire Config.
+- id: vision-switch
+  config:
+    enabled: true
+    target:
+      provider: deepseek-official
+      model: deepseek-flash
+
+# The review model's own route, which is not the agent's, and the tools that
+# always go to a person under 自动审查. The gate's own layer ships
+# `deepseek-official` / `deepseek-flash`, the pair restated here; it is here so
+# the deployment names the model its judge runs on rather than inheriting
+# whatever a later gate release ships. A judge choice stored from the gate's
+# settings page still wins over this pair.
+#
+# `alwaysAsk` adds upstream's `plugin_manager` agent tool, which the web app's
+# cordis preset mounts once the `plugin-manager` row below is on. One call of
+# it can install Host code that runs outside the workspace sandbox, or disable
+# a composition row — this gate's own included — so no review model decides
+# it: under 自动审查, and under the walled modes, the gate raises it to the
+# person with the sentence below. Under 完全权限 the gate steps aside, and the
+# tool's own rule lets a `danger-full-access` session call it unasked. The
+# field replaces the gate's default map rather than merging with it, so
+# `browser_auth` and its sentence are restated verbatim from the gate's
+# DEFAULT_ALWAYS_ASK.
+#
+# `provider` and `model` are the gate's only required fields, and its own patch
+# layer sets exactly those two; every other field carries a schema default, so
+# this whole-config replacement drops only the default `alwaysAsk` it
+# restates. `apps/desktop-shell/tests/desktop-composition-layer.spec.ts` holds
+# the layer below to exactly those two keys and this row to those two plus
+# `alwaysAsk`. `walledReview` and the three judge fields stay out of this row
+# on purpose: they are volatile fields the settings page writes, and a value
+# written here would become the form's base, so clearing one of them would
+# return it to this row's value instead of to the schema default.
+#
+# This row stops reaching a machine once that machine writes the gate's row
+# itself. The first save from the gate's settings page or `/review`, and the
+# one-time import of an older `settings.yaml` section, write the row's whole
+# composed config into `$DSH_HOME/profiles/desktop-shell/cordis.patch.yml`,
+# which applies after every bundle layer. A write made while this row composes
+# carries `alwaysAsk` with it. `apps/desktop-shell/src/settings-migration.ts`
+# restates the map below as `GATEWAY_ALWAYS_ASK` and adds it to a gate row the
+# profile layer already held whose `config` has none. From then on a change to
+# the values below reaches only fresh installs and machines that never saved
+# or imported a gate setting.
+- id: llm-permission-gateway
+  config:
+    provider: deepseek-official
+    model: deepseek-flash
+    alwaysAsk:
+      browser_auth: "这一步会把你浏览器里这个网站的登录状态交给助手——那个网址下的所有登录信息都在内。之后它做的每一件事，都是以你本人的身份登录着做的。"
+      plugin_manager: "这一步会改动这台电脑上装的插件：安装、移除、启用或停用插件，或者放行一个与当前版本不兼容的插件，停用的也可能是负责审查的这个插件本身。装上的插件代码在应用里运行，不受工作区沙箱限制，改动对之后的所有对话都生效。"
+
+# Plugin management is upstream's. dsh-base's `plugin-manager` Host row serves
+# the `pluginManager` service that installs, enables, and removes bundles, and
+# dsh-web-app's `ui-plugin-manager` row is the sidebar Plugins page over it;
+# both stay on. What this row sets is where that service finds pnpm.
+# `pnpmCommand` names one executable, spawned with no arguments of its own
+# before the pnpm subcommand, and the machines this product targets have
+# neither pnpm nor Node on `PATH`. A packaged launch names
+# `resources/runtime/dsh-pnpm` (`dsh-pnpm.cmd` on Windows) in
+# `DSH_DESKTOP_PNPM`, a script that runs the shipped pnpm under the bundled
+# Node (`apps/desktop-shell/src/pnpm-launcher.ts`); a development launch names
+# nothing, and the service falls back to the developer's own `pnpm`.
+#
+# `requiredModules` names the plugins this application cannot run without.
+# The service refuses to switch their rows off, or to switch off or remove a
+# bundle that inserts one, and the Plugins page shows those switches locked
+# with 应用必需，不能停用或卸载. It lists module names, and each name here is
+# also the bundle package that inserts it; it is the same list as
+# `REQUIRED_WEB_BUNDLES` in `apps/desktop-shell/src/profile-seed.ts`, which
+# puts a required bundle a profile switched off back on at every launch, and
+# `apps/desktop-shell/tests/desktop-composition-layer.spec.ts` holds the two
+# equal. `@haoran/dsh-crash-resume` continues a turn a server crash cut short.
+#
+# The row carries `config` alone, so dsh-base's `disabled` expression, which
+# mounts the service only under a profile, still applies. dsh-base's row
+# carries no config, so this whole-config replacement drops nothing.
+- id: plugin-manager
+  config:
+    pnpmCommand: !!js process.env.DSH_DESKTOP_PNPM ?? 'pnpm'
+    requiredModules: ['@haoran/dsh-crash-resume']
+
+# Office preview carries no row here: dsh-web-app's `office-to-pdf` Host row,
+# which starts LibreOffice converters for the right Sidebar's document tab,
+# stays on as that layer ships it. The payload carries no LibreOffice engine —
+# `platformDirRules` in `apps/desktop-shell/scripts/platform-dir-rules.ts`
+# drops every `@deepseek-ai/libreoffice-kit-*` engine from both targets — and
+# the shell downloads the one engine the shipped kit declares into the data
+# directory when the person asks for it (`apps/desktop-shell/src/office-engine.ts`),
+# naming its directory in the server's `NODE_PATH` from launch on. Until it is
+# there a conversion fails and `office-to-pdf` drops the converter it tried to
+# create, so the first preview after the download creates a new one and
+# succeeds without a restart. `@haoran/dsh-office-preview-notice` is what the
+# document tab shows for Word and PowerPoint files until then.
+
+# Work details carry no row here: dsh-web-app's `ui-chat` row ships no config,
+# so the Chat form's own default applies, which is `detailed` in this shell
+# because it defines no `dshDesktop` global. A Chat display preference a user
+# saved is in `$DSH_HOME/profiles/desktop-shell/cordis.patch.yml` and still
+# applies.
+
+# Product analytics stays off. dsh-web-app inserts `desktop-product-telemetry`,
+# which exports product events through `ctx.otel` to DeepSeek's OTel
+# collector unless `DSH_PRODUCT_ANALYTICS_OTLP_URL` names another, and
+# `product-analytics`, its browser half, each with a `disabled` expression
+# that leaves the row on only under a profile named `desktop`. This product's
+# profile is `desktop-shell`, so both compose off already; `disabled: true`
+# states that off here, so neither a change to that expression nor a profile
+# rename turns reporting to DeepSeek on. A patch replaces only the fields it
+# names, so each row keeps the config dsh-web-app gives it. `otel`, the
+# service the Host row reports through, ships disabled in dsh-base and needs
+# no row here.
+- id: desktop-product-telemetry
+  disabled: true
+
+- id: product-analytics
+  disabled: true
+
+# The shared account package recognizes upstream's reserved `desktop` profile
+# by default. This shell is also a native Desktop client, but deliberately owns
+# the separate `desktop-shell` profile, so state the existing client metadata
+# explicitly instead of renaming the profile or reporting Platform traffic as Web.
+- id: deepseek-account
+  config:
+    desktopPlatform: !!js "['darwin', 'win32'].includes(process.platform) ? process.platform : null"
+
+# The sidebar brand row: the fish logo at 30px where ui-sidebar asks for 24,
+# and the product name, 北冥 in Chinese and Beiming in English, at 18px. This
+# package's browser half occupies `sidebar.brand.mark` and `sidebar.brand.name`,
+# which dsh-web-app leaves to ui-sidebar's fallbacks because its own
+# `ui-brand-official` row registers only under the `official` client build
+# profile, one this application never builds. The same half shadows
+# Settings → General's current-version row, since the desktop's release version
+# is on the update settings page.
+#
+# The same row mounts the Host half, which adds a line naming the app's own
+# directories to every session's system prompt as the global section
+# `desktop:protected-directories`, after the persona suffix. A preset whose
+# persona is `complete` (`minimal`) replaces the whole prompt and drops it, a
+# known limitation the sandbox protection covers later.
+#
+# The line lists one clause per directory the launch knows, in a fixed order,
+# joined with the two separators below: the installation directory the shell
+# names in `DSH_DESKTOP_INSTALL_DIR` for a packaged launch; the harness home
+# the server's plugins resolve (`$DSH_HOME`, else `~/.dsh`), always; and the
+# shell's own Electron `userData` directory, log directory, and update
+# download cache, which it names in `DSH_DESKTOP_USER_DATA_DIR`,
+# `DSH_DESKTOP_LOG_DIR`, and `DSH_DESKTOP_UPDATE_CACHE_DIR`. The logs are
+# named on their own because on macOS they sit outside `userData`, under
+# `~/Library/Logs`. A development launch of the shell names no installation
+# directory; `dsh --profile desktop-shell` started by hand names only the
+# harness home. `{skillsDir}` is the home's `skills` folder, where
+# agent-authored skills are written, and is exempt. Each path is quoted in
+# backticks. The line must contain exactly `{directories}` and `{skillsDir}`,
+# and each clause exactly its own placeholder, or the row refuses to mount.
+# Why the line earns its context cost:
+# .agents/notes/implemented/feature/2026-09-28-desktop-protected-directories-prompt.md.
+#
+# A layer that patches this row by id replaces its whole `config`, so it must
+# restate every key below, or the row refuses to mount and the line is gone.
+- insert:
+    - id: desktop-brand
+      name: '@deepseek-ai/dsh-desktop-app'
+      config:
+        protectedDirsPrompt: 'Unless the user explicitly asks, do not modify, move, or delete this app''s own directories: {directories}. The skills folder {skillsDir} is exempt.'
+        directoryClauses:
+          installDir: 'the installation directory ({installDir})'
+          dataDir: 'the data directory ({dataDir})'
+          appDataDir: 'the settings folder ({appDataDir})'
+          logDir: 'the logs folder ({logDir})'
+          updateCacheDir: 'the update download folder ({updateCacheDir})'
+        directorySeparator: ', '
+        directoryLastSeparator: ' and '
+        installDir: !!js process.env.DSH_DESKTOP_INSTALL_DIR
+        appDataDir: !!js process.env.DSH_DESKTOP_USER_DATA_DIR
+        logDir: !!js process.env.DSH_DESKTOP_LOG_DIR
+        updateCacheDir: !!js process.env.DSH_DESKTOP_UPDATE_CACHE_DIR
+
+# The server's own log records in the desktop log file. Plugins log through
+# `ctx.logger`, and no row in the shipped bundles registers an exporter for it,
+# so without this row those records live only in the logger's in-memory buffer.
+# The shell names its log file in `DSH_DESKTOP_SERVER_LOG` for the server child
+# alone, and the packaging run's staged boot names one too, so the row mounts
+# there and its module must resolve from the payload; a boot without the
+# variable — `dsh --profile desktop-shell` started by hand — leaves the row off. `level: 2` is the
+# threshold cordis compares against its own order, ERROR 0 < INFO 1 < WARN 2
+# < DEBUG 3, so it keeps warnings — the level the webserver reports a failed
+# listen at — and drops debug.
+- insert:
+    - id: desktop-server-log
+      name: '@deepseek-ai/dsh-desktop-app/server-log'
+      disabled: !!js "!process.env.DSH_DESKTOP_SERVER_LOG"
+      config:
+        file: !!js process.env.DSH_DESKTOP_SERVER_LOG
+        level: 2

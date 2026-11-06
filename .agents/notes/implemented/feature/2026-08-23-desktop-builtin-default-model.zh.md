@@ -1,0 +1,51 @@
+# Agent Note: 桌面安装包自带出厂默认模型
+
+Status: implemented
+
+[English](2026-08-23-desktop-builtin-default-model.md) | 中文
+
+## Problem
+
+全新桌面安装的第一个会话开在 `deepseek-v4-flash` 上,因为那是 `@deepseek-ai/dsh-base` 携带的 `agent-default-model` 组合配置项,而 `@deepseek-ai/dsh-base` 是 harness 编排的每一个 profile 的基础层。旁边的模型选择器列出 `@deepseek-ai/dsh-llm-deepseek` 出厂目录里的三条建议行,其中唯一带视觉的那个模型被标为 `DeepSeek-V4-Flash-Vision-Exp`。这两件事都是部署选择,却穿着上游默认值的外衣:桌面客户端要的是首次启动就开在视觉模型上、而且选择器那一行读起来就是默认值,这两样都不该写进一个每个 CLI 安装都会编排的包里。
+
+`@haoran/dsh-default-model` 正是为回答这件事而写的,它的 README 也写明了它期待的交付方式:vendor 进内嵌服务端闭包,首次启动时播种进 web profile 的 `dsh.profile.bundles`。本仓库没有它的任何版本。桌面载荷里有四个内置插件,它不在其中,这个包存在的意义——那个部署默认值——在哪台机器上都没有生效。
+
+## Decision
+
+**0.1.0-rc.37 撤下了这个包。**[桌面端的模型目录以上游为准](../simplification/2026-10-01-desktop-model-catalog-follows-upstream.zh.md)负责这次撤下,以及删掉早先构建冻结进 profile 的那些表:新会话从 dsh-base 自己的 `agent-default-model` 起步,与这个包设的是同一对,选择器列出适配器自己的目录。本笔记其余部分记录的是这个包在 rc.20 到 rc.36.1 分发时的样子。
+
+把 `@haoran/dsh-default-model` 0.1.1 与另外两个 `@haoran/` tarball 一起 vendor 到 `apps/desktop-server/vendor/` 下,并在 `BUILTIN_WEB_BUNDLES` 里写上它的名字,于是 `apps/desktop-shell/src/profile-seed.ts` 会在内嵌服务端读取 profile 之前把它放进 `desktop` profile。它排在其余每一个内置插件之后,正因如此,它才定得下前面那些层都不去碰的那些条目;唯一排在它之后的 bundle 层是[桌面组合层](2026-09-06-desktop-composition-layer-content-search.zh.md),而后者不碰它的任何条目。
+
+**这个包只是一个 patch 层,别的什么都不是。**它没有 `src/`、没有 `lib/`、也没有入口点,全部实质就是 `cordis.patch.yml`。这行得通是因为 harness 从不 import 一个 bundle:`loadProfile` 读 bundle 包的清单,取 `dsh.bundle.patch` 里的路径,再解析那份 YAML。同一条声明也是它留在载荷里的原因——`scripts/bundle-closure.ts` 会删掉每一个没有可达代码 import 的第三方包,而把声明了 `dsh.bundle` 的清单当作要完整保留的 profile bundle。它没有声明 `dsh.client`,所以打包构建的 client 模块检查会跳过它:默认模型属于编排,不是页面要加载的东西。
+
+**两条 id 定向覆盖,两条都是完整值。**`agent-default-model` 变成 `{provider: deepseek-official, model: deepseek-flash}`——即 DeepSeek V4.1 Flash,上游在 #3824 把它设为 `@deepseek-ai/dsh-base` 自己的默认——于是没有会话级选择就创建出来的 Agent 从一个视觉模型起步。`llm-deepseek` 拿到一份只有这一个模型的 `models` 目录,名字写作 `DeepSeek-V4.1-Flash`:DeepSeek 已下线 `deepseek-v4-flash` 与 `deepseek-v4-flash-vision-exp`,并自 2026-09-14 起把 `deepseek-v4-pro` 转到 V4.1 Flash,于是其余每一行给出的都不是真的选择。已安装的适配器在自带的 `deepseek-flash` 之外仍带着那些已下线的行,能做到删的正是整表替换。同一个弹层里还有一档同样叫 `Default` 的推理强度,而选择器的触发按钮把一次选择拼作 `<model> · <effort>`,所以钉在这一行上的会话读作 `default · Default`。这一行的 `id` 没有变,所以重标从不上到线上。
+
+**两个块都写成完整的 config 值,因为 patch 机制不给别的选择。**`applyEntryPatches`(`vendor/include/src/index.ts`)按 `id` 把 patch 匹配到条目,然后把 patch 的每个顶层 key 赋上去——`target[key] = value`——所以 `config` 是整块替换条目原有的 config,前一层设过而这一层没写的任何 key 都退回插件的 schema 默认值。在这一层这不花什么代价:`dsh-base` 根本没给 `llm-deepseek` 任何 config,给 `agent-default-model` 的也正是这个包要设的那两个 key。但这是之后每一层都继承的规则,包括用户自己的 `cordis.patch.yml`。
+
+**播种按名字来,所以这里不需要任何与版本相关的处理。**`seedBuiltinBundles` 会把缺的名字追加进已有 profile 的 `dsh.profile.bundles`,并把包链接进 `$DSH_HOME/profiles/node_modules`,两件事都是追加式且幂等的;patch 层本身则在每次启动时从随包的那份副本读取。已经在跑某个桌面构建的机器,会把这个名字追加在它已列出的那些之后,而这正是这一层需要的位置。
+
+## 已有安装看到的是什么
+
+已经选过模型的用户保留他自己的选择。`$DSH_HOME/settings.yaml` 是一份实时读取的设置文档,它的 `agent-default-model:` 分节——正是有人在 web UI 里选模型时写下的东西([默认模型跟随选择器](../../archived/feature/2026-08-07-default-model-follows-the-picker.md))——位于每一个 bundle patch 层之上。这个包设定的是你还没选之前拿到的东西,绝不是压在你的选择之上。
+
+对这样的用户确实变了的是选择器那几行:无论他存着什么选择,被列出的只有 `deepseek-flash`,因为这份目录是组合配置项,不是逐用户的。存着的选择若指名一个已下线的模型,文本照常——DeepSeek 用 V4.1 Flash 为那些名字提供服务。图片在它上面发不出去,因为适配器把不在目录里的模型当作纯文本模型;而这个拒绝正是 `@haoran/dsh-vision-switch` 挂在这里的理由:在已经有过一轮的对话里,它经由选择器走的那同一个 `session.selectModel` 把会话切到 `deepseek-flash`,顺手把这个模型写回成存着的选择,图片随即发出。从 0.2.3 起,新对话的第一条消息也包含在内:插件从 composer 自己的模型目录(`ctx.modelDirectories`)读取有效选择,而它对一个 `modelSelection` 投影为空的会话解析出的正是这份存着的默认值——与宿主图片闸门的解析完全一致,于是一个已下线的存量选择在有人第一次发图时自行修好。他自己的 `cordis.patch.yml` 不受影响,播种从不编辑用户 patch 层。这条路径要求 `vendor/` 里的 `@haoran/dsh-vision-switch` 是 0.2.4 或更新的版本:0.2.0 用客户端契约已经改掉的旧名字(`imageIds`,现名 `attachmentIds`)去读草稿的附件 id,而这一句正好在它所替换的 `submit` 的第一行、且在它自己的 `try` 之外,于是在它装过的会话里每一次发送都死在输入框自己的处理函数里——发送按钮、Enter 与 Cmd+Enter 全都没有反应,纯文本和图片一样;而输入 shell 被重建过的会话则留着一个没被改写的 `submit`,图片就这样不切换地发了出去。0.2.2 把这个读取的类型取自契约自己的 `InputState`,按改写过的 shell 实例给每次安装记键且绝不给同一个实例包第二层,每次尝试最多调用一次原始 `submit`——输入框自己的 `submit` 在把发送交出去之后还会继续做事,因此从它那里抛回来的错误只会被报出来,而不是用同一份草稿的第二次发送去回应——并在闸门内部出任何差错时把这次发送原样转交出去。它的触发条件也一度从「图片」放宽到「任意附件」:输入状态只发布附件 id,插件当时持有的服务面分不出 PDF 和照片,因此在退役选择上挂一个文件,走的是和图片相同的那条切换;直到 0.2.5 改由 `ConversationController.resolveDraftAttachments` 解析草稿里每个附件的种类,把触发条件收回到「图片」,于是在退役选择上挂一个 `.pcap` 或 `.csv` 现在原样发出。0.2.2 仍然只读会话自己的 `modelSelection` 投影,而在一个对话发出任何东西之前,它的 `next` 与 `lastUsed` 都是 null,于是第一条消息什么都解析不出来、闸门无声让开;0.2.3 改读选择器的解析结果——`ctx.modelDirectories`,即 /model 弹层与 composer 模型座位共享的那份按会话的目录——并在真的让开时打出一行 `gate stood aside: <reason>`。0.2.4 把这次读取挂到注入作用域上(`ctx.inject(['conversation', 'modelDirectories'], …)`)而不是一次性查表,因为 bundle 的装载是并发的,哪个插件先注册服务不是闸门可以依赖的事;该作用域在卸载时还会把它改写过的每一个输入框 facade 放回原样,于是重跑不会把闸门套在闸门上。因此写明的下限是 0.2.4:0.2.3 有同样的解析,却只在选择器的服务碰巧先注册时才装上闸门。
+
+## Alternatives considered
+
+**把默认值挪进 `@deepseek-ai/dsh-base` 或 `PROFILE_TEMPLATES`。**改一处、不添新包,而且能覆盖全新 profile。否决,因为两者都是每个 CLI 安装都会编排的已发布面:`dsh-base` 是每个 profile 的基础层,而模板是 harness 为它自己创建的 profile 给出的答案。一个部署偏好的模型不是 harness 的默认值,视觉模型的选择器标签也是某一个客户端的产品决定。
+
+**交给逐用户的 profile patch。**`$DSH_HOME/profiles/desktop-shell/cordis.patch.yml` 能为一台机器设定这两个条目,机器本地的覆盖本就该写在那里。作为交付机制被否决,因为 profile 是用户数据:`initProfile` 只写一次,播种也刻意从不回头改它,所以这个文件在现有的每一个安装上都已经存在,只能一台台手工去编辑。对想要另一个默认值的人,它仍然是对的位置,并且仍然在这一层之上。
+
+**在 `@deepseek-ai/dsh-llm-deepseek` 上游重标那一行。**目录本来就是那个适配器的,在那里把 `DeepSeek-V4-Flash-Vision-Exp` 改个名字,就不需要重述整张表。以与 `dsh-base` 相同的理由否决:那个标签之所以读作 `default`,只因为这个部署把它当默认值,而在任何不这么做的安装里它都是假话。
+
+## Consequences
+
+从 rc.32 到 rc.36.1,全新桌面安装的第一个会话都开在 `deepseek-flash` 上,于是无需任何人去选模型,图像输入就是通的,选择器也只提供这一个模型。从 rc.20 到 rc.30,第一个会话开在 `deepseek-v4-flash-vision-exp` 上,选择器提供三行:`deepseek-v4-flash`、`deepseek-v4-pro` 与这个模型。版本和其他每个内置插件一样属于安装包:换版本意味着发一个桌面构建。
+
+重述出来的 `models` 表是整表替换——`resolveModels` 读的是 `config.models ?? DEFAULT_MODELS`,从不把两者合并——所以上游给 `@deepseek-ai/dsh-llm-deepseek` 新增的模型,在被加进这张表之前不会出现在选择器里。把两者拴在一起的是插件自己的 `tests/patch.spec.ts`:它从适配器的 `Config` schema 里读出已安装的目录逐行比对,又读 `@deepseek-ai/dsh-base` 的 `cordis.patch.yml` 断言两个被 patch 的 id 仍在其中。这些检查活在插件自己的仓库里,按它 devDependencies 钉住的版本运行,所以本仓库目录的改动是在插件下一次构建时被抓住,而不是被这里的任何闸抓住。从 rc.32 到 rc.36.1,[桌面组合层](2026-09-06-desktop-composition-layer-content-search.zh.md)都在本层之后生效,并在同一个 id 上重述 `models`,所以选择器读到的是 `apps/desktop-app/cordis.patch.yml` 里的那张表;那张表把出厂适配器自己的 `deepseek-flash` 行逐字段重复了一遍,含 `systemPromptUpdate: in-history`,由 `apps/desktop-shell/tests/desktop-composition-layer.spec.ts` 钉住。
+
+这一行上有三个字段是刻意不写的——`contextWindow`、`imagePixelBudget` 与 `imageMaxBytes`——因为每一个都退回出厂行自己携带的那个适配器值。继承让这张表不去钉死上游可能会挪的数字;漂移测试会把每一个都对着已安装的适配器解析,并把该行写出的字段逐一钉死——适配器本身并没有这个模型的行。
+
+一条 id 定向 patch,若目标 id 已经不在,就什么都不作用:`applyEntryPatches` 往 loader 日志写一行 `patch: entry <id> not found` 然后继续。那一行进的是服务端日志而不是任何用户眼前,所以 `dsh-base` 里对 `agent-default-model` 或 `llm-deepseek` 的一次重命名,会在这里悄悄把出厂默认值恢复回去。今天这两个 id 在本仓库的 `dsh-base` 里都在,而插件对它们的断言正是其中之一被挪动时会失败的那道检查。
+
+这是第一个全部作用都落在编排上、而不落在某个工具或某个页面上的内置插件,所以打包构建对它的证明比对其余几个要少。`verifyStagedBoot` 要求 `BUILTIN_WEB_BUNDLES` 里的每个名字都被播种、载荷都能启动,这覆盖了这个包确实随包走且能被解析;`verifyClientModules` 因为它没有 `dsh.client` 而跳过它。两条覆盖是否如期落地,由 `dsh --profile desktop-shell --dump-config` 作答,不由某道闸作答。

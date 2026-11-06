@@ -1,0 +1,34 @@
+# Bilingual-pair consistency record for 2026-10-03-desktop-shell-held-listen-socket.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-03-desktop-shell-held-listen-socket.md
+/agent-note-desktop-shell-the-shell-holds-the-served-ui-s-loopback-socket-so-a-crash-rebind-keeps-the-origin:
+  en: da8e2d8f5cd50062
+  zh: cddf3396126f5e21
+/agent-note-desktop-shell-the-shell-holds-the-served-ui-s-loopback-socket-so-a-crash-rebind-keeps-the-origin/problem:
+  en: c9984e6bfeebfcf9
+  zh: 0a72db595a237d5e
+/agent-note-desktop-shell-the-shell-holds-the-served-ui-s-loopback-socket-so-a-crash-rebind-keeps-the-origin/decision:
+  en: a15c7c13f167e5ac
+  zh: a15c7c13f167e5ac
+/agent-note-desktop-shell-the-shell-holds-the-served-ui-s-loopback-socket-so-a-crash-rebind-keeps-the-origin/decision/the-shell-holds-the-socket:
+  en: d2e509d5bc0d4aea
+  zh: 23b13ade928f64c4
+/agent-note-desktop-shell-the-shell-holds-the-served-ui-s-loopback-socket-so-a-crash-rebind-keeps-the-origin/decision/the-crash-path-on-the-held-socket:
+  en: c5c01a894dc94d9a
+  zh: ba67ae4d2ba2e052
+/agent-note-desktop-shell-the-shell-holds-the-served-ui-s-loopback-socket-so-a-crash-rebind-keeps-the-origin/decision/fallback:
+  en: 3b6cecd52eb01bb9
+  zh: 98657bb425a81645
+/agent-note-desktop-shell-the-shell-holds-the-served-ui-s-loopback-socket-so-a-crash-rebind-keeps-the-origin/decision/rules-that-hold-either-way:
+  en: 28c34c28f077db0a
+  zh: f95814efe26c16da
+/agent-note-desktop-shell-the-shell-holds-the-served-ui-s-loopback-socket-so-a-crash-rebind-keeps-the-origin/decision/packaging-and-checks:
+  en: 539d471b57a1dd96
+  zh: da712f7c505fdf42
+/agent-note-desktop-shell-the-shell-holds-the-served-ui-s-loopback-socket-so-a-crash-rebind-keeps-the-origin/alternatives-considered:
+  en: 650304d0100ebe60
+  zh: 9282d614b478760b
+/agent-note-desktop-shell-the-shell-holds-the-served-ui-s-loopback-socket-so-a-crash-rebind-keeps-the-origin/consequences:
+  en: f1d9d3561d5a62c6
+  zh: 81ef5903ee5b8587

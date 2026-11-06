@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for 2026-09-10-fork-shell-vacates-apps-desktop.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-10-fork-shell-vacates-apps-desktop.md
+/agent-note-the-fork-s-desktop-shell-vacates-apps-desktop:
+  en: aab6ce1d5e53e9a7
+  zh: 22ba1238f7fb666d
+/agent-note-the-fork-s-desktop-shell-vacates-apps-desktop/problem:
+  en: c7be80eccbf22a36
+  zh: d2b216ce7afb59cc
+/agent-note-the-fork-s-desktop-shell-vacates-apps-desktop/decision:
+  en: 87225f9f428a8d57
+  zh: b3b7c52eb2239d28
+/agent-note-the-fork-s-desktop-shell-vacates-apps-desktop/what-the-move-does-not-change:
+  en: a79fe632a46a341d
+  zh: 41d2e4d0e77a0f7e
+/agent-note-the-fork-s-desktop-shell-vacates-apps-desktop/alternatives-considered:
+  en: 591771c2cd982523
+  zh: c12c4b78c36a3e83
+/agent-note-the-fork-s-desktop-shell-vacates-apps-desktop/consequences:
+  en: de2916342fac73fc
+  zh: 446c843797564343
+/agent-note-the-fork-s-desktop-shell-vacates-apps-desktop/testing:
+  en: 138c12fa7880b2b6
+  zh: 54d7d82d60864aac

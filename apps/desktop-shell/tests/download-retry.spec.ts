@@ -1,0 +1,467 @@
+/**
+ * Which update-transfer failures are retried, how each plan spaces the
+ * attempts, and what the caller is left holding when it runs out.
+ * @module
+ */
+
+import { describe, expect, it, vi } from 'vitest'
+import {
+  CHECK_RETRY_DELAYS_MS,
+  RESUME_RETRY_DELAYS_MS,
+  RETRY_DELAYS_MS,
+  TRANSFER_CUT_CODE,
+  checkFailureDetail,
+  classifyDownloadError,
+  describeDownloadError,
+  type FallbackHooks,
+  httpErrorCode,
+  type RetryHooks,
+  transferWithFallback,
+  withRetry,
+} from '../src/download-retry.ts'
+
+/**
+ * An error carrying a `code`, which is the form Node's syscall failures and
+ * builder-util-runtime's `newError`/`HttpError` both take.
+ * @param code - the code to attach.
+ * @param message - the message to carry, defaulting to the code.
+ * @returns the error.
+ */
+function coded(code: string, message = code): Error {
+  return Object.assign(new Error(message), { code })
+}
+
+/**
+ * What Node's `fetch` raises when the peer cuts a response body: a bare
+ * `TypeError` naming nothing, over a `cause` that carries the whole
+ * identification.
+ * @param cause - the failure underneath, as undici and Node's sockets raise it.
+ * @returns the error a caller of `fetch` is handed.
+ */
+function terminated(cause: unknown): TypeError {
+  return new TypeError('terminated', { cause })
+}
+
+/**
+ * Collect the retry plan's calls against an instant clock.
+ * @returns the hooks to pass, plus what they recorded.
+ */
+function recorder(): { hooks: RetryHooks; delays: number[]; reports: Array<[number, number, number, string]> } {
+  const delays: number[] = []
+  const reports: Array<[number, number, number, string]> = []
+  return {
+    delays,
+    reports,
+    hooks: {
+      sleep: async (ms) => { delays.push(ms) },
+      onRetry: (attempt, total, delayMs, error) => {
+        reports.push([attempt, total, delayMs, describeDownloadError(error)])
+      },
+    },
+  }
+}
+
+describe('classifyDownloadError', () => {
+  it('retries the syscall codes a cut or refused connection carries', () => {
+    for (const code of ['ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED', 'EAI_AGAIN', 'ENOTFOUND', 'EPIPE']) {
+      expect(classifyDownloadError(coded(code, `read ${code}`))).toBe('transient')
+    }
+  })
+
+  it('retries the message forms that carry no code', () => {
+    for (const message of [
+      'Request timed out',
+      'Request has been aborted by the server',
+      'socket hang up',
+      'net::ERR_CONNECTION_RESET',
+      'net::ERR_INTERNET_DISCONNECTED',
+    ]) expect(classifyDownloadError(new Error(message))).toBe('transient')
+  })
+
+  it('reads the code out of the cause chain, which is where Node fetch leaves it', () => {
+    // The shapes the field failure and its neighbours actually take: a peer
+    // that closed the connection under the body, one that reset it, and a
+    // request that never reached the feed. None of the three carries a code at
+    // the top level.
+    expect(classifyDownloadError(terminated(coded('UND_ERR_SOCKET', 'other side closed')))).toBe('transient')
+    expect(classifyDownloadError(terminated(coded('ECONNRESET', 'read ECONNRESET')))).toBe('transient')
+    expect(classifyDownloadError(new TypeError('fetch failed', { cause: coded('ECONNREFUSED') }))).toBe('transient')
+    for (const code of ['UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'UND_ERR_ABORTED']) {
+      expect(classifyDownloadError(terminated(coded(code)))).toBe('transient')
+    }
+  })
+
+  it('retries the transfer the resumable downloader reports it could not finish', () => {
+    expect(classifyDownloadError(coded(TRANSFER_CUT_CODE, '下载被中断:已取得 20000 字节'))).toBe('transient')
+  })
+
+  it('retries a terminated body that names nothing at all', () => {
+    // A `fetch` whose cause a polyfill, a transform, or a future undici drops.
+    expect(classifyDownloadError(new TypeError('terminated'))).toBe('transient')
+    expect(classifyDownloadError(new TypeError('fetch failed'))).toBe('transient')
+  })
+
+  it('retries a request that was given up on, which names its condition only in its name', () => {
+    // `AbortSignal.timeout()` and `AbortController.abort()` reject a `fetch`
+    // with these two. A `DOMException`'s `code` is the numeric legacy value —
+    // 23 and 20 — and its message is prose about an operation, so neither the
+    // chain nor the message fragments identify it and the fail-closed default
+    // used to call a feed that answered slowly fatal.
+    expect(classifyDownloadError(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))).toBe('transient')
+    expect(classifyDownloadError(new DOMException('This operation was aborted', 'AbortError'))).toBe('transient')
+  })
+
+  it('retries the status the resumable transfer was refused with, whose message no pattern here reads', () => {
+    const url = 'http://127.0.0.1:8080/DSH%20Desktop-1.0.0-arm64-mac.zip'
+    // The spelling `HttpError.code` uses, so a status decides the same way
+    // whichever half of the transfer met it.
+    expect(httpErrorCode(503)).toBe('HTTP_ERROR_503')
+    expect(classifyDownloadError(Object.assign(
+      new Error(`更新源返回 503 Service Unavailable(${url})`),
+      { code: httpErrorCode(503) },
+    ))).toBe('transient')
+    expect(classifyDownloadError(Object.assign(
+      new Error(`更新源返回 404 Not Found(${url})`),
+      { code: httpErrorCode(404) },
+    ))).toBe('fatal')
+  })
+
+  it('lets the outermost code decide, so a refusal that wraps a network failure stays a refusal', () => {
+    const refusal = Object.assign(
+      new Error('not signed by the application owner', { cause: coded('ECONNRESET') }),
+      { code: 'ERR_UPDATER_INVALID_SIGNATURE' },
+    )
+    expect(classifyDownloadError(refusal)).toBe('fatal')
+    expect(classifyDownloadError(terminated(coded('ERR_CHECKSUM_MISMATCH')))).toBe('fatal')
+  })
+
+  it('walks a deep chain and survives one that points back at itself', () => {
+    let deep: unknown = coded('ECONNRESET')
+    for (let link = 0; link < 6; link++) deep = new Error('wrapped', { cause: deep })
+    expect(classifyDownloadError(deep)).toBe('transient')
+    const cyclic: { code?: string; cause?: unknown } = new Error('round and round')
+    cyclic.cause = cyclic
+    expect(classifyDownloadError(cyclic as Error)).toBe('fatal')
+  })
+
+  it('retries a server failure and a request the server asked for again', () => {
+    for (const status of [500, 502, 503, 504, 408, 425, 429]) {
+      expect(classifyDownloadError(coded(`HTTP_ERROR_${String(status)}`, `${String(status)} nope`))).toBe('transient')
+    }
+  })
+
+  it('refuses to retry a status that decides this request', () => {
+    for (const status of [400, 401, 403, 404, 410]) {
+      expect(classifyDownloadError(coded(`HTTP_ERROR_${String(status)}`, `${String(status)} nope`))).toBe('fatal')
+    }
+  })
+
+  it('reads the status out of the executor download failure that spells it in prose', () => {
+    const url = 'https://lhr.ink/dsh-updates/mac/DSH%20Desktop-0.1.0.zip'
+    expect(classifyDownloadError(new Error(`Cannot download "${url}", status 503: Service Unavailable`))).toBe('transient')
+    expect(classifyDownloadError(new Error(`Cannot download "${url}", status 404: Not Found`))).toBe('fatal')
+  })
+
+  it('never retries an updater refusal, whatever its message says', () => {
+    expect(classifyDownloadError(coded('ERR_UPDATER_INVALID_SIGNATURE', 'not signed by the application owner'))).toBe('fatal')
+    expect(classifyDownloadError(coded('ERR_UPDATER_ZIP_FILE_NOT_FOUND', 'ZIP file not provided'))).toBe('fatal')
+    // The message alone would read as a network failure; the code decides.
+    expect(classifyDownloadError(coded('ERR_UPDATER_CHANNEL_FILE_NOT_FOUND', 'net::ERR_CONNECTION_RESET'))).toBe('fatal')
+  })
+
+  it('never retries bytes that failed their checksum', () => {
+    expect(classifyDownloadError(coded('ERR_CHECKSUM_MISMATCH', 'sha512 checksum mismatch, expected a, got b'))).toBe('fatal')
+  })
+
+  it('calls an unrecognized failure fatal, including one that is not an Error', () => {
+    expect(classifyDownloadError(new Error('Too many redirects (> 10)'))).toBe('fatal')
+    expect(classifyDownloadError(new Error('Maximum allowed size is 500 MB'))).toBe('fatal')
+    expect(classifyDownloadError(coded('ENOSPC', 'no space left on device'))).toBe('fatal')
+    expect(classifyDownloadError('disconnected')).toBe('fatal')
+    expect(classifyDownloadError(undefined)).toBe('fatal')
+  })
+
+  it('calls a response that carried no status fatal', () => {
+    expect(classifyDownloadError(coded('HTTP_ERROR_-1', 'undefined undefined'))).toBe('fatal')
+  })
+})
+
+describe('checkFailureDetail', () => {
+  it('puts the whole code chain on its own line under the first message line', () => {
+    expect(checkFailureDetail(terminated(coded('UND_ERR_SOCKET', 'other side closed')), '稍后再试。'))
+      .toBe('terminated\n错误码:UND_ERR_SOCKET\n\n稍后再试。')
+    expect(checkFailureDetail(coded(httpErrorCode(503), '503 Service Unavailable\nHeaders: {"server":"nginx"}'), '稍后再试。'))
+      .toBe('503 Service Unavailable\n错误码:HTTP_ERROR_503\n\n稍后再试。')
+  })
+
+  it('names a request that was given up on by its name', () => {
+    expect(checkFailureDetail(new DOMException('The operation was aborted due to timeout', 'TimeoutError'), '稍后再试。'))
+      .toBe('The operation was aborted due to timeout\n错误码:TimeoutError\n\n稍后再试。')
+  })
+
+  it('leaves the code line out, rather than printing it empty, when the failure carries no code', () => {
+    expect(checkFailureDetail(new Error('更新源缺少 version 字段'), '稍后再试。')).toBe('更新源缺少 version 字段\n\n稍后再试。')
+    expect(checkFailureDetail('plain string', '稍后再试。')).toBe('plain string\n\n稍后再试。')
+  })
+})
+
+describe('describeDownloadError', () => {
+  it('names the error by its code where it carries one', () => {
+    expect(describeDownloadError(coded('ECONNRESET', 'read ECONNRESET'))).toBe('ECONNRESET')
+  })
+
+  it('names every code down the chain, so a cut transfer says what cut it', () => {
+    expect(describeDownloadError(terminated(coded('UND_ERR_SOCKET', 'other side closed')))).toBe('UND_ERR_SOCKET')
+    expect(describeDownloadError(
+      new Error('下载被中断', { cause: terminated(coded('ECONNRESET')) }),
+    )).toBe('ECONNRESET')
+    expect(describeDownloadError(Object.assign(
+      new Error('下载被中断', { cause: terminated(coded('UND_ERR_SOCKET')) }),
+      { code: TRANSFER_CUT_CODE },
+    ))).toBe(`${TRANSFER_CUT_CODE} ← UND_ERR_SOCKET`)
+  })
+
+  it('names a request that was given up on by its name, not by prose about an aborted operation', () => {
+    expect(describeDownloadError(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))).toBe('TimeoutError')
+    expect(describeDownloadError(new DOMException('This operation was aborted', 'AbortError'))).toBe('AbortError')
+  })
+
+  it('falls back to the first line of the message, capped', () => {
+    expect(describeDownloadError(new Error('net::ERR_CONNECTION_RESET'))).toBe('net::ERR_CONNECTION_RESET')
+    expect(describeDownloadError(new Error('503 Service Unavailable\nHeaders: {"server":"nginx"}'))).toBe('503 Service Unavailable')
+    expect(describeDownloadError(new Error('x'.repeat(400)))).toBe(`${'x'.repeat(160)}…`)
+  })
+
+  it('describes a value that is not an Error', () => {
+    expect(describeDownloadError('disconnected')).toBe('disconnected')
+  })
+})
+
+describe('withRetry', () => {
+  it('runs the download once when it succeeds', async () => {
+    const run = vi.fn(async () => {})
+    const { hooks, delays, reports } = recorder()
+    await withRetry(run, RETRY_DELAYS_MS, hooks)
+    expect(run).toHaveBeenCalledTimes(1)
+    expect(delays).toEqual([])
+    expect(reports).toEqual([])
+  })
+
+  it('waits the planned delays and reports each retry before waiting', async () => {
+    let attempts = 0
+    const run = vi.fn(async () => {
+      attempts += 1
+      if (attempts < 3) throw coded('ECONNRESET', 'read ECONNRESET')
+    })
+    const { hooks, delays, reports } = recorder()
+    await withRetry(run, RETRY_DELAYS_MS, hooks)
+    expect(run).toHaveBeenCalledTimes(3)
+    expect(delays).toEqual(RETRY_DELAYS_MS.slice(0, 2))
+    expect(reports).toEqual([
+      [1, RETRY_DELAYS_MS.length, RETRY_DELAYS_MS[0], 'ECONNRESET'],
+      [2, RETRY_DELAYS_MS.length, RETRY_DELAYS_MS[1], 'ECONNRESET'],
+    ])
+  })
+
+  it('spaces the whole plan out before giving up, and rejects with the last failure', async () => {
+    const failures = [
+      coded('ECONNRESET', 'read ECONNRESET'),
+      new Error('Request timed out'),
+      coded('HTTP_ERROR_503', '503 Service Unavailable'),
+      new Error('net::ERR_INTERNET_DISCONNECTED'),
+    ]
+    let attempts = 0
+    const run = vi.fn(async () => { throw failures[attempts++] })
+    const { hooks, delays, reports } = recorder()
+    await expect(withRetry(run, RETRY_DELAYS_MS, hooks)).rejects.toBe(failures[RETRY_DELAYS_MS.length])
+    expect(run).toHaveBeenCalledTimes(RETRY_DELAYS_MS.length + 1)
+    expect(delays).toEqual([...RETRY_DELAYS_MS])
+    expect(reports.map(report => report[0])).toEqual([1, 2, 3])
+  })
+
+  it('rejects with a fatal failure without retrying or waiting', async () => {
+    const failure = coded('ERR_UPDATER_INVALID_SIGNATURE', 'not signed by the application owner')
+    const run = vi.fn(async () => { throw failure })
+    const { hooks, delays, reports } = recorder()
+    await expect(withRetry(run, RETRY_DELAYS_MS, hooks)).rejects.toBe(failure)
+    expect(run).toHaveBeenCalledTimes(1)
+    expect(delays).toEqual([])
+    expect(reports).toEqual([])
+  })
+
+  it('stops as soon as a retried download turns fatal', async () => {
+    const failure = coded('ERR_CHECKSUM_MISMATCH', 'sha512 checksum mismatch, expected a, got b')
+    let attempts = 0
+    const run = vi.fn(async () => {
+      attempts += 1
+      throw attempts === 1 ? coded('ECONNRESET', 'read ECONNRESET') : failure
+    })
+    const { hooks, delays } = recorder()
+    await expect(withRetry(run, RETRY_DELAYS_MS, hooks)).rejects.toBe(failure)
+    expect(run).toHaveBeenCalledTimes(2)
+    expect(delays).toEqual([RETRY_DELAYS_MS[0]])
+  })
+
+  it('hands back what the attempt that completed returned', async () => {
+    const run = vi.fn(async () => 'the manifest')
+    const { hooks } = recorder()
+    await expect(withRetry(run, RETRY_DELAYS_MS, hooks)).resolves.toBe('the manifest')
+  })
+
+  it('spaces a retried check along the check plan, not the download plan', async () => {
+    let attempts = 0
+    const run = vi.fn(async () => {
+      attempts += 1
+      if (attempts < 3) throw new Error('net::ERR_EMPTY_RESPONSE')
+      return 'the manifest'
+    })
+    const { hooks, delays, reports } = recorder()
+    await expect(withRetry(run, CHECK_RETRY_DELAYS_MS, hooks)).resolves.toBe('the manifest')
+    expect(delays).toEqual(CHECK_RETRY_DELAYS_MS.slice(0, 2))
+    expect(reports.map(report => report[1])).toEqual([CHECK_RETRY_DELAYS_MS.length, CHECK_RETRY_DELAYS_MS.length])
+  })
+})
+
+describe('CHECK_RETRY_DELAYS_MS', () => {
+  it('is a bounded, strictly increasing plan', () => {
+    expect(CHECK_RETRY_DELAYS_MS.length).toBeGreaterThan(0)
+    expect([...CHECK_RETRY_DELAYS_MS]).toEqual([...CHECK_RETRY_DELAYS_MS].sort((a, b) => a - b))
+    expect(new Set(CHECK_RETRY_DELAYS_MS).size).toBe(CHECK_RETRY_DELAYS_MS.length)
+  })
+
+  it('fits inside the launch gate, which races the plan and opens on its own timeout', () => {
+    // GATE_TIMEOUT_MS in src/updater.ts. A plan that outlasts it would let the
+    // gate answer from the timeout instead of from a retried check.
+    expect(CHECK_RETRY_DELAYS_MS.reduce((total, delay) => total + delay, 0)).toBeLessThan(15_000)
+  })
+
+  it('is tighter than the download plan, whose attempts each re-transfer the artifact', () => {
+    const checkTotal = CHECK_RETRY_DELAYS_MS.reduce((total, delay) => total + delay, 0)
+    const downloadTotal = RETRY_DELAYS_MS.reduce((total, delay) => total + delay, 0)
+    expect(checkTotal).toBeLessThan(downloadTotal)
+  })
+})
+
+describe('RETRY_DELAYS_MS', () => {
+  it('is a bounded, strictly increasing plan', () => {
+    expect(RETRY_DELAYS_MS.length).toBeGreaterThan(0)
+    expect([...RETRY_DELAYS_MS]).toEqual([...RETRY_DELAYS_MS].sort((a, b) => a - b))
+    expect(new Set(RETRY_DELAYS_MS).size).toBe(RETRY_DELAYS_MS.length)
+    expect(RETRY_DELAYS_MS.reduce((total, delay) => total + delay, 0)).toBeLessThanOrEqual(60_000)
+  })
+})
+
+describe('RESUME_RETRY_DELAYS_MS', () => {
+  it('is a bounded, strictly increasing plan', () => {
+    expect(RESUME_RETRY_DELAYS_MS.length).toBeGreaterThan(0)
+    expect([...RESUME_RETRY_DELAYS_MS]).toEqual([...RESUME_RETRY_DELAYS_MS].sort((a, b) => a - b))
+    expect(new Set(RESUME_RETRY_DELAYS_MS).size).toBe(RESUME_RETRY_DELAYS_MS.length)
+  })
+
+  it('spends more than the plan whose every attempt re-transfers the artifact', () => {
+    const resumeTotal = RESUME_RETRY_DELAYS_MS.reduce((total, delay) => total + delay, 0)
+    const downloadTotal = RETRY_DELAYS_MS.reduce((total, delay) => total + delay, 0)
+    expect(resumeTotal).toBeGreaterThan(downloadTotal)
+  })
+})
+
+/**
+ * Collect a fallback plan's calls against an instant clock.
+ * @returns the hooks to pass, plus what the fallback report recorded.
+ */
+function fallbackRecorder(): { hooks: FallbackHooks; fallbacks: string[] } {
+  const { hooks } = recorder()
+  const fallbacks: string[] = []
+  return {
+    fallbacks,
+    hooks: { ...hooks, onFallback: (error) => { fallbacks.push(describeDownloadError(error)) } },
+  }
+}
+
+describe('transferWithFallback', () => {
+  it('never reaches the fallback when the library transfers the artifact', async () => {
+    const calls: string[] = []
+    const { hooks, fallbacks } = fallbackRecorder()
+    const outcome = await transferWithFallback({
+      run: async () => { calls.push('run') },
+      resume: async () => { calls.push('resume'); return true },
+      delays: RETRY_DELAYS_MS,
+      hooks,
+    })
+    expect(outcome).toBe('completed')
+    expect(calls).toEqual(['run'])
+    expect(fallbacks).toEqual([])
+  })
+
+  it('resumes only after the library plan is spent, then hands the artifact back to it', async () => {
+    const calls: string[] = []
+    const { hooks, fallbacks } = fallbackRecorder()
+    let attempts = 0
+    const outcome = await transferWithFallback({
+      run: async () => {
+        attempts += 1
+        calls.push(`run ${String(attempts)}`)
+        if (attempts <= RETRY_DELAYS_MS.length + 1) throw coded('ECONNRESET')
+      },
+      resume: async () => { calls.push('resume'); return true },
+      delays: RETRY_DELAYS_MS,
+      hooks,
+    })
+    expect(outcome).toBe('resumed')
+    // Every attempt of the library's own plan runs before the resume, and the
+    // last call is the one that takes the staged artifact out of the cache.
+    expect(calls).toEqual(['run 1', 'run 2', 'run 3', 'run 4', 'resume', 'run 5'])
+    expect(fallbacks).toEqual(['ECONNRESET'])
+  })
+
+  it('reports an exhausted transfer when the resume does not finish either', async () => {
+    const calls: string[] = []
+    const { hooks } = fallbackRecorder()
+    const outcome = await transferWithFallback({
+      run: async () => { calls.push('run'); throw coded('ETIMEDOUT') },
+      resume: async () => { calls.push('resume'); return false },
+      delays: [],
+      hooks,
+    })
+    expect(outcome).toBe('exhausted')
+    expect(calls).toEqual(['run', 'resume'])
+  })
+
+  it('does not resume a fatal failure, which another transfer cannot change', async () => {
+    const calls: string[] = []
+    const { hooks, fallbacks } = fallbackRecorder()
+    await expect(transferWithFallback({
+      run: async () => { calls.push('run'); throw coded('ERR_UPDATER_INVALID_SIGNATURE') },
+      resume: async () => { calls.push('resume'); return true },
+      delays: RETRY_DELAYS_MS,
+      hooks,
+    })).rejects.toThrow('ERR_UPDATER_INVALID_SIGNATURE')
+    expect(calls).toEqual(['run'])
+    expect(fallbacks).toEqual([])
+  })
+
+  it('rethrows the transient failure where there is no fallback to take', async () => {
+    const { hooks, fallbacks } = fallbackRecorder()
+    await expect(transferWithFallback({
+      run: async () => { throw coded('ECONNRESET') },
+      resume: undefined,
+      delays: [],
+      hooks,
+    })).rejects.toThrow('ECONNRESET')
+    expect(fallbacks).toEqual([])
+  })
+
+  it('surfaces a handoff the library refused, rather than reporting a transfer that installed nothing', async () => {
+    const { hooks } = fallbackRecorder()
+    let attempts = 0
+    await expect(transferWithFallback({
+      run: async () => {
+        attempts += 1
+        throw attempts === 1 ? coded('ECONNRESET') : coded('ERR_CHECKSUM_MISMATCH')
+      },
+      resume: async () => true,
+      delays: [],
+      hooks,
+    })).rejects.toThrow('ERR_CHECKSUM_MISMATCH')
+  })
+})

@@ -109,6 +109,7 @@ export function aggregateBuildArgs(face: 'host' | 'client'): string[] {
 }
 
 function hostHeapArgs(face: 'host' | 'client'): string[] {
+  // The desktop includes in tsconfig.host.json push a cold Host aggregate check past 4096 MB.
   return face === 'host' ? ['--max-old-space-size=8192'] : []
 }
 

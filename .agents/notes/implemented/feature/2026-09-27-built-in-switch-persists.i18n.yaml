@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-27-built-in-switch-persists.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-27-built-in-switch-persists.md
+/agent-note-a-built-in-plugin-switched-off-stays-off:
+  en: 7a69199773e578bf
+  zh: 108c1eeb432f7f6a
+/agent-note-a-built-in-plugin-switched-off-stays-off/problem:
+  en: 47ffd2e142dd4f36
+  zh: 814595533df9e848
+/agent-note-a-built-in-plugin-switched-off-stays-off/decision:
+  en: 50887a62ea483d1f
+  zh: e204e02dc0961015
+/agent-note-a-built-in-plugin-switched-off-stays-off/alternatives-considered:
+  en: 5d06934d855600d5
+  zh: 261156a55803e216
+/agent-note-a-built-in-plugin-switched-off-stays-off/testing:
+  en: 0e65911c00235a1d
+  zh: 5797a55f6c9d6279
+/agent-note-a-built-in-plugin-switched-off-stays-off/consequences:
+  en: 31be70ee8932a8e0
+  zh: 868357d4497c98fc

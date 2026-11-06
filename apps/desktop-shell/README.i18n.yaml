@@ -1,0 +1,55 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write apps/desktop-shell/README.md
+/deepseek-ai-dsh-desktop-shell:
+  en: 42aa4c3ae6be24e6
+  zh: 91cc497eebac63e7
+/deepseek-ai-dsh-desktop-shell/building-installable-packages:
+  en: 7c4ada7b81eed629
+  zh: 516e9bb0fe5c2fef
+/deepseek-ai-dsh-desktop-shell/closing-the-window-and-being-called-back:
+  en: 9119a4192245ad4c
+  zh: 946c2e2ff369f6e2
+/deepseek-ai-dsh-desktop-shell/updates:
+  en: f09f921b40023f0b
+  zh: 89bf9e8ab13cd122
+/deepseek-ai-dsh-desktop-shell/updates/mandatory-updates:
+  en: 2edad4c10a1c5767
+  zh: 8a0d32ad15147668
+/deepseek-ai-dsh-desktop-shell/updates/publishing:
+  en: 45e8b733583459f3
+  zh: 3abb346125e0e3fb
+/deepseek-ai-dsh-desktop-shell/trust-and-signing:
+  en: bf0d89ec83c8d2ed
+  zh: 286cc07d7dc846f6
+/deepseek-ai-dsh-desktop-shell/built-in-plugins:
+  en: c515b9c86def211f
+  zh: 3b78386090e02a7b
+/deepseek-ai-dsh-desktop-shell/the-render-service:
+  en: a3bbc320b10aefcb
+  zh: 4588a6649a680ed1
+/deepseek-ai-dsh-desktop-shell/plugin-management:
+  en: 22df629c8fe06076
+  zh: 7232c2141498dd43
+/deepseek-ai-dsh-desktop-shell/voice-input:
+  en: b1d64b42c625dd68
+  zh: 75d3db6bb3360c1a
+/deepseek-ai-dsh-desktop-shell/update-service:
+  en: 0ca88951276ca4c5
+  zh: d2ca0f13c3709cd0
+/deepseek-ai-dsh-desktop-shell/office-engine-service:
+  en: c7ba492737f64988
+  zh: 6625e57822d8942f
+/deepseek-ai-dsh-desktop-shell/data-location-service:
+  en: 88dcb8a6a84d5328
+  zh: 93d012bcb030a357
+/deepseek-ai-dsh-desktop-shell/where-your-data-lives:
+  en: b32ecacf4cdd44db
+  zh: 375c47bb9134acb0
+/deepseek-ai-dsh-desktop-shell/server-environment:
+  en: 638446ee47f25b9b
+  zh: 4c2fa3cca1e5fedd
+/deepseek-ai-dsh-desktop-shell/known-limitations-and-deferred-work:
+  en: 7accdcf086afc935
+  zh: 559efed0582356d5

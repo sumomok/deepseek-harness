@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-01-desktop-shell-spawns-server-with-telemetry-disabled.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-01-desktop-shell-spawns-server-with-telemetry-disabled.md
+/agent-note-the-desktop-shell-spawns-its-server-with-telemetry-disabled:
+  en: ab21f655d9f2546e
+  zh: 4368bbb80d91b285
+/agent-note-the-desktop-shell-spawns-its-server-with-telemetry-disabled/problem:
+  en: c5e803410e414280
+  zh: 4938f420fca96726
+/agent-note-the-desktop-shell-spawns-its-server-with-telemetry-disabled/decision:
+  en: 191f596d870b6251
+  zh: 5a3e4c4409e18b7b
+/agent-note-the-desktop-shell-spawns-its-server-with-telemetry-disabled/alternatives-considered:
+  en: 97c62fe233d594ee
+  zh: b395a315f3e94d07
+/agent-note-the-desktop-shell-spawns-its-server-with-telemetry-disabled/consequences:
+  en: a80921052e6aa9d3
+  zh: 58e283a812cd3f09

@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-28-desktop-protected-directories-prompt.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-28-desktop-protected-directories-prompt.md
+/agent-note-the-desktop-system-prompt-tells-the-model-to-leave-the-app-s-own-directories-alone:
+  en: c291c473300bd639
+  zh: 3ef81b6056ffb3be
+/agent-note-the-desktop-system-prompt-tells-the-model-to-leave-the-app-s-own-directories-alone/problem:
+  en: 4fc27ab76e7ed0ce
+  zh: 4741d392278506ab
+/agent-note-the-desktop-system-prompt-tells-the-model-to-leave-the-app-s-own-directories-alone/decision:
+  en: 60d587e2597b3dd2
+  zh: ed6bd2cdab8bca6d
+/agent-note-the-desktop-system-prompt-tells-the-model-to-leave-the-app-s-own-directories-alone/alternatives-considered:
+  en: ea5fb0654bcdd4fd
+  zh: 852635bcd17ab376
+/agent-note-the-desktop-system-prompt-tells-the-model-to-leave-the-app-s-own-directories-alone/consequences:
+  en: 34dea3f0b92549d0
+  zh: 61426a94fee0dd41
+/agent-note-the-desktop-system-prompt-tells-the-model-to-leave-the-app-s-own-directories-alone/testing:
+  en: 8d3ec1c12c55a8c0
+  zh: 0e7140c4d9446c2b

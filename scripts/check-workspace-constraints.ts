@@ -27,6 +27,7 @@ import {
   PACKAGE_ASSET_EXPORT_TARGET,
   PACKAGE_ASSET_FILES_ENTRY,
 } from '../packages/client/modules/src/assets.ts'
+import { PRIVATE_PRODUCT_APP_DIRECTORIES } from './private-product-apps.ts'
 import { collectProjectReferenceFaceViolations } from './project-reference-faces.ts'
 
 const root = resolve(import.meta.dirname, '..')
@@ -68,10 +69,11 @@ const experimentalPackageDirectory = /^packages\/experimental\/[^/]+$/
 const pluginMarketGeneratorDirectory = 'apps/plugin-market-generator'
 /**
  * Ordinary directories whose packages this repository publishes: one release member each. The reference plugin
- * market generator is a private repository tool, not a published application.
+ * market generator is a private repository tool, not a published application, and the private product applications
+ * are not published either.
  */
 const standardReleaseMemberDirectory = new RegExp(
-  `^(?:packages/(?!experimental/)[^/]+/[^/]+|apps/(?!desktop(?:-host)?$|${pluginMarketGeneratorDirectory.slice('apps/'.length)}$)[^/]+|vendor/[^/]+)$`,
+  `^(?:packages/(?!experimental/)[^/]+/[^/]+|apps/(?!desktop(?:-host)?$|${pluginMarketGeneratorDirectory.slice('apps/'.length)}$|${[...PRIVATE_PRODUCT_APP_DIRECTORIES].map(dir => `${dir.slice('apps/'.length)}$`).join('|')})[^/]+|vendor/[^/]+)$`,
   'u',
 )
 /** Installable application assembled by electron-builder rather than published to npm. */
@@ -470,7 +472,8 @@ function isReleaseMemberDirectory(dir: string): boolean {
  * private dsh package on one shared version, written by `release:dsh` and
  * shared with the workspace root. This name test is that boundary: it covers
  * the family wherever the manifest lives, so apps/ members cannot drift with
- * only the release lane noticing.
+ * only the release lane noticing. `checkWorkspaceManifest` does not call it for
+ * the private product applications, which carry their own product version.
  * @param manifest - the workspace package manifest.
  * @param expected - the version every dsh-family manifest must carry (the root's).
  * @returns one violation naming the manifest and the expected version, or
@@ -493,7 +496,7 @@ export function checkDshFamilyVersion(manifest: PackageManifest, expected: strin
 export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): string[] {
   const errors = checkExperimentalManifest({ dir, manifest })
   const label = manifest.name ?? dir
-  const familyVersionError = checkDshFamilyVersion(manifest, repositoryVersion)
+  const familyVersionError = PRIVATE_PRODUCT_APP_DIRECTORIES.has(dir) ? undefined : checkDshFamilyVersion(manifest, repositoryVersion)
   if (familyVersionError !== undefined) errors.push(familyVersionError)
   const isNativePackageDir = dir.startsWith('native/system/packages/')
   const isPublicNativePackage = isNativePackageDir
@@ -551,7 +554,7 @@ export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): st
     }
   }
 
-  if (dir.startsWith('apps/') && dir !== desktopApplicationDirectory && dir !== pluginMarketGeneratorDirectory && manifest.name?.startsWith('@deepseek-ai/')) {
+  if (dir.startsWith('apps/') && dir !== desktopApplicationDirectory && dir !== pluginMarketGeneratorDirectory && !PRIVATE_PRODUCT_APP_DIRECTORIES.has(dir) && manifest.name?.startsWith('@deepseek-ai/')) {
     const expectedFiles = appPackageFiles[manifest.name]
     if (expectedFiles === undefined) {
       errors.push(`${label}: app package has no publication files policy`)

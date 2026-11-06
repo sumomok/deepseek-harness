@@ -81,10 +81,12 @@ export function isOwnerAuthorizedRuntime(name: string): boolean {
 }
 
 /**
- * Metadata overrides where the installed manifest is wrong or unreachable.
- * Each entry documents why the store cannot answer.
+ * Metadata overrides, admitted on either of two grounds: the installed manifest
+ * is wrong or unreachable, or this payload ships an archive rather than any
+ * upstream a manifest could name, so the notice must point at the archive.
+ * Each entry's comment says which ground it stands on.
  */
-const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
+export const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   // Rust workspaces publishing npm bins without `license` in package.json.
   'oxlint': { license: 'MIT', repo: 'https://github.com/oxc-project/oxc' },
   'oxlint-tsgolint': { license: 'MIT', repo: 'https://github.com/oxc-project/tsgolint' },
@@ -94,6 +96,23 @@ const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   '@modelcontextprotocol/server-filesystem': { license: 'MIT / Apache-2.0', repo: 'https://github.com/modelcontextprotocol/servers' },
   // No repository field in the published manifest.
   'node-addon-require-builtin': { repo: 'https://www.npmjs.com/package/node-addon-require-builtin' },
+  // Vendored as tarballs; the archive committed here, not a registry version, is
+  // the artifact this payload ships, so the archive is what the notice names.
+  '@haoran/dsh-auto-compact': { repo: 'apps/desktop-server/vendor/haoran-dsh-auto-compact-0.6.0.tgz' },
+  '@haoran/dsh-btw': { repo: 'apps/desktop-server/vendor/haoran-dsh-btw-0.3.0.tgz' },
+  '@haoran/dsh-clickable-refs': { repo: 'apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.6.0.tgz' },
+  '@haoran/dsh-connection-banner': { repo: 'apps/desktop-server/vendor/haoran-dsh-connection-banner-0.4.0.tgz' },
+  '@haoran/dsh-crash-resume': { repo: 'apps/desktop-server/vendor/haoran-dsh-crash-resume-0.6.0.tgz' },
+  '@haoran/dsh-data-location': { repo: 'apps/desktop-server/vendor/haoran-dsh-data-location-0.2.2.tgz' },
+  '@haoran/dsh-desktop-update': { repo: 'apps/desktop-server/vendor/haoran-dsh-desktop-update-0.3.1.tgz' },
+  '@haoran/dsh-llm-permission-gateway': { repo: 'apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.7.1.tgz' },
+  '@haoran/dsh-mcp-servers': { repo: 'apps/desktop-server/vendor/haoran-dsh-mcp-servers-0.3.1.tgz' },
+  '@haoran/dsh-office-preview-notice': { repo: 'apps/desktop-server/vendor/haoran-dsh-office-preview-notice-0.3.0.tgz' },
+  '@haoran/dsh-screenshot': { repo: 'apps/desktop-server/vendor/haoran-dsh-screenshot-0.9.0.tgz' },
+  '@haoran/dsh-vision-switch': { repo: 'apps/desktop-server/vendor/haoran-dsh-vision-switch-0.4.1.tgz' },
+  '@haoran/dsh-sidebar-autoscroll': { repo: 'apps/desktop-server/vendor/haoran-dsh-sidebar-autoscroll-0.1.1.tgz' },
+  '@sumomok/dsh-balance': { repo: 'apps/desktop-server/vendor/sumomok-dsh-balance-0.9.4.tgz' },
+  '@sumomok/dsh-quote-message': { repo: 'apps/desktop-server/vendor/sumomok-dsh-quote-message-0.6.0.tgz' },
   // No `license` field in the published manifest; the tarball's LICENSE.txt is the MIT text.
 }
 

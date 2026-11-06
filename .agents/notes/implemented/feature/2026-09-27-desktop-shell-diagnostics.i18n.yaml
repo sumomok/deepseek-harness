@@ -1,0 +1,34 @@
+# Bilingual-pair consistency record for 2026-09-27-desktop-shell-diagnostics.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-27-desktop-shell-diagnostics.md
+/agent-note-desktop-shell-diagnostics-window-loads-crash-records-server-logger-records-and-update-leftovers:
+  en: 43b393dddaaa98a0
+  zh: 58051d69f52b2a80
+/agent-note-desktop-shell-diagnostics-window-loads-crash-records-server-logger-records-and-update-leftovers/problem:
+  en: 9260ecff10ae5106
+  zh: 8eed5d1f6054c22d
+/agent-note-desktop-shell-diagnostics-window-loads-crash-records-server-logger-records-and-update-leftovers/decision:
+  en: a15c7c13f167e5ac
+  zh: a15c7c13f167e5ac
+/agent-note-desktop-shell-diagnostics-window-loads-crash-records-server-logger-records-and-update-leftovers/decision/loading-the-served-ui:
+  en: 59227331367104ad
+  zh: 84b33d72a73b6049
+/agent-note-desktop-shell-diagnostics-window-loads-crash-records-server-logger-records-and-update-leftovers/decision/crash-records-for-the-server-process:
+  en: 278d584174b419c7
+  zh: 76ccfd68c4e2bb10
+/agent-note-desktop-shell-diagnostics-window-loads-crash-records-server-logger-records-and-update-leftovers/decision/server-logger-records-in-dsh-server-log:
+  en: c28627dc036db961
+  zh: cc27f0b3fc8ae406
+/agent-note-desktop-shell-diagnostics-window-loads-crash-records-server-logger-records-and-update-leftovers/decision/the-detail:
+  en: a90b31beb962f240
+  zh: 9bd315be7f8fb7a6
+/agent-note-desktop-shell-diagnostics-window-loads-crash-records-server-logger-records-and-update-leftovers/decision/emptying-pending-after-an-install:
+  en: 0209ca3808830fc1
+  zh: 91d12ea345e48b5d
+/agent-note-desktop-shell-diagnostics-window-loads-crash-records-server-logger-records-and-update-leftovers/alternatives-considered:
+  en: 665080672fe2d7f9
+  zh: 288481e1fa59e1f6
+/agent-note-desktop-shell-diagnostics-window-loads-crash-records-server-logger-records-and-update-leftovers/consequences:
+  en: b43e1cfae939acf0
+  zh: e050177fc4bb51b4

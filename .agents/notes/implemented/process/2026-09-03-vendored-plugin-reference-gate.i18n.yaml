@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-03-vendored-plugin-reference-gate.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-03-vendored-plugin-reference-gate.md
+/agent-note-vendored-plugin-reference-gate:
+  en: 3fa59b040b8c9b91
+  zh: 5c6b4cfd9848bb13
+/agent-note-vendored-plugin-reference-gate/problem:
+  en: fad5b90bae6929e4
+  zh: 3a4d19b5ff96479b
+/agent-note-vendored-plugin-reference-gate/decision:
+  en: 71da8f9af3754626
+  zh: 5d5f918ced289934
+/agent-note-vendored-plugin-reference-gate/alternatives-considered:
+  en: 25398f42fb64e055
+  zh: 23560a9183ca1205
+/agent-note-vendored-plugin-reference-gate/consequences:
+  en: ab7f0d9c0f6e5b57
+  zh: fb42c7275e21c208
+/agent-note-vendored-plugin-reference-gate/related:
+  en: ebab21bbdfcabbad
+  zh: 8e8d0f4b956f9717

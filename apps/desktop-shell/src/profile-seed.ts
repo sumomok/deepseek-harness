@@ -1,0 +1,2323 @@
+/**
+ * Create the `desktop-shell` profile and put the bundle packages the installer
+ * ships beside the server closure into it, before the embedded server reads it.
+ *
+ * The shell boots a profile of its own rather than the `web` profile every
+ * `dsh web` shares, so nothing it writes into `$DSH_HOME` can only be satisfied
+ * from inside the installed application. That makes creating the directory a
+ * precondition of the boot rather than an improvement on it: `desktop-shell` is
+ * not in `PROFILE_TEMPLATES`, so `loadProfile` answers a home this has not run
+ * against with `profile "desktop-shell" does not exist`.
+ *
+ * A profile is otherwise user data — `initProfile` writes it once and never
+ * revisits an existing file — and the template names only the two in-box
+ * bundles, so nothing in the server would ever mount the packages the desktop
+ * payload carries. This module supplies the three facts the boot needs and
+ * nothing else:
+ *
+ * - the profile directory holds the manifest, the user patch layer, and the
+ *   pnpm settings, the same three files `initProfile` writes;
+ * - the manifest's `dsh.profile.bundles` list carries every name in
+ *   {@link BUILTIN_WEB_BUNDLES}, so `loadProfile` applies their
+ *   `cordis.patch.yml` layers;
+ * - `$DSH_HOME/profiles/node_modules/<name>` links to the payload directory,
+ *   so the Loader — which resolves a plugin specifier against the profile
+ *   directory as `baseUrl` — finds the package on the ordinary parent walk.
+ *   `healProfilesModuleFallback` maintains that same directory for the CLI
+ *   app's own dependency closure and leaves names outside it alone, so these
+ *   links survive every boot.
+ *
+ * **A home an earlier build seeded at `profiles/desktop` is renamed once**, by
+ * {@link adoptLegacyProfile}, before anything else here runs. Upstream reserves
+ * `desktop` for its own Electron application — `apps/cli/src/args.ts` refuses
+ * `--profile desktop` from every other caller — so this shell's profile moved
+ * to a name of its own, and a client that already had one keeps its patch
+ * layer, its migration marker, its manifest, and every plugin it had admitted.
+ *
+ * A run has two levels. Initializing the profile is required, and a failure is
+ * reported in {@link SeedReport.failed}: the launch still starts the server,
+ * which owns the diagnostic for a profile it cannot load. Naming the built-in
+ * bundles and maintaining the links stay best-effort, because every failure
+ * there leaves a usable app without those plugins, which is the outcome to
+ * prefer over a shell that will not launch. Both writes are idempotent: a name
+ * already listed is not added twice, a correct link is left as it is, an
+ * existing file is never rewritten, and syncing the `web` profile below is the
+ * only thing here that writes or deletes a `dependencies` entry or replaces a
+ * file this module wrote.
+ *
+ * The one thing a run removes on its own is a built-in this build withdrew — a
+ * name in {@link WITHDRAWN_WEB_BUNDLES} that an earlier build seeded and this
+ * payload no longer carries. `loadProfile` skips a `dsh.profile.bundles` entry
+ * it cannot resolve and the server writes one `skipping profile bundle` line to
+ * stderr for it on every boot, so an upgrade that just stopped shipping a
+ * package would leave that name, and that line, in every profile it had seeded.
+ * For the same line, a run also removes the names in
+ * {@link PLACEHOLDER_BUNDLES}, which resolve to a placeholder that declares no
+ * bundle.
+ *
+ * **The plugins a user installed into the CLI's shared `web` profile stay in
+ * step with the desktop profile on every launch**, because every build before
+ * this shell had a profile of its own composed `web` and nothing else ever
+ * wrote to it.
+ * {@link MIGRATION_MARKER_FILENAME} inside the desktop profile is the shell's
+ * own bookkeeping for this: which names it has migrated, which it has found
+ * defective, which it has tombstoned as removed, and the `dependencies` value
+ * it wrote for each name it admitted. A name is linked, never
+ * installed and never copied — the desktop profile's `node_modules` gets a
+ * link to the package inside `profiles/web/node_modules`, so the web profile
+ * stays the one place the package lives and a later `dsh plugin --profile web`
+ * update reaches both. The machines this runs on have no package manager, so
+ * nothing here may run an install.
+ *
+ * **A defective package is kept visible, never silently absent.** The server
+ * skips a `dsh.profile.bundles` entry it cannot load, and writes one stderr
+ * line about it, rather than failing the boot; a package this shell admits
+ * from the `web` profile is user data this shell did not build or vet — an
+ * unbuilt git install with no `lib/` and no `prepare` script is a real field
+ * case — and one that is skipped on every boot, with nothing on screen, looks
+ * to its owner like a feature that disappeared. {@link bundleDefect} is the
+ * one predicate every admission and every per-boot revalidation reads, and a
+ * defective name never reaches the bundle list: its link is kept (so it stays
+ * inspectable and repairable) and it is recorded in the marker's `defective`
+ * list instead, with one line in the launch log that records it, rather than
+ * silently gone. No screen shows either list; deleting a name's entry from the
+ * marker is what readmits it on the next launch. Deleting the desktop link while the web profile still holds a
+ * healthy copy tombstones the name into the marker's `removed` list instead of
+ * dropping it outright, which is what keeps a plugin the user deliberately took
+ * off the desktop from coming back on its own. A name whose web copy is also
+ * gone is dropped, and its link and the `dependencies` entry this shell wrote
+ * for it go with it: upstream's plugin manager lists every `dependencies` key
+ * and shows one that resolves nowhere as a failed plugin. An entry whose value
+ * is not the one this shell wrote stays, on that launch and every later one.
+ * A profile an earlier build left holding that entry after the drop — the name
+ * in no marker list and out of the bundle list, its web copy gone — loses it
+ * on the first launch that reads that build's marker, while the web profile
+ * still lists the name, the name resolves nowhere for the profile, and the
+ * entry still holds the value the web profile declares. A migrated plugin the server
+ * still does not load — an import that throws, which manifest-level admission
+ * cannot catch, or a package its compatibility check refuses — is named in the
+ * server's own output while the server keeps running: `server.ts` passes every
+ * line of it, the ones after the URL line included, to
+ * {@link quarantineLoadFailureFromOutput}, which moves the blamed name into
+ * `defective`; that boot runs without it, and no later one loads it.
+ *
+ * **The permission rows an earlier build copied in are taken back out, once.**
+ * That same first sync carried the `yolo-access` preset table and the gateway
+ * row the hand-written `web` patch layer they came from held, and
+ * `@haoran/dsh-llm-permission-gateway` has declared both in its own bundle
+ * layer since 0.1.3. Every bundle layer applies before the profile's patch
+ * layer, so the copy shadows the table the installed plugin ships.
+ * {@link retireSeededPermissionRows} removes a row that is still exactly what
+ * was copied, leaves an edited one alone with the reason in the log, and
+ * records the decision so no later launch reads the file again.
+ *
+ * **The legacy `settings.yaml` is prepared for the server's one-time import
+ * right after this module runs**, by `settings-migration.ts`, which the launch
+ * calls next: a gateway row the retirement keeps is one it rewrites.
+ *
+ * **Peer versions are not this module's problem.** A package installed under an
+ * older host suits it or it does not: its unmet peers fall through to
+ * `$DSH_HOME/profiles/node_modules`, which the running installation heals, so
+ * it shares this build's cordis, but whether its code matches this build's API
+ * is not a question a link can answer.
+ *
+ * The three template files are reproduced here rather than imported.
+ * `apps/desktop-shell` ships as an Electron app whose `node_modules` is packed into
+ * `app.asar`, so depending on a harness package would pull the product closure
+ * in a second time beside the payload that already holds it.
+ * `tests/profile-seed.spec.ts` compares what this writes against what
+ * `initProfile` writes, so an edit to either side fails there.
+ *
+ * **A built-in plugin the user switched off stays off.** The manifest's
+ * `dsh.profile.shipped` lists the built-in plugins this shell has put into the
+ * profile; the Plugins page lists every name there, switched on or off, and
+ * switching one off removes it from `dsh.profile.bundles` only. A launch adds a
+ * missing built-in back only when the list does not name it — a plugin this
+ * build adds, or any missing one in a profile no build of this shell recorded
+ * the list in yet — and rewrites the list to this payload's built-in plugins.
+ * A name in {@link REQUIRED_WEB_BUNDLES} is the exception: the page shows it
+ * locked, and a launch puts it back even when the list names it.
+ * Disabling one of a plugin's rows in
+ * `$DSH_HOME/profiles/desktop-shell/cordis.patch.yml` still turns off that row
+ * alone.
+ * @module @deepseek-ai/dsh-desktop-shell/profile-seed
+ */
+
+import {
+  existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync,
+  writeFileSync,
+} from 'node:fs'
+import { homedir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { FAILSAFE_SCHEMA, load } from 'js-yaml'
+import { sameLinkTarget } from './link-target.ts'
+
+/** This product's composition layer: the one {@link BUILTIN_WEB_BUNDLES} member that is no plugin. */
+export const DESKTOP_COMPOSITION_BUNDLE = '@deepseek-ai/dsh-desktop-app'
+
+/**
+ * Bundle packages the desktop installer ships and mounts, in the order they
+ * join the bundle stack. They are appended after the template's own bundles,
+ * so the in-box web app composes first and these patch over it.
+ *
+ * All but the last are plugins. {@link DESKTOP_COMPOSITION_BUNDLE} is this
+ * product's own composition layer — no code, one `cordis.patch.yml` — and it
+ * comes after every other name here on purpose: its rows target rows these
+ * plugins insert, which a patch layer can only reach after the layer that
+ * inserted them, and it puts this layer's deployment defaults over every bundle
+ * layer this list carries. A fresh profile lists these in this order; in an
+ * existing profile {@link seedExistingManifest} inserts a missing plugin before
+ * the composition layer rather than at the end, and moves the layer after the
+ * last of these plugins when one is listed after it.
+ *
+ * The composition layer is not last in `dsh.profile.bundles` for good: {@link
+ * syncWebBundles} appends what it migrates from the `web` profile after it,
+ * and so does upstream's plugin manager for a package it installs. The user
+ * layers apply later still —
+ * the profile's own `cordis.patch.yml`, then `$DSH_HOME/cordis.patch.yml`,
+ * then any `--patch` overlay (`allPatches` in `apps/cli/src/profile-boot.ts`).
+ *
+ * A scoped name is an ordinary member: every path this module builds from one
+ * — the payload directory, the manifest entry, the flat-fallback link — is
+ * joined rather than concatenated, and the link's scope directory is created
+ * with it.
+ *
+ * Order matters only between layers that patch the same entry id, and no two
+ * plugin layers here do: each inserts rows of its own, and the one dsh-base
+ * row a plugin patches, the gateway's `permission`, no other layer here
+ * touches.
+ */
+export const BUILTIN_WEB_BUNDLES: readonly string[] = [
+  '@haoran/dsh-screenshot', '@haoran/dsh-llm-permission-gateway',
+  '@sumomok/dsh-quote-message', '@sumomok/dsh-balance', '@haoran/dsh-connection-banner',
+  '@haoran/dsh-clickable-refs', '@haoran/dsh-vision-switch',
+  '@haoran/dsh-mcp-servers', '@haoran/dsh-btw',
+  '@haoran/dsh-desktop-update', '@haoran/dsh-auto-compact', '@haoran/dsh-office-preview-notice',
+  '@haoran/dsh-crash-resume', '@haoran/dsh-data-location', '@haoran/dsh-sidebar-autoscroll',
+  DESKTOP_COMPOSITION_BUNDLE,
+]
+
+/**
+ * Built-in plugins this application cannot run without, which the Plugins page
+ * shows locked and a launch always puts back into the bundle list.
+ *
+ * The lock itself is the `plugin-manager` row's `requiredModules` in
+ * `apps/desktop-app/cordis.patch.yml`, which matches plugin rows by module
+ * name, while this list holds bundle package names. Each name here is both:
+ * the bundle's own patch layer inserts one row whose module is the package
+ * itself. `tests/desktop-composition-layer.spec.ts` holds the composed
+ * `requiredModules` equal to this list.
+ */
+export const REQUIRED_WEB_BUNDLES: readonly string[] = ['@haoran/dsh-crash-resume']
+
+/**
+ * Plugin packages an earlier build seeded and this payload no longer carries.
+ *
+ * A name here is one the shell put into a profile itself, which makes the shell
+ * the only thing that can take it back out: the server resolves every
+ * `dsh.profile.bundles` entry against the installation and the profile, and
+ * skips a name that resolves in neither place with one `skipping profile
+ * bundle` line on its stderr, on every boot.
+ *
+ * A run removes such a name only where it no longer resolves, and
+ * removes the flat-fallback link only where it is the one this shell would have
+ * made. A copy the user installed themselves keeps both its link and its bundle
+ * entry, under the ownership that put it there.
+ *
+ * An entry stays here while any build that seeded it may still be installed;
+ * dropping one only stops repairing the profiles that still name it.
+ */
+export const WITHDRAWN_WEB_BUNDLES: readonly string[] = [
+  '@sumomok/dsh-edit-rerun', 'dsh-better-sidebar', 'dsh-at-file', '@haoran/dsh-plugin-updates',
+  '@haoran/dsh-default-model',
+]
+
+/**
+ * Bundles of the `@deepseek-ai/dsh` closure the payload replaces with an inert
+ * placeholder: a directory holding only a `package.json` with the package's
+ * name and a version, and no `dsh` field, entry point, or dependency
+ * (`scripts/staged-boot-gate.ts` writes and checks it).
+ *
+ * `@deepseek-ai/dsh-experimental-auto-review` mounts upstream's own reviewed
+ * access mode, which reads the same knob pair as
+ * `@haoran/dsh-llm-permission-gateway`, so a call under it would be reviewed
+ * twice. `@deepseek-ai/dsh-experimental-inspector-profile` mounts the
+ * developer inspectors. `@deepseek-ai/dsh-experimental-session-search` inserts
+ * `optional-tool-session-query`, which mounts
+ * `@deepseek-ai/dsh-tool-session-query`, the package the desktop composition
+ * layer's own `tool-session-query` row already mounts; both register the same
+ * five tool names, so with the bundle switched on the row that mounts second
+ * fails with `tool "session_search" is already registered`.
+ *
+ * The Loader and the plugin manager resolve a bundle name from the
+ * installation before the profile, so the placeholder is what every lookup
+ * finds: the Plugins page lists none of these names, enabling one by name is
+ * refused as not a bundle, and a copy installed into the profile is never
+ * loaded. A run removes these names from `dsh.profile.bundles`, which is where
+ * a selection made before the placeholder shipped would make the boot print
+ * one `skipping profile bundle` line per launch.
+ */
+export const PLACEHOLDER_BUNDLES: readonly string[] = [
+  '@deepseek-ai/dsh-experimental-auto-review', '@deepseek-ai/dsh-experimental-inspector-profile',
+  '@deepseek-ai/dsh-experimental-session-search',
+]
+
+/**
+ * The profile the desktop shell boots (`dsh --profile desktop-shell`), which no
+ * other dsh installation launches. The CLI's own `web` profile is left
+ * untouched, and so is `desktop`: upstream's own Electron application
+ * (`apps/desktop`) reserves that name, and `apps/cli/src/args.ts` refuses
+ * `--profile desktop` from every other caller, so the two applications can be
+ * installed on one machine without writing into each other's profile.
+ */
+export const DESKTOP_PROFILE = 'desktop-shell'
+
+/**
+ * The profile name this shell booted before upstream reserved `desktop`.
+ * {@link adoptLegacyProfile} renames such a directory onto
+ * {@link DESKTOP_PROFILE} once, on the first launch of a build that carries
+ * this rename.
+ */
+const LEGACY_DESKTOP_PROFILE = 'desktop'
+
+/**
+ * The manifest `name` this shell wrote into {@link LEGACY_DESKTOP_PROFILE}.
+ *
+ * It is the whole discriminator between a directory this shell seeded and one
+ * upstream's Electron application created at the same path: upstream writes
+ * `@deepseek-ai/dsh-desktop-runtime` there (`PROJECT_NAME` in
+ * `apps/desktop/src/project-manager.ts`) and reads it back on every launch, so
+ * a `desktop` profile carrying any other name is not this shell's to move.
+ */
+const LEGACY_PROFILE_MANIFEST_NAME = 'dsh-profile-desktop'
+
+/**
+ * The profile every `dsh web` shares, and the one the shell itself composed
+ * before {@link DESKTOP_PROFILE} existed. It is the source every synced plugin
+ * comes from and is never written to.
+ */
+export const WEB_PROFILE = 'web'
+
+/**
+ * The shell's record of what it has synced out of the `web` profile, inside the
+ * desktop profile directory.
+ *
+ * Its presence is what a fresh install has none of, and a first sync copies the
+ * patch layer and pnpm settings verbatim only while it is still absent; every
+ * later sync updates the lists and the map it holds without touching either
+ * file again.
+ */
+export const MIGRATION_MARKER_FILENAME = 'web-migration.json'
+
+/** Directory under the Harness home holding every profile (`PROFILES_DIR` in dsh-app-boot). */
+const PROFILES_DIR = 'profiles'
+
+/**
+ * Where one profile's directory is, under a Harness home.
+ *
+ * The same join `loadProfile` performs, exported so nothing else in the shell
+ * spells this path itself.
+ * @param home - the Harness home, from {@link resolveHarnessHome}.
+ * @param profile - the profile name.
+ * @returns the absolute profile directory.
+ */
+export function profileDirectory(home: string, profile: string): string {
+  return join(profilesDirectory(home), profile)
+}
+
+/**
+ * The directory holding every profile under a Harness home, and the shared
+ * flat fallback `node_modules` beside them.
+ * @param home - the Harness home, from {@link resolveHarnessHome}.
+ * @returns the absolute directory.
+ */
+export function profilesDirectory(home: string): string {
+  return join(home, PROFILES_DIR)
+}
+
+/** The user patch layer inside a profile directory (`PROFILE_PATCH_FILENAME` in dsh-app-boot). */
+const PROFILE_PATCH_FILENAME = 'cordis.patch.yml'
+
+/** The pnpm settings file inside a profile directory. */
+const PROFILE_WORKSPACE_FILENAME = 'pnpm-workspace.yaml'
+
+/** What one seeding run was asked to do. */
+export interface SeedSpec {
+  /** The Harness home for this launch, from {@link resolveHarnessHome}. */
+  home: string
+  /** The shipped server closure's `node_modules`, where the built-in plugins live. */
+  serverModules: string
+  /** Bundle package names to seed, in bundle order; defaults to {@link BUILTIN_WEB_BUNDLES}. */
+  bundles?: readonly string[]
+}
+
+/** What one seeding run changed, and what it declined to do. */
+export interface SeedReport {
+  /** Bundle names added to `dsh.profile.bundles` this run. */
+  seeded: string[]
+  /**
+   * Built-in plugins `dsh.profile.shipped` already named that this run left out
+   * of `dsh.profile.bundles`, because the user switched them off.
+   */
+  keptOff: string[]
+  /** The built-in plugin {@link DESKTOP_COMPOSITION_BUNDLE} was moved after this run, when it was moved. */
+  reordered?: string
+  /** Flat-fallback links created or re-pointed this run. */
+  linked: string[]
+  /** Withdrawn built-ins whose name this run removed from `dsh.profile.bundles`. */
+  pruned: string[]
+  /** Withdrawn built-ins whose flat-fallback link this run removed. */
+  unlinked: string[]
+  /** User plugin names this run newly admitted from the `web` profile. */
+  migrated: string[]
+  /** Profile files this run copied verbatim out of the `web` profile, by filename. */
+  copied: string[]
+  /** Rows this run took back out of the profile's own patch layer, each named. */
+  retired: string[]
+  /** {@link PLACEHOLDER_BUNDLES} names this run removed from `dsh.profile.bundles`. */
+  deselected: string[]
+  /** One line per name this run recorded or updated as defective, each stating why. */
+  disabled: string[]
+  /** One line per name this run tombstoned into `removed`, each stating why. */
+  removed: string[]
+  /** One line per name this run stopped tracking altogether, each stating why and what became of its `dependencies` entry. */
+  dropped: string[]
+  /**
+   * One line per name or file the run left alone, each stating why; a web
+   * profile name passed over also names the `dependencies` entry the run
+   * deleted for it, when it deleted one.
+   */
+  skipped: string[]
+  /** One line per built-in the profile's own `node_modules` shadows with another version. */
+  shadowed: string[]
+  /** True when the run created the profile manifest rather than editing one. */
+  created: boolean
+  /**
+   * The profile whose directory this run renamed into {@link DESKTOP_PROFILE}'s
+   * place, when it renamed one. Set at most once per home: every launch after
+   * it finds the manifest already there and leaves whatever still stands at the
+   * old name alone.
+   */
+  renamedFrom?: string
+  /**
+   * Why the profile directory could not be initialized, when it could not be.
+   * The one failure a launch cannot absorb: the server refuses to boot a
+   * profile that does not exist.
+   */
+  failed?: string
+}
+
+/** The manifest fields this module reads and writes; every other key is carried through verbatim. */
+interface ProfileManifest {
+  dsh?: { profile?: { bundles?: string[]; shipped?: unknown }; bundle?: unknown }
+  [key: string]: unknown
+}
+
+/** Why a package cannot be mounted as a bundle layer, from {@link bundleDefect}. */
+export type BundleDefectKind = 'missing' | 'not-a-bundle' | 'entry-missing'
+
+/**
+ * A name the marker records as unable to mount as a bundle layer.
+ *
+ * `missing` — no package at all — is never one of these: there is nothing here
+ * to show as a residual, disabled plugin, so a name whose package disappears
+ * entirely is dropped from the marker or tombstoned into `removed`, never
+ * recorded as defective.
+ */
+export interface DefectiveEntry {
+  /** The package name. */
+  name: string
+  /** Why it cannot be mounted; `load-failed` is a boot quarantine, not {@link bundleDefect}'s own answer. */
+  kind: Exclude<BundleDefectKind, 'missing'> | 'load-failed'
+  /** One plain English sentence: what a person reading it should do or expect. */
+  detail: string
+  /** `Date.now()` when this shell first recorded the defect, in epoch milliseconds. */
+  at: number
+}
+
+/**
+ * What a run decided about the permission rows an earlier build of this shell
+ * copied into a profile's own patch layer.
+ *
+ * `removed` — at least one row was still exactly what was copied and is gone.
+ * `kept` — a row shaped like one of them is there and is not the one this shell
+ * wrote, so nothing was touched. `absent` — neither row is in the file.
+ */
+export type PermissionPatchOutcome = 'removed' | 'kept' | 'absent'
+
+/**
+ * The shell's own record of what it has synced out of the `web` profile. A
+ * file an earlier build wrote is read back by this one, so its field names and
+ * the meaning of each list are load-bearing.
+ */
+export interface MigrationMarker {
+  /** The profile the names came from. */
+  from: string
+  /** Names currently linked, mounted, and in `dsh.profile.bundles`. */
+  migrated: string[]
+  /** Names linked but kept out of `dsh.profile.bundles` because they cannot mount. */
+  defective: DefectiveEntry[]
+  /** Names the desktop profile no longer links, whose web copy is still healthy — never re-synced on their own. */
+  removed: string[]
+  /**
+   * The value this shell wrote into the desktop manifest's `dependencies` for
+   * each name it admitted, exactly as written. A name keeps its entry while
+   * any of the three lists holds it and loses it when it is dropped; the
+   * manifest's entry is deleted with it only while it still holds this value.
+   * A name the map lacks has a manifest entry this shell did not write: one
+   * the manifest held before admission, or one a drop kept. A name whose
+   * record was lost and that {@link syncWebBundles} recovers through its own
+   * link is recorded with the manifest's value when that value is the one the
+   * web profile declares. Absent from a marker an earlier build wrote, which
+   * {@link syncWebBundles} fills on its first run with the manifest's value
+   * for every name in `migrated`.
+   */
+  dependencies?: Record<string, string>
+  /**
+   * What {@link retireSeededPermissionRows} decided for this profile's patch
+   * layer, absent until a run has reached a decision. Its presence is what
+   * keeps a later launch from reading that file again.
+   */
+  permissionPatch?: PermissionPatchOutcome
+}
+
+/**
+ * Resolve the Harness home the embedded server will resolve.
+ *
+ * Same two rules as `resolveDshHome` in `@deepseek-ai/dsh-home-paths`, which
+ * the shell cannot import: `apps/desktop-shell` ships as an Electron app whose
+ * `node_modules` is packed into `app.asar`, and depending on a harness package
+ * would pull the product closure in a second time beside the payload that
+ * already holds it. A blank `DSH_HOME` counts as unset, so an empty override
+ * never resolves the home to the working directory.
+ * @param env - the environment to read `DSH_HOME` from.
+ * @returns the absolute Harness home.
+ */
+export function resolveHarnessHome(env: NodeJS.ProcessEnv = process.env): string {
+  const configured = env['DSH_HOME']
+  if (configured !== undefined && configured.trim().length > 0) return resolve(expandHome(configured))
+  return join(homedir(), '.dsh')
+}
+
+/** Expand the `~` prefixes `resolveDshHome` expands, so both agree on the same override. */
+function expandHome(path: string): string {
+  if (path === '~') return homedir()
+  if (path.startsWith('~/') || path.startsWith('~\\')) return join(homedir(), path.slice(2))
+  return path
+}
+
+/**
+ * The manifest `initProfile` writes for a fresh profile, with this profile's
+ * name and layers, plus the `dsh.profile.shipped` record of its built-in plugins.
+ */
+function templateManifest(bundles: readonly string[], shipped: readonly string[]): ProfileManifest {
+  return {
+    name: `dsh-profile-${DESKTOP_PROFILE}`,
+    private: true,
+    dependencies: {},
+    dsh: { profile: { bundles: [...bundles], shipped: [...shipped] } },
+  }
+}
+
+/**
+ * The built-in plugins a payload carries, as `dsh.profile.shipped` records them:
+ * every available name but {@link DESKTOP_COMPOSITION_BUNDLE}, which is no plugin
+ * and is kept out of the Plugins page.
+ * @param available - the built-ins the shipped closure carries, in bundle order.
+ * @returns the names to record.
+ */
+function shippedPlugins(available: readonly string[]): string[] {
+  return available.filter(name => name !== DESKTOP_COMPOSITION_BUNDLE)
+}
+
+/**
+ * The `dsh.profile.shipped` list a manifest records, or undefined when it
+ * records none: a profile seeded before this build, or a value that is not a
+ * list of strings, which a hand edit left and which this run replaces.
+ * @param manifest - the parsed profile manifest.
+ * @returns the recorded names, or undefined.
+ */
+function recordedShipped(manifest: ProfileManifest): string[] | undefined {
+  const value = manifest.dsh?.profile?.shipped
+  return Array.isArray(value) && value.every(name => typeof name === 'string') ? value : undefined
+}
+
+/** The shipped template's own bundle list (`PROFILE_TEMPLATES.web` in dsh-app-boot). */
+const WEB_TEMPLATE_BUNDLES: readonly string[] = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
+
+/** The empty user patch layer (`PROFILE_PATCH_TEMPLATE` in dsh-app-boot). */
+const PROFILE_PATCH_TEMPLATE = `# Your patch layer for this dsh profile, applied after every bundle layer:
+# a top-level YAML array of loader patch entries (id-targeted config
+# overrides, disables, and insert lists; \`!!js\` expressions allowed).
+[]
+`
+
+/**
+ * The pnpm settings (`PROFILE_PNPM_WORKSPACE` in dsh-app-boot). `hoisted` is
+ * what lets a peer an out-of-tree plugin does not install fall through to the
+ * healed flat fallback, so a plugin the user adds later shares the
+ * installation's one cordis instead of resolving a copy of its own.
+ */
+const PROFILE_PNPM_WORKSPACE = `packages:
+  - .
+
+nodeLinker: hoisted
+autoInstallPeers: false
+`
+
+/**
+ * Replace a file's contents in one step: write a sibling temporary file, then
+ * rename it over the target. A launch interrupted mid-write then leaves the
+ * previous contents intact rather than a truncated file the server cannot
+ * parse.
+ * @param path - the file to replace.
+ * @param content - its new contents; bytes rather than text for a file copied verbatim.
+ * @param mode - the permission bits the new file is created with; the process
+ * umask applies when omitted. The rename carries them onto `path`.
+ */
+export function writeAtomic(path: string, content: string | Uint8Array, mode?: number): void {
+  const temporary = `${path}.${String(process.pid)}.tmp`
+  writeFileSync(temporary, content, mode === undefined ? undefined : { mode })
+  try {
+    renameSync(temporary, path)
+  } catch (error) {
+    rmSync(temporary, { force: true })
+    throw error
+  }
+}
+
+/**
+ * Write whichever of `initProfile`'s three files are absent, leaving every one
+ * that is already there.
+ * @param dir - the profile directory.
+ * @param bundles - the bundle list a manifest written by this call declares.
+ * @param shipped - the built-in plugins a manifest written by this call records in `dsh.profile.shipped`.
+ * @returns true when this call wrote the manifest, false when one was already there.
+ * @throws when the directory or any of the three files cannot be written.
+ */
+function initDesktopProfile(dir: string, bundles: readonly string[], shipped: readonly string[]): boolean {
+  mkdirSync(dir, { recursive: true })
+  const manifestPath = join(dir, 'package.json')
+  const created = !existsSync(manifestPath)
+  if (created) writeAtomic(manifestPath, `${JSON.stringify(templateManifest(bundles, shipped), undefined, 2)}\n`)
+  const patchPath = join(dir, PROFILE_PATCH_FILENAME)
+  if (!existsSync(patchPath)) writeAtomic(patchPath, PROFILE_PATCH_TEMPLATE)
+  const workspacePath = join(dir, PROFILE_WORKSPACE_FILENAME)
+  if (!existsSync(workspacePath)) writeAtomic(workspacePath, PROFILE_PNPM_WORKSPACE)
+  return created
+}
+
+/**
+ * Point `link` at `target`, replacing a link that points elsewhere. A real
+ * directory at that path belongs to whoever created it and is reported instead
+ * of removed.
+ * @param link - the link path to maintain.
+ * @param target - the directory it must resolve to.
+ * @returns `true` when the link was created or re-pointed, `false` when it was already correct.
+ * @throws when the path exists as something other than a symbolic link.
+ */
+export function ensureLink(link: string, target: string): boolean {
+  let existing
+  try {
+    existing = lstatSync(link)
+  } catch {
+    // Absent on a first launch, which is the ordinary case; every other lstat
+    // failure resurfaces from symlinkSync below with the same path in it.
+    existing = undefined
+  }
+  if (existing !== undefined) {
+    if (!existing.isSymbolicLink()) throw new Error(`${link} exists and is not a symlink`)
+    if (sameLinkTarget(readlinkSync(link), target, dirname(link))) return false
+    // unlink removes the reparse point itself on Windows; rmSync would treat a
+    // junction as a directory and refuse it.
+    unlinkSync(link)
+  }
+  mkdirSync(dirname(link), { recursive: true })
+  // 'junction' is what makes this work on Windows without developer mode; it is
+  // ignored on POSIX, where an ordinary symlink is created.
+  symlinkSync(target, link, 'junction')
+  return true
+}
+
+/**
+ * Remove a symbolic link this shell made, if one is there.
+ *
+ * Unconditional, unlike {@link ensureLink}'s own cleanup: this is for a caller
+ * that has already decided the link should go — a migrated name nothing
+ * resolves any more — rather than one repointing it. A real directory at that
+ * path, or nothing at all, is left alone.
+ * @param link - the link path.
+ * @throws when the path is a symbolic link that cannot be removed.
+ */
+export function removeLink(link: string): void {
+  let existing
+  try {
+    existing = lstatSync(link)
+  } catch {
+    // Nothing there, which is already the outcome this call wants.
+    return
+  }
+  if (existing.isSymbolicLink()) unlinkSync(link)
+}
+
+/**
+ * Make the desktop profile exist and mount the shipped built-in plugins in it.
+ *
+ * Runs before the server starts, so the profile the server reads already exists
+ * and already names them. {@link adoptLegacyProfile} runs first, so a home an
+ * earlier build seeded under the old profile name is carried over rather than
+ * seeded a second time from nothing.
+ * @param spec - the Harness home, the shipped closure, and the names to seed.
+ * @returns what was renamed, created, seeded, linked, and skipped.
+ */
+export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
+  const report: SeedReport = {
+    seeded: [], keptOff: [], linked: [], pruned: [], unlinked: [], migrated: [], copied: [], retired: [], deselected: [],
+    disabled: [], removed: [], dropped: [], skipped: [], shadowed: [], created: false,
+  }
+  const bundles = spec.bundles ?? BUILTIN_WEB_BUNDLES
+  const available: string[] = []
+  for (const name of bundles) {
+    const dir = join(spec.serverModules, name)
+    if (existsSync(join(dir, 'package.json'))) available.push(name)
+    else report.skipped.push(`${name}: not in the shipped server closure (${dir})`)
+  }
+
+  const profileDir = profileDirectory(spec.home, DESKTOP_PROFILE)
+  adoptLegacyProfile(spec.home, profileDir, report)
+  const manifestPath = join(profileDir, 'package.json')
+  try {
+    report.created = initDesktopProfile(profileDir, [...WEB_TEMPLATE_BUNDLES, ...available], shippedPlugins(available))
+  } catch (error) {
+    report.failed = `${profileDir}: ${String(error)}`
+    return report
+  }
+  if (report.created) report.seeded.push(...available)
+  else {
+    try {
+      seedExistingManifest(manifestPath, available, report)
+    } catch (error) {
+      report.skipped.push(`${manifestPath}: ${String(error)}`)
+      return report
+    }
+  }
+
+  const modulesDir = join(spec.home, PROFILES_DIR, 'node_modules')
+  for (const name of available) {
+    try {
+      if (ensureLink(join(modulesDir, name), join(spec.serverModules, name))) report.linked.push(name)
+    } catch (error) {
+      report.skipped.push(`${join(modulesDir, name)}: ${String(error)}`)
+    }
+    reportShadowing(spec, profileDir, name, report)
+  }
+  retireAutoReviewGuard(profileDir, report)
+  syncWebBundles(spec, profileDir, report)
+  retireSeededPermissionRows(profileDir, report)
+  pruneWithdrawnBundles(spec, profileDir, report)
+  deselectPlaceholderBundles(profileDir, report)
+  return report
+}
+
+/**
+ * Rename the profile an earlier build of this shell seeded at
+ * `$DSH_HOME/profiles/desktop` into {@link DESKTOP_PROFILE}'s place, so an
+ * installed client keeps its manifest, its patch layer, its migration marker,
+ * and every plugin it had admitted.
+ *
+ * The rename runs only where {@link DESKTOP_PROFILE} has no manifest yet — the
+ * same predicate {@link initDesktopProfile} answers `created` with, so the two
+ * cannot come to disagree about whether a profile is already there — and only
+ * where the old directory's manifest carries
+ * {@link LEGACY_PROFILE_MANIFEST_NAME}. A `desktop` profile upstream's own
+ * Electron application created is left exactly as it is.
+ *
+ * Every link inside the directory survives the move: {@link ensureLink} writes
+ * an absolute target, so a migrated plugin's link still resolves into
+ * `$DSH_HOME/profiles/web/node_modules` from the new path, and the built-ins'
+ * links live in `$DSH_HOME/profiles/node_modules`, which is not moved at all.
+ *
+ * Where the manifest is already in place, the one thing left to check is its
+ * `name`: a run whose rename succeeded and whose rewrite did not leaves
+ * {@link LEGACY_PROFILE_MANIFEST_NAME} on a `desktop-shell` directory, and
+ * nothing else on the machine reports that afterwards. Finding that name here
+ * completes the rewrite, and finding any other name — the one this shell
+ * writes, or one the user chose — returns without a write, so repeated launches
+ * settle after the first.
+ *
+ * A rename that fails leaves the old directory untouched and is recorded in
+ * {@link SeedReport.skipped}; the seeding below then writes a fresh profile,
+ * because a launchable application without the user's migrated plugins is the
+ * outcome to prefer over one that will not start.
+ * @param home - the Harness home for this launch.
+ * @param profileDir - where {@link DESKTOP_PROFILE} lives under that home.
+ * @param report - the run's report, extended with the rename or the reason there was none.
+ */
+function adoptLegacyProfile(home: string, profileDir: string, report: SeedReport): void {
+  const manifestPath = join(profileDir, 'package.json')
+  if (existsSync(manifestPath)) {
+    const adopted = tryReadManifest(manifestPath)
+    if (adopted !== undefined && adopted['name'] === LEGACY_PROFILE_MANIFEST_NAME) {
+      renameProfileManifest(manifestPath, adopted, report)
+    }
+    return
+  }
+  const legacyDir = profileDirectory(home, LEGACY_DESKTOP_PROFILE)
+  const manifest = tryReadManifest(join(legacyDir, 'package.json'))
+  if (manifest === undefined || manifest['name'] !== LEGACY_PROFILE_MANIFEST_NAME) return
+  try {
+    mkdirSync(dirname(profileDir), { recursive: true })
+    renameSync(legacyDir, profileDir)
+  } catch (error) {
+    report.skipped.push(`${legacyDir}: could not be renamed to ${DESKTOP_PROFILE} (${String(error)})`)
+    return
+  }
+  report.renamedFrom = LEGACY_DESKTOP_PROFILE
+  renameProfileManifest(manifestPath, manifest, report)
+}
+
+/**
+ * Write `dsh-profile-desktop-shell` as a migrated profile manifest's `name`,
+ * keeping every other field the manifest holds.
+ *
+ * This is the one place this module replaces a file it did not write itself:
+ * the name states which directory the manifest belongs to, and pnpm reads it
+ * for every `dsh plugin --profile desktop-shell` command run there. A failed
+ * write is recorded in {@link SeedReport.skipped} and stops nothing — the
+ * profile is launchable under either name, and the next launch tries again.
+ * @param manifestPath - the manifest inside {@link DESKTOP_PROFILE}'s directory.
+ * @param manifest - the manifest as read, carrying {@link LEGACY_PROFILE_MANIFEST_NAME}.
+ * @param report - the run's report, extended when the write fails.
+ */
+function renameProfileManifest(manifestPath: string, manifest: ProfileManifest, report: SeedReport): void {
+  try {
+    writeAtomic(manifestPath, `${JSON.stringify({ ...manifest, name: `dsh-profile-${DESKTOP_PROFILE}` }, undefined, 2)}\n`)
+  } catch (error) {
+    report.skipped.push(`${manifestPath}: name still reads ${LEGACY_PROFILE_MANIFEST_NAME} (${String(error)})`)
+  }
+}
+
+/**
+ * Read and parse a profile manifest, or answer undefined when there is none to
+ * read. Absent and unparsable are the same answer here: both are a profile
+ * whose composition this run cannot reason about, and the pass that owns the
+ * diagnostic for an unparsable desktop manifest has already reported it.
+ * @param path - the manifest path.
+ * @returns the parsed manifest, or undefined.
+ */
+function tryReadManifest(path: string): ProfileManifest | undefined {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8')) as ProfileManifest
+  } catch {
+    // Absent on every home without that profile, malformed on one whose owner
+    // edited it by hand; neither is a state this module repairs.
+    return undefined
+  }
+}
+
+/**
+ * A manifest's `dependencies` map, or an empty one when the field is absent or
+ * holds something other than a JSON object. The values stay `unknown`: a
+ * hand-edited manifest may carry anything there, and only a string is copied.
+ * @param manifest - the manifest to read, if there is one.
+ * @returns the dependency map.
+ */
+function dependenciesOf(manifest: ProfileManifest | undefined): Record<string, unknown> {
+  const value = manifest?.['dependencies']
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
+  return value as Record<string, unknown>
+}
+
+/** Whether `link` is a symbolic link this shell would have made, resolving to `target`. */
+function linksTo(link: string, target: string): boolean {
+  try {
+    return lstatSync(link).isSymbolicLink() && sameLinkTarget(readlinkSync(link), target, dirname(link))
+  } catch {
+    // Absent, or a real directory whose readlink fails: neither is this
+    // shell's link, which is the only thing the answer is about.
+    return false
+  }
+}
+
+/**
+ * Why a name in the `web` profile's bundle list is one this build already
+ * composes, or undefined when it is a user plugin to sync.
+ *
+ * The two in-box bundles are not among these. They are in the desktop template
+ * and in every web profile ever created, so passing over them says nothing
+ * about the profile being read and is left out of the log.
+ * @param name - the bundle package name from the web profile.
+ * @returns the reason to log, or undefined.
+ */
+function migrationRefusal(name: string): string | undefined {
+  if (BUILTIN_WEB_BUNDLES.includes(name)) return 'covered by built-in'
+  if (WITHDRAWN_WEB_BUNDLES.includes(name)) return 'withdrawn, not migrated'
+  if (PLACEHOLDER_BUNDLES.includes(name)) return 'withheld from this build, not migrated'
+  return undefined
+}
+
+/**
+ * Condition keys `entryCandidates` reads inside an `exports` target, in the
+ * order Node itself prefers them.
+ */
+const ENTRY_CONDITIONS = ['default', 'import', 'require', 'node'] as const
+
+/**
+ * The string targets one `exports` value names, allowing exactly one level of
+ * nested conditions.
+ * @param value - the `exports` value to read — a string, a conditions object, or neither.
+ * @param nested - whether a conditions object found here may itself hold conditions.
+ * @returns the target paths named, in {@link ENTRY_CONDITIONS} order; empty when `value` names none.
+ */
+function conditionTargets(value: unknown, nested: boolean): string[] {
+  if (typeof value === 'string') return [value]
+  if (!nested || value === null || typeof value !== 'object' || Array.isArray(value)) return []
+  const record = value as Record<string, unknown>
+  const targets: string[] = []
+  for (const key of ENTRY_CONDITIONS) {
+    const inner = record[key]
+    if (inner !== undefined) targets.push(...conditionTargets(inner, false))
+  }
+  return targets
+}
+
+/**
+ * The `"."` entry an `exports` field names, or undefined when it names no root
+ * entry at all — a subpath-only `exports` naming nothing for the bare package
+ * specifier.
+ * @param exportsField - the manifest's `exports` value.
+ * @returns the root entry's own value, ready for {@link conditionTargets}.
+ */
+function rootExportEntry(exportsField: unknown): unknown {
+  if (typeof exportsField === 'string') return exportsField
+  if (exportsField === null || typeof exportsField !== 'object' || Array.isArray(exportsField)) return undefined
+  const record = exportsField as Record<string, unknown>
+  if ('.' in record) return record['.']
+  // No `.` key and no subpath key either: the object itself is the condition
+  // map for the root entry, the shorthand Node accepts for a package with no
+  // subpath exports at all.
+  return Object.keys(record).some(key => key.startsWith('.')) ? undefined : record
+}
+
+/**
+ * Where a bundle's entry file could be, in the order Node itself resolves a
+ * bare import of the package: `exports`'s root entry when the manifest
+ * declares one, else `main`, else the bare default.
+ * @param manifest - the package manifest.
+ * @returns candidate paths relative to the package directory; empty only when
+ * `exports` exists but names no root entry Node would ever reach.
+ */
+function entryCandidates(manifest: ProfileManifest): string[] {
+  const exportsField = manifest['exports']
+  if (exportsField !== undefined) {
+    const root = rootExportEntry(exportsField)
+    return root === undefined ? [] : conditionTargets(root, true)
+  }
+  const main = manifest['main']
+  return typeof main === 'string' ? [main] : ['index.js']
+}
+
+/**
+ * Whether none of a package's entry candidates exist on disk.
+ * @param dir - the package directory.
+ * @param manifest - its parsed manifest.
+ * @returns true when every candidate {@link entryCandidates} names is absent —
+ * including when there were no candidates to check at all.
+ */
+function hasMissingEntry(dir: string, manifest: ProfileManifest): boolean {
+  return entryCandidates(manifest).every(candidate => !existsSync(join(dir, candidate)))
+}
+
+/**
+ * Why the package at `dir` cannot be a bundle layer, or undefined when it can.
+ *
+ * The three defects are the three ways a bundle entry can end a boot:
+ * `resolveBundleDir` finds no package, the package it finds declares no
+ * `dsh.bundle`, or the package declares one but its own entry file was never
+ * built — the field case is an unbuilt git install with `src/*.ts` and no
+ * `lib/` at all. Every admission and revalidation in this module reads this
+ * one function, so none of them can come to disagree about what the server
+ * accepts.
+ * @param dir - the package directory to inspect, which need not exist.
+ * @returns which defect the package has, or undefined when it has none.
+ */
+export function bundleDefect(dir: string): BundleDefectKind | undefined {
+  const manifest = tryReadManifest(join(dir, 'package.json'))
+  if (manifest === undefined) return 'missing'
+  if (manifest.dsh?.bundle === undefined) return 'not-a-bundle'
+  return hasMissingEntry(dir, manifest) ? 'entry-missing' : undefined
+}
+
+/**
+ * The one plain-English sentence a defect kind is reported with, for the
+ * marker's `detail` field and the launch log.
+ * @param kind - the defect {@link bundleDefect} found; `missing` is answered
+ * for completeness, though no caller persists it as a `DefectiveEntry.kind`.
+ * @param dir - the package directory the defect was found in.
+ * @returns the sentence.
+ */
+export function defectDetail(kind: BundleDefectKind, dir: string): string {
+  if (kind === 'missing') return `not installed (${dir})`
+  if (kind === 'not-a-bundle') return 'the installed package declares no dsh.bundle, which the server refuses as a bundle layer'
+  const manifest = tryReadManifest(join(dir, 'package.json'))
+  const candidates = manifest === undefined ? [] : entryCandidates(manifest)
+  return candidates.length === 0
+    ? 'the installed package names no entry file the server could import'
+    : `the installed package has no built entry file (looked for ${candidates.join(', ')} in ${dir}); its build script has not been run`
+}
+
+/** An empty marker, for a profile with no record yet. */
+function emptyMarker(): MigrationMarker {
+  return { from: WEB_PROFILE, migrated: [], defective: [], removed: [], dependencies: {} }
+}
+
+/**
+ * The string members of a marker's `dependencies` map; a value that is not a
+ * JSON object reads as an empty map.
+ * @param value - the field as it was read from the file.
+ * @returns the recorded values, by name.
+ */
+function recordedDependencies(value: unknown): Record<string, string> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
+}
+
+/** Whether a value parses as a {@link DefectiveEntry} the marker file can carry. */
+function isDefectiveEntry(value: unknown): value is DefectiveEntry {
+  if (value === null || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return typeof record['name'] === 'string' && typeof record['kind'] === 'string'
+    && ['entry-missing', 'not-a-bundle', 'load-failed'].includes(record['kind'])
+    && typeof record['detail'] === 'string' && typeof record['at'] === 'number'
+}
+
+/** The three decisions {@link MigrationMarker.permissionPatch} carries. */
+const PERMISSION_PATCH_OUTCOMES: readonly string[] = ['removed', 'kept', 'absent']
+
+/**
+ * Whether a marker field is one of the decisions this shell writes.
+ * @param value - the field as it was read from the file.
+ * @returns true when it is a {@link PermissionPatchOutcome}.
+ */
+function isPermissionPatchOutcome(value: unknown): value is PermissionPatchOutcome {
+  return typeof value === 'string' && PERMISSION_PATCH_OUTCOMES.includes(value)
+}
+
+/**
+ * Read the migration marker, tolerating both an absent file and the pre-sync
+ * format that carried only `from` and `migrated`.
+ * @param path - the marker path inside a desktop profile.
+ * @returns the marker with every list defaulted to empty and `dependencies`
+ * left out when the file has none, or undefined when the file does not exist at all.
+ */
+export function readMigrationMarker(path: string): MigrationMarker | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf8'))
+  } catch {
+    // No marker at all on a profile that has never synced; an unreadable one
+    // is still a marker, and existsSync is what tells the two apart.
+    return existsSync(path) ? emptyMarker() : undefined
+  }
+  const raw = parsed as Partial<Record<keyof MigrationMarker, unknown>> | null
+  const outcome = raw?.['permissionPatch']
+  const written = raw?.['dependencies']
+  // Keys in the order syncWebBundles builds its next marker, which it compares as JSON.
+  return {
+    from: typeof raw?.['from'] === 'string' ? raw['from'] : WEB_PROFILE,
+    migrated: Array.isArray(raw?.['migrated']) ? raw['migrated'].filter((v): v is string => typeof v === 'string') : [],
+    defective: Array.isArray(raw?.['defective']) ? raw['defective'].filter(isDefectiveEntry) : [],
+    removed: Array.isArray(raw?.['removed']) ? raw['removed'].filter((v): v is string => typeof v === 'string') : [],
+    ...(written === undefined ? {} : { dependencies: recordedDependencies(written) }),
+    ...(isPermissionPatchOutcome(outcome) ? { permissionPatch: outcome } : {}),
+  }
+}
+
+/**
+ * Replace the migration marker in one step.
+ * @param path - the marker path inside a desktop profile.
+ * @param marker - its new contents.
+ * @throws when the file cannot be replaced.
+ */
+export function writeMigrationMarker(path: string, marker: MigrationMarker): void {
+  writeAtomic(path, `${JSON.stringify(marker, undefined, 2)}\n`)
+}
+
+/**
+ * Write a profile manifest's bundle list and dependency map in one pass:
+ * `additions` appended and given the web profile's declared version where the
+ * manifest names none of its own, `removals` dropped from the bundle list, and
+ * `undeclared` deleted from `dependencies`. Every list may be empty; the caller
+ * only calls this when at least one is not.
+ * @param manifestPath - the manifest to replace.
+ * @param manifest - its parsed contents, as read this run.
+ * @param listed - the bundle list it currently declares.
+ * @param additions - names to append, in order.
+ * @param declaredVersions - the source profile's own `dependencies` map, read once for every addition.
+ * @param removals - names to drop from the bundle list.
+ * @param undeclared - `dependencies` keys to delete, each one the caller found holding the value this shell wrote.
+ * @returns the value this call wrote into `dependencies` for each addition it gave one, by name.
+ * @throws when the manifest cannot be replaced.
+ */
+function updateTrackedBundles(
+  manifestPath: string, manifest: ProfileManifest, listed: readonly string[], additions: readonly string[],
+  declaredVersions: Record<string, unknown>, removals: readonly string[], undeclared: readonly string[],
+): Record<string, string> {
+  const kept = listed.filter(name => !removals.includes(name))
+  const dependencies = Object.fromEntries(Object.entries(dependenciesOf(manifest)).filter(([name]) => !undeclared.includes(name)))
+  const written: Record<string, string> = {}
+  for (const name of additions) {
+    const specifier = declaredVersions[name]
+    if (typeof specifier !== 'string' || dependencies[name] !== undefined) continue
+    dependencies[name] = specifier
+    written[name] = specifier
+  }
+  const updated: ProfileManifest = {
+    ...manifest,
+    dsh: { ...manifest.dsh, profile: { ...manifest.dsh?.profile, bundles: [...kept, ...additions] } },
+  }
+  if (undeclared.length > 0 || Object.keys(written).length > 0) updated['dependencies'] = dependencies
+  writeAtomic(manifestPath, `${JSON.stringify(updated, undefined, 2)}\n`)
+  return written
+}
+
+/**
+ * Replace one of the profile files this module writes a template for with the
+ * web profile's own, while the desktop copy is still one of the forms this
+ * module writes for a fresh profile, byte for byte, and the web copy is not.
+ *
+ * The file is copied rather than merged. A patch layer carries comments and
+ * `!!js` tags that only the loader's own YAML schema reads, so parsing one to
+ * combine it with another would be a second implementation of that schema; an
+ * edited desktop copy is therefore left alone with the names to carry over
+ * named in the log.
+ * @param webDir - the web profile directory.
+ * @param profileDir - the desktop profile directory.
+ * @param filename - the file to copy, the same name in both profiles.
+ * @param pristine - every content this module writes for a fresh profile: the
+ * template, and for the patch layer also the template carrying the auto-review
+ * guard row earlier builds wrote ({@link GUARDED_PATCH_TEMPLATE}).
+ * @param names - the migrated names, for the line that says what to carry by hand.
+ * @param report - the run's report, extended with the decision.
+ */
+function copyPristineProfileFile(
+  webDir: string, profileDir: string, filename: string, pristine: readonly string[], names: readonly string[],
+  report: SeedReport,
+): void {
+  const target = join(profileDir, filename)
+  let bytes
+  try {
+    bytes = readFileSync(join(webDir, filename))
+  } catch {
+    // No web profile, or a profile whose owner deleted the file: either way
+    // there is nothing of theirs to carry over.
+    return
+  }
+  if (pristine.includes(bytes.toString('utf8'))) return
+  try {
+    if (!pristine.includes(readFileSync(target, 'utf8'))) {
+      report.skipped.push(
+        `${filename}: the desktop copy is already edited; carry the web profile's rows for ${names.join(', ')} over by hand`,
+      )
+      return
+    }
+    writeAtomic(target, bytes)
+  } catch (error) {
+    report.skipped.push(`${target}: ${String(error)}`)
+    return
+  }
+  report.copied.push(filename)
+}
+
+/**
+ * Where the server would resolve a bundle name for this profile, or undefined
+ * when it would resolve nowhere.
+ *
+ * The three directories `resolveBundleDir` reaches through its two anchors, in
+ * its own order: the installation's own closure, the profile's `node_modules`,
+ * and the flat fallback beside it. `existsSync` follows symbolic links, so a
+ * dangling one counts as the absence it is.
+ * @param spec - the run's home and shipped closure.
+ * @param profileDir - the desktop profile directory.
+ * @param name - the bundle package name.
+ * @returns the directory the server would read the package from, or undefined.
+ */
+function resolvedBundleDir(spec: SeedSpec, profileDir: string, name: string): string | undefined {
+  return [
+    join(spec.serverModules, name),
+    join(profileDir, 'node_modules', name),
+    join(spec.home, PROFILES_DIR, 'node_modules', name),
+  ].find(dir => existsSync(join(dir, 'package.json')))
+}
+
+/**
+ * Whether the server could still resolve a bundle name for this profile.
+ * @param spec - the run's home and shipped closure.
+ * @param profileDir - the desktop profile directory.
+ * @param name - the bundle package name.
+ * @returns true when at least one of the three directories holds the package.
+ */
+function resolvesForProfile(spec: SeedSpec, profileDir: string, name: string): boolean {
+  return resolvedBundleDir(spec, profileDir, name) !== undefined
+}
+
+/** Where {@link reviewMigrated} found a currently migrated name to stand. */
+type MigratedReview =
+  | { status: 'healthy' }
+  | { status: 'defective'; kind: Exclude<BundleDefectKind, 'missing'>; detail: string }
+  | { status: 'removed' }
+  | { status: 'dropped' }
+
+/**
+ * Where a currently migrated name now stands: still mountable, mountable but
+ * defective, gone from the desktop side while the web profile still holds a
+ * healthy copy, or gone from both.
+ *
+ * Resolution reads the same three directories every other bundle name resolves
+ * through, not just the web profile's own copy: a user who took the package
+ * over — a copy under the desktop profile's own `node_modules`, a link they
+ * repointed themselves, or a package this build started shipping — still
+ * mounts, and none of those is this function's business to disturb.
+ * @param spec - the run's home and shipped closure.
+ * @param profileDir - the desktop profile directory.
+ * @param webDir - the web profile directory, the source a migrated link points at.
+ * @param name - a name the marker's `migrated` list holds.
+ * @returns which of the four the name is in.
+ */
+function reviewMigrated(spec: SeedSpec, profileDir: string, webDir: string, name: string): MigratedReview {
+  const resolved = resolvedBundleDir(spec, profileDir, name)
+  if (resolved !== undefined) {
+    const defect = bundleDefect(resolved)
+    if (defect === undefined || defect === 'missing') return { status: 'healthy' }
+    return { status: 'defective', kind: defect, detail: defectDetail(defect, resolved) }
+  }
+  const webCopy = join(webDir, 'node_modules', name)
+  return bundleDefect(webCopy) === undefined ? { status: 'removed' } : { status: 'dropped' }
+}
+
+/**
+ * The `dependencies` values a marker an earlier build wrote stands for: the
+ * manifest's current value for every name it lists as migrated. That build
+ * admitted each of those names and copied the web profile's value wherever the
+ * manifest held none, without recording what it copied.
+ * @param migrated - the marker's `migrated` list.
+ * @param current - the desktop manifest's `dependencies` map as read this run.
+ * @returns the values to record, by name.
+ */
+function adoptedDependencies(migrated: readonly string[], current: Record<string, unknown>): Record<string, string> {
+  return Object.fromEntries(migrated.flatMap((name): [string, string][] => {
+    const value = current[name]
+    return typeof value === 'string' ? [[name, value]] : []
+  }))
+}
+
+/**
+ * The `dependencies` value a sync may delete for a name nothing tracks or
+ * resolves any more, or undefined when the entry is not one this shell can
+ * show it wrote.
+ *
+ * Upstream's plugin manager lists every `dependencies` key, and shows one that
+ * resolves nowhere as a failed plugin, so an entry this shell leaves behind is
+ * a row the Plugins page cannot clear. The value shows who wrote it: the one
+ * the marker recorded when this shell wrote it. A marker that records values
+ * and has none for a name is the shell's own statement that it did not write
+ * that entry, so the entry stays. A marker an earlier build wrote records no
+ * values, so the run that first reads one reads a name it has no record for
+ * against the web profile's declared value, which is where that build copied
+ * every value from. Any other value was written by someone else and stays.
+ * @param name - the package name.
+ * @param current - the desktop manifest's `dependencies` map as read this run.
+ * @param recorded - the values the marker records this shell wrote, by name.
+ * @param unrecorded - the values to read for a name `recorded` lacks: the web
+ * profile's `dependencies` map while the marker read this run records no
+ * values, and an empty map otherwise.
+ * @returns the value to delete, or undefined.
+ */
+function ownedDependency(
+  name: string, current: Record<string, unknown>, recorded: ReadonlyMap<string, string>,
+  unrecorded: Record<string, unknown>,
+): string | undefined {
+  const value = current[name]
+  return typeof value === 'string' && value === (recorded.get(name) ?? unrecorded[name]) ? value : undefined
+}
+
+/**
+ * The clause a report line about a name this sync stopped tracking ends with,
+ * saying what became of its `dependencies` entry.
+ * @param value - the entry's value as read this run, if there is one.
+ * @param owned - the value {@link ownedDependency} answered.
+ * @returns the clause, or an empty string when there is no entry.
+ */
+function dependencyOutcome(value: unknown, owned: string | undefined): string {
+  if (owned !== undefined) return `; removed its dependencies entry ${JSON.stringify(owned)}`
+  if (value === undefined) return ''
+  return `; kept its dependencies entry ${JSON.stringify(value)}, which is not the value this shell wrote`
+}
+
+/**
+ * Bring the plugins a user installed into the shared `web` profile across, and
+ * keep the desktop composition in step with what the web profile currently
+ * holds, on every launch.
+ *
+ * Every recorded name is revalidated first, against the same {@link
+ * bundleDefect} its own admission read: one still healthy is left alone, one
+ * now defective is taken out of `dsh.profile.bundles` and recorded in the
+ * marker's `defective` list with its link kept, one whose desktop link is gone
+ * while the web copy is still healthy is tombstoned into `removed`, and one
+ * gone from both sides is dropped, with its link and the `dependencies` entry
+ * this shell wrote for it, so nothing is left to track. A name already
+ * in `defective` or `removed` is left exactly where it is; deleting its entry
+ * from the marker file is what lets the next launch admit it again.
+ *
+ * Every name the web profile's own bundle list now carries and this marker has
+ * not yet seen is admitted next: linked, and — when {@link bundleDefect} finds
+ * nothing wrong — added to `dsh.profile.bundles` with the web profile's
+ * declared version copied into `dependencies` and recorded in the marker; a
+ * defective one keeps its link and is recorded in `defective` instead. A name
+ * the bundle list already carries through this shell's own link, with no
+ * record left, is recovered into `migrated` or `defective`, and its
+ * `dependencies` value is recorded when it is the one the web profile
+ * declares. One the web profile lists but does not install is passed over, and
+ * a `dependencies` entry an earlier drop left for it is deleted when the name
+ * is out of the bundle list, resolves nowhere for the profile, and the entry
+ * is this shell's by {@link ownedDependency}'s rule, which for a name with no
+ * record holds only on the run that first reads a marker an earlier build
+ * wrote. The wholesale copy of the patch layer
+ * and pnpm settings only ever happens on the very first sync a profile ever
+ * runs, so a later launch never overwrites edits either profile's owner has
+ * made since.
+ * @param spec - the run's home and shipped closure.
+ * @param profileDir - the desktop profile directory.
+ * @param report - the run's report, extended with what was migrated, disabled, removed, dropped, and refused.
+ */
+function syncWebBundles(spec: SeedSpec, profileDir: string, report: SeedReport): void {
+  const manifestPath = join(profileDir, 'package.json')
+  const manifest = tryReadManifest(manifestPath)
+  const listed = manifest?.dsh?.profile?.bundles
+  if (manifest === undefined || !Array.isArray(listed)) return
+
+  const markerPath = join(profileDir, MIGRATION_MARKER_FILENAME)
+  const firstSync = !existsSync(markerPath)
+  const marker = readMigrationMarker(markerPath) ?? emptyMarker()
+  const webDir = profileDirectory(spec.home, WEB_PROFILE)
+  const webManifest = tryReadManifest(join(webDir, 'package.json'))
+  const candidateNames = webManifest?.dsh?.profile?.bundles
+  const declaredVersions = dependenciesOf(webManifest)
+  const current = dependenciesOf(manifest)
+
+  const migrated = new Set(marker.migrated)
+  const defective = new Map(marker.defective.map(entry => [entry.name, entry]))
+  const removed = new Set(marker.removed)
+  const written = new Map(Object.entries(marker.dependencies ?? adoptedDependencies(marker.migrated, current)))
+  // Only a marker without a `dependencies` map leaves a name's owner unknown;
+  // once the map exists, a name it lacks is one this shell did not write.
+  const unrecorded = marker.dependencies === undefined ? declaredVersions : {}
+  const bundleAdditions: string[] = []
+  const bundleRemovals: string[] = []
+  const undeclared: string[] = []
+  const dropped = new Set<string>()
+
+  // TODO: two kinds of name keep a `dependencies` entry the Plugins page
+  // lists as a plugin that cannot be resolved: a tombstone whose desktop link
+  // is gone, and a `defective` name whose web copy is gone too, which keeps
+  // its dangling link as well because only `migrated` is reviewed here.
+  for (const name of marker.migrated) {
+    const review = reviewMigrated(spec, profileDir, webDir, name)
+    if (review.status === 'healthy') continue
+    migrated.delete(name)
+    bundleRemovals.push(name)
+    if (review.status === 'defective') {
+      defective.set(name, { name, kind: review.kind, detail: review.detail, at: Date.now() })
+      report.disabled.push(`${name}: ${review.detail}`)
+    } else if (review.status === 'removed') {
+      removed.add(name)
+      report.removed.push(`${name}: no longer linked in the desktop profile; still installed in the web profile, so it will not return on its own`)
+    } else {
+      // Nothing tracks this name any more and nothing resolves through its
+      // link either, so the link itself is now cruft this shell made and
+      // nobody else has any reason to keep: `removeLink` takes it only if it
+      // is still the symbolic link this shell left, and leaves a real
+      // directory — the user's own copy — untouched.
+      try {
+        removeLink(join(profileDir, 'node_modules', name))
+      } catch (error) {
+        report.skipped.push(`${join(profileDir, 'node_modules', name)}: ${String(error)}`)
+      }
+      const owned = ownedDependency(name, current, written, unrecorded)
+      if (owned !== undefined) undeclared.push(name)
+      written.delete(name)
+      dropped.add(name)
+      report.dropped.push(`${name}: no longer resolves in the web profile${dependencyOutcome(current[name], owned)}`)
+    }
+  }
+
+  for (const name of Array.isArray(candidateNames) ? candidateNames : []) {
+    if (WEB_TEMPLATE_BUNDLES.includes(name)) continue
+    if (migrated.has(name) || defective.has(name) || removed.has(name)) continue
+    const refusal = migrationRefusal(name)
+    if (refusal !== undefined) { report.skipped.push(`${name}: ${refusal}`); continue }
+    const source = join(webDir, 'node_modules', name)
+    const defect = bundleDefect(source)
+    if (defect === 'missing') {
+      // The entry an earlier build's drop left in `dependencies`; a name
+      // dropped this run was decided above.
+      const listedAfter = listed.includes(name) && !bundleRemovals.includes(name)
+      const owned = dropped.has(name) || listedAfter || resolvesForProfile(spec, profileDir, name)
+        ? undefined
+        : ownedDependency(name, current, written, unrecorded)
+      if (owned !== undefined) undeclared.push(name)
+      const outcome = owned === undefined ? '' : dependencyOutcome(current[name], owned)
+      report.skipped.push(`${name}: not installed in the web profile (${source})${outcome}`)
+      continue
+    }
+    const link = join(profileDir, 'node_modules', name)
+    const alreadyListed = listed.includes(name)
+    if (alreadyListed) {
+      // A migration whose bundle entry survived a lost or deleted record: only
+      // this shell's own link recovers it, never a name the profile lists for
+      // some other reason.
+      if (!linksTo(link, source)) { report.skipped.push(`${name}: already in the desktop profile`); continue }
+      // The lost record's value is recovered only while the manifest holds the
+      // one the web profile declares, the value this shell copies at admission.
+      const value = current[name]
+      if (!written.has(name) && typeof value === 'string' && value === declaredVersions[name]) written.set(name, value)
+      if (defect === undefined) migrated.add(name)
+      else { defective.set(name, { name, kind: defect, detail: defectDetail(defect, source), at: Date.now() }); bundleRemovals.push(name) }
+      continue
+    }
+    try {
+      ensureLink(link, source)
+    } catch (error) {
+      report.skipped.push(`${name}: ${String(error)}`)
+      continue
+    }
+    if (defect === undefined) {
+      migrated.add(name)
+      bundleAdditions.push(name)
+      report.migrated.push(name)
+    } else {
+      defective.set(name, { name, kind: defect, detail: defectDetail(defect, source), at: Date.now() })
+    }
+    if (defect !== undefined) report.disabled.push(`${name}: ${defectDetail(defect, source)}`)
+  }
+
+  if (bundleAdditions.length > 0 || bundleRemovals.length > 0 || undeclared.length > 0) {
+    let added: Record<string, string>
+    try {
+      added = updateTrackedBundles(manifestPath, manifest, listed, bundleAdditions, declaredVersions, bundleRemovals, undeclared)
+    } catch (error) {
+      // The links are made (or already were) and nothing names the change;
+      // writing no marker either is what lets the next launch retry from here.
+      report.skipped.push(`${manifestPath}: ${String(error)}`)
+      return
+    }
+    for (const name of undeclared) written.delete(name)
+    for (const [name, value] of Object.entries(added)) written.set(name, value)
+  }
+  if (firstSync && report.migrated.length > 0) {
+    copyPristineProfileFile(
+      webDir, profileDir, PROFILE_PATCH_FILENAME, [PROFILE_PATCH_TEMPLATE, GUARDED_PATCH_TEMPLATE], report.migrated, report,
+    )
+    copyPristineProfileFile(webDir, profileDir, PROFILE_WORKSPACE_FILENAME, [PROFILE_PNPM_WORKSPACE], report.migrated, report)
+  }
+  const nextMarker: MigrationMarker = {
+    from: WEB_PROFILE, migrated: [...migrated], defective: [...defective.values()], removed: [...removed],
+    dependencies: Object.fromEntries(written),
+    ...(marker.permissionPatch === undefined ? {} : { permissionPatch: marker.permissionPatch }),
+  }
+  if (JSON.stringify(nextMarker) !== JSON.stringify(marker)) {
+    try {
+      writeMigrationMarker(markerPath, nextMarker)
+    } catch (error) {
+      report.skipped.push(`${markerPath}: ${String(error)}`)
+    }
+  }
+}
+
+/**
+ * What one patch entry holds, as `js-yaml`'s failsafe schema reads it: every
+ * scalar is a string, and the only other nodes are mappings and sequences.
+ */
+type PatchValue = string | PatchValue[] | { [key: string]: PatchValue }
+
+/**
+ * Whether a node the failsafe schema produced is a {@link PatchValue}, all the
+ * way down.
+ *
+ * The schema's node kinds are strings, mappings, and sequences, and the one
+ * other thing it produces is the `null` an empty node parses to — a key written
+ * with no value (`config:`), a sequence item with nothing after the dash. YAML
+ * puts that null wherever the empty node is, so the check has to reach the same
+ * places: {@link canonical} reads a mapping with `Object.entries`, which throws
+ * on a null, and an entry holding one anywhere is unreadable here rather than a
+ * failed launch.
+ * @param value - one node the parse returned.
+ * @returns true when {@link canonical} can serialize it and everything under it.
+ */
+function isPatchValue(value: unknown): value is PatchValue {
+  if (typeof value === 'string') return true
+  if (Array.isArray(value)) return value.every(isPatchValue)
+  if (typeof value !== 'object' || value === null) return false
+  return Object.values(value).every(isPatchValue)
+}
+
+/** The lines one top-level patch entry occupies, and what the recognizer read from it. */
+interface PatchEntry {
+  /** Index of the `- ` line the entry starts on. */
+  start: number
+  /** Index of its last structural line: blanks and the next entry's comments are not its own. */
+  end: number
+  /** What the recognizer read, or undefined for an entry it could not read. */
+  value?: PatchValue
+}
+
+/**
+ * Split a patch layer into its top-level entries and read each one.
+ *
+ * An entry runs from its own `- ` line to the last structural line before the
+ * next one, so the blank line and the comment block a writer puts above the
+ * next entry stay that entry's. Each one is then parsed on its own, under
+ * `js-yaml`'s failsafe schema.
+ *
+ * The loader reads a patch layer with the same parser under
+ * `yaml.JSON_SCHEMA.extend(JsExpr)` (`entryListSchema` in
+ * `vendor/include/src/index.ts`, reached as `userPatchesSchema` in
+ * `packages/boot/app-boot/src/index.ts`). The failsafe schema refuses a
+ * superset of what that one refuses — `!!js` and every JSON tag — and reads
+ * every scalar it accepts as a string, where the loader also resolves numbers,
+ * booleans, and nulls. Both directions are safe here: a refusal leaves an entry
+ * alone, and every value in {@link SEEDED_PERMISSION_ROWS} is a plain string
+ * the two schemas read identically, so an entry that matches one of those rows
+ * holds what the loader would read there too. Refusing per entry is what leaves
+ * the rest of a file alone when one entry is unreadable.
+ * @param lines - the file's lines.
+ * @returns one record per top-level entry, in file order.
+ */
+function patchEntries(lines: readonly string[]): PatchEntry[] {
+  const starts: number[] = []
+  lines.forEach((line, index) => { if (/^-(\s|$)/.test(line)) starts.push(index) })
+  return starts.map((start, position) => {
+    const limit = starts[position + 1] ?? lines.length
+    let end = start
+    for (let index = start; index < limit; index += 1) {
+      const text = (lines[index] ?? '').trim()
+      if (text.length > 0 && !text.startsWith('#')) end = index
+    }
+    let read: unknown
+    try {
+      read = load(lines.slice(start, end + 1).join('\n'), { schema: FAILSAFE_SCHEMA })
+    } catch {
+      // An entry the failsafe schema refuses — a tag, a duplicate key, a tab —
+      // is one whose meaning needs the loader's own schema. It is never matched
+      // and never removed.
+      return { start, end }
+    }
+    if (!Array.isArray(read) || read.length !== 1) return { start, end }
+    const only: unknown = read[0]
+    return isPatchValue(only) ? { start, end, value: only } : { start, end }
+  })
+}
+
+/**
+ * A stable serialization of what the recognizer read, with every mapping's keys
+ * sorted.
+ *
+ * Order is not part of a copied row's identity. The same fields with the same
+ * values, written in another order, are still the copy this retirement is for,
+ * and taking it out is what puts the shipped preset order back.
+ * @param value - what the recognizer read for one entry or one of its members.
+ * @returns the text to compare against {@link SEEDED_PERMISSION_ROWS}.
+ */
+function canonical(value: PatchValue): string {
+  if (typeof value === 'string') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
+  const members = Object.entries(value)
+    .sort(([left], [right]) => (left < right ? -1 : 1))
+    .map(([key, member]) => `${JSON.stringify(key)}:${canonical(member)}`)
+  return `{${members.join(',')}}`
+}
+
+/**
+ * The row ids one entry declares, from what the failsafe schema read: its own
+ * `id`, and the `id` of every row it inserts.
+ *
+ * An insert list is read whole rather than only when it holds one row, so an
+ * entry that inserts the gateway beside other rows is still recognized as
+ * carrying that row — it is never the seeded one, and saying so in the log is
+ * the whole of what recognizing it does.
+ * @param value - what {@link patchEntries} read for the entry.
+ * @returns every id it declares this way, in declaration order.
+ */
+function declaredIds(value: PatchValue): string[] {
+  if (typeof value === 'string' || Array.isArray(value)) return []
+  const ids: string[] = []
+  const own = value['id']
+  if (typeof own === 'string') ids.push(own)
+  const insert = value['insert']
+  for (const row of Array.isArray(insert) ? insert : []) {
+    if (typeof row === 'string' || Array.isArray(row)) continue
+    const inserted = row['id']
+    if (typeof inserted === 'string') ids.push(inserted)
+  }
+  return ids
+}
+
+/**
+ * The same question {@link declaredIds} answers, asked of an entry the failsafe
+ * schema refused, over its lines with comment-only lines removed.
+ *
+ * A key line is the whole test, so a mention of the id inside a comment or a
+ * value — the preset table's own description names the gateway — does not make
+ * an entry that row.
+ * @param raw - the entry's lines, verbatim.
+ * @param id - the row id to look for.
+ * @returns true when a key line of the entry declares that id.
+ */
+function declaresId(raw: readonly string[], id: string): boolean {
+  const structural = raw.filter(line => !line.trim().startsWith('#')).join('\n')
+  return new RegExp(`^[- ]*id: *['"]?${id}['"]? *$`, 'm').test(structural)
+}
+
+/**
+ * The rows an earlier build of this shell put into a desktop profile's own
+ * patch layer, as the {@link canonical} text of what {@link patchEntries} reads
+ * for each one.
+ *
+ * The gateway row has two forms because a patch layer can declare it either
+ * way: the package's own `- insert:`, and the top-level `- id:` an id-targeted
+ * copy of it takes. The second is retired on the same terms as the first —
+ * every field the shipped value, which is nobody's choice — and it matters more
+ * than the duplicate it looks like: an id-targeted patch replaces the row's
+ * whole `config`, so a copy carrying 0.1.3's two fields silently pins the judge
+ * route and drops every `Config` field a later release sets on its own row.
+ *
+ * All of them are `cordis.patch.yml` inside
+ * `apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.1.3.tgz`, the
+ * tarball vendored for 0.1.0-rc.18 — the pairing a hand
+ * written `~/.dsh/profiles/web/cordis.patch.yml` carried before that release
+ * moved it into the package, and which the first sync of the `desktop-shell`
+ * profile then copied over verbatim with the rest of that file.
+ *
+ * `@haoran/dsh-llm-permission-gateway` 0.4.3 declares both rows in its own
+ * bundle layer, with four presets in a different order and its own name and
+ * description on the reviewed one. Every bundle layer applies before the
+ * profile's patch layer, so a copy left here shadows the shipped table
+ * entirely: the access-mode control keeps offering the 0.1.3 rows on a machine
+ * running any later build.
+ */
+const SEEDED_PERMISSION_ROWS: readonly { what: string; id: string; row: string }[] = [
+  {
+    what: 'the permission preset table',
+    id: 'permission',
+    row: canonical({
+      id: 'permission',
+      config: {
+        presets: {
+          'read-only': { sandbox: 'read-only', approval: 'ask' },
+          'workspace-write': { sandbox: 'workspace-write', approval: 'ask' },
+          'danger-full-access': { sandbox: 'danger-full-access', approval: 'never' },
+          'yolo-access': {
+            sandbox: 'danger-full-access',
+            approval: 'ask',
+            name: '自动审查',
+            description: '沙箱完全关闭，文件系统与命令不再有操作系统层面的围墙；改由审查模型逐个判断工具调用，只在它自己拿不准时才弹审批框。安全性取决于模型的判断质量，不再取决于沙箱。必须与 llm-permission-gateway 一起使用。',
+          },
+        },
+      },
+    }),
+  },
+  {
+    what: 'the llm-permission-gateway row',
+    id: 'llm-permission-gateway',
+    row: canonical({
+      insert: [{
+        id: 'llm-permission-gateway',
+        name: '@haoran/dsh-llm-permission-gateway',
+        config: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      }],
+    }),
+  },
+  {
+    what: 'the llm-permission-gateway row',
+    id: 'llm-permission-gateway',
+    row: canonical({
+      id: 'llm-permission-gateway',
+      name: '@haoran/dsh-llm-permission-gateway',
+      config: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    }),
+  },
+]
+
+/**
+ * Drop whole entries from a patch layer, each with the comment run written
+ * directly above it and the blank lines directly below it, so what is left
+ * reads as if those rows had never been written.
+ *
+ * A layer with nothing but those rows in it becomes the empty template again,
+ * and one left holding only comments gains the `[]` those comments annotated:
+ * the loader reads this file as a top-level array, and a file of comments alone
+ * is not one. A layer that still holds anything else is returned as it stands,
+ * so a file whose array was written `[]` rather than as a block sequence does
+ * not gain a second top-level node. Every answer ends in exactly one newline.
+ * @param lines - the file's lines.
+ * @param cut - the entries to remove.
+ * @returns the file's new contents.
+ */
+function removePatchEntries(lines: readonly string[], cut: readonly PatchEntry[]): string {
+  const dropped = new Set<number>()
+  for (const entry of cut) {
+    for (let index = entry.start; index <= entry.end; index += 1) dropped.add(index)
+    for (let index = entry.start - 1; index >= 0; index -= 1) {
+      if (!(lines[index] ?? '').trim().startsWith('#')) break
+      dropped.add(index)
+    }
+    for (let index = entry.end + 1; index < lines.length; index += 1) {
+      if ((lines[index] ?? '').trim().length > 0) break
+      dropped.add(index)
+    }
+  }
+  const kept = lines.filter((_, index) => !dropped.has(index))
+  while (kept.length > 0 && (kept[0] ?? '').trim().length === 0) kept.shift()
+  const rest = kept.join('\n').replace(/\n+$/, '')
+  if (rest.trim().length === 0) return PROFILE_PATCH_TEMPLATE
+  const structural = rest.split('\n').filter(line => !line.trim().startsWith('#')).join('')
+  return structural.trim().length === 0 ? `${rest}\n\n[]\n` : `${rest}\n`
+}
+
+/**
+ * Write one run's decision into an existing migration marker.
+ *
+ * A profile with no marker at all gains none: the marker's existence is what
+ * {@link syncWebBundles} reads as "this profile has synced before", and creating
+ * one here would suppress the one-time copy of the web profile's own two files.
+ * @param markerPath - the marker inside the desktop profile.
+ * @param marker - the marker as this run read it, or undefined when there is none.
+ * @param outcome - what this run decided.
+ * @param report - the run's report, extended when the marker cannot be written.
+ */
+function recordPermissionPatch(
+  markerPath: string, marker: MigrationMarker | undefined, outcome: PermissionPatchOutcome, report: SeedReport,
+): void {
+  if (marker === undefined) return
+  try {
+    writeMigrationMarker(markerPath, { ...marker, permissionPatch: outcome })
+  } catch (error) {
+    report.skipped.push(`${markerPath}: ${String(error)}`)
+  }
+}
+
+/**
+ * Take the permission preset table and the gateway row an earlier build of this
+ * shell copied into the profile's own patch layer back out, once.
+ *
+ * The rows arrive by the route {@link copyPristineProfileFile} describes: the
+ * first sync a profile ever runs replaces its empty patch template with the
+ * `web` profile's file verbatim, and on the machine that pairing came from that
+ * file was where {@link SEEDED_PERMISSION_ROWS} lived. The package now declares
+ * both rows in its own bundle layer, and every bundle layer applies before this
+ * file, so the copy shadows what the installed plugin ships.
+ *
+ * A row is removed only where it is still what was copied, field for field and
+ * value for value. One that differs anywhere is an edit its owner made, and
+ * stays with the reason named in {@link SeedReport.skipped}, as does an entry
+ * {@link patchEntries} could not read under the failsafe schema.
+ *
+ * The decision is recorded in {@link MigrationMarker.permissionPatch}, so no
+ * later launch reads the file again — including the `absent` a layer still
+ * holding the empty template decides without parsing anything. A profile with
+ * no marker to record it in is read again next launch, which costs one file
+ * read and, for the common case, one comparison against that template.
+ *
+ * No fault in here is worth a launch. The whole body runs under one catch, and
+ * anything it does not otherwise handle becomes a line in
+ * {@link SeedReport.skipped} naming the file: the shell then starts the way it
+ * would have without this step, with the profile still shadowing the shipped
+ * preset table, rather than failing to open on a file nothing in the
+ * application can edit. Every fault this module knows of is answered before
+ * that line — an entry the schema refuses, a file it cannot read, a write that
+ * fails — so reaching it means an assumption here is wrong, and the line is
+ * what says which file to look at.
+ * @param profileDir - the desktop profile directory.
+ * @param report - the run's report, extended with what was retired or left alone.
+ */
+function retireSeededPermissionRows(profileDir: string, report: SeedReport): void {
+  try {
+    retireSeededPermissionRowsIn(profileDir, report)
+  } catch (error) {
+    report.skipped.push(`${join(profileDir, PROFILE_PATCH_FILENAME)}: ${String(error)}`)
+  }
+}
+
+/**
+ * The body {@link retireSeededPermissionRows} guards: everything it describes,
+ * free to throw.
+ * @param profileDir - the desktop profile directory.
+ * @param report - the run's report, extended with what was retired or left alone.
+ */
+function retireSeededPermissionRowsIn(profileDir: string, report: SeedReport): void {
+  const markerPath = join(profileDir, MIGRATION_MARKER_FILENAME)
+  const marker = readMigrationMarker(markerPath)
+  if (marker?.permissionPatch !== undefined) return
+  const patchPath = join(profileDir, PROFILE_PATCH_FILENAME)
+  let text
+  try {
+    text = readFileSync(patchPath, 'utf8')
+  } catch {
+    // No patch layer to read: a profile whose owner deleted the file holds
+    // nothing of this shell's either.
+    return
+  }
+  if (text === PROFILE_PATCH_TEMPLATE) {
+    // The empty template cannot hold a row to retire, and recording that is
+    // what stops this profile reading the file on every launch afterwards.
+    recordPermissionPatch(markerPath, marker, 'absent', report)
+    return
+  }
+
+  const lines = text.split('\n')
+  const cut: PatchEntry[] = []
+  const retired: string[] = []
+  const kept: string[] = []
+  for (const entry of patchEntries(lines)) {
+    const read = entry.value === undefined ? undefined : canonical(entry.value)
+    const matched = SEEDED_PERMISSION_ROWS.find(seeded => seeded.row === read)
+    if (matched !== undefined) {
+      cut.push(entry)
+      retired.push(matched.what)
+      continue
+    }
+    // The text fallback is for an entry the schema refused, never for one it
+    // read: a readable entry that declares no id declares none, and asking its
+    // text instead would find the id inside a comment or a value.
+    const looks = SEEDED_PERMISSION_ROWS.find(seeded => (entry.value === undefined
+      ? declaresId(lines.slice(entry.start, entry.end + 1), seeded.id)
+      : declaredIds(entry.value).includes(seeded.id)))
+    if (looks !== undefined) kept.push(looks.what)
+  }
+
+  if (cut.length > 0) {
+    try {
+      writeAtomic(patchPath, removePatchEntries(lines, cut))
+    } catch (error) {
+      // Nothing is recorded either, so the next launch starts this over.
+      report.skipped.push(`${patchPath}: ${String(error)}`)
+      return
+    }
+    report.retired.push(...retired)
+  }
+  for (const what of kept) {
+    report.skipped.push(`${PROFILE_PATCH_FILENAME}: ${what} is not the one this shell wrote; left exactly as it is`)
+  }
+  recordPermissionPatch(markerPath, marker, cut.length > 0 ? 'removed' : kept.length > 0 ? 'kept' : 'absent', report)
+}
+
+/**
+ * The row id of upstream's own reviewed access mode,
+ * `@deepseek-ai/dsh-experimental-auto-review`, as its bundle layer inserts it.
+ */
+export const AUTO_REVIEW_ID = 'auto-review'
+
+/**
+ * The guard row builds from 0.1.0-rc.34 through 0.1.0-rc.37 wrote into the
+ * profile's own patch layer on every launch, with the comment written above
+ * it, byte for byte. {@link retireAutoReviewGuard} takes exactly this text back
+ * out.
+ */
+export const AUTO_REVIEW_GUARD_TEXT = `# Written by the desktop shell on every launch: upstream's auto-review stays
+# off, because this deployment's permission gateway already reviews the same
+# calls. Set \`disabled: false\` on this row to turn it on; deleting the row
+# only lasts until the next launch.
+- id: ${AUTO_REVIEW_ID}
+  disabled: true
+`
+
+/**
+ * What those builds wrote into a patch layer that was still the empty template;
+ * {@link syncWebBundles} still counts it as a pristine patch layer.
+ */
+const GUARDED_PATCH_TEMPLATE = PROFILE_PATCH_TEMPLATE.replace(/^\[\]\n$/m, AUTO_REVIEW_GUARD_TEXT)
+
+/**
+ * Take the `auto-review` guard row an earlier build of this shell wrote back
+ * out of the profile's own patch layer, on every launch.
+ *
+ * The row kept `@deepseek-ai/dsh-experimental-auto-review` composed off should
+ * the Plugins page install it. The payload now carries a placeholder under
+ * that name ({@link PLACEHOLDER_BUNDLES}), so no layer inserts an
+ * `auto-review` entry, and the row only made the loader print
+ * `patch: entry "auto-review" not found` on every boot.
+ *
+ * The row is recognized as {@link AUTO_REVIEW_GUARD_TEXT} exactly, comment
+ * block included, starting at the beginning of a line and ending its entry: an
+ * occurrence with more lines of the same entry below it is a row its owner
+ * extended, and stays like any other. The text survives the
+ * Plugins page's and the settings migration's edits of other rows, which
+ * re-serialize the whole file through the `yaml` library and keep every
+ * comment and line of an untouched entry. Each occurrence is removed together
+ * with one blank line directly above it. A layer left without any entry gets
+ * the `[]` back in the occurrence's place, so a layer that was the guarded
+ * template becomes the empty template again. Any other entry declaring the
+ * `auto-review` id — the Plugins page's enable writes `disabled: false` onto
+ * this row — is a decision its owner made, and stays, with a line in
+ * {@link SeedReport.skipped}. A layer without the text is not written, so a
+ * second launch changes nothing.
+ *
+ * No fault in here is worth a launch: anything it does not otherwise handle
+ * becomes a line in {@link SeedReport.skipped} naming the file.
+ * @param profileDir - the desktop profile directory.
+ * @param report - the run's report, extended with the row retired or the row left alone.
+ */
+function retireAutoReviewGuard(profileDir: string, report: SeedReport): void {
+  const patchPath = join(profileDir, PROFILE_PATCH_FILENAME)
+  try {
+    retireAutoReviewGuardIn(patchPath, report)
+  } catch (error) {
+    report.skipped.push(`${patchPath}: ${String(error)}`)
+  }
+}
+
+/**
+ * The body {@link retireAutoReviewGuard} guards: everything it describes, free to throw.
+ * @param patchPath - the profile's own patch layer.
+ * @param report - the run's report, extended with the row retired or the row left alone.
+ */
+function retireAutoReviewGuardIn(patchPath: string, report: SeedReport): void {
+  let text
+  try {
+    text = readFileSync(patchPath, 'utf8')
+  } catch {
+    // No patch layer: nothing of this shell's is in a file that does not exist.
+    return
+  }
+  let next = text
+  for (let at = guardOffset(next); at !== undefined; at = guardOffset(next)) {
+    const end = at + AUTO_REVIEW_GUARD_TEXT.length
+    const start = next.slice(Math.max(0, at - 2), at) === '\n\n' ? at - 1 : at
+    const removed = next.slice(0, start) + next.slice(end)
+    next = patchEntries(removed.split('\n')).length > 0 ? removed : `${next.slice(0, at)}[]\n${next.slice(end)}`
+  }
+  if (next !== text) {
+    writeAtomic(patchPath, next)
+    report.retired.push(`the ${AUTO_REVIEW_ID} off row`)
+  }
+  const lines = next.split('\n')
+  const kept = patchEntries(lines).some(entry => (entry.value === undefined
+    ? declaresId(lines.slice(entry.start, entry.end + 1), AUTO_REVIEW_ID)
+    : declaredIds(entry.value).includes(AUTO_REVIEW_ID)))
+  if (kept) report.skipped.push(`${PROFILE_PATCH_FILENAME}: an ${AUTO_REVIEW_ID} row this shell did not write is there; left exactly as it is`)
+}
+
+/** Lines of {@link AUTO_REVIEW_GUARD_TEXT} above its `- id:` line: the comment block. */
+const GUARD_COMMENT_LINES = AUTO_REVIEW_GUARD_TEXT.split('\n').findIndex(line => line.startsWith('- '))
+
+/**
+ * Where {@link AUTO_REVIEW_GUARD_TEXT} starts on a line of its own and holds
+ * the whole of its entry. An occurrence followed by more lines of the same
+ * entry — a key the owner added under `disabled: true` — is that owner's row
+ * and is not one.
+ * @param text - the patch layer.
+ * @returns the offset of the first such occurrence, or undefined when there is none.
+ */
+function guardOffset(text: string): number | undefined {
+  const lines = text.split('\n')
+  const entries = patchEntries(lines)
+  for (let at = text.indexOf(AUTO_REVIEW_GUARD_TEXT); at >= 0; at = text.indexOf(AUTO_REVIEW_GUARD_TEXT, at + 1)) {
+    if (at !== 0 && text[at - 1] !== '\n') continue
+    const start = text.slice(0, at).split('\n').length - 1 + GUARD_COMMENT_LINES
+    if (entries.find(entry => entry.start === start)?.end === start + 1) return at
+  }
+  return undefined
+}
+
+/**
+ * Take the {@link PLACEHOLDER_BUNDLES} names out of `dsh.profile.bundles`, on
+ * every launch. A manifest that lists none of them is not written.
+ * @param profileDir - the desktop profile directory.
+ * @param report - the run's report, extended with the names removed.
+ */
+function deselectPlaceholderBundles(profileDir: string, report: SeedReport): void {
+  const manifestPath = join(profileDir, 'package.json')
+  try {
+    report.deselected.push(...dropBundleNames(manifestPath, PLACEHOLDER_BUNDLES))
+  } catch (error) {
+    report.skipped.push(`${manifestPath}: ${String(error)}`)
+  }
+}
+
+/**
+ * One row of the startup audit block the server writes to stderr for an entry
+ * that did not activate, when the entry failed to import:
+ * `<id> (<name>): failed to import`. The block is written for optional entries
+ * and the server keeps running; the import error itself goes to the server's
+ * logger only, so this text is all the detail there is.
+ */
+const AUDIT_IMPORT_FAILURE = /^(\S+) \((.+)\): failed to import$/
+
+/**
+ * The line the launcher writes once per start for a profile bundle it could
+ * not load or that the compatibility check refused:
+ * `<bin>: skipping profile bundle "<package>": <reason>`.
+ */
+const SKIPPED_BUNDLE = /^\S+: skipping profile bundle ("(?:[^"\\]|\\.)*"): (.+)$/
+
+/**
+ * The line the compatibility check writes for a row it turned off:
+ * `<bin>: disabling profile plugin row "<id>": <reason>` for a row with an id,
+ * `<bin>: disabling profile plugin <name>: <reason>` for one without, where the
+ * name of a bundle row is its resolved module URL.
+ */
+const DISABLED_ROW = /^\S+: disabling profile plugin (?:row ("(?:[^"\\]|\\.)*")|(\S+)): (.+)$/
+
+/**
+ * The package a loader entry name refers to: the name itself for a package
+ * name, or the package directory after the last `node_modules` in a `file:`
+ * URL, which is what an inserted relative path becomes.
+ * @param name - the entry name as the server printed it.
+ * @returns the package name, or undefined for a URL outside any `node_modules`.
+ */
+function packageNameOf(name: string): string | undefined {
+  if (!name.startsWith('file:')) return name
+  let segments: string[]
+  try {
+    segments = decodeURIComponent(new URL(name).pathname).split('/')
+  } catch {
+    // Not a URL after all: nothing here names a package.
+    return undefined
+  }
+  const at = segments.lastIndexOf('node_modules')
+  const first = at < 0 ? undefined : segments[at + 1]
+  if (first === undefined || first === '') return undefined
+  if (!first.startsWith('@')) return first
+  const second = segments[at + 2]
+  return second === undefined || second === '' ? undefined : `${first}/${second}`
+}
+
+/**
+ * The migrated package whose own bundle layer declares a row id, read from
+ * the link in the desktop profile.
+ * @param profileDir - the desktop profile directory.
+ * @param migrated - the names the marker holds as migrated.
+ * @param id - the row id the server named.
+ * @returns the package, or undefined when no migrated package declares it.
+ */
+function migratedOwnerOfRow(profileDir: string, migrated: readonly string[], id: string): string | undefined {
+  return migrated.find((name) => {
+    const dir = join(profileDir, 'node_modules', name)
+    const manifest = tryReadManifest(join(dir, 'package.json'))
+    const declared = (manifest?.dsh?.bundle as { patch?: unknown } | undefined)?.patch
+    let text: string
+    try {
+      text = readFileSync(join(dir, typeof declared === 'string' ? declared : PROFILE_PATCH_FILENAME), 'utf8')
+    } catch {
+      // No readable bundle layer: this package declares no row.
+      return false
+    }
+    return patchEntries(text.split('\n')).some(entry => entry.value !== undefined && declaredIds(entry.value).includes(id))
+  })
+}
+
+/**
+ * The migrated package one line of server output says did not load, and the
+ * detail to record for it.
+ * @param line - one line of stdout or stderr.
+ * @param profileDir - the desktop profile directory.
+ * @param migrated - the names the marker holds as migrated.
+ * @returns the package and detail, or undefined for a line that blames no migrated package.
+ */
+function blamedByLine(
+  line: string, profileDir: string, migrated: readonly string[],
+): { name: string; detail: string } | undefined {
+  const text = line.trimEnd()
+  let name: string | undefined
+  let detail: string | undefined
+  const audit = AUDIT_IMPORT_FAILURE.exec(text)
+  const skipped = SKIPPED_BUNDLE.exec(text)
+  const disabled = DISABLED_ROW.exec(text)
+  if (audit !== null) {
+    name = packageNameOf(audit[2] ?? '')
+    detail = 'failed to import'
+  } else if (skipped !== null) {
+    name = JSON.parse(skipped[1] ?? '""') as string
+    detail = skipped[2]
+  } else if (disabled !== null) {
+    const id = disabled[1] === undefined ? undefined : JSON.parse(disabled[1]) as string
+    name = id === undefined ? packageNameOf(disabled[2] ?? '') : migratedOwnerOfRow(profileDir, migrated, id)
+    detail = disabled[3]
+  }
+  if (name === undefined || detail === undefined || !migrated.includes(name)) return undefined
+  return { name, detail }
+}
+
+/**
+ * Move every migrated bundle the server's output says did not load into the
+ * marker's `defective` list and out of `dsh.profile.bundles`, so no later boot
+ * carries it into the loader again.
+ *
+ * Three lines blame a package: a row of the startup audit block saying an
+ * entry failed to import, the launcher's `skipping profile bundle`, and the
+ * compatibility check's `disabling profile plugin`. The server keeps running
+ * after all three, so the caller feeds this every line a boot writes, the ones
+ * after its URL line included; the package is absent from that boot and from
+ * the next one on. A name is recorded once: once recorded it is no longer
+ * among the migrated names these lines are checked against.
+ *
+ * Reads {@link MIGRATION_MARKER_FILENAME} straight from disk on every call:
+ * the marker is the only record of what this shell migrated that is shared
+ * between the seeding before the boot and this scan during it.
+ * @param home - the Harness home for this launch.
+ * @param output - one line of server output, or several joined by newlines.
+ * @returns the first name recorded and its detail; undefined when nothing in
+ * the output names a plugin this shell migrated, or the profile manifest could
+ * not be rewritten.
+ */
+export function quarantineLoadFailureFromOutput(home: string, output: string): { name: string; detail: string } | undefined {
+  const profileDir = profileDirectory(home, DESKTOP_PROFILE)
+  const markerPath = join(profileDir, MIGRATION_MARKER_FILENAME)
+  let first: { name: string; detail: string } | undefined
+  for (const line of output.split('\n')) {
+    // Most lines are none of the three; only those cost a marker read.
+    if (![AUDIT_IMPORT_FAILURE, SKIPPED_BUNDLE, DISABLED_ROW].some(pattern => pattern.test(line.trimEnd()))) continue
+    const marker = readMigrationMarker(markerPath)
+    if (marker === undefined) return first
+    const blamed = blamedByLine(line, profileDir, marker.migrated)
+    if (blamed === undefined) continue
+    try {
+      dropBundleNames(join(profileDir, 'package.json'), [blamed.name])
+    } catch {
+      // The manifest could not be rewritten, so the name would reach the
+      // loader again; recording it as defective would claim otherwise.
+      return first
+    }
+    writeMigrationMarker(markerPath, {
+      ...marker,
+      migrated: marker.migrated.filter(existing => existing !== blamed.name),
+      defective: [...marker.defective, { name: blamed.name, kind: 'load-failed', detail: blamed.detail, at: Date.now() }],
+    })
+    first ??= blamed
+  }
+  return first
+}
+
+/**
+ * Take the built-ins this build withdrew back out of a profile an earlier build
+ * seeded them into.
+ *
+ * A name this payload still carries is not withdrawn on this build whatever
+ * {@link WITHDRAWN_WEB_BUNDLES} says, and needs no repair: it still resolves
+ * from the installation.
+ * @param spec - the run's home and shipped closure.
+ * @param profileDir - the desktop profile directory.
+ * @param report - the run's report, extended with what this removed.
+ */
+function pruneWithdrawnBundles(spec: SeedSpec, profileDir: string, report: SeedReport): void {
+  const modulesDir = join(spec.home, PROFILES_DIR, 'node_modules')
+  const orphaned: string[] = []
+  for (const name of WITHDRAWN_WEB_BUNDLES) {
+    if (existsSync(join(spec.serverModules, name, 'package.json'))) continue
+    const link = join(modulesDir, name)
+    try {
+      if (removeSeededLink(link, join(spec.serverModules, name))) report.unlinked.push(name)
+    } catch (error) {
+      report.skipped.push(`${link}: ${String(error)}`)
+    }
+    if (!resolvesForProfile(spec, profileDir, name)) orphaned.push(name)
+  }
+  if (orphaned.length === 0) return
+  const manifestPath = join(profileDir, 'package.json')
+  try {
+    report.pruned.push(...dropBundleNames(manifestPath, orphaned))
+  } catch (error) {
+    report.skipped.push(`${manifestPath}: ${String(error)}`)
+  }
+}
+
+/**
+ * Remove a flat-fallback link this shell made for a package it no longer ships.
+ *
+ * Only two links qualify: one that no longer resolves to anything, and one that
+ * points exactly where this build's closure would hold the package — between
+ * them, every link an earlier launch of this shell left behind. Anything else
+ * at that path, a real directory included, belongs to whoever created it.
+ * @param link - the flat-fallback path for the withdrawn name.
+ * @param shipped - where this build's closure would hold that package.
+ * @returns true when the link was removed.
+ * @throws when the path cannot be unlinked.
+ */
+function removeSeededLink(link: string, shipped: string): boolean {
+  let existing
+  try {
+    existing = lstatSync(link)
+  } catch {
+    // Absent, which is every home that never installed a build shipping it.
+    return false
+  }
+  if (!existing.isSymbolicLink()) return false
+  // existsSync follows the link, so this is false exactly when it dangles.
+  if (existsSync(link) && !sameLinkTarget(readlinkSync(link), shipped, dirname(link))) return false
+  unlinkSync(link)
+  return true
+}
+
+/**
+ * Drop bundle names from an existing manifest's list, leaving every other field.
+ * @param manifestPath - the profile manifest.
+ * @param names - the names to remove.
+ * @returns the names that were in the list and are no longer.
+ * @throws when the manifest cannot be replaced.
+ */
+export function dropBundleNames(manifestPath: string, names: readonly string[]): string[] {
+  const manifest = tryReadManifest(manifestPath)
+  // Unreadable: either this run wrote it and it parses, or the seeding pass
+  // above read the same file and already reported it for the server.
+  if (manifest === undefined) return []
+  const bundles = manifest.dsh?.profile?.bundles
+  if (!Array.isArray(bundles)) return []
+  const dropped = bundles.filter(name => names.includes(name))
+  if (dropped.length === 0) return []
+  const updated: ProfileManifest = {
+    ...manifest,
+    dsh: { ...manifest.dsh, profile: { ...manifest.dsh?.profile, bundles: bundles.filter(name => !names.includes(name)) } },
+  }
+  writeAtomic(manifestPath, `${JSON.stringify(updated, undefined, 2)}\n`)
+  return dropped
+}
+
+/**
+ * Report a copy of a built-in the profile installed for itself at another
+ * version. Node resolves the profile's own `node_modules` before the flat
+ * fallback, so that copy is the code the Loader imports, while
+ * `resolveBundleDir` still reads the patch layer from the installation — the
+ * row and the module then come from different versions. Reported, never acted
+ * on: the profile's dependencies belong to whoever installed them.
+ */
+function reportShadowing(spec: SeedSpec, profileDir: string, name: string, report: SeedReport): void {
+  const local = join(profileDir, 'node_modules', name, 'package.json')
+  if (!existsSync(local)) return
+  const versionOf = (path: string): string | undefined => {
+    try {
+      return (JSON.parse(readFileSync(path, 'utf8')) as { version?: string }).version
+    } catch {
+      // An unreadable manifest says nothing about a version mismatch, and this
+      // diagnostic must never be the thing that fails a launch.
+      return undefined
+    }
+  }
+  const installed = versionOf(local)
+  const shipped = versionOf(join(spec.serverModules, name, 'package.json'))
+  if (installed === undefined || shipped === undefined || installed === shipped) return
+  report.shadowed.push(
+    `profile copy ${name}@${installed} shadows the shipped ${shipped} module; patch layer comes from the shipped copy`,
+  )
+}
+
+/**
+ * Add the missing built-in names to an existing manifest's bundle list, keeping
+ * {@link DESKTOP_COMPOSITION_BUNDLE} after every built-in plugin, and record the
+ * payload's built-in plugins in `dsh.profile.shipped`. A manifest that does not
+ * parse, or that declares no bundle list at all, is left exactly as it is: the
+ * first is something the server reports with the diagnostic it owns, and the
+ * second is a composition written by hand, where adding the built-in names
+ * would produce a profile that mounts them and nothing else.
+ *
+ * A built-in plugin goes missing from a profile this shell seeded when a build
+ * adds one, or when the Plugins page switches one off, which removes its name
+ * from the bundle list and leaves it in `dsh.profile.shipped`. Only the first
+ * is added back; the second is reported in {@link SeedReport.keptOff}, unless
+ * it is in {@link REQUIRED_WEB_BUNDLES}, which is added back either way. A
+ * profile with no recorded list has never had a built-in switched off from the
+ * page this list serves, so every missing plugin there is added back. An added
+ * plugin goes before the composition layer: appended at the end, it would
+ * follow that layer, and the layer's rows for the ids it inserts would match
+ * nothing.
+ */
+function seedExistingManifest(manifestPath: string, available: readonly string[], report: SeedReport): void {
+  let manifest: ProfileManifest
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as ProfileManifest
+  } catch (error) {
+    report.skipped.push(`${manifestPath}: unreadable, left for the server to report (${String(error)})`)
+    return
+  }
+  const bundles = manifest.dsh?.profile?.bundles
+  if (!Array.isArray(bundles)) {
+    report.skipped.push(`${manifestPath}: declares no dsh.profile.bundles list; not rewriting a hand-composed profile`)
+    return
+  }
+  const recorded = recordedShipped(manifest)
+  const keptOff = shippedPlugins(available)
+    .filter(name => !bundles.includes(name) && recorded?.includes(name) === true && !REQUIRED_WEB_BUNDLES.includes(name))
+  const placed = placeBuiltins(bundles, available.filter(name => !keptOff.includes(name)))
+  const shipped = shippedPlugins(available)
+  report.keptOff.push(...keptOff)
+  const sameList = (left: readonly string[], right: readonly string[] | undefined): boolean =>
+    right !== undefined && left.length === right.length && left.every((name, index) => name === right[index])
+  if (sameList(placed.bundles, bundles) && sameList(shipped, recorded)) return
+  const updated: ProfileManifest = {
+    ...manifest,
+    dsh: { ...manifest.dsh, profile: { ...manifest.dsh?.profile, bundles: placed.bundles, shipped } },
+  }
+  writeAtomic(manifestPath, `${JSON.stringify(updated, undefined, 2)}\n`)
+  report.seeded.push(...available.filter(name => !bundles.includes(name) && !keptOff.includes(name)))
+  if (placed.after !== undefined) report.reordered = placed.after
+}
+
+/**
+ * The bundle list with every available built-in in it and
+ * {@link DESKTOP_COMPOSITION_BUNDLE} after every built-in plugin.
+ *
+ * A missing plugin is inserted just before the composition layer, in
+ * {@link BUILTIN_WEB_BUNDLES} order; a missing composition layer goes after
+ * the last built-in plugin. Everything else keeps its position, so a name the
+ * `web` sync or the Plugins page put after the layer stays after it. Where the
+ * payload does not carry the composition layer, missing names are appended.
+ * @param bundles - the profile's `dsh.profile.bundles` as read.
+ * @param available - the built-ins the shipped closure carries, in bundle order.
+ * @returns the new list, and the built-in plugin the layer was moved after when a listed one followed it.
+ */
+function placeBuiltins(bundles: readonly string[], available: readonly string[]): { bundles: string[]; after?: string } {
+  const plugins = available.filter(name => name !== DESKTOP_COMPOSITION_BUNDLE)
+  const missing = plugins.filter(name => !bundles.includes(name))
+  const result = [...bundles]
+  if (!available.includes(DESKTOP_COMPOSITION_BUNDLE)) return { bundles: [...result, ...missing] }
+  const layerAt = result.indexOf(DESKTOP_COMPOSITION_BUNDLE)
+  if (layerAt < 0) return { bundles: [...result, ...missing, DESKTOP_COMPOSITION_BUNDLE] }
+  result.splice(layerAt, 0, ...missing)
+  const at = result.indexOf(DESKTOP_COMPOSITION_BUNDLE)
+  const last = plugins.reduce<string | undefined>(
+    (found, name) => (found === undefined || result.indexOf(name) > result.indexOf(found) ? name : found), undefined,
+  )
+  if (last === undefined || result.indexOf(last) < at) return { bundles: result }
+  result.splice(at, 1)
+  result.splice(result.indexOf(last) + 1, 0, DESKTOP_COMPOSITION_BUNDLE)
+  return { bundles: result, after: last }
+}
+
+/**
+ * The one log line a seeding run is worth, or nothing when it changed nothing.
+ * @param report - what {@link seedBuiltinBundles} did.
+ * @returns the line to append to the server log, or undefined when there is nothing to say.
+ */
+export function describeSeed(report: SeedReport): string | undefined {
+  const parts: string[] = []
+  if (report.renamedFrom !== undefined) parts.push(`renamed the ${report.renamedFrom} profile into place`)
+  if (report.failed !== undefined) parts.push(`could not initialize the profile: ${report.failed}`)
+  if (report.seeded.length > 0) {
+    parts.push(`${report.created ? 'created with' : 'seeded'} built-in bundles ${report.seeded.join(', ')}`)
+  }
+  if (report.keptOff.length > 0) parts.push(`left switched off built-in ${report.keptOff.join(', ')}`)
+  if (report.reordered !== undefined) parts.push(`moved ${DESKTOP_COMPOSITION_BUNDLE} after ${report.reordered}`)
+  if (report.linked.length > 0) parts.push(`linked ${report.linked.join(', ')}`)
+  if (report.migrated.length > 0) parts.push(`migrated ${report.migrated.join(', ')} from the web profile`)
+  if (report.copied.length > 0) parts.push(`copied ${report.copied.join(', ')} from the web profile`)
+  if (report.retired.length > 0) parts.push(`retired ${report.retired.join(', ')} from ${PROFILE_PATCH_FILENAME}`)
+  if (report.pruned.length > 0) parts.push(`dropped withdrawn built-in ${report.pruned.join(', ')}`)
+  if (report.deselected.length > 0) parts.push(`dropped withheld ${report.deselected.join(', ')}`)
+  if (report.unlinked.length > 0) parts.push(`unlinked ${report.unlinked.join(', ')}`)
+  for (const line of report.disabled) parts.push(`disabled migrated ${line}`)
+  for (const line of report.removed) parts.push(`removed ${line}`)
+  for (const line of report.dropped) parts.push(`dropped migrated ${line}`)
+  for (const line of report.skipped) parts.push(`skipped ${line}`)
+  for (const line of report.shadowed) parts.push(`warning: ${line}`)
+  if (parts.length === 0) return undefined
+  return `[desktop] profile ${DESKTOP_PROFILE}: ${parts.join('; ')}\n`
+}

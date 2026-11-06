@@ -36,6 +36,21 @@
     "packages/*/*/tests/**/*.client.spec.tsx",
     "packages/*/*/tests/**/*.client.tsx",
     "packages/*/*/tests/**/*.client.ts",
+    // The desktop payload's own client-face suite: it applies the vendored
+    // browser halves the shell seeds, so it reads the Client Context merges
+    // that the rest of this app's tests (host plane) must not see. Its seeded
+    // bundle list comes from the shell source below, which imports node
+    // builtins only and therefore belongs to neither Context face.
+    "apps/desktop-shell/tests/**/*.client.spec.ts",
+    // The desktop composition layer's browser half and its client suite.
+    "apps/desktop-app/tests/**/*.client.spec.tsx",
+    "apps/desktop-shell/src/profile-seed.ts",
+    "apps/desktop-shell/src/link-target.ts",
+    // The loading-page restatement, whose client-face suite checks it against
+    // the web client's BootPage, and the product-name constant, the only
+    // module it imports.
+    "apps/desktop-shell/src/app-boot-text.ts",
+    "apps/desktop-shell/src/brand.ts",
     // Client package outside packages/client with a local CSS module face.
     "packages/extensions/ui-cordis/src/css-modules.d.ts",
     "packages/client/tsdown.client.ts",
@@ -64,6 +79,7 @@
     { "path": "./packages/experimental/client-ui-cot-translation/tsconfig.client.json" },
     { "path": "./packages/client/product-analytics/tsconfig.client.json" },
     { "path": "./apps/desktop/tsconfig.client.json" },
+    { "path": "./apps/desktop-app" },
     { "path": "./packages/util/atomic-write" },
     { "path": "./packages/experimental/client-ui-voice-input" },
     { "path": "./packages/experimental/client-ui-claude-code-mods" },

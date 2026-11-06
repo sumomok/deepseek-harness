@@ -1,0 +1,680 @@
+/**
+ * Embedded web server lifecycle for the desktop shell: spawn the deployed CLI
+ * on the bundled Node runtime, treat the printed URL line as the readiness
+ * signal (the same contract the keyless CLI smoke relies on), and own bounded
+ * teardown of the server process tree.
+ * @module @deepseek-ai/dsh-desktop-shell/server
+ */
+
+import { spawn, type ChildProcess, type ChildProcessByStdio } from 'node:child_process'
+import type { Readable } from 'node:stream'
+import { pathToFileURL } from 'node:url'
+import {
+  HANDOFF_FAILED_PREFIX, HANDOFF_READY_LINE, handoffListeningLine, LISTEN_HANDOFF_ENV, LISTEN_HANDOFF_MESSAGE, type ListenHandoff,
+} from './listen-socket.ts'
+import { DESKTOP_PROFILE } from './profile-seed.ts'
+import { system32Program, WINDOWS_POWERSHELL } from './terminal-env.ts'
+
+/**
+ * The environment variable naming the desktop log file to the server child.
+ * `@deepseek-ai/dsh-desktop-app`'s `desktop-server-log` row reads it: set, the
+ * server appends its own logger records to that file; unset, the row stays
+ * off.
+ */
+export const SERVER_LOG_ENV = 'DSH_DESKTOP_SERVER_LOG'
+
+/** The web-app readiness line; capture group 1 is the authenticated URL carrying the launch token. */
+const URL_LINE = /dsh web: (http:\/\/127\.0\.0\.1:\d+\S*)/
+
+/** How long the server may take to print its URL line before startup fails; a cold antivirus-scanned first launch is the slow case. */
+const STARTUP_TIMEOUT_MS = 180_000
+
+/** Grace between SIGTERM and SIGKILL on POSIX teardown. */
+const STOP_GRACE_MS = 8_000
+
+/**
+ * How many trailing lines of the server's stdout/stderr an exit autopsy keeps.
+ * Fed continuously for the whole life of the child rather than kept as one
+ * unbounded accumulation, so a server that dies after hours of output still
+ * leaves a small, useful excerpt instead of nothing (a full log has already
+ * gone to `logSink`).
+ */
+const RECENT_OUTPUT_TAIL_LINES = 15
+
+/**
+ * How long an exit waits, after the process itself is gone, for its output
+ * pipes to close. `exit` can arrive while the last chunks the child wrote are
+ * still in the pipes, so an autopsy taken on `exit` misses the lines written
+ * just before the death — the ones that say why. `close` comes once both pipes
+ * are drained; the bound covers a pipe that never closes because a process the
+ * server started inherited it and outlived the server.
+ */
+const CLOSE_WAIT_MS = 2_000
+
+/**
+ * The Node flags that make the server process write a diagnostic report into
+ * `directory` when it dies of a V8 fatal error (out of memory above all) or of
+ * an exception no handler caught.
+ *
+ * They go on the server's own command line, not in `NODE_OPTIONS`: an
+ * environment variable reaches every process the server starts, so every
+ * Node program the agent runs for the user would write its reports into this
+ * directory too. The report leaves out the environment and the network
+ * interfaces (`--report-exclude-env`, `--report-exclude-network`): the
+ * environment is where the provider key lives, and neither is needed to read
+ * a crash. Once the CLI installs its own `uncaughtException` handler an
+ * exception ends the process through that handler, which writes its own
+ * stderr line, so the uncaught-exception report covers the boot before it.
+ * @param directory - where reports are written; the desktop log directory.
+ * @returns the flags, to put before the entry script.
+ */
+export function diagnosticReportFlags(directory: string): string[] {
+  return [
+    '--report-on-fatalerror',
+    '--report-uncaught-exception',
+    `--report-directory=${directory}`,
+    '--report-exclude-env',
+    '--report-exclude-network',
+  ]
+}
+
+/**
+ * Kill server processes left behind by an earlier run of this same install.
+ *
+ * A desktop process that dies without completing its teardown — killed from a
+ * task manager, or exited on the stop deadline — leaves its server child
+ * running and reparented. That orphan keeps the bundled Node binary and the
+ * deployed server files open, which on Windows is enough to make the next
+ * update fail while the installer tries to delete them.
+ *
+ * The match is the full executable path of this install's own Node binary, not
+ * the image name: every other `node` on the machine belongs to someone else and
+ * must be left alone. A match is only an orphan when its parent is gone — the
+ * parent pid is launchd or no longer runs — because a second live instance of
+ * this install runs the same binary and owns its server.
+ * @param nodeBin - absolute path of this install's bundled Node binary.
+ * @param logSink - receives one line when anything was killed.
+ * @returns the process ids that were killed.
+ */
+export async function sweepOrphanedServers(nodeBin: string, logSink: (chunk: string) => void): Promise<number[]> {
+  const orphans = orphanedProcesses(await findProcessesRunning(nodeBin), isProcessAlive)
+  if (orphans.length === 0) return []
+  const pids = orphans.map(entry => entry.pid)
+  logSink(`[desktop] found ${String(pids.length)} orphaned server process(es) from an earlier run (${pids.join(', ')}); killing\n`)
+  for (const pid of pids) await killPid(pid)
+  return pids
+}
+
+/** One process started from this install's Node binary and its parent. */
+export interface ServerProcess {
+  readonly pid: number
+  readonly ppid: number
+}
+
+/**
+ * The candidates whose owning shell is gone: reparented to launchd, or whose
+ * parent pid no longer runs. A live parent of any other install or instance is
+ * ownership evidence, so that process is left alone.
+ * @param processes - every process running this install's Node binary.
+ * @param alive - whether a parent pid still names a running process.
+ * @returns the subset that no live shell owns.
+ */
+export function orphanedProcesses(processes: readonly ServerProcess[], alive: (pid: number) => boolean): ServerProcess[] {
+  return processes.filter(entry => entry.ppid === 1 || !alive(entry.ppid))
+}
+
+/** @param pid - process to probe. @returns whether the pid names a running process. */
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    // EPERM means the process exists under another user; any other failure is ESRCH.
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+/**
+ * Process ids whose executable is exactly this path.
+ * @param executable - the absolute executable path to match.
+ * @returns the matching process ids, empty when the query fails.
+ */
+async function findProcessesRunning(executable: string): Promise<ServerProcess[]> {
+  if (process.platform === 'win32') {
+    // Win32_Process.Path is the full image path, so this compares the whole
+    // path rather than the `node.exe` name every Node install shares.
+    const quoted = executable.replace(/'/g, "''")
+    const script = `Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Path -eq '${quoted}' } | ForEach-Object { \"$($_.ProcessId) $($_.ParentProcessId)\" }`
+    const output = await capture(system32Program(process.env, ...WINDOWS_POWERSHELL), ['-NoProfile', '-NonInteractive', '-Command', script])
+    return parseProcesses(output)
+  }
+  // `comm` is the executable path on macOS, and `=` drops the header.
+  const output = await capture('ps', ['-axo', 'pid=,ppid=,comm='])
+  const processes: ServerProcess[] = []
+  for (const line of output.split('\n')) {
+    const match = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line)
+    if (match?.[3]?.trim() !== executable) continue
+    processes.push({ pid: Number.parseInt(match[1] as string, 10), ppid: Number.parseInt(match[2] as string, 10) })
+  }
+  return processes
+}
+
+/** Parse newline-separated `pid ppid` rows, ignoring anything else. */
+function parseProcesses(output: string): ServerProcess[] {
+  const processes: ServerProcess[] = []
+  for (const line of output.split('\n')) {
+    const match = /^\s*(\d+)\s+(\d+)\s*$/.exec(line)
+    if (match === null) continue
+    processes.push({ pid: Number.parseInt(match[1] as string, 10), ppid: Number.parseInt(match[2] as string, 10) })
+  }
+  return processes
+}
+
+/**
+ * Kill one process and, on Windows, everything it spawned. A server orphan has
+ * its own children (shells, language servers), and they hold the same files.
+ * @param pid - the process to kill.
+ */
+async function killPid(pid: number): Promise<void> {
+  if (process.platform === 'win32') {
+    await capture(system32Program(process.env, 'taskkill.exe'), ['/PID', String(pid), '/T', '/F'])
+    return
+  }
+  try {
+    process.kill(pid, 'SIGKILL')
+  } catch {
+    // The orphan exited between the scan and the kill, which is the outcome
+    // this function wanted; there is no other reason `kill` can fail here.
+  }
+}
+
+/**
+ * Run a command and return its stdout, treating any failure as no output. The
+ * callers use this to look for processes: a query that cannot run means the
+ * sweep finds nothing, never that startup fails.
+ * @param command - the executable to run.
+ * @param args - its arguments.
+ * @returns stdout, or an empty string when the command failed.
+ */
+async function capture(command: string, args: string[]): Promise<string> {
+  return new Promise((resolve) => {
+    let child: ChildProcessByStdio<null, Readable, null>
+    try {
+      child = spawn(command, args, { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
+    } catch {
+      // Node throws instead of emitting 'error' for some failed starts; either is a command that cannot run.
+      resolve('')
+      return
+    }
+    let out = ''
+    child.stdout.on('data', (chunk: Buffer) => { out += chunk.toString() })
+    child.once('error', () => { resolve('') })
+    child.once('close', () => { resolve(out) })
+  })
+}
+
+/** How to launch the embedded server. */
+export interface ServerSpec {
+  /** Absolute path of the bundled Node binary. */
+  nodeBin: string
+  /** Absolute path of the deployed `dsh` CLI entry (`lib/bin.js`). */
+  entry: string
+  /** Working directory the server (and its sessions) start in. */
+  cwd: string
+  /** Where the server process writes a Node diagnostic report when it dies; see {@link diagnosticReportFlags}. */
+  reportDirectory: string
+  /**
+   * Variables added to the inherited environment for this child alone — the
+   * endpoint and token of each loopback service the shell lends it, the
+   * renderer, the update service, and the Office engine service, the path of
+   * the pnpm launcher, and the `NODE_PATH` entry the Office engine is
+   * resolved through. They
+   * are deliberately not put on the shell's own `process.env`, because every
+   * other process the shell starts would inherit them from there.
+   */
+  env: Record<string, string>
+  /**
+   * The port passed as `--port`. Absent or 0 lets the system pick one; see
+   * [[@deepseek-ai/dsh-desktop-shell/server-port]] for why the shell asks for
+   * the previous launch's port. Not read when {@link listen} is set.
+   */
+  port?: number
+  /**
+   * A socket the shell holds, for the server to listen on instead of binding
+   * its own ([[@deepseek-ai/dsh-desktop-shell/listen-socket]]). Set, the
+   * server is started with the preload, an IPC channel and the
+   * {@link LISTEN_HANDOFF_ENV} variable, asked for the socket's port, and
+   * sent the socket once the preload is ready.
+   */
+  listen?: ListenHandoff
+}
+
+/** What one server-child exit tells the caller. */
+export interface ServerExitInfo {
+  /** The child's exit code, or null when it left by signal. */
+  code: number | null
+  /** The signal the child left by, or null when it exited with a code. */
+  signal: NodeJS.Signals | null
+  /**
+   * True when this exit is this shell's own teardown — `stop()`, the quit
+   * flow, or an update-install stop, all of which route through `stop()` —
+   * rather than the server dying on its own. A caller supervising the child
+   * for unexpected death must act only when this is false.
+   */
+  expected: boolean
+  /**
+   * The last {@link RECENT_OUTPUT_TAIL_LINES} lines of stdout/stderr the child
+   * produced, read once both pipes closed or {@link CLOSE_WAIT_MS} after the
+   * exit, whichever came first.
+   */
+  tail: string
+}
+
+/** A started server: its UI URL, its bounded stop, and its exit. */
+export interface ServerHandle {
+  /** The bare loopback origin, for same-server URL checks; never load this directly — a fresh page needs {@link authenticatedUrl}. */
+  url: string
+  /** The readiness-line URL carrying the launch token; loading it exchanges the token for the browser-session cookie. */
+  authenticatedUrl: string
+  /** The server process's id; `undefined` only when the system gave none. */
+  pid: number | undefined
+  /** Terminate the server process tree; resolves once the process exited. This is what marks the exit "expected". */
+  stop: () => Promise<void>
+  /**
+   * Whether the child process has exited, by any cause. True as soon as the
+   * process reported its exit, before {@link onExit} listeners hear it.
+   * @returns true once the child is gone.
+   */
+  exited: () => boolean
+  /**
+   * Register a listener for the child's own exit. Fires exactly once, whether
+   * the child already exited by the time this is called (synchronously, with
+   * the recorded info) or exits later. It fires once the output pipes closed
+   * after the exit, or {@link CLOSE_WAIT_MS} after it, so the tail holds what
+   * the child wrote last.
+   * @param listener - receives the exit info.
+   */
+  onExit: (listener: (info: ServerExitInfo) => void) => void
+}
+
+/**
+ * Thrown when the server process exited before printing its URL line.
+ *
+ * {@link output} carries the boot attempt's whole collected stdout and stderr,
+ * not the truncated tail {@link Error.message} shows: a quarantine pass over it
+ * needs the line that names a plugin, which the message's last 15 lines may
+ * not include.
+ */
+export class ServerExitedBeforeUrl extends Error {
+  /** Every stdout/stderr chunk this boot attempt produced, concatenated whole. */
+  readonly output: string
+
+  constructor(message: string, output: string) {
+    super(message)
+    this.name = 'ServerExitedBeforeUrl'
+    this.output = output
+  }
+}
+
+/**
+ * Thrown when a start with a held socket ({@link ServerSpec.listen}) did not
+ * end with the server listening on it: the preload reported a failure, the
+ * socket could not be sent, the process exited before it took the socket, or
+ * the server printed its URL line without the preload's `listening` line. The
+ * process has exited by the time this is thrown, so the caller can start the
+ * server without the socket at once.
+ */
+export class ListenHandoffFailed extends Error {
+  /** Why the handoff failed, in one line. */
+  readonly reason: string
+  /** Every stdout/stderr chunk this boot attempt produced, concatenated whole. */
+  readonly output: string
+
+  constructor(reason: string, output: string) {
+    super(`listen handoff failed: ${reason}.\n${tail(output)}`)
+    this.name = 'ListenHandoffFailed'
+    this.reason = reason
+    this.output = output
+  }
+}
+
+/**
+ * GUI-launched processes on macOS inherit launchd's minimal PATH, which would
+ * strip the agent's shell of the user's ordinary tools. Return env with the
+ * standard interactive locations appended when missing.
+ * @param base - the inherited environment.
+ * @returns the augmented environment.
+ */
+export function augmentedEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  if (process.platform === 'win32') return { ...base }
+  const standard = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin']
+  const current = (base.PATH ?? '').split(':').filter(part => part !== '')
+  for (const dir of standard) if (!current.includes(dir)) current.push(dir)
+  return { ...base, PATH: current.join(':') }
+}
+
+/**
+ * Kill the server's whole process tree. Windows has no signal-based group
+ * teardown from Node, so it goes through `taskkill /T`, run from
+ * `%SystemRoot%\System32`. When taskkill cannot start, whether Node reports
+ * that as an 'error' event (a program that is missing or cannot be run) or
+ * by throwing, only the server itself is killed: the processes it started
+ * keep running, and those that do not run the bundled Node binary are out of
+ * reach of the next launch's sweep. The returned promise never rejects. POSIX sends SIGTERM
+ * (the launcher's ordinary supervisor stop, exit 0) and escalates to SIGKILL
+ * after the grace window.
+ * @param child - the spawned server process.
+ * @returns resolves once the process reported exit.
+ */
+async function killTree(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return
+  const exited = new Promise<void>((resolve) => { child.once('exit', () => { resolve() }) })
+  if (process.platform === 'win32' && child.pid !== undefined) {
+    // Without the kill on a failed start, a taskkill that cannot start would leave the wait for the exit below open.
+    try {
+      spawn(system32Program(process.env, 'taskkill.exe'), ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
+        .once('error', () => { child.kill('SIGKILL') })
+    } catch {
+      // Node throws instead of emitting 'error' for some failed starts (an error code other than a missing or unrunnable program).
+      child.kill('SIGKILL')
+    }
+    await exited
+    return
+  }
+  child.kill('SIGTERM')
+  const timer = setTimeout(() => { child.kill('SIGKILL') }, STOP_GRACE_MS)
+  await exited
+  clearTimeout(timer)
+}
+
+/**
+ * A bounded last-N-lines buffer, fed one chunk at a time. Chunk boundaries
+ * need not land on line boundaries; only the joined text at the end matters.
+ * @param maxLines - how many trailing lines to keep.
+ * @returns `push` to feed one chunk, and `text` to read the current tail.
+ */
+function tailBuffer(maxLines: number): { push: (chunk: string) => void; text: () => string } {
+  let lines: string[] = ['']
+  return {
+    push(chunk: string): void {
+      const [first = '', ...rest] = chunk.split('\n')
+      const last = lines.length - 1
+      lines[last] = (lines[last] ?? '') + first
+      lines.push(...rest)
+      if (lines.length > maxLines) lines = lines.slice(-maxLines)
+    },
+    text: () => lines.join('\n'),
+  }
+}
+
+/**
+ * Feed a stream's chunks to `onLine` one complete line at a time, and the
+ * unterminated rest when the stream ends.
+ * @param stream - one of the child's output streams.
+ * @param onLine - receives each line without its newline.
+ */
+function forEachLine(stream: NodeJS.ReadableStream, onLine: (line: string) => void): void {
+  let pending = ''
+  stream.on('data', (chunk: Buffer) => {
+    const lines = (pending + chunk.toString()).split('\n')
+    pending = lines.pop() ?? ''
+    for (const line of lines) onLine(line)
+  })
+  stream.on('end', () => {
+    if (pending !== '') onLine(pending)
+    pending = ''
+  })
+}
+
+/**
+ * Start the embedded server and resolve once its UI URL is known.
+ * @param spec - launch paths, working directory, and report directory.
+ * @param logSink - receives every server stdout/stderr chunk (for the log file).
+ * @param onLine - receives every line of stdout and of stderr, each stream
+ * split on its own, for as long as the process writes: before the URL line and
+ * after it.
+ * @returns the running server handle; rejects when the process exits or stays
+ * silent past the startup timeout, with the collected output in the message.
+ * An exit before the URL line rejects once the output pipes closed (or
+ * {@link CLOSE_WAIT_MS} after it), so the collected output is complete. With
+ * {@link ServerSpec.listen} set, a handoff that did not leave the server
+ * listening on the held socket rejects with {@link ListenHandoffFailed} once
+ * the process exited; an exit after the socket was sent rejects as without it.
+ */
+export async function startServer(
+  spec: ServerSpec, logSink: (chunk: string) => void, onLine?: (line: string) => void,
+): Promise<ServerHandle> {
+  // `--profile desktop-shell` rather than the `web` alias: the shell's profile
+  // is its own, and the launcher forwards from the first token it does not recognize,
+  // so the web app still receives the two flags after it. The shell's own
+  // window is the browser for this server, so `--no-open` declines the handoff
+  // the web app performs by default; without it every start, including the
+  // relaunch after an update, adds a 127.0.0.1 tab.
+  const handoff = spec.listen
+  const port = handoff?.socket.port ?? spec.port ?? 0
+  // The preload goes before the entry so it runs, and takes the socket,
+  // before any server code. A file URL, because a Windows drive path is not a
+  // valid ESM specifier.
+  const preload = handoff === undefined ? [] : ['--import', pathToFileURL(handoff.preload).href]
+  const child = spawn(spec.nodeBin, [
+    ...diagnosticReportFlags(spec.reportDirectory), ...preload, spec.entry, '--profile', DESKTOP_PROFILE, '--port', String(port), '--no-open',
+  ], {
+    cwd: spec.cwd,
+    // DSH_TELEMETRY_DISABLED is upstream's own hard-disable switch
+    // (packages/boot/app-boot/src/profile-context.ts's
+    // resolveTelemetryPatch): this product sends no session telemetry, on
+    // top of the base bundle's own
+    // session-telemetry-otel row already shipping disabled. `spec.env` still
+    // wins if a caller (a test) sets its own value.
+    env: {
+      ...augmentedEnv(process.env), DSH_TELEMETRY_DISABLED: '1', ...spec.env,
+      ...(handoff === undefined ? {} : { [LISTEN_HANDOFF_ENV]: String(port) }),
+    },
+    stdio: handoff === undefined ? ['ignore', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe', 'ipc'],
+    // Without this a console window flashes for the bundled node.exe on Windows.
+    windowsHide: true,
+  })
+  const { stdout, stderr } = child
+  if (stdout === null || stderr === null) throw new Error('dsh server was spawned without its output pipes')
+  let collected = ''
+  const recentOutput = tailBuffer(RECENT_OUTPUT_TAIL_LINES)
+  // Raised by `stop()` (and by the startup-timeout kill below, which is this
+  // shell's own decision too) before the child is signaled, so the exit this
+  // produces is never mistaken for the server dying on its own.
+  let expectedExit = false
+  let exitInfo: ServerExitInfo | undefined
+  const exitListeners: Array<(info: ServerExitInfo) => void> = []
+  // The startup race below registers here to hear the same drained exit.
+  let onDrainedExit: ((code: number | null, signal: NodeJS.Signals | null) => void) | undefined
+  let pipesClosed = false
+  child.once('close', () => { pipesClosed = true })
+  // `.once`, not tied to the startup race below: an exit autopsy must see
+  // every exit, including one long after the URL was already reported.
+  child.once('exit', (code, signal) => {
+    const report = (): void => {
+      if (exitInfo !== undefined) return
+      clearTimeout(bound)
+      exitInfo = { code, signal, expected: expectedExit, tail: recentOutput.text() }
+      onDrainedExit?.(code, signal)
+      for (const listener of exitListeners) listener(exitInfo)
+    }
+    const bound = setTimeout(report, CLOSE_WAIT_MS)
+    if (pipesClosed) report()
+    else child.once('close', report)
+  })
+  const authenticatedUrl = await new Promise<string>((resolve, reject) => {
+    let settled = false
+    const settle = (action: () => void): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      action()
+    }
+    const timer = setTimeout(() => {
+      settle(() => {
+        expectedExit = true
+        void killTree(child)
+        reject(new Error(`dsh server printed no URL line within ${String(STARTUP_TIMEOUT_MS / 1000)}s.\n${tail(collected)}`))
+      })
+    }, STARTUP_TIMEOUT_MS)
+    // A handoff failure is this shell's own decision to stop the server, like
+    // the startup timeout above. It rejects only once the process is gone,
+    // because the caller then starts another server on the same Harness home
+    // and, at launch, on the same port.
+    const failHandoff = (reason: string): void => {
+      settle(() => {
+        expectedExit = true
+        void killTree(child).then(() => { reject(new ListenHandoffFailed(reason, collected)) })
+      })
+    }
+    // Whether the socket reached the child: set once the send completed.
+    let handed = false
+    let sent = false
+    const onHandoffLine = (line: string): void => {
+      if (handoff === undefined) return
+      const text = line.trimEnd()
+      if (text === HANDOFF_READY_LINE && !sent) {
+        sent = true
+        // No `message` listener is ever registered on this side, and the
+        // preload closes the channel as soon as the socket arrived, before any
+        // server code runs. The channel is not closed from here: after a
+        // parent-side `disconnect()` Node never emits the child's `close`, so
+        // every exit would wait out CLOSE_WAIT_MS.
+        child.send(LISTEN_HANDOFF_MESSAGE, handoff.socket.handle, (error) => {
+          if (error === null) handed = true
+          else failHandoff(`the socket could not be sent (${error.message})`)
+        })
+      } else if (text.startsWith(HANDOFF_FAILED_PREFIX)) {
+        failHandoff(text.slice(HANDOFF_FAILED_PREFIX.length))
+      }
+    }
+    const onChunk = (chunk: Buffer): void => {
+      const text = chunk.toString()
+      collected += text
+      recentOutput.push(text)
+      logSink(text)
+      const match = URL_LINE.exec(collected)
+      const url = match?.[1]
+      if (match === null || url === undefined) return
+      // Both lines are on stdout and the preload writes its own first, so a
+      // URL line that is not preceded by it comes from a server that bound
+      // some other socket.
+      if (handoff !== undefined) {
+        const listening = collected.indexOf(handoffListeningLine(port))
+        if (listening === -1 || listening > match.index || new URL(url).port !== String(port)) {
+          failHandoff('the server printed its URL line without listening on the held socket')
+          return
+        }
+      }
+      settle(() => { resolve(url) })
+    }
+    stdout.on('data', onChunk)
+    stderr.on('data', onChunk)
+    if (onLine !== undefined || handoff !== undefined) {
+      const eachLine = (line: string): void => {
+        onHandoffLine(line)
+        onLine?.(line)
+      }
+      forEachLine(stdout, eachLine)
+      forEachLine(stderr, eachLine)
+    }
+    // `on`, not `once`: a later error — a signal that cannot be delivered —
+    // must not reach Electron's main process as an unhandled one.
+    child.on('error', (error) => {
+      logSink(`[desktop] dsh server process error: ${error.message}\n`)
+      settle(() => { reject(new Error(`dsh server failed to spawn: ${error.message}`)) })
+    })
+    onDrainedExit = (code, signal) => {
+      const how = code === null ? `signal ${signal ?? 'unknown'}` : `code ${String(code)}`
+      if (handoff !== undefined && !handed) {
+        settle(() => { reject(new ListenHandoffFailed(`the server exited (${how}) before it took the socket`, collected)) })
+        return
+      }
+      settle(() => {
+        reject(new ServerExitedBeforeUrl(`dsh server exited before its URL line (${how}).\n${tail(collected)}`, collected))
+      })
+    }
+  })
+  return {
+    url: new URL(authenticatedUrl).origin,
+    authenticatedUrl,
+    pid: child.pid,
+    stop: () => {
+      expectedExit = true
+      return killTree(child)
+    },
+    exited: () => child.exitCode !== null || child.signalCode !== null,
+    onExit: (listener) => {
+      if (exitInfo !== undefined) {
+        listener(exitInfo)
+        return
+      }
+      exitListeners.push(listener)
+    },
+  }
+}
+
+/** The last lines of the collected output, for startup-failure messages. */
+function tail(collected: string): string {
+  const lines = collected.trimEnd().split('\n')
+  return lines.slice(-RECENT_OUTPUT_TAIL_LINES).join('\n')
+}
+
+/**
+ * Record every migrated bundle a boot's output says did not load, when there is
+ * one to blame. Injected, so the startup paths below are testable without a
+ * real profile on disk.
+ * @param home - the Harness home for this launch.
+ * @param output - one line of the boot's output, or its whole collected stdout and stderr.
+ * @returns the first name recorded and its detail, or undefined when nothing in
+ * the output named a plugin to record.
+ */
+export type QuarantineLoadFailure = (home: string, output: string) => { name: string; detail: string } | undefined
+
+/**
+ * Start the embedded server with every line of its output checked for a
+ * migrated plugin that did not load, and retry once when a boot that named one
+ * exits before its URL line.
+ *
+ * A migrated package can fail to load in ways manifest-level admission cannot
+ * catch — an unbuilt git install with no `lib/` and no `prepare` script is the
+ * field case. The server reports such a package and keeps running without it:
+ * an import failure is a row of its startup audit block, and a package the
+ * launcher or the compatibility check refuses gets a line of its own, and all
+ * of them can arrive after the URL line. `quarantine` sees every line of both
+ * streams for the life of the process and moves the package it blames into
+ * the marker's `defective` list, so this boot runs without it and no later
+ * boot loads it; nothing restarts. A boot that exits before its URL line is
+ * retried once, with the same spec, when a line of it blamed a migrated
+ * package or `quarantine` finds one in its whole output; the server reports a
+ * refused package without exiting, so this retry only runs for a failure
+ * that also ends the process. A second failure, or a first one with nothing
+ * to blame, is left for the caller exactly as {@link startServer} would leave
+ * it.
+ * @param spec - launch paths and working directory.
+ * @param logSink - receives every server stdout/stderr chunk, from both attempts.
+ * @param quarantine - records a blamed migrated name; see {@link QuarantineLoadFailure}.
+ * @param home - the Harness home, passed to `quarantine` unchanged.
+ * @returns the running server handle.
+ * @throws the retry's own failure, or the first failure when nothing blamed a migrated plugin.
+ */
+export async function startServerWithQuarantine(
+  spec: ServerSpec, logSink: (chunk: string) => void, quarantine: QuarantineLoadFailure, home: string,
+): Promise<ServerHandle> {
+  let blamed: { name: string; detail: string } | undefined
+  const scan = (line: string): void => {
+    const found = quarantine(home, line)
+    if (found === undefined) return
+    blamed ??= found
+    logSink(`[desktop] disabled migrated ${found.name} after it failed to load (${found.detail}); it stays off from the next launch\n`)
+  }
+  try {
+    return await startServer(spec, logSink, scan)
+  } catch (error) {
+    if (!(error instanceof ServerExitedBeforeUrl)) throw error
+    const quarantined = blamed ?? quarantine(home, error.output)
+    if (quarantined === undefined) throw error
+    logSink(`[desktop] disabled migrated ${quarantined.name} after it failed to load; retrying startup\n`)
+    return await startServer(spec, logSink, scan)
+  }
+}

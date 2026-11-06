@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-08-25-desktop-web-profile-migration.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-25-desktop-web-profile-migration.md
+/agent-note-the-web-profile-s-plugins-stay-synced-to-the-desktop-and-a-defective-one-stays-visible:
+  en: 9bf0187d7403d966
+  zh: 2f0033ebfc20a97d
+/agent-note-the-web-profile-s-plugins-stay-synced-to-the-desktop-and-a-defective-one-stays-visible/problem:
+  en: 74b3dbbffba1c3cc
+  zh: e4e53b16806e6b84
+/agent-note-the-web-profile-s-plugins-stay-synced-to-the-desktop-and-a-defective-one-stays-visible/decision:
+  en: aacf15096176b0cb
+  zh: 54565e841166a0ba
+/agent-note-the-web-profile-s-plugins-stay-synced-to-the-desktop-and-a-defective-one-stays-visible/alternatives-considered:
+  en: f668dc9720db422c
+  zh: 996a79b32b595f97
+/agent-note-the-web-profile-s-plugins-stay-synced-to-the-desktop-and-a-defective-one-stays-visible/consequences:
+  en: 38711b2f38d25192
+  zh: bfdbba918e0796dd
+/agent-note-the-web-profile-s-plugins-stay-synced-to-the-desktop-and-a-defective-one-stays-visible/testing:
+  en: 776484224d523d74
+  zh: b52ad96f0c010fa5

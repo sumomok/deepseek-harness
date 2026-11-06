@@ -43,6 +43,19 @@ External packages installed for runtime use or embedded in distributed Host or b
 | [`@eslint-community/regexpp`](https://github.com/eslint-community/regexpp) | MIT |
 | [`@fortune-sheet/core`](https://github.com/ruilisi/fortune-sheet) | MIT |
 | [`@fortune-sheet/react`](https://github.com/ruilisi/fortune-sheet) | MIT |
+| [`@haoran/dsh-auto-compact`](apps/desktop-server/vendor/haoran-dsh-auto-compact-0.6.0.tgz) | MIT |
+| [`@haoran/dsh-btw`](apps/desktop-server/vendor/haoran-dsh-btw-0.3.0.tgz) | MIT |
+| [`@haoran/dsh-clickable-refs`](apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.6.0.tgz) | MIT |
+| [`@haoran/dsh-connection-banner`](apps/desktop-server/vendor/haoran-dsh-connection-banner-0.4.0.tgz) | MIT |
+| [`@haoran/dsh-crash-resume`](apps/desktop-server/vendor/haoran-dsh-crash-resume-0.6.0.tgz) | MIT |
+| [`@haoran/dsh-data-location`](apps/desktop-server/vendor/haoran-dsh-data-location-0.2.2.tgz) | MIT |
+| [`@haoran/dsh-desktop-update`](apps/desktop-server/vendor/haoran-dsh-desktop-update-0.3.0.tgz) | MIT |
+| [`@haoran/dsh-llm-permission-gateway`](apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.7.1.tgz) | MIT |
+| [`@haoran/dsh-mcp-servers`](apps/desktop-server/vendor/haoran-dsh-mcp-servers-0.3.1.tgz) | MIT |
+| [`@haoran/dsh-office-preview-notice`](apps/desktop-server/vendor/haoran-dsh-office-preview-notice-0.3.0.tgz) | MIT |
+| [`@haoran/dsh-screenshot`](apps/desktop-server/vendor/haoran-dsh-screenshot-0.7.0.tgz) | MIT |
+| [`@haoran/dsh-sidebar-autoscroll`](apps/desktop-server/vendor/haoran-dsh-sidebar-autoscroll-0.1.1.tgz) | MIT |
+| [`@haoran/dsh-vision-switch`](apps/desktop-server/vendor/haoran-dsh-vision-switch-0.4.1.tgz) | MIT |
 | [`@joplin/turndown-plugin-gfm`](https://github.com/laurent22/joplin-turndown-plugin-gfm) | MIT |
 | [`@jridgewell/gen-mapping`](https://github.com/jridgewell/sourcemaps) | MIT |
 | [`@js-temporal/polyfill`](https://github.com/js-temporal/temporal-polyfill) | ISC |
@@ -66,6 +79,8 @@ External packages installed for runtime use or embedded in distributed Host or b
 | [`@puppeteer/browsers`](https://github.com/puppeteer/puppeteer/tree/main/packages/browsers) | Apache-2.0 |
 | [`@shikijs/langs`](https://github.com/shikijs/shiki) | MIT |
 | [`@standard-schema/spec`](https://github.com/standard-schema/standard-schema) | MIT |
+| [`@sumomok/dsh-balance`](apps/desktop-server/vendor/sumomok-dsh-balance-0.9.4.tgz) | MIT |
+| [`@sumomok/dsh-quote-message`](apps/desktop-server/vendor/sumomok-dsh-quote-message-0.6.0.tgz) | MIT |
 | [`@tanstack/react-virtual`](https://github.com/TanStack/virtual) | MIT |
 | [`@trycua/cua-driver`](https://github.com/trycua/cua) | MIT |
 | [`@vscode/ripgrep`](https://github.com/microsoft/vscode-ripgrep) | MIT |
@@ -165,6 +180,7 @@ pnpm applies local patches to the following packages at install time, so shipped
 - `@fortune-sheet/react@1.0.4` — [`patches/@fortune-sheet__react@1.0.4.patch`](patches/@fortune-sheet__react@1.0.4.patch)
 - `@yao-pkg/pkg@6.21.0` — [`patches/@yao-pkg__pkg@6.21.0.patch`](patches/@yao-pkg__pkg@6.21.0.patch)
 - `app-builder-lib@26.17.0` — [`patches/app-builder-lib@26.17.0.patch`](patches/app-builder-lib@26.17.0.patch)
+- `electron-updater@6.8.9` — [`patches/electron-updater@6.8.9.patch`](patches/electron-updater@6.8.9.patch)
 - `exceljs@4.4.0` — [`patches/exceljs@4.4.0.patch`](patches/exceljs@4.4.0.patch)
 - `lexical@0.49.0` — [`patches/lexical@0.49.0.patch`](patches/lexical@0.49.0.patch)
 - `mdast-util-gfm-autolink-literal@2.0.1` — [`patches/mdast-util-gfm-autolink-literal@2.0.1.patch`](patches/mdast-util-gfm-autolink-literal@2.0.1.patch)
@@ -247,7 +263,9 @@ External packages **directly declared** for development, tests, types, or toolin
 | [`@vitest/spy`](https://github.com/vitest-dev/vitest) | MIT |
 | [`@yao-pkg/pkg`](https://github.com/yao-pkg/pkg) | MIT |
 | [`@yarnpkg/cli-dist`](https://github.com/yarnpkg/berry) | BSD-2-Clause |
+| [`7zip-bin`](https://github.com/develar/7zip-bin) | MIT |
 | [`app-builder-lib`](https://github.com/electron-userland/electron-builder) | MIT |
+| [`builder-util-runtime`](https://github.com/electron-userland/electron-builder) | MIT |
 | [`cos-nodejs-sdk-v5`](https://github.com/tencentyun/cos-nodejs-sdk-v5) | ISC |
 | [`cytoscape`](https://github.com/cytoscape/cytoscape.js) | MIT |
 | [`cytoscape-cose-bilkent`](https://github.com/cytoscape/cytoscape.js-cose-bilkent) | MIT |

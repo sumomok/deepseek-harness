@@ -1,0 +1,149 @@
+/**
+ * The two palettes the desktop shell paints before the web UI takes over, and
+ * the rule for choosing between them.
+ * @module @deepseek-ai/dsh-desktop-shell/theme
+ */
+
+import { nativeTheme, type BrowserWindow } from 'electron'
+import { resolveHarnessHome } from './profile-seed.ts'
+import { storedThemePreference } from './theme-preference.ts'
+
+/**
+ * Boot-page palettes, taken from the web UI's token sheet
+ * (`packages/client/ui-theme/src/styles/design-platform.css`) so the splash and
+ * the app it hands over to are the same two colors rather than two designs.
+ * Both modes are treated alike: every surface and text color here is a token
+ * the app itself paints, and what stays boot-page-specific is the composition —
+ * the wordmark, the caret, the dot grid, the vignette, and the accent glow.
+ */
+export const PALETTES = {
+  light: {
+    /** `--dsw-alias-bg-base` */
+    background: '#FFFFFF',
+    gradient: 'linear-gradient(135deg, #FFFFFF 0%, #F2F4F8 100%)',
+    /** `--dsw-alias-label-primary` */
+    text: '#0F1115',
+    /** `--dsw-alias-label-tertiary` */
+    muted: '#81858C',
+    /** `--dsw-alias-state-business-primary` */
+    accent: '#4176E6',
+    /** Red is not a shared token; this is the one boot-page-only color. */
+    danger: '#D93F4C',
+    grid: 'rgba(0, 0, 0, .03)',
+    vignette: 'rgba(15, 17, 21, .06)',
+    glow: 'rgba(65, 118, 230, .10)',
+    /** Progress-bar trough, the one surface only the download window uses. */
+    track: '#E6E8EC',
+  },
+  dark: {
+    /** `--dsw-alias-bg-base` (dark) */
+    background: '#151517',
+    /** Second stop is `--dsw-specific-sidebar-fill` (dark), as light's is its own tint. */
+    gradient: 'linear-gradient(135deg, #151517 0%, #1B1B1C 100%)',
+    /** `--dsw-alias-label-primary` (dark) */
+    text: '#F9FAFB',
+    /** `--dsw-alias-label-tertiary` (dark) */
+    muted: '#ADB2B8',
+    /** `--dsw-alias-state-business-primary` (dark) */
+    accent: '#679EFE',
+    danger: '#FF5470',
+    grid: 'rgba(255, 255, 255, .02)',
+    vignette: 'rgba(0, 0, 0, .45)',
+    glow: 'rgba(103, 158, 254, .10)',
+    /** `--dsw-alias-bg-layer-2` (dark) */
+    track: '#2C2C2E',
+  },
+} as const
+
+/** Which palette a launch uses. */
+export type Appearance = keyof typeof PALETTES
+
+/**
+ * Resolve the appearance the app itself will use, so the window opens in the
+ * colors the UI is about to paint instead of flashing the other theme.
+ *
+ * The web UI keeps a durable `light`/`dark`/`system` preference in the
+ * profile's `ui-theme` row, and its default is `system`. Reading it here is
+ * what makes an explicit choice survive the splash; anything else — no row,
+ * an unreadable file, or `system` — falls back to what the OS reports, which
+ * is also what the web UI does for `system`.
+ * @returns the palette key for this launch.
+ */
+export function resolveAppearance(): Appearance {
+  return storedThemePreference(resolveHarnessHome()) ?? (nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
+}
+
+/**
+ * The appearance source this launch should declare to the OS: the user's
+ * explicit `light`/`dark`, or `system` when they chose to follow it.
+ *
+ * It is the preference rather than {@link resolveAppearance}'s resolved
+ * palette, because `nativeTheme.themeSource` also drives the renderer's
+ * `prefers-color-scheme`: pinning the resolved value would freeze the page at
+ * whatever the OS reported during boot, so switching the OS later — or the
+ * user's own `system` choice — could never take effect.
+ * @returns the source to hand to `nativeTheme.themeSource`.
+ */
+export function resolveAppearanceSource(): Appearance | 'system' {
+  return storedThemePreference(resolveHarnessHome()) ?? 'system'
+}
+
+/**
+ * Pin the native window chrome to the appearance the web UI will paint.
+ *
+ * macOS draws the title bar and its window controls from `nativeTheme`, which
+ * follows the OS unless a source is set. With an explicit `light` or `dark`
+ * preference the page is pinned but the title bar was not, so a dark OS drew a
+ * dark strip above a light page. An explicit preference becomes that source;
+ * `system` keeps following the OS, which is what the web UI does for it too.
+ * @param source - the preference source, not a resolved palette.
+ */
+export function applyNativeAppearance(source: Appearance | 'system'): void {
+  nativeTheme.themeSource = source
+}
+
+/** One palette report sent by the app window's page. */
+export interface ThemeReport {
+  /** Preference source the page published; `system` while it follows the OS. */
+  readonly source: Appearance | 'system'
+  /** Palette the page painted, with `system` already resolved through the OS. */
+  readonly scheme: Appearance
+}
+
+/**
+ * Read one theme report from the app window's preload, refusing payloads the
+ * shell cannot apply.
+ * @param value - unvalidated IPC payload.
+ * @returns whether the payload names a known source and a known palette.
+ */
+export function isThemeReport(value: unknown): value is ThemeReport {
+  if (typeof value !== 'object' || value === null) return false
+  const report = value as { source?: unknown; scheme?: unknown }
+  return (report.source === 'light' || report.source === 'dark' || report.source === 'system')
+    && (report.scheme === 'light' || report.scheme === 'dark')
+}
+
+/**
+ * Apply a page's theme report to its window.
+ *
+ * On macOS the native sidebar material shows through the page, so the window
+ * stays transparent. Other platforms use the resolved page palette, and the
+ * Windows caption overlay follows it too. The preference source keeps native
+ * controls in step with both an explicit choice and OS-follow.
+ * @param window - app window whose page sent the report.
+ * @param report - validated source and palette.
+ */
+export function applyThemeReport(
+  window: Pick<BrowserWindow, 'setBackgroundColor' | 'setTitleBarOverlay'>,
+  report: ThemeReport,
+): void {
+  if (nativeTheme.themeSource !== report.source) nativeTheme.themeSource = report.source
+  window.setBackgroundColor(process.platform === 'darwin' ? '#00000000' : PALETTES[report.scheme].background)
+  if (process.platform === 'win32') {
+    window.setTitleBarOverlay({
+      color: PALETTES[report.scheme].background,
+      symbolColor: PALETTES[report.scheme].text,
+      height: 40,
+    })
+  }
+}

@@ -1,0 +1,1209 @@
+/**
+ * Desktop packaging pipeline. Stages the embedded server by `pnpm deploy` of
+ * the apps/desktop-server manifest (the python/sdk-runtime staging recipe:
+ * legacy hoisted deploy run by pnpm 11.7.0, restore hoists the legacy deployer
+ * leaves behind, restore the workspace's development installation, materialize
+ * every symlink), stages a real Node runtime per platform, then runs
+ * electron-builder for the requested targets.
+ *
+ * The repository build embeds the desktop's browser title, and a run whose
+ * client artifacts lack it stops before staging, `--skip-repo-build` included
+ * ([[assertDesktopClientTitle]]); the desktop-app browser half is bundled
+ * after that check.
+ *
+ * Products land in apps/desktop-shell/dist-app/. Each platform's build runs on its
+ * own host and on any other: NSIS needs no wine, so Windows packages cross-build
+ * from macOS, and they carry the win32-x64 N-API prebuilds either way. A
+ * cross-built Windows package is structurally verified only and still has to be
+ * smoke-tested on a real Windows machine; building on Windows is what lets that
+ * smoke test happen against the package just built.
+ *
+ * The platforms are named on the command line and never inferred, and the run
+ * ends by checking that every file this version and these platforms owe is in
+ * `dist-app` with content ([[expectedArtifacts]]): the directory accumulates
+ * across versions, so nothing else distinguishes a platform that did not build
+ * from one whose artifacts are simply older.
+ *
+ * Usage: pnpm --filter @deepseek-ai/dsh-desktop-shell run package --mac | --win | --mac --win
+ *        [--skip-repo-build] [--skip-deploy]
+ */
+
+import { spawn, type ChildProcess } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
+import { createWriteStream, existsSync, readFileSync } from 'node:fs'
+import { chmod, copyFile, cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { basename, dirname, join, resolve, sep } from 'node:path'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
+import { parseArgs } from 'node:util'
+import { fileURLToPath } from 'node:url'
+import { DEPLOY_PNPM, filteredDeployArgs, verifyStagedPatches } from '../../../scripts/filtered-deploy.ts'
+import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, PLACEHOLDER_BUNDLES, seedBuiltinBundles } from '../src/profile-seed.ts'
+import { SERVER_LOG_ENV } from '../src/server.ts'
+import { auditArtifacts, expectedArtifacts, type ArtifactFile } from './artifact-names.ts'
+import { bundleClosure } from './bundle-closure.ts'
+import { packedTarball, type PackSource } from './npm-pack-cache.ts'
+import { assertDesktopClientTitle, DESKTOP_BUILD_STEPS, desktopRepositoryBuildEnvironment } from './client-build.ts'
+import { restoreHoistedDependencies, type RestoredHoist } from './legacy-hoists.ts'
+import { pinWorkspaceRanges, type PinnableManifest } from './pin-workspace-ranges.ts'
+import { pnpmLauncherProblems, stagePnpmLaunchers } from './pnpm-launcher-staging.ts'
+import {
+  findWithheldDirectories, INSTALLATION_PACKAGE, loadFailureLines, missingProductionDependencies, offeredInstallTargets,
+  placeholderBundleProblems,
+  placeholderProblems, RETIRED_GUARD_WARNING, SINGLE_COPY_PACKAGES, singleCopyProblems,
+  stagedBootEnv, stagedServerEnv, verifyDesktopLayer, verifyHeldSocketBoot,
+  WITHHELD_PACKAGES, withheldPackageCopies, writePlaceholders,
+} from './staged-boot-gate.ts'
+import { verifyNsisIntegrity } from './nsis-integrity.ts'
+import { verifyStagedOfficeEngines } from './office-engine-gate.ts'
+import {
+  snapshotPayload, verifyPrunedPayload, verifyPruneRules,
+  type PayloadPlatform, type PayloadSnapshot,
+} from './payload-gate.ts'
+import { isOfficeEngine, namesWindowsX64, officeEnginePackages, pinnedVariantVersion, platformDirRules, type PayloadTarget } from './platform-dir-rules.ts'
+
+const APP_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const ROOT = resolve(APP_DIR, '..', '..')
+const STAGING = join(APP_DIR, 'staging')
+const SERVER_STAGING = join(STAGING, 'server')
+const DEPLOY_ROOT_PACKAGE = '@deepseek-ai/dsh-desktop-server'
+const DEPLOY_SOURCE_NODE_MODULES = join(ROOT, 'apps', 'desktop-server', 'node_modules')
+const SERVER_ENTRY = join('node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
+const FRONTEND_DIST_INDEX = join('node_modules', '@deepseek-ai', 'dsh-web-frontend', 'dist', 'index.html')
+/** Bundled runtime: pinned to the repo's tested Node major (engines ^22.19 || >=24). */
+const NODE_VERSION = 'v24.15.0'
+const NODE_WIN_X64_URL = `https://nodejs.org/dist/${NODE_VERSION}/win-x64/node.exe`
+const CACHE_DIR = join(APP_DIR, '.cache')
+/** Registry tarballs `npm pack` wrote, kept across runs ([[packedTarball]]). */
+const NPM_PACK_DIR = join(CACHE_DIR, 'npm-pack')
+/** The staged package manager, copied into `resources/runtime/pnpm` by scripts/after-pack.cjs. */
+const PNPM_STAGING = join(STAGING, 'pnpm')
+/** The staged package manager's entry, which the launcher scripts run under the bundled Node. */
+const PNPM_ENTRY = join('bin', 'pnpm.mjs')
+/** The staged pnpm launcher scripts, one per platform, copied into `resources/runtime` by scripts/after-pack.cjs. */
+const PNPM_LAUNCHER_STAGING = join(STAGING, 'pnpm-launchers')
+
+interface Cli {
+  mac: boolean
+  win: boolean
+  skipRepoBuild: boolean
+  skipDeploy: boolean
+}
+
+function parseCli(argv: string[]): Cli {
+  const { values } = parseArgs({
+    args: argv,
+    options: {
+      'mac': { type: 'boolean', default: false },
+      'win': { type: 'boolean', default: false },
+      'skip-repo-build': { type: 'boolean', default: false },
+      'skip-deploy': { type: 'boolean', default: false },
+    },
+  })
+  // Each platform costs about fifteen minutes, and a run that quietly built
+  // one of the two exits 0 and looks exactly like a run that built both.
+  if (!values.mac && !values.win) {
+    throw new Error('package: name the platforms to build — --mac, --win, or --mac --win.')
+  }
+  return { mac: values.mac, win: values.win, skipRepoBuild: values['skip-repo-build'], skipDeploy: values['skip-deploy'] }
+}
+
+/**
+ * Snapshot and restore the workspace's pnpm state markers around the deploy:
+ * `pnpm deploy --config.node-linker=hoisted --prod` records ITS settings into
+ * `node_modules/.pnpm-workspace-state*.json`, after which every later
+ * `pnpm exec`/`run` sees a settings mismatch and tries a purging reinstall of
+ * the whole workspace. The tree itself is untouched — only the markers lie —
+ * so writing the pre-deploy bytes back keeps the checks truthful.
+ * @param action - the deploy step to wrap.
+ */
+async function withWorkspaceStateGuard(action: () => Promise<void>): Promise<void> {
+  const nodeModules = join(ROOT, 'node_modules')
+  const markers = (await readdir(nodeModules)).filter(name =>
+    name === '.modules.yaml' || name.startsWith('.pnpm-workspace-state'))
+  const saved = new Map<string, Buffer>()
+  for (const name of markers) saved.set(name, await readFile(join(nodeModules, name)))
+  try {
+    await action()
+  } finally {
+    for (const [name, content] of saved) await writeFile(join(nodeModules, name), content)
+  }
+}
+
+/**
+ * Resolve a bare command name against PATH the way the shell would.
+ *
+ * Windows has no executable bit: what makes a file runnable is its extension
+ * being in PATHEXT, and `pnpm`/`npm`/`npx` install as `.cmd` shims with no
+ * extensionless twin. `spawn` without `shell: true` does no PATHEXT expansion,
+ * so `spawn('pnpm', …)` is ENOENT on Windows however well pnpm is installed.
+ * `shell: true` would fix that by handing the line to cmd.exe, which then owns
+ * the quoting of every argument — staging paths here contain spaces. Resolving
+ * the name to a concrete file instead keeps argument passing verbatim.
+ *
+ * PATHEXT candidates come before the bare name: pnpm ships both `pnpm.cmd` and
+ * an extensionless POSIX shell script in the same directory, and only the
+ * former is something CreateProcess can start.
+ *
+ * Returns the command unchanged off Windows, when it is already a path, and
+ * when nothing on PATH matches — the last so the caller still gets spawn's own
+ * ENOENT rather than a message invented here.
+ */
+function resolveCommand(command: string): string {
+  if (process.platform !== 'win32') return command
+  if (command.includes(sep) || command.includes('/')) return command
+  const extensions = (process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
+  for (const directory of (process.env.PATH ?? '').split(';').filter(Boolean)) {
+    for (const extension of [...extensions, '']) {
+      const candidate = join(directory, `${command}${extension}`)
+      if (existsSync(candidate)) return candidate
+    }
+  }
+  return command
+}
+
+/**
+ * Wrap a `.cmd`/`.bat` shim in the `cmd.exe` invocation that can start it.
+ *
+ * Node refuses to spawn a batch file directly since the CVE-2024-27980 fix and
+ * fails with `EINVAL`: the file is a script only the command interpreter can
+ * run, and passing argv to an interpreter is what the vulnerability was about.
+ * `shell: true` is Node's own answer, but it joins argv with single spaces and
+ * quotes nothing, so any argument with a space arrives split. Building the
+ * command line here and setting `windowsVerbatimArguments` keeps that quoting
+ * exact and stops Node from quoting the finished line a second time.
+ *
+ * `/d` skips AutoRun commands from the registry, which would otherwise run
+ * inside every build step; `/s` makes cmd.exe strip exactly the outer quote
+ * pair and take the rest verbatim, which is why the whole line is wrapped.
+ */
+function batchInvocation(file: string, args: string[]): { command: string; args: string[] } {
+  const quote = (value: string): string =>
+    /[\s&|<>^"]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
+  const line = [file, ...args].map(quote).join(' ')
+  return { command: process.env.COMSPEC ?? 'cmd.exe', args: ['/d', '/s', '/c', `"${line}"`] }
+}
+
+/**
+ * Start one subprocess with `CI=true` in its environment, resolving the
+ * command against PATH ([[resolveCommand]]) and wrapping a batch shim for
+ * `cmd.exe` ([[batchInvocation]]).
+ * @param label - the name the build log gives the step.
+ * @param command - the command name or path.
+ * @param args - its arguments, passed verbatim.
+ * @param cwd - the working directory.
+ * @param environment - the environment, before `CI=true` is added.
+ * @param stdout - `inherit` to print into the build log, `pipe` to read it.
+ * @returns the started child; stdin and stderr are inherited.
+ */
+function startCommand(
+  label: string,
+  command: string,
+  args: string[],
+  cwd: string,
+  environment: NodeJS.ProcessEnv,
+  stdout: 'inherit' | 'pipe',
+): ChildProcess {
+  console.log(`package: ${label}: ${[command, ...args].join(' ')}`)
+  const resolved = resolveCommand(command)
+  const isBatch = /\.(?:cmd|bat)$/i.test(resolved)
+  const invocation = isBatch ? batchInvocation(resolved, args) : { command: resolved, args }
+  return spawn(invocation.command, invocation.args, {
+    cwd,
+    stdio: ['inherit', stdout, 'inherit'],
+    env: { ...environment, CI: 'true' },
+    windowsVerbatimArguments: isBatch,
+  })
+}
+
+/**
+ * Wait for a child from [[startCommand]] to end.
+ * @param child - the started child.
+ * @param label - the name the build log gives the step.
+ * @param event - `exit`, or `close` when its piped output has to be read to the end first.
+ * @throws when it fails to spawn or ends other than with exit code 0.
+ */
+async function ended(child: ChildProcess, label: string, event: 'exit' | 'close'): Promise<void> {
+  await new Promise<void>((resolvePromise, reject) => {
+    child.once('error', (error) => { reject(new Error(`package: ${label} failed to spawn: ${error.message}`)) })
+    child.once(event, (code: number | null, signal: NodeJS.Signals | null) => {
+      if (code === 0) resolvePromise()
+      else reject(new Error(`package: ${label} failed (${code === null ? `signal ${signal ?? 'unknown'}` : `exit ${String(code)}`})`))
+    })
+  })
+}
+
+/** Run one subprocess with inherited stdio from the repo root; non-zero exit throws. */
+async function run(
+  label: string,
+  command: string,
+  args: string[],
+  cwd: string = ROOT,
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
+  await ended(startCommand(label, command, args, cwd, environment, 'inherit'), label, 'exit')
+}
+
+/**
+ * Run one subprocess and return what it printed on standard output.
+ * @param label - the name the build log gives the step.
+ * @param command - the command name or path.
+ * @param args - its arguments, passed verbatim.
+ * @param cwd - the working directory.
+ * @returns its standard output; standard error goes to the build log.
+ * @throws when it fails to spawn or exits non-zero.
+ */
+async function capture(label: string, command: string, args: string[], cwd: string): Promise<string> {
+  const child = startCommand(label, command, args, cwd, process.env, 'pipe')
+  let output = ''
+  child.stdout?.on('data', (chunk: Buffer) => { output += chunk.toString() })
+  await ended(child, label, 'close')
+  return output
+}
+
+/**
+ * The registry's `dist.integrity` for one exact version, from `npm view`,
+ * which picks the registry, scoped registries and credentials the same way
+ * the `npm pack` it stands in for does. Each call is one registry request,
+ * about 1 s when measured, made once per cached tarball.
+ * @param spec - `<name>@<version>`.
+ * @returns the integrity string, or undefined when `npm view` fails or prints none.
+ */
+async function npmIntegrity(spec: string): Promise<string | undefined> {
+  let output: string
+  try {
+    output = await capture(`npm view ${spec}`, 'npm', ['view', spec, 'dist.integrity', '--json'], APP_DIR)
+  } catch (error) {
+    console.log(`package: ${error instanceof Error ? error.message : String(error)}`)
+    return undefined
+  }
+  const printed = output.trim()
+  if (!printed.startsWith('"')) return undefined
+  const value: unknown = JSON.parse(printed)
+  return typeof value === 'string' ? value : undefined
+}
+
+/** The registry as `npm` reaches it, for [[packedTarball]]. */
+const NPM_PACK: PackSource = {
+  integrity: npmIntegrity,
+  pack: (spec, directory) => run(`npm pack ${spec}`, 'npm', ['pack', spec, '--pack-destination', directory], APP_DIR),
+}
+
+/**
+ * Restore direct dependencies pnpm's legacy deployer hoists beside the deploy
+ * source instead of into the target (the build-exe-for-python-sdk recipe), and
+ * the production dependencies it left only inside those
+ * ([[restoreHoistedDependencies]]).
+ */
+async function restoreLegacyHoists(): Promise<void> {
+  const manifest = JSON.parse(await readFile(join(SERVER_STAGING, 'package.json'), 'utf8')) as {
+    dependencies?: Record<string, string>
+  }
+  const restored: RestoredHoist[] = []
+  for (const dependency of Object.keys(manifest.dependencies ?? {}).sort()) {
+    const destination = join(SERVER_STAGING, 'node_modules', dependency)
+    if (existsSync(destination)) continue
+    const source = join(DEPLOY_SOURCE_NODE_MODULES, dependency)
+    if (!existsSync(source)) {
+      throw new Error(`package: deployed dependency ${dependency} is absent from both ${destination} and ${source}.`)
+    }
+    await mkdir(dirname(destination), { recursive: true })
+    const nested = join(source, 'node_modules')
+    await cp(source, destination, {
+      recursive: true,
+      dereference: true,
+      filter: path => path !== nested && !path.startsWith(nested + sep),
+    })
+    console.log(`package: restored legacy deploy hoist: ${dependency}`)
+    restored.push({ name: dependency, source })
+  }
+  const { copied, unresolved } = await restoreHoistedDependencies(join(SERVER_STAGING, 'node_modules'), restored, WITHHELD_PACKAGES)
+  for (const name of copied) console.log(`package: restored production dependency left inside a legacy deploy hoist: ${name}`)
+  if (unresolved.length > 0) {
+    throw new Error(`package: production dependencies of a legacy deploy hoist resolve nowhere:\n  ${unresolved.join('\n  ')}`)
+  }
+}
+
+/** First symlink under a directory, if any. */
+async function findSymlink(directory: string): Promise<string | undefined> {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name)
+    const metadata = await lstat(path)
+    if (metadata.isSymbolicLink()) return path
+    if (metadata.isDirectory()) {
+      const nested = await findSymlink(path)
+      if (nested !== undefined) return nested
+    }
+  }
+  return undefined
+}
+
+/** Replace deploy-time package links with real files (`.bin` links are dropped). */
+async function materializeStagedLinks(): Promise<void> {
+  const nodeModules = join(SERVER_STAGING, 'node_modules')
+  let remaining = await findSymlink(nodeModules)
+  while (remaining !== undefined) {
+    const segments = remaining.slice(nodeModules.length + 1).split(sep)
+    const binIndex = segments.lastIndexOf('.bin')
+    if (binIndex >= 0) {
+      await rm(join(nodeModules, ...segments.slice(0, binIndex + 1)), { recursive: true, force: true })
+      remaining = await findSymlink(nodeModules)
+      continue
+    }
+    const destination = remaining
+    const source = await realpath(destination)
+    const nested = join(source, 'node_modules')
+    await rm(destination, { recursive: true, force: true })
+    await cp(source, destination, {
+      recursive: true,
+      dereference: true,
+      filter: path => path !== nested && !path.startsWith(nested + sep),
+    })
+    remaining = await findSymlink(nodeModules)
+  }
+}
+
+/**
+ * Rewrite the `workspace:` ranges of the staged installation manifest
+ * ([[INSTALLATION_PACKAGE]]) to the versions the staged tree carries
+ * ([[pinWorkspaceRanges]]), so the plugin manager reads the payload as an
+ * installed release and offers the official on-demand bundles from the
+ * registry. Runs before [[withholdPackages]], while every dependency still
+ * has its own manifest.
+ */
+async function pinInstallationManifest(): Promise<void> {
+  const nodeModules = join(SERVER_STAGING, 'node_modules')
+  const path = join(nodeModules, INSTALLATION_PACKAGE, 'package.json')
+  const staged = JSON.parse(await readFile(path, 'utf8')) as PinnableManifest
+  const { manifest, pinned } = pinWorkspaceRanges(staged, (name) => {
+    const dependency = join(nodeModules, name, 'package.json')
+    return existsSync(dependency) ? (JSON.parse(readFileSync(dependency, 'utf8')) as { version: string }).version : undefined
+  })
+  await writeFile(path, `${JSON.stringify(manifest, undefined, 2)}\n`)
+  console.log(`package: pinned ${pinned} workspace range(s) of the staged ${INSTALLATION_PACKAGE} manifest`)
+}
+
+/**
+ * The staged tree must load native modules from their multi-platform N-API
+ * prebuilds, never from a build/ tree compiled for this machine.
+ */
+async function prunePlatformBuilds(): Promise<void> {
+  const ptyDir = join(SERVER_STAGING, 'node_modules', 'node-pty')
+  await rm(join(ptyDir, 'build'), { recursive: true, force: true })
+  for (const platform of ['darwin-arm64', 'darwin-x64']) {
+    const helper = join(ptyDir, 'prebuilds', platform, 'spawn-helper')
+    if (existsSync(helper)) await chmod(helper, 0o755)
+  }
+}
+
+/**
+ * Report every staged native artifact and fetch the Windows x64 members
+ * ([[namesWindowsX64]]) of platform-split optional-dependency families the
+ * macOS install skipped (`node-addon-require-builtin-*` style), each at the
+ * version [[pinnedVariantVersion]] picks, except the Office engines no payload
+ * carries ([[isOfficeEngine]]). Each tarball comes from [[packedTarball]], so
+ * a cached one that matches the registry is extracted without `npm pack`.
+ * Nothing is silently dropped: every fetch, every engine left unfetched, and
+ * every remaining platform-specific artifact is printed.
+ */
+async function stageWindowsVariants(): Promise<void> {
+  const nodeModules = join(SERVER_STAGING, 'node_modules')
+  const packageDirs: string[] = []
+  for (const entry of await readdir(nodeModules, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    if (entry.name.startsWith('@')) {
+      for (const scoped of await readdir(join(nodeModules, entry.name), { withFileTypes: true })) {
+        if (scoped.isDirectory()) packageDirs.push(join(nodeModules, entry.name, scoped.name))
+      }
+    } else {
+      packageDirs.push(join(nodeModules, entry.name))
+    }
+  }
+  const wanted = new Map<string, string>()
+  for (const dir of packageDirs) {
+    const manifestPath = join(dir, 'package.json')
+    if (!existsSync(manifestPath)) continue
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+      optionalDependencies?: Record<string, string>
+    }
+    const optional = manifest.optionalDependencies ?? {}
+    for (const [dependency, spec] of Object.entries(optional)) {
+      if (!namesWindowsX64(dependency)) continue
+      if (existsSync(join(nodeModules, dependency))) continue
+      if (isOfficeEngine(dependency)) {
+        console.log(`package: not staging Windows variant ${dependency}@${spec}: no payload carries an Office engine`)
+        continue
+      }
+      const installedSiblings: string[] = []
+      for (const sibling of Object.keys(optional)) {
+        const siblingManifest = join(nodeModules, sibling, 'package.json')
+        if (sibling === dependency || !existsSync(siblingManifest)) continue
+        installedSiblings.push((JSON.parse(await readFile(siblingManifest, 'utf8')) as { version: string }).version)
+      }
+      wanted.set(dependency, pinnedVariantVersion(dependency, spec, installedSiblings))
+    }
+  }
+  for (const [dependency, version] of [...wanted.entries()].sort()) {
+    console.log(`package: staging Windows variant ${dependency}@${version}`)
+    const tarball = await packedTarball(NPM_PACK_DIR, dependency, version, NPM_PACK)
+    const destination = join(nodeModules, dependency)
+    await rm(destination, { recursive: true, force: true })
+    await mkdir(destination, { recursive: true })
+    await run(`extract ${basename(tarball)}`, 'tar', ['-xzf', tarball, '-C', destination, '--strip-components', '1'], APP_DIR)
+  }
+  // Full native inventory, so a platform gap is visible in the build log.
+  const natives: string[] = []
+  const walk = async (dir: string): Promise<void> => {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name)
+      if (entry.isDirectory()) await walk(path)
+      else if (entry.name.endsWith('.node')) natives.push(path.slice(SERVER_STAGING.length + 1))
+    }
+  }
+  await walk(nodeModules)
+  console.log(`package: staged native artifacts:\n  ${natives.join('\n  ')}`)
+}
+
+/**
+ * The pnpm version this build ships, from the repository's own
+ * `packageManager` pin.
+ *
+ * One home for the fact: the package manager the desktop lends its users is the
+ * one this repository is developed and tested with, and a second literal here
+ * would be a version nobody updates.
+ * @returns the version, without the `pnpm@` prefix.
+ * @throws when the root manifest pins something other than pnpm.
+ */
+async function pnpmVersion(): Promise<string> {
+  const { packageManager } = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8')) as { packageManager?: string }
+  const pinned = /^pnpm@(\d+\.\d+\.\d+)$/.exec(packageManager ?? '')?.[1]
+  if (pinned === undefined) {
+    throw new Error(`package: the repository's packageManager is ${String(packageManager)}; the bundled package manager must be a pinned pnpm version.`)
+  }
+  return pinned
+}
+
+/**
+ * Stage the package manager the shell lends the embedded server.
+ *
+ * The customers this product is for have no pnpm on PATH, so upstream's plugin
+ * manager runs this copy under the bundled Node instead, through the launcher
+ * script `scripts/pnpm-launcher-staging.ts` stages. pnpm publishes as a
+ * self-contained directory — `bin/pnpm.mjs` beside the `dist/` siblings it
+ * loads at runtime, natives included — so the whole extracted package is what
+ * ships, not the entry alone.
+ *
+ * It is staged once per run, before either platform's electron-builder runs,
+ * because it is JavaScript and its natives are published for all four
+ * platforms in the same tarball; the tarball comes from [[packedTarball]].
+ * Nothing else in the run deletes or rewrites `staging/pnpm`: each builder's
+ * scripts/after-pack.cjs copies it, and staging it again removes the
+ * directory before extracting it anew. It lands
+ * under `runtime/` rather than beside the server closure because
+ * [[bundleClosure]]'s sweep deletes anything under `server/` the closure does
+ * not reference, and nothing in that closure references pnpm; scripts/
+ * after-pack.cjs is what puts it there, because that tree contains a
+ * `node_modules` and the builder's own extraResources copier hard-excludes
+ * those.
+ */
+async function stagePnpm(): Promise<void> {
+  const version = await pnpmVersion()
+  const spec = `pnpm@${version}`
+  console.log(`package: staging ${spec}`)
+  const tarball = await packedTarball(NPM_PACK_DIR, 'pnpm', version, NPM_PACK)
+  await rm(PNPM_STAGING, { recursive: true, force: true })
+  await mkdir(PNPM_STAGING, { recursive: true })
+  await run(`extract ${basename(tarball)}`, 'tar', ['-xzf', tarball, '-C', PNPM_STAGING, '--strip-components', '1'], APP_DIR)
+  if (!existsSync(join(PNPM_STAGING, PNPM_ENTRY))) throw new Error(`package: the staged ${spec} has no ${PNPM_ENTRY}.`)
+}
+
+/** Stage the bundled Node runtime for one platform; [[stagePnpm]] stages the pnpm that runs on it. */
+async function stageRuntime(platform: 'darwin' | 'win'): Promise<void> {
+  const dir = join(STAGING, 'runtime', platform)
+  await rm(dir, { recursive: true, force: true })
+  await mkdir(dir, { recursive: true })
+  if (platform === 'darwin') {
+    // The build machine's own Node is the tested engines match.
+    if (!process.version.startsWith('v24.')) {
+      throw new Error(`package: build Node is ${process.version}; the bundled runtime must be the tested v24 line.`)
+    }
+    await copyFile(process.execPath, join(dir, 'node'))
+    await chmod(join(dir, 'node'), 0o755)
+    return
+  }
+  const cached = join(CACHE_DIR, `node-${NODE_VERSION}-win-x64.exe`)
+  if (!existsSync(cached)) {
+    console.log(`package: downloading ${NODE_WIN_X64_URL}`)
+    await mkdir(CACHE_DIR, { recursive: true })
+    const response = await fetch(NODE_WIN_X64_URL)
+    if (!response.ok || response.body === null) {
+      throw new Error(`package: Node runtime download failed: ${String(response.status)} ${response.statusText}`)
+    }
+    // `fetch` types its body with the DOM lib's ReadableStream and
+    // `Readable.fromWeb` takes node:stream/web's; the two declare the same
+    // runtime object and neither is assignable to the other, so no narrowing
+    // reaches this.
+    const body = response.body as NodeReadableStream<Uint8Array>
+    await pipeline(Readable.fromWeb(body), createWriteStream(`${cached}.part`))
+    await copyFile(`${cached}.part`, cached)
+    await rm(`${cached}.part`)
+  }
+  await copyFile(cached, join(dir, 'node.exe'))
+}
+
+/** Verify the staged server answers the packaged layout's launch contract. */
+async function verifyStaging(): Promise<void> {
+  for (const required of [SERVER_ENTRY, FRONTEND_DIST_INDEX]) {
+    const path = join(SERVER_STAGING, required)
+    if (!existsSync(path)) {
+      throw new Error(`package: staged server is missing ${required} — run without --skip-repo-build/--skip-deploy.`)
+    }
+  }
+  const pty = join(SERVER_STAGING, 'node_modules', 'node-pty', 'prebuilds')
+  if (!existsSync(pty)) throw new Error('package: staged node-pty has no prebuilds directory.')
+  console.log(`package: staged prebuild platforms: ${(await readdir(pty)).sort().join(', ')}`)
+  await verifyStagedPatches(SERVER_STAGING, 'package')
+  const launcherProblems = await pnpmLauncherProblems(PNPM_LAUNCHER_STAGING)
+  if (launcherProblems.length > 0) {
+    throw new Error(`package: the staged pnpm launchers are not what the payload ships:\n  ${launcherProblems.join('\n  ')}`)
+  }
+  // Found by unscoped name at any depth, wider than the copies
+  // `withholdPackages` removes, so any other directory of that name fails here.
+  const withheld = await findWithheldDirectories(SERVER_STAGING, WITHHELD_PACKAGES, PLACEHOLDER_BUNDLES)
+  if (withheld.length > 0) {
+    throw new Error(`package: staged server carries withheld package directories:\n  ${withheld.join('\n  ')}`)
+  }
+  // Checked on every run: without its placeholder, a bundle name resolves past
+  // the installation to a copy installed into the profile, which then loads.
+  const placeholders = await placeholderProblems(SERVER_STAGING, PLACEHOLDER_BUNDLES)
+  if (placeholders.length > 0) {
+    throw new Error(`package: staged server does not carry the placeholder of each withheld bundle:\n  ${placeholders.join('\n  ')}`)
+  }
+  console.log(`package: staged server carries the placeholders of ${PLACEHOLDER_BUNDLES.join(', ')}`)
+  // Counted by package.json name at any depth, store entries included
+  // ([[SINGLE_COPY_PACKAGES]] says why each package needs exactly one copy).
+  const duplicated = await singleCopyProblems(SERVER_STAGING, SINGLE_COPY_PACKAGES)
+  if (duplicated.length > 0) {
+    throw new Error(`package: staged server does not carry exactly one copy of each single-copy package:\n  ${duplicated.join('\n  ')}`)
+  }
+  console.log(`package: staged server carries one copy each of ${SINGLE_COPY_PACKAGES.join(', ')}`)
+  // A dependency the deployer left outside the staging tree resolves nowhere
+  // once the payload is installed; the resolution smoke below cannot see it
+  // when it is only reached through a profile bundle at boot.
+  const unstaged = await missingProductionDependencies(SERVER_STAGING, WITHHELD_PACKAGES)
+  if (unstaged.length > 0) {
+    throw new Error(`package: staged server lacks production dependencies or required peers of ${INSTALLATION_PACKAGE}:\n  ${unstaged.join('\n  ')}`)
+  }
+  // Resolution smoke on the staged tree: `--version` imports the launcher
+  // graph, so a package the deployer dropped (a link: override the manifest
+  // forgot to list directly) fails the build here instead of on first launch.
+  await run('staged launcher smoke', process.execPath, [join(SERVER_STAGING, SERVER_ENTRY), '--version'], SERVER_STAGING)
+}
+
+/**
+ * Remove every installed copy of the packages the payload withholds
+ * ([[WITHHELD_PACKAGES]]) from the staged tree, at the top level or nested in
+ * the installation's own `node_modules` ([[withheldPackageCopies]]), and write
+ * the placeholders of [[PLACEHOLDER_BUNDLES]] into the top-level
+ * `node_modules`. Runs before the payload inventory is taken, so the payload
+ * gate never sees them as removed.
+ */
+async function withholdPackages(): Promise<void> {
+  for (const path of await withheldPackageCopies(SERVER_STAGING, WITHHELD_PACKAGES)) {
+    await rm(join(SERVER_STAGING, path), { recursive: true, force: true })
+    console.log(`package: withheld ${path} from the staged server`)
+  }
+  await writePlaceholders(SERVER_STAGING, PLACEHOLDER_BUNDLES)
+  console.log(`package: wrote the placeholders of ${PLACEHOLDER_BUNDLES.join(', ')}`)
+}
+
+/**
+ * Boot one staged tree, wait for its URL line, fetch the index, tear it down.
+ * Plugins load through the Loader at boot, not at launcher import, so only a
+ * real `web --port 0` round-trip proves a payload is complete. Run against
+ * the macOS pruned payload it doubles as the gate on the shared prune rules.
+ *
+ * The boot runs against `buildHome`, seeded exactly as the desktop shell seeds
+ * a real one, so what it checks is the payload rather than whatever the build
+ * machine's own profile happens to hold. Booting against the developer's home
+ * is what this check used to do, and it covered the built-in plugins only by
+ * the accident of that developer having installed them.
+ *
+ * Reaching the URL line does not show the seeded profile composed whole: a
+ * bundle the profile names and the Loader cannot resolve or admit is skipped
+ * with one stderr line, and the server starts without that bundle's layer. So
+ * after the server exits, any stderr line reporting a skipped bundle, a
+ * disabled row, or an entry that did not activate fails the build, and
+ * `--dump-config` against the same home must show the desktop composition
+ * layer's own value on its search row ([[verifyDesktopLayer]]). The dump runs
+ * after the boot because both rewrite the profile's root config.
+ *
+ * While the server runs, its plugin manager is asked about the withheld
+ * bundles ([[verifyPlaceholderBundles]]), and neither the boot's output nor the
+ * dump's stderr may carry [[RETIRED_GUARD_WARNING]]: the seeded profile holds
+ * no `auto-review` row, and no layer inserts that entry.
+ * @param root - the staged server tree to boot.
+ * @param buildHome - this build's throwaway `$DSH_HOME`.
+ */
+async function verifyStagedBoot(root: string, buildHome: string): Promise<void> {
+  const seeded = seedBuiltinBundles({ home: buildHome, serverModules: join(root, 'node_modules') })
+  if (seeded.seeded.length !== BUILTIN_WEB_BUNDLES.length) {
+    throw new Error(`package: staged boot could not seed the built-in bundles: ${JSON.stringify(seeded)}`)
+  }
+  // `--no-open` declines the handoff the web app performs by default: this
+  // server answers one fetch and is killed seconds later, so the tab it would
+  // open lands on a port that is already gone. A build should not reach for the
+  // developer's browser, and the shell declines the same handoff for its own.
+  const child = spawn(process.execPath, [join(root, SERVER_ENTRY), '--profile', DESKTOP_PROFILE, '--port', '0', '--no-open'], {
+    cwd: root,
+    env: stagedServerEnv(process.env, join(buildHome, 'dsh-server.log')),
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  let collected = ''
+  let stderr = ''
+  child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+  // The load report leads, because a skipped bundle is printed first and the
+  // required-plugin listing that follows it would push it out of the tail.
+  const bootReport = (): string => [...loadFailureLines(stderr), '…', ...collected.split('\n').slice(-20)].join('\n')
+  try {
+    const url = await new Promise<string>((resolvePromise, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(`package: staged boot printed no URL line in 90s.\n${bootReport()}`))
+      }, 90_000)
+      const onChunk = (chunk: Buffer): void => {
+        collected += chunk.toString()
+        const match = /dsh web: (http:\/\/127\.0\.0\.1:\d+\S*)/.exec(collected)
+        if (match?.[1] !== undefined) {
+          clearTimeout(timer)
+          resolvePromise(match[1])
+        }
+      }
+      child.stdout.on('data', onChunk)
+      child.stderr.on('data', onChunk)
+      child.once('exit', (code) => {
+        clearTimeout(timer)
+        reject(new Error(`package: staged boot exited (${String(code)}) before its URL line.\n${bootReport()}`))
+      })
+    })
+    // The URL line carries the launch token; loading it exchanges the token
+    // for the browser-session cookie (303 to clean `/`), and every later
+    // request authenticates by that cookie alone.
+    const exchange = await fetch(url, { redirect: 'manual' })
+    const setCookie = exchange.headers.get('set-cookie')
+    if (exchange.status !== 303 || setCookie === null) {
+      throw new Error(`package: staged boot did not exchange the launch token (status ${String(exchange.status)}).`)
+    }
+    const cookie = setCookie.split(';', 1)[0] ?? ''
+    const base = new URL('/', url).href
+    const response = await fetch(base, { headers: { cookie } })
+    const index = await response.text()
+    if (!response.ok || !index.includes('__DSH_BOOT__')) {
+      throw new Error(`package: staged boot served an unexpected index from ${base}.`)
+    }
+    await verifyClientModules(root, base, index, cookie)
+    await verifyPlaceholderBundles(base, cookie)
+    console.log(`package: staged boot verified at ${base}`)
+  } finally {
+    child.kill('SIGTERM')
+    await new Promise<void>((resolvePromise) => {
+      const timer = setTimeout(() => { child.kill('SIGKILL'); resolvePromise() }, 8_000)
+      child.once('exit', () => { clearTimeout(timer); resolvePromise() })
+    })
+  }
+  const bootFailures = loadFailureLines(stderr)
+  if (bootFailures.length > 0) {
+    throw new Error(`package: staged boot started without part of its profile:\n  ${bootFailures.join('\n  ')}`)
+  }
+  const dump = await captureNode([join(root, SERVER_ENTRY), '--profile', DESKTOP_PROFILE, '--dump-config'], root)
+  const dumpFailures = loadFailureLines(dump.stderr)
+  if (dump.code !== 0 || dumpFailures.length > 0) {
+    throw new Error(`package: staged --dump-config failed (exit ${String(dump.code)}):\n${dump.stderr.split('\n').slice(-20).join('\n')}`)
+  }
+  const guardWarnings = [...collected.split('\n'), ...dump.stderr.split('\n')].filter(line => line.includes(RETIRED_GUARD_WARNING))
+  if (guardWarnings.length > 0) {
+    throw new Error(`package: the staged profile still targets the retired auto-review entry:\n  ${guardWarnings.join('\n  ')}`)
+  }
+  verifyDesktopLayer(dump.stdout)
+  console.log('package: staged profile composed every seeded bundle, the desktop layer included')
+}
+
+/**
+ * Call one plugin manager method on a booted staged server through the
+ * Connection RPC route the browser uses, `POST /api/pluginManager/<method>`.
+ * @param base - the booted server's URL.
+ * @param cookie - the browser-session cookie pair minted by the launch-token exchange.
+ * @param method - the plugin manager method.
+ * @param args - the method's arguments by parameter name.
+ * @returns the method's return value.
+ * @throws when the route answers with an HTTP error or the call reports a failure.
+ */
+async function callPluginManager(base: string, cookie: string, method: string, args: Record<string, unknown>): Promise<unknown> {
+  const endpoint = `pluginManager/${method}`
+  const response = await fetch(new URL(`api/${endpoint}`, base), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', cookie },
+    body: JSON.stringify({ type: 'client-request', rpcId: randomUUID(), method: endpoint, payload: { args } }),
+  })
+  if (!response.ok) throw new Error(`package: staged ${endpoint} answered HTTP ${String(response.status)}.`)
+  const body = await response.json() as { result?: { ok?: boolean; value?: unknown; error?: unknown } }
+  if (body.result?.ok !== true) throw new Error(`package: staged ${endpoint} failed: ${JSON.stringify(body.result)}`)
+  return body.result.value
+}
+
+/**
+ * Ask a booted staged server's plugin manager about the withheld bundles, the
+ * way the Plugins page and its agent tool do: the bundle list must hold
+ * bundles, none of [[WITHHELD_PACKAGES]], and none with an error, and enabling each of
+ * [[PLACEHOLDER_BUNDLES]] by name must be refused as `not-bundle` without
+ * changing a profile file ([[placeholderBundleProblems]]). A refusal writes
+ * nothing, so the `--dump-config` after the boot reads the profile as seeded.
+ * @param base - the booted server's URL.
+ * @param cookie - the browser-session cookie pair minted by the launch-token exchange.
+ * @throws when the manager lists a withheld package or a bundle with an error, or accepts or fails differently on enabling a placeholder.
+ */
+async function verifyPlaceholderBundles(base: string, cookie: string): Promise<void> {
+  const listed = await callPluginManager(base, cookie, 'listBundles', {})
+  const enabled: { name: string; result: unknown }[] = []
+  for (const name of PLACEHOLDER_BUNDLES) {
+    enabled.push({ name, result: await callPluginManager(base, cookie, 'setBundleEnabled', { name, enabled: true }) })
+  }
+  const problems = placeholderBundleProblems(listed, enabled)
+  if (problems.length > 0) {
+    throw new Error(`package: the staged plugin manager does not list the bundles the payload ships:\n  ${problems.join('\n  ')}`)
+  }
+  console.log(`package: staged plugin manager lists none of the withheld packages and refuses ${PLACEHOLDER_BUNDLES.join(', ')} as not-bundle`)
+  console.log(`package: staged plugin manager offers ${offeredInstallTargets(listed).join(', ') || 'no install target'}`)
+}
+
+/**
+ * Boot one staged tree twice on a held socket through the shell's own start
+ * ([[verifyHeldSocketBoot]]), with the preload `desktop tsc` built into this
+ * package's `lib/` — the file electron-builder unpacks beside the asar. Runs
+ * after [[verifyStagedBoot]], against the home it seeded. `NODE_PATH` is
+ * emptied for the same reason [[stagedBootEnv]] drops it: the build's names
+ * the workspace's packages.
+ * @param root - the staged server tree to boot.
+ * @param buildHome - this build's throwaway `$DSH_HOME`.
+ */
+async function verifyHandoffBoot(root: string, buildHome: string): Promise<void> {
+  const origin = await verifyHeldSocketBoot({
+    nodeBin: process.execPath,
+    entry: join(root, SERVER_ENTRY),
+    cwd: root,
+    reportDirectory: buildHome,
+    env: { NODE_PATH: '', [SERVER_LOG_ENV]: join(buildHome, 'dsh-server.log') },
+    preload: join(APP_DIR, 'lib', 'listen-handoff.mjs'),
+  })
+  console.log(`package: staged server listened on a held socket twice (${origin})`)
+}
+
+/**
+ * Run the build's Node on a staged server script, in the [[stagedBootEnv]] environment, and collect what it printed.
+ * @param args - the script path and its arguments.
+ * @param cwd - the working directory.
+ * @returns the exit code (null when a signal ended it) and both output streams.
+ */
+async function captureNode(args: string[], cwd: string): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  const child = spawn(process.execPath, args, { cwd, env: stagedBootEnv(process.env), stdio: ['ignore', 'pipe', 'pipe'] })
+  let stdout = ''
+  let stderr = ''
+  child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
+  child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+  const code = await new Promise<number | null>((resolvePromise, reject) => {
+    child.once('error', reject)
+    child.once('close', resolvePromise)
+  })
+  return { code, stdout, stderr }
+}
+
+/**
+ * Whether a package in the payload has a browser half at all.
+ *
+ * `dsh.client` is what makes the host compose a `/plugins/<name>/client.js`
+ * row for a package; a plugin without it contributes to the agent and never to
+ * the page. Read from the payload's own manifest rather than from a list here,
+ * so adding a built-in of either kind needs no second declaration.
+ * @param root - the staged server tree.
+ * @param name - the package name.
+ * @returns true when the installed manifest declares `dsh.client`.
+ */
+async function servesClientModule(root: string, name: string): Promise<boolean> {
+  const manifest = JSON.parse(await readFile(join(root, 'node_modules', name, 'package.json'), 'utf8')) as {
+    dsh?: { client?: unknown }
+  }
+  return manifest.dsh?.client !== undefined
+}
+
+/**
+ * Fetch every client bundle the index names and check it is still a browser
+ * module.
+ *
+ * A server that boots and serves its index says nothing about the forty
+ * modules the page then loads: `client-modules` serves them from
+ * `/plugins/<id>/client.js`, each one registering itself through
+ * `window.__ModuleLoader__.load`. A packaging change that rewrote them for
+ * Node put an `import ... from 'node:module'` on top of each, which no browser
+ * can resolve — the registration was still in the file and the page never
+ * reached it. Nothing server-side noticed: the boot was clean, the index was
+ * the right size, and the log held no error, because the failure happened in
+ * the renderer. This is the assertion that would have caught it.
+ * @param root - the staged server tree, whose manifests say which built-ins have a browser half.
+ * @param base - the booted server's URL.
+ * @param index - the index HTML, which names every client bundle.
+ * @param cookie - the browser-session cookie pair minted by the launch-token exchange.
+ */
+async function verifyClientModules(root: string, base: string, index: string, cookie: string): Promise<void> {
+  // Client modules are served through combo URLs — `plugins/??a/client.js,b/client.js&rev=…`
+  // (HTML-attribute occurrences carry `&amp;`) — so module names are the
+  // `<name>/client.js` segments inside each URL, not URL path prefixes. The
+  // index writes them relative to its `<base href="./">`, and an older index
+  // wrote them from the root, so both `"plugins/` and `/plugins/` count.
+  const paths = [...new Set([...index.matchAll(/(?<=["'/])plugins\/[^"']+?client\.js[^"']*/g)]
+    .map(match => match[0].replaceAll('&amp;', '&')))]
+  if (paths.length === 0) throw new Error('package: staged boot served an index naming no client modules.')
+  const served = new Set(paths.flatMap(path => [...path.matchAll(/([^?,&]+\/client\.js)/g)].map(match => match[1])))
+  // A built-in with a browser half reaches the page only if the payload carried
+  // it, the seed named it, and the Loader resolved it; this loop is what fails
+  // when one of those three stops being true. A built-in without one serves
+  // nothing here: the boot's stderr check and the `--dump-config` check in
+  // `verifyStagedBoot` cover it, since a bundle the Loader skips still lets the
+  // server print its URL line.
+  let withClient = 0
+  for (const name of BUILTIN_WEB_BUNDLES) {
+    if (!await servesClientModule(root, name)) continue
+    withClient++
+    if (!served.has(`${name}/client.js`)) {
+      throw new Error(`package: staged boot served no client module for the built-in plugin ${name}.`)
+    }
+  }
+  if (withClient === 0) {
+    throw new Error('package: no built-in plugin declares dsh.client, so this check proves nothing — fix the payload or this assertion.')
+  }
+  for (const path of paths) {
+    const target = new URL(path, base)
+    const response = await fetch(target, { headers: { cookie } })
+    const body = await response.text()
+    if (!response.ok) throw new Error(`package: client module ${path} answered ${String(response.status)}.`)
+    if (!body.includes('__ModuleLoader__')) {
+      throw new Error(`package: client module ${path} does not register itself; it is not a browser bundle any more.`)
+    }
+    if (/(?:^|[\n;])\s*import\s[^\n]*['"]node:/.test(body)) {
+      throw new Error(`package: client module ${path} imports a Node builtin, which no browser can resolve.`)
+    }
+  }
+  console.log(`package: staged boot checked ${String(paths.length)} client modules`)
+}
+
+/** Per-target pruned payloads staged beside the full server tree. */
+const SERVER_PAYLOADS: Record<PayloadTarget, string> = { darwin: join(STAGING, 'server-mac'), win: join(STAGING, 'server-win') }
+
+/**
+ * The machine each payload runs on. Windows packages are x64 whichever host
+ * builds them; a macOS package is built for the host's own architecture, which
+ * is also the only one whose native prebuilds the install carries.
+ */
+const PAYLOAD_PLATFORMS: Record<PayloadTarget, PayloadPlatform> = {
+  win: { platform: 'win32', arch: 'x64' },
+  darwin: { platform: 'darwin', arch: process.arch },
+}
+
+/**
+ * Non-runtime file suffixes pruned from every payload. Types, sources, source
+ * maps, debug symbols, and docs are the bulk of the tree's file count and its
+ * deepest paths (`lib/types/**`), and a node_modules forest inside an NSIS
+ * installer pays for every file twice on Windows: per-file extraction under
+ * antivirus scanning, and the 260-character MAX_PATH ceiling.
+ */
+const PRUNE_SUFFIXES = ['.map', '.pdb', '.ts', '.tsx', '.mts', '.cts', '.jsx', '.tsbuildinfo']
+
+/**
+ * Markdown is pruned only when the basename is a documentation name: shipped
+ * config trees carry runtime markdown (agent-preset `SKILL.md` instruction
+ * files), and deleting those is a behavior bug, not a size win.
+ */
+const DOC_MARKDOWN =
+  /^(readme|changelog|history|security|contributing|code_of_conduct|governance|authors|maintainers|backers|sponsors)\b|\.zh\.md$/i
+
+/**
+ * The bilingual pairing record that sits beside every README in this
+ * workspace. It is documentation metadata — git blob hashes for the doc-sync
+ * gate — and 190 copies of it ride into the payload because `files` lists the
+ * README and pnpm deploy takes the package as published. Nothing at runtime
+ * reads one, and the install pays for each by file rather than by byte.
+ */
+const DOC_SIDECAR = /^readme(\.[a-z-]+)?\.i18n\.yaml$/i
+
+/** Each target's platform-split directory rules, for this host's macOS architecture. */
+const PLATFORM_DIR_RULES = platformDirRules(process.arch)
+
+/**
+ * Derive one target's pruned server payload from the verified full staging:
+ * copy everything except the other platforms' artifact directories and
+ * non-runtime file suffixes, then report counts and the longest relative path
+ * (the install prefix adds ~50 characters ahead of Windows' 260 limit). The
+ * macOS payload goes through a full boot afterwards, which is what proves the
+ * shared suffix rules cut no runtime content.
+ * @param target - which platform's payload to derive.
+ * @param staged - the full staging's inventory, for the payload gate to compare against.
+ */
+async function deriveServerPayload(target: PayloadTarget, staged: PayloadSnapshot): Promise<void> {
+  const destination = SERVER_PAYLOADS[target]
+  await rm(destination, { recursive: true, force: true })
+  const nodeModulesPrefix = join(SERVER_STAGING, 'node_modules') + sep
+  const skippedDirs: string[] = []
+  let pruned = 0
+  const filter = (source: string): boolean => {
+    const name = source.slice(source.lastIndexOf(sep) + 1)
+    if (source.startsWith(nodeModulesPrefix)) {
+      const parentRel = dirname(source.slice(nodeModulesPrefix.length))
+      for (const rule of PLATFORM_DIR_RULES[target]) {
+        if (parentRel === rule.parent && !rule.keep(name)) {
+          skippedDirs.push(join(parentRel, name).split(sep).join('/'))
+          return false
+        }
+      }
+    }
+    const lower = name.toLowerCase()
+    if (PRUNE_SUFFIXES.some(suffix => lower.endsWith(suffix))) {
+      pruned += 1
+      return false
+    }
+    if ((lower.endsWith('.md') || lower.endsWith('.markdown')) && DOC_MARKDOWN.test(lower)) {
+      pruned += 1
+      return false
+    }
+    if (DOC_SIDECAR.test(basename(lower))) {
+      pruned += 1
+      return false
+    }
+    return true
+  }
+  await cp(SERVER_STAGING, destination, { recursive: true, filter })
+  const afterPlatformPrune = await snapshotPayload(destination)
+  // Collapsing the third-party trees happens here rather than in the package
+  // build, so the workspace's publishable artifacts are untouched and only
+  // this copy changes. It runs before the payload's own smoke test and before
+  // the boot gate, which is what decides whether the result is usable.
+  const collapsed = await bundleClosure(destination)
+  console.log(`package: ${target} payload bundled: ${String(collapsed.bundled)} entry points, ${String(collapsed.removed)} third-party packages removed`)
+  if (collapsed.unbundled.length > 0) {
+    console.log(`package: ${target} payload kept unbundled: ${collapsed.unbundled.join(', ')}`)
+  }
+  // The built-in plugins are named by the profile and imported by nobody, so
+  // their survival is exactly what a reachability walk cannot show on its own.
+  console.log(`package: ${target} payload built-in profile bundles: ${collapsed.bundles.join(', ') || '(none)'}`)
+  // Ahead of the smoke test and the boot gate: a package deleted because its
+  // name is only ever built at run time fails those two somewhere unrelated, or
+  // not until a user reaches the feature, and this says which list to add to.
+  await verifyPrunedPayload({
+    target,
+    runsOn: PAYLOAD_PLATFORMS[target],
+    staged,
+    afterPlatformPrune,
+    payload: destination,
+    droppedByRules: skippedDirs,
+  })
+  // bundle-closure.ts inlines third-party packages into ours and deletes them,
+  // so the finished payload is checked for the scope it keeps whole.
+  const unshipped = await missingProductionDependencies(destination, WITHHELD_PACKAGES, name => name.startsWith('@deepseek-ai/'))
+  if (unshipped.length > 0) {
+    throw new Error(`package: ${target} payload lacks production dependencies or required peers of ${INSTALLATION_PACKAGE}:\n  ${unshipped.join('\n  ')}`)
+  }
+  // The gate exempts the engine directory a payload leaves out, and an
+  // exemption names a directory rather than a direction, so the same entry
+  // would also pass that engine riding into the other target's payload. This
+  // check is what fails a payload still holding one.
+  const engines = await findWithheldDirectories(destination, await officeEnginePackages(SERVER_STAGING))
+  if (engines.length > 0) {
+    throw new Error(`package: ${target} payload carries Office engine directories:\n  ${engines.join('\n  ')}`)
+  }
+  const counted = await countFiles(destination)
+  console.log(`package: ${target} payload derived: ${String(counted)} files, pruned ${String(pruned)}, dropped platform dirs:\n  ${skippedDirs.sort().join('\n  ')}`)
+  let longest = ''
+  const walk = async (dir: string): Promise<void> => {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name)
+      if (entry.isDirectory()) await walk(path)
+      else if (path.length > longest.length) longest = path
+    }
+  }
+  await walk(destination)
+  const relative = longest.slice(destination.length + 1)
+  console.log(`package: ${target} payload longest relative path: ${String(relative.length)} chars`)
+  // The binding budget is the installer's own extract staging, not the install
+  // directory: the 7z-out directory under %TEMP% is ~48 characters and the
+  // payload sits below the app's resources/server (17), so a relative path over
+  // ~194 cannot be extracted at all. NSIS is not long-path aware and reports the
+  // failure as a busy file, so the margin is worth watching well before it goes.
+  if (relative.length > 180) {
+    console.log(`package: WARNING — ${String(194 - relative.length)} chars from the installer's MAX_PATH budget:\n  ${relative}`)
+  }
+  // Resolution smoke on every payload; the host's own payload additionally boots.
+  await run(`pruned ${target} payload smoke`, process.execPath, [join(destination, SERVER_ENTRY), '--version'], destination)
+}
+
+/** Count regular files under a directory. */
+async function countFiles(dir: string): Promise<number> {
+  let total = 0
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) total += await countFiles(path)
+    else total += 1
+  }
+  return total
+}
+
+/**
+ * Give this build its own throwaway `$DSH_HOME` and remove it afterwards.
+ *
+ * Every server this pipeline starts — the two `--version` smokes and the full
+ * `web` boot — resolves the Harness home the ordinary way, and the ordinary way
+ * is the developer's `~/.dsh`. `prepareProfile` rewrites the profile's root
+ * config there and `healProfilesModuleFallback` re-points every flat-fallback
+ * symlink at this build's staging tree, which is deleted at the start of the
+ * next run. Nothing is lost — the next `dsh` launch heals the links — but a
+ * build has no business editing the machine's harness state at all.
+ *
+ * The override goes on `process.env` because that is what every child inherits:
+ * `run()` spreads it, and the two `spawn` calls take it as it is.
+ * @param action - the build to run against the throwaway home.
+ */
+async function withBuildHome(action: (home: string) => Promise<void>): Promise<void> {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-desktop-build-'))
+  process.env.DSH_HOME = home
+  console.log(`package: build DSH_HOME: ${home}`)
+  try {
+    await action(home)
+  } finally {
+    await rm(home, { recursive: true, force: true })
+  }
+}
+
+/**
+ * Check that this run left every artifact it owed in `dist-app`.
+ *
+ * `dist-app` is never cleared, so a listing of it proves nothing: the previous
+ * version's files are still there, and a repackage of this version after a fix
+ * finds this version's own files there too. Naming what these platforms owe and
+ * requiring each file to be present, non-empty, and written since this run
+ * started is what separates a build from a leftover.
+ * @param cli - the parsed command line, which names the platforms built.
+ * @param startedAt - epoch milliseconds at which this run began; anything older is a leftover.
+ */
+async function verifyProducts(cli: Cli, startedAt: number): Promise<void> {
+  const dist = join(APP_DIR, 'dist-app')
+  const { version } = JSON.parse(await readFile(join(APP_DIR, 'package.json'), 'utf8')) as { version: string }
+  const expected = expectedArtifacts(version, { mac: cli.mac, win: cli.win })
+  const files = new Map<string, ArtifactFile>()
+  for (const name of expected) {
+    const path = join(dist, name)
+    if (!existsSync(path)) continue
+    const stats = await stat(path)
+    files.set(name, { bytes: stats.size, mtimeMs: stats.mtimeMs })
+  }
+  const audit = auditArtifacts(expected, files, startedAt)
+  if (audit.missing.length > 0 || audit.empty.length > 0 || audit.stale.length > 0) {
+    const damage = [
+      ...audit.missing.map(name => `${name} (missing)`),
+      ...audit.empty.map(name => `${name} (empty)`),
+      ...audit.stale.map(name => `${name} (stale: built before this run)`),
+    ]
+    throw new Error(`package: the build owes ${String(damage.length)} file(s) apps/desktop-shell/dist-app does not have: ${damage.join(', ')}`)
+  }
+  const listing = audit.verified.map(({ name, bytes }) => `${name} (${(bytes / 1e6).toFixed(1)} MB)`)
+  console.log(`package: verified ${String(listing.length)} product(s) of ${version} in apps/desktop-shell/dist-app:\n  ${listing.join('\n  ')}`)
+}
+
+async function main(buildHome: string): Promise<void> {
+  // Anchors the staleness check in verifyProducts: every artifact this run
+  // produces is written after this point.
+  const startedAt = Date.now()
+  const cli = parseCli(process.argv.slice(2))
+  if (!cli.skipRepoBuild) await run('repo build', 'pnpm', ['run', 'build'], ROOT, desktopRepositoryBuildEnvironment(process.env))
+  assertDesktopClientTitle(ROOT)
+  for (const step of DESKTOP_BUILD_STEPS) await run(step.name, 'pnpm', [...step.args])
+  await run('icons', 'node', [join(APP_DIR, 'scripts', 'gen-desktop-icons.mjs')], APP_DIR)
+
+  if (!cli.skipDeploy) {
+    if (SERVER_STAGING === ROOT || ROOT.startsWith(SERVER_STAGING + sep)) {
+      throw new Error(`package: refusing to clear staging dir ${SERVER_STAGING}.`)
+    }
+    await rm(SERVER_STAGING, { recursive: true, force: true })
+    try {
+      await withWorkspaceStateGuard(() => run('deploy server closure', 'pnpm', ['dlx', DEPLOY_PNPM, ...filteredDeployArgs(DEPLOY_ROOT_PACKAGE, SERVER_STAGING)]))
+      await restoreLegacyHoists()
+    } finally {
+      // The legacy deploy installs the workspace for production and removes the
+      // node_modules of workspace projects in the closure (apps/cli among them);
+      // restoreLegacyHoists reads what it left beside the deploy source first.
+      await run('restore development dependencies', 'pnpm', ['install', '--offline', '--frozen-lockfile', '--prod=false', '--ignore-scripts'])
+    }
+    await materializeStagedLinks()
+    await pinInstallationManifest()
+    await prunePlatformBuilds()
+    await stageWindowsVariants()
+    await withholdPackages()
+    await Promise.all(['README.md', 'README.zh.md', 'README.i18n.yaml'].map(name =>
+      rm(join(SERVER_STAGING, name), { force: true })))
+    // The deployer copies the manifest's own directory, which carries the
+    // vendored plugin tarball a `file:` dependency was installed from. The
+    // staged tree already holds the installed package; the archive it came
+    // from resolves nothing at run time.
+    await rm(join(SERVER_STAGING, 'vendor'), { recursive: true, force: true })
+  }
+  // Written on every run, `--skip-deploy` included: they are text this
+  // repository owns, and verifyStaging checks them whatever else was skipped.
+  await stagePnpmLaunchers(PNPM_LAUNCHER_STAGING)
+  await verifyStaging()
+  // `--skip-deploy` included: a reused staging carries the kit an earlier
+  // deploy resolved, and that kit is the one the packaged app reads.
+  const engines = verifyStagedOfficeEngines(join(SERVER_STAGING, 'node_modules'))
+  console.log(`package: staged Office engines, the versions this package ships and registered: ${engines.join(', ')}`)
+  // Every target's rules, whichever targets this run builds: whether a rule
+  // matches is a property of the rule table and the staged tree.
+  await verifyPruneRules(SERVER_STAGING, PLATFORM_DIR_RULES)
+  const stagedSnapshot = await snapshotPayload(SERVER_STAGING)
+
+  const derived = new Set<PayloadTarget>()
+  const derivePayloadOnce = async (target: PayloadTarget): Promise<void> => {
+    if (derived.has(target)) return
+    await deriveServerPayload(target, stagedSnapshot)
+    derived.add(target)
+  }
+
+  // One payload always derives and fully boots, and it is the one this host can
+  // run: both payloads share the prune rules, so either proves pruning cut no
+  // runtime content. It has to be the host's own — the whole point of pruning
+  // is that a darwin payload carries no win32 koffi or node-pty prebuild, so
+  // booting it on Windows fails on the missing native module rather than on
+  // anything the gate exists to catch.
+  const bootGate: PayloadTarget = process.platform === 'win32' ? 'win' : 'darwin'
+  await derivePayloadOnce(bootGate)
+  await verifyStagedBoot(SERVER_PAYLOADS[bootGate], buildHome)
+  await verifyHandoffBoot(SERVER_PAYLOADS[bootGate], buildHome)
+
+  // `--publish never`: the run() helper sets CI=true, and electron-builder
+  // treats CI plus a `publish` block as a request to upload. Publishing is
+  // scripts/publish-update.ts's job, and the feed's generic provider has no
+  // uploader at all, so the build must only ever emit the manifests.
+  const builder = ['--filter', '@deepseek-ai/dsh-desktop-shell', 'exec', 'electron-builder', '--config', 'electron-builder.yml', '--publish', 'never']
+  await stagePnpm()
+  if (cli.mac) {
+    await stageRuntime('darwin')
+    await derivePayloadOnce('darwin')
+    await run('electron-builder (mac)', 'pnpm', [...builder, '--mac'])
+  }
+  if (cli.win) {
+    await stageRuntime('win')
+    await derivePayloadOnce('win')
+    await run('electron-builder (win)', 'pnpm', [...builder, '--win'])
+    for (const name of (await readdir(join(APP_DIR, 'dist-app'))).filter(file => file.endsWith('.exe'))) {
+      await verifyNsisIntegrity(join(APP_DIR, 'dist-app', name))
+    }
+  }
+  await verifyProducts(cli, startedAt)
+}
+
+await withBuildHome(main)

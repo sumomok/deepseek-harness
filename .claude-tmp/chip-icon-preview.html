@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>余额窄栏图标预览 v2</title>
+<style>
+  body { margin: 0; padding: 24px; background: #f5f5f7; font-family: -apple-system, "PingFang SC", sans-serif; display: flex; gap: 44px; align-items: flex-start; }
+  .panel { text-align: center; }
+  .caption { font-size: 12px; color: #666; margin-top: 10px; line-height: 1.5; }
+  .rail { width: 56px; background: #fff; border-radius: 10px; box-shadow: 0 0 0 1px rgba(0,0,0,.06); padding: 10px 0; display: flex; flex-direction: column; align-items: center; gap: 18px; }
+  .spacer { height: 40px; }
+  .chip { display: flex; align-items: center; justify-content: center; width: 100%; border: 0; background: transparent; font-size: 10px; font-weight: 600; line-height: 13px; color: #6b6b70; min-height: 32px; }
+  .stack { display: flex; flex-direction: column; align-items: center; white-space: nowrap; padding: 2px 0; }
+  .line { display: flex; align-items: center; gap: 2px; font-variant-numeric: tabular-nums; }
+  .icon { width: 10px; height: 10px; flex: none; opacity: .75; }
+  .zoom { transform: scale(5); transform-origin: top center; }
+  .zoom-wrap { width: 340px; height: 280px; display: flex; justify-content: center; padding-top: 16px; }
+  .zoom .stack { color: #6b6b70; font-size: 10px; font-weight: 600; line-height: 13px; }
+</style>
+</head>
+<body>
+  <div class="panel">
+    <div class="rail">
+      <div class="spacer"></div>
+      <button class="chip" type="button">
+        <span class="stack">
+          <span class="line"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.1" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.4V8l2.5 1.7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>96%</span>
+          <span class="line"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.4" y="3.6" width="11.2" height="10" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.2 1.9v2.4M10.8 1.9v2.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M2.9 6.6h10.2" stroke="currentColor" stroke-width="1.5"/></svg>58%</span>
+          <span class="line"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.4" y="3.6" width="11.2" height="10" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.2 1.9v2.4M10.8 1.9v2.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M2.9 6.6h10.2" stroke="currentColor" stroke-width="1.5"/><rect x="6.2" y="8.3" width="3.6" height="3.1" rx="0.7" fill="currentColor"/></svg>44%</span>
+        </span>
+      </button>
+      <div class="spacer"></div>
+    </div>
+    <div class="caption">实际尺寸（56px 窄栏）</div>
+  </div>
+
+  <div class="panel">
+    <div class="zoom-wrap">
+      <div class="zoom">
+        <div class="stack">
+          <span class="line"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.1" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.4V8l2.5 1.7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>96%</span>
+          <span class="line"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.4" y="3.6" width="11.2" height="10" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.2 1.9v2.4M10.8 1.9v2.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M2.9 6.6h10.2" stroke="currentColor" stroke-width="1.5"/></svg>58%</span>
+          <span class="line"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.4" y="3.6" width="11.2" height="10" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.2 1.9v2.4M10.8 1.9v2.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M2.9 6.6h10.2" stroke="currentColor" stroke-width="1.5"/><rect x="6.2" y="8.3" width="3.6" height="3.1" rx="0.7" fill="currentColor"/></svg>44%</span>
+        </div>
+      </div>
+    </div>
+    <div class="caption">放大 5 倍<br>时钟（小时）/ 日历（天、周）/ 日历+方块（月）</div>
+  </div>
+</body>
+</html>
