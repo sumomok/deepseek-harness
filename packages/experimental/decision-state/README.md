@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Records the complete effective decisions of a work scope as experimental plugin records, folds them into a per-scope state, contributes a bounded runtime-context view, validates model submissions against that state, and assembles the delivered proposal from decisions plus accepted open dispositions.
+Records the complete effective decisions of a work scope as experimental plugin records, folds them into a per-scope state, contributes a bounded runtime-context view, validates model submissions against that state, and assembles the delivered proposal from decisions plus accepted open dispositions. An approved submission is committed as the next revision, so the plan the human accepted is what the ledger keeps.
 
 A decision settles units. Decided units are constants: a submission that rewrites one, or dispatches one into a task again, is rejected with a structured error. Submissions must carry the current revision, dispose every open unit, and cover every `new` unit with a task. The accepted proposal is assembled by the host, so the model never writes the decided part.
 
@@ -20,10 +20,13 @@ The tool schema is static, so a decided unit remains addressable; the host rejec
 ```yaml
 - name: '@deepseek-ai/dsh-experimental-decision-state'
   config:
+    approval: review
     scopes:
       demo:
         units: [a, b, c, d]
 ```
+
+With `approval: review`, an accepted submission is presented to the human as a plan-review question and committed only after approval; `auto` (the default) commits immediately, for headless runs without a question channel.
 
 The host records a change when it observes one, for example after the user accepts a plan:
 
@@ -35,7 +38,7 @@ ctx.decisionState.record(agent, {
 })
 ```
 
-From then on, `propose_open_work` is the model's only writable path into the scope: it carries the current revision, dispositions of the remaining units, and the task grouping. An accepted proposal concludes the turn; a rejected one returns the error codes the model must fix.
+From then on, `propose_open_work` is the model's only writable path into the scope: it carries the current revision, dispositions of the remaining units, and the task grouping. An approved proposal is committed as the next revision and concludes the turn; every open unit it names becomes decided, `defer` and `exclude` included, and reopening one requires a later record that supersedes that decision. A rejected proposal returns the error codes, or the reviewer's own feedback, that the model must fix.
 
 ## Model Experience
 
@@ -49,7 +52,7 @@ One runtime-context section per configured scope: the current revision, one line
 
 ## Known Limitations and Deferred Work
 
-- The decided part of a delivered proposal is only as correct as the record the host wrote. The host records at decision time; this package does not detect decisions by itself.
+- The decided part of a delivered proposal is only as correct as the record the host wrote. The host records at decision time, and an approved submission commits the plan itself; this package does not detect decisions made outside `propose_open_work`.
 - Scope catalogs are static configuration. Units cannot be added at runtime, and a scope whose latest record fails validation blocks submissions until the host restores it with `repair()` or a later valid record replaces it. The service validates every change against the replay schema and folds it before appending, so its own writes cannot create that block; `repair()` only accepts a corrupt scope.
 - Open unit ids are listed up to 200 per scope; a larger catalog needs a read path that this package does not provide. One submission carries at most 200 entries with 200-character identifiers and 32 targets per disposition, and its assembled result must stay under 64 KiB; a catalog that cannot fit `viewBudget` is rejected at load.
 - Enforcement covers the controlled submission and its rendered result. Free prose and side-channel actions stay outside this boundary.

@@ -117,4 +117,6 @@ it('condenses under pressure and keeps the record, its view and its guard', asyn
   expect(resultText).toContain('方案已接受')
   expect(resultText).toContain('"unitId":"a"')
   expect(resultText).toContain('"targetIds":["#1"]')
+  expect(ctx.decisionState.scope(agent, 'demo').revision).toBe(2)
+  expect(ctx.decisionState.open(agent, 'demo')).toEqual([])
 })

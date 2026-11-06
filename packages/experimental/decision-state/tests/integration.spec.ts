@@ -65,6 +65,10 @@ it('injects recorded decisions, rejects rewrites, and assembles the accepted pro
   expect(resultText).toContain('"unitId":"a"')
   expect(resultText).toContain('"targetIds":["#1"]')
   expect(resultText).toContain('"unitId":"b"')
+
+  // L1: the accepted submission is committed, so the next view starts from revision 2.
+  expect(ctx.decisionState.scope(agent, 'demo').revision).toBe(2)
+  expect(ctx.decisionState.open(agent, 'demo')).toEqual([])
 })
 
 it('rejects a catalog that cannot fit the view budget', async () => {

@@ -13,6 +13,7 @@ import { Service, type Context } from '@deepseek-ai/cordis'
 import { appendPluginRecord } from '@deepseek-ai/dsh-session'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { AskUserQuestionAnswer } from '@deepseek-ai/dsh-user-questions'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import { decisionStateProjection, parseRecord, RECORD_TYPE, UNKNOWN_SCOPE, type DecisionProjectionState } from './projection.ts'
 import { EMPTY_SCOPE, foldRecord, openUnits, replaceDecisions } from './state.ts'
@@ -39,6 +40,42 @@ export interface DecisionChange {
   readonly decisions: readonly Decision[]
   /** Decision ids this change replaces. */
   readonly supersedes: readonly string[]
+}
+
+/** One open unit as the model submitted it. */
+export interface ProposalDisposition {
+  readonly unitId: string
+  readonly disposition: Decision['disposition']
+  readonly targetIds?: readonly string[]
+}
+
+/** The human's verdict on a pending proposal. */
+export interface ApprovalOutcome {
+  /** Whether the proposal may be committed. */
+  readonly approved: boolean
+  /** The reviewer's own words when they asked for changes. */
+  readonly feedback?: string
+  /** Whether the reviewer closed the review to take the turn back. */
+  readonly dismissed?: boolean
+}
+
+/** Question id of the proposal review; also the answer key. */
+const APPROVAL_QUESTION_ID = 'decision-proposal'
+/** Option label that approves the proposal; every other selection declines it. */
+const APPROVE_LABEL = '批准并记录'
+/** Option label that declines the proposal and returns the reviewer's words. */
+const REVISE_LABEL = '继续修改'
+
+/**
+ * Recognize the user-questions cancellation without importing its class into
+ * the package runtime: every profile that can reach review mode registers the
+ * service, but headless profiles that never review must still load this plugin.
+ * @param cause - rejection from `userQuestions.ask`.
+ * @returns whether the reviewer dismissed the question.
+ */
+function isAskCancelled(cause: unknown): boolean {
+  return typeof cause === 'object' && cause !== null
+    && 'code' in cause && cause.code === 'ASK_CANCELLED'
 }
 
 /** Records decisions for one agent and exposes the folded state. */
@@ -106,6 +143,79 @@ export class DecisionStateService extends Service {
     }
     const state = this.scope(agent, change.scope)
     this.commit(agent, state, change.scope, change.supersedes, change.decisions)
+  }
+
+  /**
+   * Commit an accepted submission as one decision per unit.
+   * @param agent - agent whose Session records the decisions.
+   * @param scope - scope the submission settled.
+   * @param dispositions - open units as the model submitted them.
+   * @returns the revision after the commit.
+   * @throws HarnessError when the scope is unknown or the change is invalid.
+   */
+  recordProposal(agent: Agent, scope: string, dispositions: readonly ProposalDisposition[]): number {
+    const nextRevision = this.scope(agent, scope).revision + 1
+    const approval = agent.session.snapshotEvents().at(-1)
+    const evidence = approval === undefined ? [] : [approval.seq]
+    const decisions: Decision[] = dispositions.map((entry, index) => ({
+      decisionId: `proposal-${nextRevision}-${index}`,
+      unitIds: [entry.unitId],
+      disposition: entry.disposition,
+      targetIds: entry.targetIds ?? [],
+      sourceEventSeqs: evidence,
+    }))
+    this.record(agent, { scope, supersedes: [], decisions })
+    return this.scope(agent, scope).revision
+  }
+
+  /**
+   * Put one assembled proposal in front of the human and report the verdict.
+   * The review is a plan-review intent, so a capable UI renders the proposal
+   * as a plan decision; the answer encoding is the generic option list.
+   * @param agent - agent whose turn is waiting for the review.
+   * @param detail - the proposal text the reviewer reads.
+   * @param signal - turn cancellation forwarded to the question channel.
+   * @returns approval, the reviewer's feedback, or a dismissal.
+   * @throws HarnessError when review mode has no user-questions service.
+   */
+  async requestApproval(agent: Agent, detail: string, signal: AbortSignal): Promise<ApprovalOutcome> {
+    const interaction = this.ctx.get('userQuestions')
+    if (interaction === undefined) {
+      throw new HarnessError(
+        'propose_open_work approval requires the user-questions service',
+        'DECISION_NO_USER_QUESTIONS',
+      )
+    }
+    let answer: AskUserQuestionAnswer
+    try {
+      answer = await interaction.ask({
+        questions: [{
+          id: APPROVAL_QUESTION_ID,
+          header: '决策提案',
+          question: '批准这份提案并写入决策账本吗？',
+          detail,
+          options: [
+            { label: APPROVE_LABEL, description: '写入账本后本轮结束；已定单元不可再改写。' },
+            { label: REVISE_LABEL, description: '不写入；把修改意见回给模型继续。' },
+          ],
+          intent: { kind: 'plan-review', approve: APPROVE_LABEL },
+        }],
+        agent,
+        signal,
+      })
+    } catch (cause: unknown) {
+      if (isAskCancelled(cause)) return { approved: false, dismissed: true }
+      throw cause
+    }
+    const reviewed = answer.answers.filter(entry => entry.id === APPROVAL_QUESTION_ID)
+    const item = reviewed.length === 1 ? reviewed[0] : undefined
+    if (item !== undefined
+      && item.selected.length === 1
+      && item.selected[0] === APPROVE_LABEL
+      && item.custom === undefined) {
+      return { approved: true }
+    }
+    return { approved: false, feedback: item?.custom ?? '' }
   }
 
   /**

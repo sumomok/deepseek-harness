@@ -20,7 +20,8 @@
     "@deepseek-ai/dsh-session-projection": "workspace:*",
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-agent": "workspace:*",
-    "@deepseek-ai/dsh-tools": "workspace:*"
+    "@deepseek-ai/dsh-tools": "workspace:*",
+    "@deepseek-ai/dsh-user-questions": "workspace:*"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-llm": "workspace:*",
@@ -28,7 +29,8 @@
     "@deepseek-ai/dsh-session-projection": "workspace:*",
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-agent": "workspace:*",
-    "@deepseek-ai/dsh-tools": "workspace:*"
+    "@deepseek-ai/dsh-tools": "workspace:*",
+    "@deepseek-ai/dsh-user-questions": "workspace:*"
   },
   "dependencies": {
     "zod": "4.4.3"

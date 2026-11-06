@@ -11,7 +11,7 @@ import { z } from 'zod'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { defineTool, type ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { DISPOSITIONS } from './types.ts'
-import { assemble, MAX_ASSEMBLY_CHARS, MAX_ENTRY_LENGTH, MAX_LISTED_OPEN_UNITS, MAX_TARGET_IDS, validateSubmission, type Submission, type ValidationError } from './validate.ts'
+import { assemble, MAX_ASSEMBLY_CHARS, MAX_ENTRY_LENGTH, MAX_LISTED_OPEN_UNITS, MAX_TARGET_IDS, validateSubmission, type AssembledProposal, type Submission, type ValidationError } from './validate.ts'
 import { UNKNOWN_SCOPE } from './projection.ts'
 import type { DecisionStateService } from './service.ts'
 
@@ -28,6 +28,12 @@ export const Config = z.object({
   viewLimit: z.number().int().min(1).max(200).default(40),
   /** Maximum characters of one scope's rendered view. */
   viewBudget: z.number().int().min(500).max(20000).default(4000),
+  /**
+   * How an accepted submission reaches the ledger. `auto` commits it
+   * immediately for headless runs; `review` puts it in front of the human and
+   * commits only an approved proposal.
+   */
+  approval: z.enum(['auto', 'review']).default('auto'),
 }).prefault({})
 
 /** Validated tool configuration. */
@@ -79,20 +85,21 @@ export function createProposeOpenWorkTool(service: DecisionStateService, config:
           status: { type: 'string', required: true, enum: ['accepted', 'rejected'] },
           proposal: { type: 'json' },
           errors: { type: 'json' },
+          revision: { type: 'integer' },
         },
       },
       render: (_args, value) => [{
         type: 'text',
         text: value.status === 'accepted'
-          ? `方案已接受，本轮结束。最终提案：${JSON.stringify(value.proposal)}`
+          ? `方案已接受并已写入决策账本（revision ${value.revision}），本轮结束。最终提案：${JSON.stringify(value.proposal)}`
           : `方案被拒绝：${JSON.stringify(value.errors)}。按这些错误修正后重新提交，revision 以当前视图为准。`,
       }],
     },
-    execute: (args, exec) => Promise.resolve(propose(service, config, args, exec)),
+    execute: (args, exec) => propose(service, config, args, exec),
   })
 }
 
-const propose = (service: DecisionStateService, config: Config, args: {
+const propose = async (service: DecisionStateService, config: Config, args: {
   scope: string
   revision: number
   dispositions: readonly { unitId: string; disposition: (typeof DISPOSITIONS)[number]; targetIds?: readonly string[] }[]
@@ -143,6 +150,44 @@ const propose = (service: DecisionStateService, config: Config, args: {
   if (JSON.stringify(proposal).length > MAX_ASSEMBLY_CHARS) {
     return { status: 'rejected' as const, errors: [{ code: 'input-too-large', detail: '组装后的提案超过大小上限' }] }
   }
+  if (config.approval === 'review') {
+    const outcome = await service.requestApproval(agent, renderProposal(proposal), exec.signal)
+    if (!outcome.approved) {
+      if (outcome.dismissed) exec.concludeTurn()
+      return {
+        status: 'rejected' as const,
+        errors: [{
+          code: outcome.dismissed ? 'user-dismissed' : 'user-rejected',
+          detail: outcome.dismissed
+            ? '用户关闭了提案审阅，改用自己的话回复；不要重新提交。'
+            : outcome.feedback === undefined || outcome.feedback === ''
+              ? '用户未批准这份提案；说明取舍后重新提交。'
+              : `用户未批准这份提案，反馈：${outcome.feedback}`,
+        }],
+      }
+    }
+  }
+  const revision = service.recordProposal(agent, args.scope, args.dispositions)
   exec.concludeTurn()
-  return { status: 'accepted' as const, proposal }
+  return { status: 'accepted' as const, proposal, revision }
+}
+
+/**
+ * Render one proposal for review without exposing the transport JSON.
+ * @param proposal - host-assembled proposal.
+ * @returns the reviewer-facing Markdown.
+ */
+function renderProposal(proposal: AssembledProposal): string {
+  const lines = [`范围 ${proposal.scope} · revision ${proposal.revision}`, '', '处置：']
+  for (const entry of proposal.dispositions) {
+    const targets = (entry.targetIds ?? []).length === 0 ? '' : ` ${(entry.targetIds ?? []).join('、')}`
+    lines.push(`- ${entry.unitId} → ${entry.disposition}${targets}`)
+  }
+  if (proposal.tasks.length > 0) {
+    lines.push('', '任务：')
+    for (const task of proposal.tasks) {
+      lines.push(`- ${task.id}：${task.title}（${task.unitIds.join('、')}）`)
+    }
+  }
+  return lines.join('\n')
 }
