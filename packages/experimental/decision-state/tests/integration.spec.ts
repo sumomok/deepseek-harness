@@ -62,7 +62,17 @@ it('injects recorded decisions, rejects rewrites, and assembles the accepted pro
     ? result.data.message.content.map(block => block.type === 'text' ? block.text : '').join('\n')
     : ''
   expect(resultText).toContain('方案已接受')
+  expect(resultText).toContain('"unitId":"a"')
+  expect(resultText).toContain('"targetIds":["#1"]')
   expect(resultText).toContain('"unitId":"b"')
+})
+
+it('rejects a catalog that cannot fit the view budget', async () => {
+  const ctx = new Context()
+  onTestFinished(async () => { await ctx.fiber.dispose() })
+  await mountAgentLoopTestDependencies(ctx)
+  const units = Array.from({ length: 50 }, (_, index) => `${index}`.padEnd(100, 'x'))
+  await expect(ctx.plugin(DecisionState, { scopes: { demo: { units } } })).rejects.toThrowError(/viewBudget/)
 })
 
 it('refuses a duplicate unit before writing and repairs a corrupt scope', async () => {
@@ -84,6 +94,18 @@ it('refuses a duplicate unit before writing and repairs a corrupt scope', async 
     supersedes: [],
   })).toThrowError(/unit a decided twice/)
   expect(ctx.decisionState.scope(agent, 'demo').revision).toBe(1)
+  expect(() => ctx.decisionState.record(agent, {
+    scope: 'demo',
+    decisions: [{ decisionId: 'd2', unitIds: ['z'], disposition: 'new', targetIds: [], sourceEventSeqs: [2] }],
+    supersedes: [],
+  })).toThrowError(/unknown unit z/)
+  expect(() => ctx.decisionState.record(agent, {
+    scope: 'demo',
+    decisions: [{ decisionId: '', unitIds: ['b'], disposition: 'new', targetIds: [], sourceEventSeqs: [2] }],
+    supersedes: [],
+  })).toThrowError(/record schema/)
+  expect(() => ctx.decisionState.repair(agent, 'demo', [])).toThrowError(/is healthy/)
+  expect(ctx.decisionState.scope(agent, 'demo').revision).toBe(1)
 
   appendPluginRecord(agent.session, 'plugin:decision-state/record', {
     scope: 'demo',
@@ -100,4 +122,25 @@ it('refuses a duplicate unit before writing and repairs a corrupt scope', async 
   ])
   expect(ctx.decisionState.state(agent).corrupt).not.toContain('demo')
   expect(ctx.decisionState.open(agent, 'demo')).toEqual(['b', 'c'])
+})
+
+it('rejects an oversized nested submission before concluding the turn', async () => {
+  const ctx = new Context()
+  onTestFinished(async () => { await ctx.fiber.dispose() })
+  await mountAgentLoopTestDependencies(ctx)
+  await ctx.plugin(DecisionState, { scopes: { demo: { units: ['a', 'b'] } } })
+  const harness = await mountAgentLoopTestHarness(ctx)
+  const oversized = toolCallResponse('call-1', PROPOSE_OPEN_WORK, {
+    scope: 'demo', revision: 0,
+    dispositions: [{ unitId: 'a', disposition: 'new', targetIds: Array.from({ length: 33 }, (_, index) => `#${index}`) }],
+    tasks: [],
+  })
+  const adapter = new MockAdapter([oversized, textResponse('done')])
+  ctx.llm.registerAdapter(['mock'], adapter)
+  const agent = await harness.create(SessionId('decision-oversized'), { provider: 'mock', model: 'mock' })
+  agent.followup(createUserMessage({ content: [{ type: 'text', text: '开始' }], source: { kind: 'user' } }))
+  await agent.whenIdle()
+  const text = (adapter.requests.at(-1)?.messages ?? []).flatMap(message => message.content)
+    .map(block => block.type === 'text' ? block.text : '').join('\n')
+  expect(text).toContain('input-too-large')
 })

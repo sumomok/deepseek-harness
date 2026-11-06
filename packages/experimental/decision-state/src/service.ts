@@ -14,9 +14,9 @@ import { appendPluginRecord } from '@deepseek-ai/dsh-session'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
-import { decisionStateProjection, RECORD_TYPE, UNKNOWN_SCOPE, type DecisionProjectionState } from './projection.ts'
+import { decisionStateProjection, parseRecord, RECORD_TYPE, UNKNOWN_SCOPE, type DecisionProjectionState } from './projection.ts'
 import { EMPTY_SCOPE, foldRecord, openUnits, replaceDecisions } from './state.ts'
-import { MAX_LISTED_OPEN_UNITS, renderView } from './validate.ts'
+import { MAX_ENTRY_LENGTH, MAX_LISTED_OPEN_UNITS, renderView } from './validate.ts'
 import { Config, createProposeOpenWorkTool } from './tool.ts'
 import type { Decision, DecisionRecord, ScopeState } from './types.ts'
 
@@ -63,6 +63,16 @@ export class DecisionStateService extends Service {
       }
       if (scope.units.some(unitId => unitId.length === 0)) {
         throw new HarnessError(`scope ${scopeId} has an empty unit id`, 'DECISION_CONFIG_INVALID')
+      }
+      if (scope.units.some(unitId => unitId.length > MAX_ENTRY_LENGTH)) {
+        throw new HarnessError(`scope ${scopeId} has a unit id longer than ${MAX_ENTRY_LENGTH} characters`, 'DECISION_CONFIG_INVALID')
+      }
+      if (scopeId === UNKNOWN_SCOPE) {
+        throw new HarnessError('* is reserved as the unknown-scope mark', 'DECISION_CONFIG_INVALID')
+      }
+      const openLine = scope.units.join('、')
+      if (openLine.length + 128 > config.viewBudget) {
+        throw new HarnessError(`scope ${scopeId} does not fit viewBudget ${config.viewBudget}`, 'DECISION_CONFIG_TOO_LARGE')
       }
     }
   }
@@ -112,6 +122,9 @@ export class DecisionStateService extends Service {
       throw new HarnessError(`unknown decision scope: ${scope}`, 'DECISION_UNKNOWN_SCOPE')
     }
     const state = this.scope(agent, scope)
+    if (!this.state(agent).corrupt.includes(scope)) {
+      throw new HarnessError(`decision state for ${scope} is healthy; use record()`, 'DECISION_NOT_CORRUPT')
+    }
     this.commit(agent, state, scope, state.active.map(decision => decision.decisionId), decisions)
   }
 
@@ -132,9 +145,18 @@ export class DecisionStateService extends Service {
       revision: state.revision + 1,
       active: replaceDecisions(state, supersedes, decisions),
     }
-    const folded = foldRecord(state, record)
+    const parsed = parseRecord(record)
+    if (parsed === undefined) {
+      throw new HarnessError('decision change does not fit the record schema', 'DECISION_INVALID_CHANGE')
+    }
+    const catalog = new Set(this.config.scopes[scope]?.units ?? [])
+    const unknownUnit = parsed.active.flatMap(decision => decision.unitIds).find(unitId => !catalog.has(unitId))
+    if (unknownUnit !== undefined) {
+      throw new HarnessError(`decision change names unknown unit ${unknownUnit}`, 'DECISION_INVALID_CHANGE')
+    }
+    const folded = foldRecord(state, parsed)
     if (!folded.ok) throw new HarnessError(`decision change rejected: ${folded.reason}`, 'DECISION_INVALID_CHANGE')
-    appendPluginRecord(agent.session, RECORD_TYPE, record)
+    appendPluginRecord(agent.session, RECORD_TYPE, parsed)
   }
 
   /**

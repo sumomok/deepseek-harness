@@ -139,6 +139,15 @@ export function assemble(state: ScopeState, submission: Submission): AssembledPr
 /** Maximum open unit ids listed before the view reports an omission count. */
 export const MAX_LISTED_OPEN_UNITS = 200
 
+/** Maximum characters of one unit id, decision id, task id or title. */
+export const MAX_ENTRY_LENGTH = 200
+
+/** Maximum target ids one disposition may carry. */
+export const MAX_TARGET_IDS = 32
+
+/** Maximum characters of the assembled accepted result. */
+export const MAX_ASSEMBLY_CHARS = 65_536
+
 /** Maximum characters of the assembled view. */
 const DEFAULT_VIEW_BUDGET = 4000
 
@@ -172,13 +181,15 @@ export function renderView(
     const targets = decision.targetIds.length === 0 ? '' : ` → ${decision.targetIds.join(', ')}`
     rows.push(`- ${decision.unitIds.join('、')}: ${decision.disposition}${targets}`)
   }
-  const omitted = state.active.length > rows.length ? `… 另有 ${state.active.length - rows.length} 条已定决定未展开。` : undefined
+  const omittedLine = (count: number) => `… 另有 ${count} 条已定决定未展开。`
+  const rowsBudget = budget - reserved - omittedLine(state.active.length).length - 1
   const kept: string[] = []
-  let used = reserved
+  let used = 0
   for (const row of rows) {
-    if (used + row.length + 1 > budget) break
+    if (used + row.length + 1 > rowsBudget) break
     kept.push(row)
     used += row.length + 1
   }
-  return [header, ...kept, ...(omitted === undefined ? [] : [omitted]), openLine].join('\n')
+  const omittedCount = state.active.length - kept.length
+  return [header, ...kept, ...(omittedCount === 0 ? [] : [omittedLine(omittedCount)]), openLine].join('\n')
 }

@@ -11,7 +11,7 @@ import { z } from 'zod'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { defineTool, type ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { DISPOSITIONS } from './types.ts'
-import { assemble, validateSubmission, type Submission, type ValidationError } from './validate.ts'
+import { assemble, MAX_ASSEMBLY_CHARS, MAX_ENTRY_LENGTH, MAX_LISTED_OPEN_UNITS, MAX_TARGET_IDS, validateSubmission, type Submission, type ValidationError } from './validate.ts'
 import { UNKNOWN_SCOPE } from './projection.ts'
 import type { DecisionStateService } from './service.ts'
 
@@ -92,12 +92,6 @@ export function createProposeOpenWorkTool(service: DecisionStateService, config:
   })
 }
 
-/** Maximum entries per submission array. */
-const MAX_FIELD_ENTRIES = 100
-
-/** Maximum characters per submitted identifier or title. */
-const MAX_FIELD_LENGTH = 200
-
 const propose = (service: DecisionStateService, config: Config, args: {
   scope: string
   revision: number
@@ -113,11 +107,15 @@ const propose = (service: DecisionStateService, config: Config, args: {
     const errors: readonly ValidationError[] = [{ code: 'state-corrupt', detail: `scope ${args.scope} 的账本校验失败` }]
     return { status: 'rejected' as const, errors: errors.map(error => ({ code: String(error.code), detail: error.detail })) }
   }
-  if (args.dispositions.length > MAX_FIELD_ENTRIES || args.tasks.length > MAX_FIELD_ENTRIES
-    || args.dispositions.some(entry => entry.unitId.length > MAX_FIELD_LENGTH
-      || (entry.targetIds ?? []).some(target => target.length > MAX_FIELD_LENGTH))
-    || args.tasks.some(task => task.id.length > MAX_FIELD_LENGTH || task.title.length > MAX_FIELD_LENGTH
-      || task.unitIds.some(unitId => unitId.length > MAX_FIELD_LENGTH))) {
+  const tooLarge = args.dispositions.length > MAX_LISTED_OPEN_UNITS
+    || args.tasks.length > MAX_LISTED_OPEN_UNITS
+    || args.dispositions.some(entry => entry.unitId.length > MAX_ENTRY_LENGTH
+      || (entry.targetIds ?? []).length > MAX_TARGET_IDS
+      || (entry.targetIds ?? []).some(target => target.length > MAX_ENTRY_LENGTH))
+    || args.tasks.some(task => task.id.length > MAX_ENTRY_LENGTH || task.title.length > MAX_ENTRY_LENGTH
+      || task.unitIds.length > MAX_LISTED_OPEN_UNITS
+      || task.unitIds.some(unitId => unitId.length > MAX_ENTRY_LENGTH))
+  if (tooLarge) {
     return { status: 'rejected' as const, errors: [{ code: 'input-too-large', detail: '提交内容超过字段或条数上限' }] }
   }
   const state = service.scope(agent, args.scope)
@@ -131,19 +129,20 @@ const propose = (service: DecisionStateService, config: Config, args: {
   if (!verdict.ok) {
     return { status: 'rejected' as const, errors: verdict.errors.map(error => ({ code: String(error.code), detail: error.detail })) }
   }
-  exec.concludeTurn()
   const assembled = assemble(state, submission)
-  return {
-    status: 'accepted' as const,
-    proposal: {
-      scope: assembled.scope,
-      revision: assembled.revision,
-      dispositions: assembled.dispositions.map(entry => ({
-        unitId: entry.unitId,
-        disposition: entry.disposition,
-        targetIds: [...(entry.targetIds ?? [])],
-      })),
-      tasks: assembled.tasks.map(task => ({ id: task.id, title: task.title, unitIds: [...task.unitIds] })),
-    },
+  const proposal = {
+    scope: assembled.scope,
+    revision: assembled.revision,
+    dispositions: assembled.dispositions.map(entry => ({
+      unitId: entry.unitId,
+      disposition: entry.disposition,
+      targetIds: [...(entry.targetIds ?? [])],
+    })),
+    tasks: assembled.tasks.map(task => ({ id: task.id, title: task.title, unitIds: [...task.unitIds] })),
   }
+  if (JSON.stringify(proposal).length > MAX_ASSEMBLY_CHARS) {
+    return { status: 'rejected' as const, errors: [{ code: 'input-too-large', detail: '组装后的提案超过大小上限' }] }
+  }
+  exec.concludeTurn()
+  return { status: 'accepted' as const, proposal }
 }
