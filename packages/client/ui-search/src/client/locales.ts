@@ -5,9 +5,9 @@ export const NS = 'search'
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
-  'panel.aria': '搜索消息',
-  'panel.placeholder': '搜索所有会话的消息',
-  'panel.empty': '没有匹配的消息',
+  'panel.aria': '搜索消息、会话和工作区',
+  'panel.placeholder': '搜索消息、会话和工作区',
+  'panel.empty': '没有匹配的结果',
   'panel.idle': '输入关键词开始搜索',
   'panel.retry': '重试',
   'panel.loadMore': '继续加载',
@@ -18,10 +18,15 @@ export const zh = {
   'panel.error': '搜索失败',
   'panel.partial': '部分会话无法读取，结果可能不全',
   'panel.hint': '↑↓ 选择，Enter 打开，Esc 关闭',
+  'section.workspaces': '工作区',
+  'section.sessions': '会话',
+  'section.messages': '消息',
   'result.count': '{count} 条结果',
   'result.countMore': '{count} 条结果 · 继续滚动加载更多',
   'result.untitled': '未命名会话',
   'result.openAria': '打开 {title} 的这条消息',
+  'result.openWorkspaceAria': '打开工作区 {title}',
+  'result.openSessionAria': '打开会话 {title}',
 }
 
 /** Complete key set every dictionary must cover. */
@@ -29,9 +34,9 @@ export type SearchKey = keyof typeof zh
 
 /** English dictionary. */
 export const en: Record<SearchKey, string> = {
-  'panel.aria': 'Search messages',
-  'panel.placeholder': 'Search messages across all sessions',
-  'panel.empty': 'No matching messages',
+  'panel.aria': 'Search messages, sessions, and workspaces',
+  'panel.placeholder': 'Search messages, sessions, and workspaces',
+  'panel.empty': 'No matching results',
   'panel.idle': 'Type to search',
   'panel.retry': 'Retry',
   'panel.loadMore': 'Load more',
@@ -42,17 +47,22 @@ export const en: Record<SearchKey, string> = {
   'panel.error': 'Search failed',
   'panel.partial': 'Some sessions could not be read; results may be incomplete',
   'panel.hint': '↑↓ to select, Enter to open, Esc to close',
+  'section.workspaces': 'Workspaces',
+  'section.sessions': 'Sessions',
+  'section.messages': 'Messages',
   'result.count': '{count} results',
   'result.countMore': '{count} results · scroll for more',
   'result.untitled': 'Untitled session',
   'result.openAria': 'Open this message in {title}',
+  'result.openWorkspaceAria': 'Open workspace {title}',
+  'result.openSessionAria': 'Open session {title}',
 }
 
 /** Japanese dictionary. */
 export const ja: Record<SearchKey, string> = {
-  'panel.aria': 'メッセージを検索',
-  'panel.placeholder': 'すべてのセッションのメッセージを検索',
-  'panel.empty': '一致するメッセージはありません',
+  'panel.aria': 'メッセージ・セッション・ワークスペースを検索',
+  'panel.placeholder': 'メッセージ・セッション・ワークスペースを検索',
+  'panel.empty': '一致する結果はありません',
   'panel.idle': 'キーワードを入力して検索',
   'panel.retry': '再試行',
   'panel.loadMore': 'さらに読み込む',
@@ -63,17 +73,22 @@ export const ja: Record<SearchKey, string> = {
   'panel.error': '検索に失敗しました',
   'panel.partial': '一部のセッションを読み取れず、結果が不完全な可能性があります',
   'panel.hint': '↑↓ 選択、Enter で開く、Esc で閉じる',
+  'section.workspaces': 'ワークスペース',
+  'section.sessions': 'セッション',
+  'section.messages': 'メッセージ',
   'result.count': '{count} 件',
   'result.countMore': '{count} 件 · スクロールでさらに読み込む',
   'result.untitled': '無題のセッション',
   'result.openAria': '{title} でこのメッセージを開く',
+  'result.openWorkspaceAria': 'ワークスペース {title} を開く',
+  'result.openSessionAria': 'セッション {title} を開く',
 }
 
 /** Spanish dictionary. */
 export const es: Record<SearchKey, string> = {
-  'panel.aria': 'Buscar mensajes',
-  'panel.placeholder': 'Buscar mensajes en todas las sesiones',
-  'panel.empty': 'Ningún mensaje coincide',
+  'panel.aria': 'Buscar mensajes, sesiones y espacios de trabajo',
+  'panel.placeholder': 'Buscar mensajes, sesiones y espacios de trabajo',
+  'panel.empty': 'Ningún resultado coincide',
   'panel.idle': 'Escribe para buscar',
   'panel.retry': 'Reintentar',
   'panel.loadMore': 'Cargar más',
@@ -84,17 +99,22 @@ export const es: Record<SearchKey, string> = {
   'panel.error': 'La búsqueda falló',
   'panel.partial': 'No se pudieron leer algunas sesiones; los resultados pueden estar incompletos',
   'panel.hint': '↑↓ para elegir, Enter para abrir, Esc para cerrar',
+  'section.workspaces': 'Espacios de trabajo',
+  'section.sessions': 'Sesiones',
+  'section.messages': 'Mensajes',
   'result.count': '{count} resultados',
   'result.countMore': '{count} resultados · desplázate para ver más',
   'result.untitled': 'Sesión sin título',
   'result.openAria': 'Abrir este mensaje en {title}',
+  'result.openWorkspaceAria': 'Abrir el espacio de trabajo {title}',
+  'result.openSessionAria': 'Abrir la sesión {title}',
 }
 
 /** French dictionary. */
 export const fr: Record<SearchKey, string> = {
-  'panel.aria': 'Rechercher des messages',
-  'panel.placeholder': 'Rechercher des messages dans toutes les sessions',
-  'panel.empty': 'Aucun message correspondant',
+  'panel.aria': 'Rechercher des messages, des sessions et des espaces de travail',
+  'panel.placeholder': 'Rechercher des messages, des sessions et des espaces de travail',
+  'panel.empty': 'Aucun résultat correspondant',
   'panel.idle': 'Saisissez un mot-clé',
   'panel.retry': 'Réessayer',
   'panel.loadMore': 'Charger plus',
@@ -105,17 +125,22 @@ export const fr: Record<SearchKey, string> = {
   'panel.error': 'La recherche a échoué',
   'panel.partial': 'Certaines sessions sont illisibles ; les résultats peuvent être incomplets',
   'panel.hint': '↑↓ pour choisir, Entrée pour ouvrir, Échap pour fermer',
+  'section.workspaces': 'Espaces de travail',
+  'section.sessions': 'Sessions',
+  'section.messages': 'Messages',
   'result.count': '{count} résultats',
   'result.countMore': '{count} résultats · faites défiler pour en voir plus',
   'result.untitled': 'Session sans titre',
   'result.openAria': 'Ouvrir ce message dans {title}',
+  'result.openWorkspaceAria': 'Ouvrir l’espace de travail {title}',
+  'result.openSessionAria': 'Ouvrir la session {title}',
 }
 
 /** German dictionary. */
 export const de: Record<SearchKey, string> = {
-  'panel.aria': 'Nachrichten durchsuchen',
-  'panel.placeholder': 'Nachrichten in allen Sitzungen durchsuchen',
-  'panel.empty': 'Keine passenden Nachrichten',
+  'panel.aria': 'Nachrichten, Sitzungen und Arbeitsbereiche durchsuchen',
+  'panel.placeholder': 'Nachrichten, Sitzungen und Arbeitsbereiche durchsuchen',
+  'panel.empty': 'Keine passenden Ergebnisse',
   'panel.idle': 'Suchbegriff eingeben',
   'panel.retry': 'Erneut versuchen',
   'panel.loadMore': 'Mehr laden',
@@ -126,17 +151,22 @@ export const de: Record<SearchKey, string> = {
   'panel.error': 'Suche fehlgeschlagen',
   'panel.partial': 'Einige Sitzungen waren unlesbar; die Ergebnisse können unvollständig sein',
   'panel.hint': '↑↓ zum Auswählen, Enter zum Öffnen, Esc zum Schließen',
+  'section.workspaces': 'Arbeitsbereiche',
+  'section.sessions': 'Sitzungen',
+  'section.messages': 'Nachrichten',
   'result.count': '{count} Treffer',
   'result.countMore': '{count} Treffer · zum Weiterscrollen',
   'result.untitled': 'Sitzung ohne Titel',
   'result.openAria': 'Diese Nachricht in {title} öffnen',
+  'result.openWorkspaceAria': 'Arbeitsbereich {title} öffnen',
+  'result.openSessionAria': 'Sitzung {title} öffnen',
 }
 
 /** Russian dictionary. */
 export const ru: Record<SearchKey, string> = {
-  'panel.aria': 'Поиск сообщений',
-  'panel.placeholder': 'Искать сообщения во всех сессиях',
-  'panel.empty': 'Подходящих сообщений нет',
+  'panel.aria': 'Поиск сообщений, сессий и рабочих областей',
+  'panel.placeholder': 'Поиск сообщений, сессий и рабочих областей',
+  'panel.empty': 'Подходящих результатов нет',
   'panel.idle': 'Введите запрос для поиска',
   'panel.retry': 'Повторить',
   'panel.loadMore': 'Загрузить ещё',
@@ -147,17 +177,22 @@ export const ru: Record<SearchKey, string> = {
   'panel.error': 'Поиск не удался',
   'panel.partial': 'Часть сессий не читается; результаты могут быть неполными',
   'panel.hint': '↑↓ — выбор, Enter — открыть, Esc — закрыть',
+  'section.workspaces': 'Рабочие области',
+  'section.sessions': 'Сессии',
+  'section.messages': 'Сообщения',
   'result.count': 'Результатов: {count}',
   'result.countMore': 'Результатов: {count} · прокрутите для продолжения',
   'result.untitled': 'Сессия без названия',
   'result.openAria': 'Открыть это сообщение в {title}',
+  'result.openWorkspaceAria': 'Открыть рабочую область {title}',
+  'result.openSessionAria': 'Открыть сессию {title}',
 }
 
 /** Portuguese dictionary. */
 export const pt: Record<SearchKey, string> = {
-  'panel.aria': 'Pesquisar mensagens',
-  'panel.placeholder': 'Pesquisar mensagens em todas as sessões',
-  'panel.empty': 'Nenhuma mensagem correspondente',
+  'panel.aria': 'Pesquisar mensagens, sessões e espaços de trabalho',
+  'panel.placeholder': 'Pesquisar mensagens, sessões e espaços de trabalho',
+  'panel.empty': 'Nenhum resultado correspondente',
   'panel.idle': 'Digite para pesquisar',
   'panel.retry': 'Tentar de novo',
   'panel.loadMore': 'Carregar mais',
@@ -168,8 +203,13 @@ export const pt: Record<SearchKey, string> = {
   'panel.error': 'A pesquisa falhou',
   'panel.partial': 'Algumas sessões não puderam ser lidas; os resultados podem estar incompletos',
   'panel.hint': '↑↓ para escolher, Enter para abrir, Esc para fechar',
+  'section.workspaces': 'Espaços de trabalho',
+  'section.sessions': 'Sessões',
+  'section.messages': 'Mensagens',
   'result.count': '{count} resultados',
   'result.countMore': '{count} resultados · role para ver mais',
   'result.untitled': 'Sessão sem título',
   'result.openAria': 'Abrir esta mensagem em {title}',
+  'result.openWorkspaceAria': 'Abrir o espaço de trabalho {title}',
+  'result.openSessionAria': 'Abrir a sessão {title}',
 }

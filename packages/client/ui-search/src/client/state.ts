@@ -2,6 +2,7 @@
 import type {
   SessionMessageSearchValue, SessionSearchIndexProgress,
 } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 /** Index preparation the Host reports while a read is outstanding. */
@@ -10,7 +11,7 @@ export type SearchIndexProgress = SessionSearchIndexProgress
 /** Continuation handle the Host minted for the next page. */
 export type SearchCursor = NonNullable<SessionMessageSearchValue['nextCursor']>
 
-/** One matched span inside a result excerpt, in UTF-16 code units. */
+/** One matched span inside a rendered string, in UTF-16 code units. */
 export interface SearchMatch {
   /** Offset of the first matched code unit. */
   start: number
@@ -18,19 +19,50 @@ export interface SearchMatch {
   length: number
 }
 
-/** One addressable search result. */
-export interface SearchResultRow {
-  /** Session that owns the matching event. */
-  sessionId: SessionId
-  /** Event position inside that Session. */
-  seq: number
-  /** Session title resolved from the list snapshot, or undefined when absent. */
-  title: string | undefined
-  /** Host excerpt around the match. */
-  snippet: string
-  /** Matched spans inside `snippet`. */
-  matches: readonly SearchMatch[]
+/** One Workspace whose name matches, listed under the Workspace section. */
+export interface SearchWorkspaceRow {
+  /** Which list the row belongs to; opening it connects the Workspace. */
+  readonly kind: 'workspace'
+  /** Workspace to open. */
+  readonly workspaceId: WorkspaceId
+  /** Display title the query matched. */
+  readonly title: string
+  /** Matched spans inside `title`. */
+  readonly matches: readonly SearchMatch[]
 }
+
+/** One Session whose title matches, listed under the Session section. */
+export interface SearchSessionRow {
+  /** Which list the row belongs to; opening it selects the Session. */
+  readonly kind: 'session'
+  /** Session to open. */
+  readonly sessionId: SessionId
+  /** Session title the query matched. */
+  readonly title: string
+  /** Display title of the owning Workspace, or an empty string when ungrouped. */
+  readonly workspace: string
+  /** Matched spans inside `title`. */
+  readonly matches: readonly SearchMatch[]
+}
+
+/** One Host message hit, listed under the Message section. */
+export interface SearchMessageRow {
+  /** Which list the row belongs to; opening it reveals the message. */
+  readonly kind: 'message'
+  /** Session that owns the matching event. */
+  readonly sessionId: SessionId
+  /** Event position inside that Session. */
+  readonly seq: number
+  /** Session title resolved from the list snapshot, or undefined when absent. */
+  readonly title: string | undefined
+  /** Host excerpt around the match. */
+  readonly snippet: string
+  /** Matched spans inside `snippet`. */
+  readonly matches: readonly SearchMatch[]
+}
+
+/** One addressable result in any of the panel's three sections. */
+export type SearchRow = SearchWorkspaceRow | SearchSessionRow | SearchMessageRow
 
 /** Where one search sequence is. */
 export type SearchPhase = 'idle' | 'loading' | 'ready' | 'loadingMore' | 'error'
@@ -41,11 +73,11 @@ export interface SearchPanelState {
   open: boolean
   /** Current input value. */
   query: string
-  /** Rows from every page read so far. */
-  rows: readonly SearchResultRow[]
+  /** Matching Workspaces, then Sessions, then message hits from every page read so far. */
+  rows: readonly SearchRow[]
   /** Index of the keyboard selection, or -1 when none. */
   active: number
-  /** Sequence status. */
+  /** Sequence status of the Host message read. */
   phase: SearchPhase
   /** Cursor for the next page, absent when the Host finished. */
   nextCursor: SearchCursor | undefined

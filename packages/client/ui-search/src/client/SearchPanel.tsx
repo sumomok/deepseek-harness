@@ -1,7 +1,9 @@
-import { useEffect, useRef, type KeyboardEvent } from 'react'
+import { Fragment, useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { NS } from './locales.ts'
-import type { SearchIndexProgress, SearchPanelState, SearchResultRow } from './state.ts'
+import type {
+  SearchIndexProgress, SearchMatch, SearchPanelState, SearchRow,
+} from './state.ts'
 import css from './SearchPanel.module.css'
 
 /** Registration-side business face for the search panel. */
@@ -41,26 +43,46 @@ export type SearchPanelProps =
   & PropsLocale<typeof NS>
 
 /**
- * Split one excerpt into the runs a renderer paints.
- * @param row - result whose `matches` index its own `snippet`.
+ * Split one rendered string into the runs a renderer paints.
+ * @param text - string whose spans `matches` index.
+ * @param matches - matched spans inside `text`, in ascending order.
  * @returns alternating plain and matched text runs, in order.
  */
-function runs(row: SearchResultRow): { text: string; hit: boolean }[] {
+function runs(text: string, matches: readonly SearchMatch[]): { text: string; hit: boolean }[] {
   const parts: { text: string; hit: boolean }[] = []
   let cursor = 0
-  for (const match of row.matches) {
-    if (match.start > cursor) parts.push({ text: row.snippet.slice(cursor, match.start), hit: false })
-    const end = Math.min(match.start + match.length, row.snippet.length)
-    parts.push({ text: row.snippet.slice(match.start, end), hit: true })
+  for (const match of matches) {
+    if (match.start > cursor) parts.push({ text: text.slice(cursor, match.start), hit: false })
+    const end = Math.min(match.start + match.length, text.length)
+    parts.push({ text: text.slice(match.start, end), hit: true })
     cursor = end
   }
-  if (cursor < row.snippet.length) parts.push({ text: row.snippet.slice(cursor), hit: false })
+  if (cursor < text.length) parts.push({ text: text.slice(cursor), hit: false })
   return parts
 }
 
 /**
- * Workspace-wide message search overlay: one field, one result list, and the
- * keyboard path through it.
+ * Paint one string with every matched span wrapped in `mark`.
+ * @param text - string to paint.
+ * @param matches - matched spans inside `text`.
+ * @returns the runs as React nodes.
+ */
+function highlighted(text: string, matches: readonly SearchMatch[]): ReactNode {
+  return runs(text, matches).map((part, index) => part.hit
+    ? <mark key={index} className={css.hit}>{part.text}</mark>
+    : <Fragment key={index}>{part.text}</Fragment>)
+}
+
+/** Section heading for one row kind. */
+function sectionOf(kind: SearchRow['kind'], t: SearchPanelProps['t']): string {
+  if (kind === 'workspace') return t('section.workspaces')
+  if (kind === 'session') return t('section.sessions')
+  return t('section.messages')
+}
+
+/**
+ * Workspace search overlay: one field over the three result sections and the
+ * keyboard path through all of them.
  * @param props - injected panel state, the callbacks that drive it, and the locale seat.
  * @returns the overlay while open, otherwise nothing.
  */
@@ -82,6 +104,7 @@ export function SearchPanel({
     const active = listRef.current?.querySelector<HTMLElement>('[data-active="true"]')
     // jsdom has no layout engine and no scrollIntoView; the guard keeps the
     // component spec from failing on a browser API that has nothing to scroll.
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- jsdom omits scrollIntoView.
     active?.scrollIntoView?.({ block: 'nearest' })
   }, [state.active, state.rows.length])
 
@@ -137,6 +160,12 @@ export function SearchPanel({
       ? t('panel.empty')
       : undefined
 
+  const rowKey = (row: SearchRow): string => row.kind === 'workspace'
+    ? `workspace:${row.workspaceId}`
+    : row.kind === 'session'
+      ? `session:${row.sessionId}`
+      : `message:${row.sessionId}:${String(row.seq)}`
+
   return (
     <div className={css.backdrop} onPointerDown={(event) => { if (event.target === event.currentTarget) close() }}>
       <div className={css.panel} role="dialog" aria-modal="true" aria-label={t('panel.aria')} onKeyDown={onEscape}>
@@ -155,24 +184,46 @@ export function SearchPanel({
           <span className={css.escape} aria-hidden="true">{t('panel.escape')}</span>
         </div>
         <div ref={listRef} className={css.list} onScroll={onScroll}>
-          {state.rows.map((row, index) => (
-            <button
-              key={`${row.sessionId}:${String(row.seq)}`}
-              type="button"
-              className={css.row}
-              data-active={index === state.active}
-              aria-label={t('result.openAria', { title: row.title ?? t('result.untitled') })}
-              onClick={() => { openAt(index) }}
-              onPointerEnter={() => { moveActive(index - state.active) }}
-            >
-              <span className={css.title}>{row.title ?? t('result.untitled')}</span>
-              <span className={css.snippet}>
-                {runs(row).map((part, partIndex) => part.hit
-                  ? <mark key={partIndex} className={css.hit}>{part.text}</mark>
-                  : <span key={partIndex}>{part.text}</span>)}
-              </span>
-            </button>
-          ))}
+          {state.rows.map((row, rowIndex) => {
+            const first = rowIndex === 0 || state.rows[rowIndex - 1]?.kind !== row.kind
+            const selected = rowIndex === state.active
+            const select = (): void => { openAt(rowIndex) }
+            const enter = (): void => { moveActive(rowIndex - state.active) }
+            return (
+              <Fragment key={rowKey(row)}>
+                {first && <div className={css.section}>{sectionOf(row.kind, t)}</div>}
+                {row.kind === 'message'
+                  ? (
+                    <button
+                      type="button"
+                      className={css.row}
+                      data-active={selected}
+                      aria-label={t('result.openAria', { title: row.title ?? t('result.untitled') })}
+                      onClick={select}
+                      onPointerEnter={enter}
+                    >
+                      <span className={css.meta}>{row.title ?? t('result.untitled')}</span>
+                      <span className={css.snippet}>{highlighted(row.snippet, row.matches)}</span>
+                    </button>
+                  )
+                  : (
+                    <button
+                      type="button"
+                      className={css.row}
+                      data-active={selected}
+                      aria-label={t(row.kind === 'workspace' ? 'result.openWorkspaceAria' : 'result.openSessionAria', { title: row.title })}
+                      onClick={select}
+                      onPointerEnter={enter}
+                    >
+                      <span className={css.primary}>{highlighted(row.title, row.matches)}</span>
+                      {row.kind === 'session' && row.workspace !== '' && (
+                        <span className={css.meta}>{row.workspace}</span>
+                      )}
+                    </button>
+                  )}
+              </Fragment>
+            )
+          })}
           {state.phase === 'error' && (
             <div className={css.failure}>
               <span className={css.failureText}>{t('panel.error')}</span>

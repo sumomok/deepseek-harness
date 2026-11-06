@@ -70,6 +70,14 @@
   overscroll-behavior: contain;
 }
 
+/* Section label: one per result kind, in the order Workspace, Session, Message. */
+.section {
+  padding: 10px 12px 3px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .row {
   display: flex;
   flex-direction: column;
@@ -96,7 +104,17 @@
   background: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
 }
 
-.title {
+.primary {
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The owning Workspace under a Session row, and a message row's Session. */
+.meta {
   overflow: hidden;
   color: var(--dsw-alias-label-tertiary);
   font-size: 12px;

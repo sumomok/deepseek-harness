@@ -2,10 +2,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { SearchPanel, type SearchPanelProps } from '../src/client/SearchPanel.tsx'
 import { zh } from '../src/client/locales.ts'
-import { IDLE_STATE, type SearchPanelState, type SearchResultRow } from '../src/client/state.ts'
+import {
+  IDLE_STATE, type SearchMessageRow, type SearchPanelState, type SearchSessionRow, type SearchWorkspaceRow,
+} from '../src/client/state.ts'
 
 afterEach(() => {
   cleanup()
@@ -14,9 +17,10 @@ afterEach(() => {
 
 const t: SearchPanelProps['t'] = makeTranslate(zh)
 
-/** One result on a named session. */
-function row(over: Partial<SearchResultRow> = {}): SearchResultRow {
+/** One message result on a named session. */
+function messageRow(over: Partial<SearchMessageRow> = {}): SearchMessageRow {
   return {
+    kind: 'message',
     sessionId: 'sess-a' as SessionId,
     seq: 3,
     title: '重构消息级全文搜索',
@@ -26,9 +30,32 @@ function row(over: Partial<SearchResultRow> = {}): SearchResultRow {
   }
 }
 
+/** One Workspace whose display title matched. */
+function workspaceRow(over: Partial<SearchWorkspaceRow> = {}): SearchWorkspaceRow {
+  return {
+    kind: 'workspace',
+    workspaceId: 'ws-a' as WorkspaceId,
+    title: 'deepseek-harness',
+    matches: [{ start: 0, length: 8 }],
+    ...over,
+  }
+}
+
+/** One Session whose title matched. */
+function sessionRow(over: Partial<SearchSessionRow> = {}): SearchSessionRow {
+  return {
+    kind: 'session',
+    sessionId: 'sess-a' as SessionId,
+    title: '重构消息级全文搜索',
+    workspace: 'deepseek-harness',
+    matches: [{ start: 0, length: 2 }],
+    ...over,
+  }
+}
+
 /** A panel state derived from the idle template. */
 function state(over: Partial<SearchPanelState> = {}): SearchPanelState {
-  return { ...IDLE_STATE, open: true, query: '分页', phase: 'ready', rows: [row()], active: 0, ...over }
+  return { ...IDLE_STATE, open: true, query: '分页', phase: 'ready', rows: [messageRow()], active: 0, ...over }
 }
 
 /** Props over one fixed state; the callbacks record what the panel asked for. */
@@ -79,6 +106,52 @@ describe('SearchPanel visibility', () => {
   })
 })
 
+describe('SearchPanel sections', () => {
+  it('orders Workspaces, Sessions, and Messages under their own headings', () => {
+    const { container } = render(<SearchPanel {...props(state({
+      rows: [workspaceRow(), sessionRow(), messageRow()],
+    }))} />)
+    const text = container.textContent ?? ''
+    const workspaces = text.indexOf(zh['section.workspaces'])
+    const sessions = text.indexOf(zh['section.sessions'])
+    const messages = text.indexOf(zh['section.messages'])
+    expect(workspaces).toBeGreaterThanOrEqual(0)
+    expect(workspaces).toBeLessThan(sessions)
+    expect(sessions).toBeLessThan(messages)
+  })
+
+  it('omits the headings of sections with no rows', () => {
+    render(<SearchPanel {...props(state({ rows: [sessionRow(), messageRow()] }))} />)
+    expect(screen.queryByText(zh['section.workspaces'])).toBeNull()
+    expect(screen.getByText(zh['section.sessions'])).toBeTruthy()
+    expect(screen.getByText(zh['section.messages'])).toBeTruthy()
+  })
+
+  it('paints the matched span of a Workspace and of a Session name', () => {
+    const { container } = render(<SearchPanel {...props(state({
+      rows: [workspaceRow(), sessionRow()],
+    }))} />)
+    expect([...container.querySelectorAll('mark')].map(node => node.textContent)).toEqual(['deepseek', '重构'])
+  })
+
+  it('shows the owning Workspace under a Session name and nothing when ungrouped', () => {
+    const { rerender } = render(<SearchPanel {...props(state({ rows: [sessionRow()] }))} />)
+    expect(screen.getByText('deepseek-harness')).toBeTruthy()
+    rerender(<SearchPanel {...props(state({ rows: [sessionRow({ workspace: '' })] }))} />)
+    expect(screen.queryByText('deepseek-harness')).toBeNull()
+  })
+
+  it('names what opening a name row does', () => {
+    render(<SearchPanel {...props(state({ rows: [workspaceRow(), sessionRow(), messageRow()] }))} />)
+    const names = screen.getAllByRole('button').map(button => button.getAttribute('aria-label'))
+    expect(names.slice(0, 3)).toEqual([
+      makeTranslate(zh)('result.openWorkspaceAria', { title: 'deepseek-harness' }),
+      makeTranslate(zh)('result.openSessionAria', { title: '重构消息级全文搜索' }),
+      makeTranslate(zh)('result.openAria', { title: '重构消息级全文搜索' }),
+    ])
+  })
+})
+
 describe('SearchPanel results', () => {
   it('shows the session title and paints the matched span as a mark', () => {
     const { container } = render(<SearchPanel {...props(state())} />)
@@ -87,13 +160,13 @@ describe('SearchPanel results', () => {
   })
 
   it('falls back to the untitled label when a result carries no title', () => {
-    render(<SearchPanel {...props(state({ rows: [row({ title: undefined })] }))} />)
+    render(<SearchPanel {...props(state({ rows: [messageRow({ title: undefined })] }))} />)
     expect(screen.getByText(zh['result.untitled'])).toBeTruthy()
   })
 
   it('keeps a match that runs past the excerpt inside the excerpt', () => {
     const { container } = render(<SearchPanel {...props(state({
-      rows: [row({ snippet: 'abc分', matches: [{ start: 3, length: 8 }] })],
+      rows: [messageRow({ snippet: 'abc分', matches: [{ start: 3, length: 8 }] })],
     }))} />)
     expect(container.querySelector('mark')?.textContent).toBe('分')
   })
@@ -101,13 +174,25 @@ describe('SearchPanel results', () => {
   it('marks the active row and leaves the others unmarked', () => {
     const { container } = render(<SearchPanel {...props(state({
       rows: [
-        row(),
-        row({ seq: 4, snippet: '另一条分页记录', matches: [{ start: 3, length: 2 }] }),
+        messageRow(),
+        messageRow({ seq: 4, snippet: '另一条分页记录', matches: [{ start: 3, length: 2 }] }),
       ],
       active: 1,
     }))} />)
     const rows = [...container.querySelectorAll('button')].filter(node => node.getAttribute('data-active') !== null)
     expect(rows.map(node => node.getAttribute('data-active'))).toEqual(['false', 'true'])
+  })
+
+  it('runs the keyboard selection across every section', () => {
+    const openAt = vi.fn()
+    const { container } = render(<SearchPanel {...props(state({
+      rows: [workspaceRow(), sessionRow(), messageRow()],
+      active: 1,
+    }), { openAt })} />)
+    const rows = [...container.querySelectorAll('button[data-active]')]
+    expect(rows.map(node => node.getAttribute('data-active'))).toEqual(['false', 'true', 'false'])
+    fireEvent.click(rows[1]!)
+    expect(openAt).toHaveBeenCalledWith(1)
   })
 
   it('invites a query while the field is empty and reports no match once it is not', () => {
@@ -138,6 +223,30 @@ describe('SearchPanel keyboard', () => {
     expect(openActive).not.toHaveBeenCalled()
   })
 
+  it('leaves Escape to the input method while a composition is active', () => {
+    const close = vi.fn()
+    render(<SearchPanel {...props(state(), { close })} />)
+    fireEvent.keyDown(field(), { key: 'Escape', isComposing: true })
+    expect(close).not.toHaveBeenCalled()
+  })
+
+  it('ignores a press inside the dialog', () => {
+    const close = vi.fn()
+    render(<SearchPanel {...props(state(), { close })} />)
+    fireEvent.pointerDown(screen.getByRole('dialog'))
+    expect(close).not.toHaveBeenCalled()
+  })
+
+  it('moves the selection to the row the pointer entered', () => {
+    const moveActive = vi.fn()
+    render(<SearchPanel {...props(state({
+      rows: [workspaceRow(), sessionRow(), messageRow()],
+      active: 0,
+    }), { moveActive })} />)
+    fireEvent.pointerEnter(screen.getAllByRole('button')[2]!)
+    expect(moveActive).toHaveBeenCalledWith(2)
+  })
+
   it('moves the selection with the vertical arrows', () => {
     const moveActive = vi.fn()
     render(<SearchPanel {...props(state(), { moveActive })} />)
@@ -166,8 +275,8 @@ describe('SearchPanel keyboard', () => {
   it('reports every keystroke so the plugin body can debounce the read', () => {
     const setQuery = vi.fn()
     render(<SearchPanel {...props(state(), { setQuery })} />)
-    fireEvent.change(field(), { target: { value: '分页' } })
-    expect(setQuery).toHaveBeenCalledWith('分页')
+    fireEvent.change(field(), { target: { value: '游标' } })
+    expect(setQuery).toHaveBeenCalledWith('游标')
   })
 })
 
@@ -209,8 +318,8 @@ describe('SearchPanel paging', () => {
     const openAt = vi.fn()
     render(<SearchPanel {...props(state({
       rows: [
-        row(),
-        row({ seq: 4, snippet: '另一条分页记录', matches: [{ start: 3, length: 2 }] }),
+        messageRow(),
+        messageRow({ seq: 4, snippet: '另一条分页记录', matches: [{ start: 3, length: 2 }] }),
       ],
       active: 0,
     }), { openAt })} />)
@@ -236,11 +345,12 @@ describe('SearchPanel paging', () => {
 })
 
 describe('SearchPanel status', () => {
-  it('counts the rows and says whether more pages exist', () => {
-    const { rerender } = render(<SearchPanel {...props(state({ nextCursor: 'cursor' as never }))} />)
-    expect(screen.getByText(makeTranslate(zh)('result.countMore', { count: '1' }))).toBeTruthy()
-    rerender(<SearchPanel {...props(state())} />)
-    expect(screen.getByText(makeTranslate(zh)('result.count', { count: '1' }))).toBeTruthy()
+  it('counts the rows of every section and says whether more pages exist', () => {
+    const rows = [workspaceRow(), sessionRow(), messageRow()]
+    const { rerender } = render(<SearchPanel {...props(state({ rows, nextCursor: 'cursor' as never }))} />)
+    expect(screen.getByText(makeTranslate(zh)('result.countMore', { count: '3' }))).toBeTruthy()
+    rerender(<SearchPanel {...props(state({ rows }))} />)
+    expect(screen.getByText(makeTranslate(zh)('result.count', { count: '3' }))).toBeTruthy()
   })
 
   it('reports index preparation ahead of the running read', () => {
@@ -260,7 +370,6 @@ describe('SearchPanel status', () => {
     render(<SearchPanel {...props(state({ coverage: { status: 'partial', skippedSessions: 2 } }))} />)
     expect(screen.getByText(zh['panel.partial'])).toBeTruthy()
   })
-
   it('offers a retry after a failed read', () => {
     const retry = vi.fn()
     render(<SearchPanel {...props(state({ phase: 'error', rows: [] }), { retry })} />)
