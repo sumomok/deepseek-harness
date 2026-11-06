@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-experimental-decision-state",
   "description": "Experimental decision ledger: recorded decisions become constants the model cannot rewrite, and the host assembles the final proposal",
-  "version": "0.2.2-rc.1",
+  "version": "0.2.2-rc.2",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
