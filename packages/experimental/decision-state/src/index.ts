@@ -11,5 +11,11 @@
 export { applyLedgerEntry, decidedUnitIds, decisionFor, EMPTY_SCOPE, openUnits } from './state.ts'
 export { assemble, renderView, validateSubmission } from './validate.ts'
 export type { AssembledProposal, Submission, SubmissionDisposition, SubmissionTask, ValidationError } from './validate.ts'
+export {
+  decisionStateProjection,
+  applyEntryToProjection,
+  parseLedgerEntry,
+  type DecisionProjectionState,
+} from './projection.ts'
 export { DISPOSITIONS } from './types.ts'
 export type { Decision, Disposition, LedgerEntry, ScopeState } from './types.ts'
