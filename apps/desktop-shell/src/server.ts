@@ -89,17 +89,49 @@ export function diagnosticReportFlags(directory: string): string[] {
  *
  * The match is the full executable path of this install's own Node binary, not
  * the image name: every other `node` on the machine belongs to someone else and
- * must be left alone.
+ * must be left alone. A match is only an orphan when its parent is gone — the
+ * parent pid is launchd or no longer runs — because a second live instance of
+ * this install runs the same binary and owns its server.
  * @param nodeBin - absolute path of this install's bundled Node binary.
  * @param logSink - receives one line when anything was killed.
  * @returns the process ids that were killed.
  */
 export async function sweepOrphanedServers(nodeBin: string, logSink: (chunk: string) => void): Promise<number[]> {
-  const pids = await findProcessesRunning(nodeBin)
-  if (pids.length === 0) return []
+  const orphans = orphanedProcesses(await findProcessesRunning(nodeBin), isProcessAlive)
+  if (orphans.length === 0) return []
+  const pids = orphans.map(entry => entry.pid)
   logSink(`[desktop] found ${String(pids.length)} orphaned server process(es) from an earlier run (${pids.join(', ')}); killing\n`)
   for (const pid of pids) await killPid(pid)
   return pids
+}
+
+/** One process started from this install's Node binary and its parent. */
+export interface ServerProcess {
+  readonly pid: number
+  readonly ppid: number
+}
+
+/**
+ * The candidates whose owning shell is gone: reparented to launchd, or whose
+ * parent pid no longer runs. A live parent of any other install or instance is
+ * ownership evidence, so that process is left alone.
+ * @param processes - every process running this install's Node binary.
+ * @param alive - whether a parent pid still names a running process.
+ * @returns the subset that no live shell owns.
+ */
+export function orphanedProcesses(processes: readonly ServerProcess[], alive: (pid: number) => boolean): ServerProcess[] {
+  return processes.filter(entry => entry.ppid === 1 || !alive(entry.ppid))
+}
+
+/** @param pid - process to probe. @returns whether the pid names a running process. */
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    // EPERM means the process exists under another user; any other failure is ESRCH.
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
 }
 
 /**
@@ -107,31 +139,35 @@ export async function sweepOrphanedServers(nodeBin: string, logSink: (chunk: str
  * @param executable - the absolute executable path to match.
  * @returns the matching process ids, empty when the query fails.
  */
-async function findProcessesRunning(executable: string): Promise<number[]> {
+async function findProcessesRunning(executable: string): Promise<ServerProcess[]> {
   if (process.platform === 'win32') {
     // Win32_Process.Path is the full image path, so this compares the whole
     // path rather than the `node.exe` name every Node install shares.
     const quoted = executable.replace(/'/g, "''")
-    const script = `Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Path -eq '${quoted}' } | ForEach-Object { $_.ProcessId }`
+    const script = `Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Path -eq '${quoted}' } | ForEach-Object { \"$($_.ProcessId) $($_.ParentProcessId)\" }`
     const output = await capture(system32Program(process.env, ...WINDOWS_POWERSHELL), ['-NoProfile', '-NonInteractive', '-Command', script])
-    return parsePids(output)
+    return parseProcesses(output)
   }
   // `comm` is the executable path on macOS, and `=` drops the header.
-  const output = await capture('ps', ['-axo', 'pid=,comm='])
-  const pids: number[] = []
+  const output = await capture('ps', ['-axo', 'pid=,ppid=,comm='])
+  const processes: ServerProcess[] = []
   for (const line of output.split('\n')) {
-    const match = /^\s*(\d+)\s+(.*)$/.exec(line)
-    if (match?.[2]?.trim() === executable) pids.push(Number.parseInt(match[1] as string, 10))
+    const match = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line)
+    if (match?.[3]?.trim() !== executable) continue
+    processes.push({ pid: Number.parseInt(match[1] as string, 10), ppid: Number.parseInt(match[2] as string, 10) })
   }
-  return pids
+  return processes
 }
 
-/** Parse a newline-separated list of process ids, ignoring anything else. */
-function parsePids(output: string): number[] {
-  return output
-    .split('\n')
-    .map(line => Number.parseInt(line.trim(), 10))
-    .filter(pid => Number.isInteger(pid) && pid > 0)
+/** Parse newline-separated `pid ppid` rows, ignoring anything else. */
+function parseProcesses(output: string): ServerProcess[] {
+  const processes: ServerProcess[] = []
+  for (const line of output.split('\n')) {
+    const match = /^\s*(\d+)\s+(\d+)\s*$/.exec(line)
+    if (match === null) continue
+    processes.push({ pid: Number.parseInt(match[1] as string, 10), ppid: Number.parseInt(match[2] as string, 10) })
+  }
+  return processes
 }
 
 /**

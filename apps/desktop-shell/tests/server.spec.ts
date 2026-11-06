@@ -17,8 +17,8 @@ import {
   DESKTOP_PROFILE, MIGRATION_MARKER_FILENAME, quarantineLoadFailureFromOutput, readMigrationMarker, WEB_PROFILE, writeMigrationMarker,
 } from '../src/profile-seed.ts'
 import {
-  diagnosticReportFlags, ListenHandoffFailed, type QuarantineLoadFailure, ServerExitedBeforeUrl, type ServerExitInfo, startServer,
-  startServerWithQuarantine, type ServerHandle, type ServerSpec,
+  diagnosticReportFlags, ListenHandoffFailed, orphanedProcesses, type QuarantineLoadFailure, ServerExitedBeforeUrl, type ServerExitInfo,
+  startServer, startServerWithQuarantine, type ServerHandle, type ServerSpec,
 } from '../src/server.ts'
 
 /**
@@ -264,6 +264,17 @@ describe('diagnostic reports', () => {
     expect(report.javascriptStack.message).toContain('boot blew up')
     expect(report.environmentVariables).toBeUndefined()
     expect(text).not.toContain('sk-sentinel-value')
+  })
+})
+
+describe('the orphan sweep', () => {
+  it('kills a server only when no live shell owns it', () => {
+    const alive = (pid: number): boolean => pid === 42
+    expect(orphanedProcesses([
+      { pid: 7, ppid: 42 },
+      { pid: 8, ppid: 1 },
+      { pid: 9, ppid: 99 },
+    ], alive)).toEqual([{ pid: 8, ppid: 1 }, { pid: 9, ppid: 99 }])
   })
 })
 
