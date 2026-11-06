@@ -301,7 +301,7 @@ describe('the session tools in composed sessions', () => {
   it.each(['preset-standard', 'preset-ptc', 'preset-cordis'])('gives a %s session the five tools and their guidance', async (presetId) => {
     const { root, agent } = await session(presetId)
     expect(sessionTools(root, agent)).toEqual(SESSION_TOOLS)
-    expect(await prompt(root, agent)).toContain('Use session_search to find relevant work from prior sessions')
+    expect(await prompt(root, agent)).toContain('Use session_search to find relevant work in prior sessions other than this one')
   })
 
   // `minimal`'s persona is `complete`, which replaces every other section;
@@ -719,17 +719,21 @@ describe('the composed telemetry rows', () => {
     }
   })
 
-  it('switches the account sign-in rows off without replacing their config', () => {
+  it('keeps the shared account menu, feedback, and sign-in rows mounted', () => {
     for (const id of ['ui-settings-account', 'account-controller']) {
-      expect(entry(below, id).disabled).not.toBe(true)
-      expect(entry(desktop, id).disabled).toBe(true)
-      expect(entry(desktop, id).config).toEqual(entry(below, id).config)
+      expect(entry(desktop, id)).toEqual(entry(below, id))
     }
+  })
+
+  it('reports this independently named profile as a native Desktop account client', () => {
+    expect(entry(desktop, 'deepseek-account').config).toEqual({
+      desktopPlatform: { __jsExpr: "['darwin', 'win32'].includes(process.platform) ? process.platform : null" },
+    })
   })
 })
 
 describe('the desktop composition layer as a whole', () => {
-  it('changes exactly nine rows, adds its own three, and nothing else', () => {
+  it('changes only the intended deployment rows and adds its own three', () => {
     const changed = desktop.filter((row) => {
       const before = below.find(candidate => candidate.id === row.id)
       return before === undefined || JSON.stringify(before) !== JSON.stringify(row)
@@ -737,9 +741,9 @@ describe('the desktop composition layer as a whole', () => {
     // Sorted, because the order these come back in is the order dsh-base
     // happens to list them and carries nothing about this layer.
     expect(changed.map(row => row.id).sort()).toEqual([
-      'account-controller', 'desktop-brand', 'desktop-product-telemetry', 'desktop-server-log', 'llm-deepseek',
+      'deepseek-account', 'desktop-brand', 'desktop-product-telemetry', 'desktop-server-log', 'llm-deepseek',
       'llm-permission-gateway', 'plugin-manager', 'product-analytics', 'session-query-sqlite', 'tool-session-query',
-      'ui-settings-account', 'vision-switch',
+      'vision-switch',
     ])
   })
 

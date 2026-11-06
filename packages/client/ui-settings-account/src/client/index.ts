@@ -46,12 +46,16 @@ export const inject = ['slots', 'locale', 'remote', 'remote.account', 'remote.se
 /** Register account UI in Desktop and plain Web clients. @param ctx - client plugin context. */
 export function apply(ctx: Context): void {
   const desktop = 'dshDesktop' in globalThis
+  // Native account sign-in and native onboarding are separate shell capabilities.
+  // A product window may expose the former without letting this plugin rewrite
+  // its chat and developer-tool preferences through the latter.
+  const onboarding = 'dshOnboarding' in globalThis
   ctx.effect(() => ctx.locale.register('settings.account', { en, zh, ja, es, fr, de, ru, pt }), 'account: dictionaries')
   const t = ctx.locale.bind('settings.account')
   const page = globalThis as Partial<Record<typeof CONTACT_CONFIG_GLOBAL, unknown>>
   const config = ContactConfig(page[CONTACT_CONFIG_GLOBAL] ?? {})
   let snapshot: AccountSnapshot = {
-    view: undefined, details: undefined, avatar: undefined, failed: false, loginVisible: false, desktopOnboardingVisible: desktop,
+    view: undefined, details: undefined, avatar: undefined, failed: false, loginVisible: false, desktopOnboardingVisible: onboarding,
   }
   // Desktop main opens the authorization page natively; a plain browser opens it in a tab it owns.
   const browser = new BrowserLogin(url => authorizeUrlWithTheme(url, ctx.theme.getTheme().active.colorScheme))
@@ -275,7 +279,7 @@ export function apply(ctx: Context): void {
       throw result.error
     },
   }
-  if (desktop) {
+  if (onboarding) {
     const controller = new DesktopOnboardingController(
       ctx.configForms.get<OnboardingSettings>(DESKTOP_ONBOARDING_NAMESPACE),
       ctx.configForms.get<{ transcriptView?: TranscriptViewMode | null; performanceUsage: 'compact' | 'detailed' }>('ui-chat'),

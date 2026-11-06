@@ -16,10 +16,13 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-api-gateway": "workspace:*",
     "@deepseek-ai/dsh-atomic-write": "workspace:*",
     "@deepseek-ai/dsh-client-shortcuts": "workspace:*",
     "electron-updater": "6.8.9",
     "js-yaml": "^4.1.0",
+    "ws": "^8.21.3",
     "yaml": "^2.8.1"
   },
   "devDependencies": {
@@ -29,6 +32,7 @@
     "@deepseek-ai/dsh-plugin-manager": "workspace:*",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1",
     "builder-util-runtime": "9.7.0",
     "electron": "43.8.1",
     "electron-builder": "26.15.3",

@@ -126,16 +126,24 @@ export function isThemeReport(value: unknown): value is ThemeReport {
 /**
  * Apply a page's theme report to its window.
  *
- * The served UI leaves `html` and `body` transparent on macOS and paints its
- * sidebar as a translucent tint over them, so the window's own background is
- * what shows through: it follows the palette the page resolved now, not the one
- * resolved when the window opened. The title bar and window controls follow
- * the preference source, so an explicit choice and OS-follow stay in step with
- * the page alike.
+ * On macOS the native sidebar material shows through the page, so the window
+ * stays transparent. Other platforms use the resolved page palette, and the
+ * Windows caption overlay follows it too. The preference source keeps native
+ * controls in step with both an explicit choice and OS-follow.
  * @param window - app window whose page sent the report.
  * @param report - validated source and palette.
  */
-export function applyThemeReport(window: Pick<BrowserWindow, 'setBackgroundColor'>, report: ThemeReport): void {
+export function applyThemeReport(
+  window: Pick<BrowserWindow, 'setBackgroundColor' | 'setTitleBarOverlay'>,
+  report: ThemeReport,
+): void {
   if (nativeTheme.themeSource !== report.source) nativeTheme.themeSource = report.source
-  window.setBackgroundColor(PALETTES[report.scheme].background)
+  window.setBackgroundColor(process.platform === 'darwin' ? '#00000000' : PALETTES[report.scheme].background)
+  if (process.platform === 'win32') {
+    window.setTitleBarOverlay({
+      color: PALETTES[report.scheme].background,
+      symbolColor: PALETTES[report.scheme].text,
+      height: 40,
+    })
+  }
 }

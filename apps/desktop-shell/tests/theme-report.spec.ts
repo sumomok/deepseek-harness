@@ -22,10 +22,21 @@ vi.mock('electron', () => ({
 
 const { PALETTES, applyThemeReport, isThemeReport } = await import('../src/theme.ts')
 
-/** A window stand-in that records every background color it is given. */
-function fakeWindow(): { colors: string[]; setBackgroundColor: (color: string) => void } {
+/** A window stand-in that records native color updates. */
+function fakeWindow(): {
+  colors: string[]
+  overlays: object[]
+  setBackgroundColor: (color: string) => void
+  setTitleBarOverlay: (overlay: object) => void
+} {
   const colors: string[] = []
-  return { colors, setBackgroundColor: (color: string): void => { colors.push(color) } }
+  const overlays: object[] = []
+  return {
+    colors,
+    overlays,
+    setBackgroundColor: (color: string): void => { colors.push(color) },
+    setTitleBarOverlay: (overlay: object): void => { overlays.push(overlay) },
+  }
 }
 
 beforeEach(() => {
@@ -50,12 +61,18 @@ describe('a theme report from the window page', () => {
     for (const value of refused) expect(isThemeReport(value)).toBe(false)
   })
 
-  it('moves the window background to the palette the page painted', () => {
+  it('keeps macOS vibrant and moves other native chrome to the page palette', () => {
     const window = fakeWindow()
+    const dark = process.platform === 'darwin' ? '#00000000' : PALETTES.dark.background
+    const light = process.platform === 'darwin' ? '#00000000' : PALETTES.light.background
     applyThemeReport(window, { source: 'dark', scheme: 'dark' })
-    expect(window.colors).toEqual([PALETTES.dark.background])
+    expect(window.colors).toEqual([dark])
     applyThemeReport(window, { source: 'system', scheme: 'light' })
-    expect(window.colors).toEqual([PALETTES.dark.background, PALETTES.light.background])
+    expect(window.colors).toEqual([dark, light])
+    expect(window.overlays).toEqual(process.platform === 'win32' ? [
+      { color: PALETTES.dark.background, symbolColor: PALETTES.dark.text, height: 40 },
+      { color: PALETTES.light.background, symbolColor: PALETTES.light.text, height: 40 },
+    ] : [])
   })
 
   it('moves the native source with the preference the page follows', () => {

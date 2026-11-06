@@ -78,6 +78,7 @@ import { nodeLockProbes, nodeProcessProbes, stopServerTree, type TreeCheck } fro
 import { isExternalNavigationTarget, isServerNavigation } from './navigation.ts'
 import type { ListenHandoff } from './listen-socket.ts'
 import { setupNotifications, stopNotifications } from './notifications.ts'
+import { watchAccountLogin } from './account-login.ts'
 import { PNPM_LAUNCHER_ENV, pnpmInvocation, pnpmLauncherEnv } from './pnpm-launcher.ts'
 import { engineServerEnv, officeEngineRoot, pruneEngineRoot, readEngineRequirement, versionsToKeep } from './office-engine.ts'
 import {
@@ -179,6 +180,7 @@ function resolveSpec(logDir: string): LaunchSpec {
 }
 
 let server: ServerHandle | undefined
+let stopAccountLogin: (() => void) | undefined
 let renderService: RenderServiceHandle | undefined
 let updateService: UpdateServiceHandle | undefined
 let dataLocationService: DataLocationServiceHandle | undefined
@@ -400,6 +402,7 @@ async function performRebind(): Promise<boolean> {
     logLine(`[desktop] server rebind succeeded at ${handle.url}\n`)
     retargetWindows(handle.authenticatedUrl)
     setupNotifications({ log: logLine, reveal }, handle.authenticatedUrl)
+    setupAccountLogin(handle.authenticatedUrl)
     attachSupervision()
     return true
   } catch (error) {
@@ -417,6 +420,22 @@ async function performRebind(): Promise<boolean> {
  */
 function startEmbeddedServer(spec: ServerSpec): Promise<ServerHandle> {
   return startServerWithQuarantine(spec, logLine, quarantineLoadFailureFromOutput, resolveHarnessHome())
+}
+
+/** Replace the native account watcher whenever the embedded Host changes origin. */
+function setupAccountLogin(authenticatedUrl: string): void {
+  stopAccountLogin?.()
+  const origin = new URL(authenticatedUrl).origin
+  stopAccountLogin = watchAccountLogin(origin, {
+    cookies: async () => (await session.defaultSession.cookies.get({ url: origin }))
+      .map(cookie => `${cookie.name}=${cookie.value}`).join('; '),
+    open: async (authorizeUrl) => {
+      const url = new URL(authorizeUrl)
+      url.searchParams.set('theme', resolveAppearance())
+      await shell.openExternal(url.href)
+    },
+    log: logLine,
+  })
 }
 
 /**
@@ -467,6 +486,7 @@ async function restartAfterStop(cause: string): Promise<void> {
     logLine(`[desktop] server restarted after ${cause} at ${started.server.url}\n`)
     retargetWindows(started.server.authenticatedUrl)
     setupNotifications({ log: logLine, reveal }, started.server.authenticatedUrl)
+    setupAccountLogin(started.server.authenticatedUrl)
     attachSupervision()
   } catch (error) {
     logLine(`[desktop] server restart after ${cause} failed: ${error instanceof Error ? error.message : String(error)}\n`)
@@ -502,7 +522,10 @@ async function handleUnexpectedServerExit(): Promise<void> {
   if (quitting) return
   // Before the ladder, whatever it decides: no request of the shell's own may
   // carry the dead server's cookie, and a port the shell does not hold must
-  // not be asked for again.
+  // not be asked for again. The account stream belongs to that server too, so
+  // it stops before the crash handling reads any of this.
+  stopAccountLogin?.()
+  stopAccountLogin = undefined
   const { state, outcome } = await respondToCrash({
     keepsPort: held !== undefined,
     stopNotifications,
@@ -1244,6 +1267,19 @@ function createBootWindow(receipt?: string): BootView {
     height: 900,
     backgroundColor: PALETTES[appearance].background,
     title: PRODUCT_NAME.zh,
+    // Match the shared Desktop chrome: the page owns the whole window while
+    // native controls stay inside its caption and sidebar regions.
+    ...process.platform === 'darwin' ? {
+      titleBarStyle: 'hiddenInset' as const,
+      trafficLightPosition: { x: 16, y: 18 },
+      vibrancy: 'sidebar' as const,
+      visualEffectState: 'active' as const,
+      backgroundColor: '#00000000',
+    } : {},
+    ...process.platform === 'win32' ? {
+      titleBarStyle: 'hidden' as const,
+      titleBarOverlay: { height: 40, color: PALETTES[appearance].background, symbolColor: PALETTES[appearance].text },
+    } : {},
     // macOS: the click that activates the window also reaches the control under the pointer.
     acceptFirstMouse: true,
     webPreferences: {
@@ -1377,6 +1413,8 @@ if (!locked) {
     // not wait on a render that is still running, and the download's child is
     // sent its kill before the close returns. Closing a closed service again
     // does nothing. A data move under way uses none of these services.
+    stopAccountLogin?.()
+    stopAccountLogin = undefined
     void renderService?.close()
     void updateService?.close()
     void dataLocationService?.close()
@@ -1652,6 +1690,7 @@ if (!locked) {
       // After the gate, so a launch that must update first never subscribes to
       // a server it is about to take down.
       setupNotifications({ log: sink, reveal }, running.authenticatedUrl)
+      setupAccountLogin(running.authenticatedUrl)
       attachSupervision()
       view.showApp(running.authenticatedUrl)
       if (cleanUp) cleanUpMoveInBackground(view.window)
