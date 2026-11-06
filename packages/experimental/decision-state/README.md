@@ -53,7 +53,7 @@ One runtime-context section per configured scope: the current revision, one line
 - Scope catalogs are static configuration. Units cannot be added at runtime, and a scope whose latest record fails validation blocks submissions until the host restores it with `repair()` or a later valid record replaces it. The service validates every change against the replay schema and folds it before appending, so its own writes cannot create that block; `repair()` only accepts a corrupt scope.
 - Open unit ids are listed up to 200 per scope; a larger catalog needs a read path that this package does not provide. One submission carries at most 200 entries with 200-character identifiers and 32 targets per disposition, and its assembled result must stay under 64 KiB; a catalog that cannot fit `viewBudget` is rejected at load.
 - Enforcement covers the controlled submission and its rendered result. Free prose and side-channel actions stay outside this boundary.
-- A real automatic pressure compaction leaves the record, the open catalog and the view intact in tests, and a `cordis.yml` Loader boot is tested through a source shim; the committed `lib/` entry and an isolated-profile run are not verified yet.
+- A real automatic pressure compaction leaves the record, the open catalog and the view intact in tests, a `cordis.yml` Loader boot is tested through a source shim, and a recorded headless snapshot replays keylessly; the committed `lib/` entry and an isolated-profile run are not verified yet.
 
 ## Dev Note
 
@@ -62,4 +62,4 @@ One runtime-context section per configured scope: the current revision, one line
 - `src/projection.ts` — folds records per scope; unreadable or contradictory records mark the scope corrupt instead of reopening units.
 - `src/service.ts` — immediate host recording, the bounded view and the scope catalog.
 - `src/tool.ts` — `propose_open_work` validation, assembly and rendered results.
-- `tests/` — fold, validation, view, projection, the package entry contract, a Loader boot, a real Agent-loop integration test and an automatic pressure compaction; run `pnpm exec vitest run packages/experimental/decision-state`.
+- `tests/` — fold, validation, view, projection, the package entry contract, a Loader boot, a real Agent-loop integration test and an automatic pressure compaction; run `pnpm exec vitest run packages/experimental/decision-state`. The opt-in snapshot lives at `snapshots/session/decision-state` and mounts the package from a scenario patch, not from a shipped bundle.

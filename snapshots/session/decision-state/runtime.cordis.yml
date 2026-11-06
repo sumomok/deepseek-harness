@@ -1,0 +1,16 @@
+# The experiment is opt-in: mount the ledger and seed one host decision before the turn.
+# Pin the model the shared replay patch declares so replay reproduces adapter defaults.
+- id: agent-default-model
+  config:
+    provider: deepseek-official
+    model: deepseek-v4-flash
+
+- insert:
+    - id: decision-state
+      name: '@deepseek-ai/dsh-experimental-decision-state'
+      config:
+        scopes:
+          demo:
+            units: [a, b, c, d]
+    - id: decision-state-seed
+      name: '../../../packages/experimental/decision-state/tests/fixtures/snapshot-seed.mjs'

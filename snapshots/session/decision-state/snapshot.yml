@@ -1,0 +1,8 @@
+version: 1
+scenario: decision-state
+profile: headless
+composition: decision-state
+recording: live
+header:
+  class: decision-state
+  pin: true
