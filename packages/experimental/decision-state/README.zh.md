@@ -53,7 +53,7 @@ ctx.decisionState.record(agent, {
 - 范围目录是静态配置，运行期不能新增单元；最新记录校验失败的范围会阻止提交，直到后续有效记录替换它。
 - 每个范围最多列出 200 个开放单元 id；更大的目录需要本包尚未提供的读取通道。
 - 强制只覆盖受控提交及其渲染结果；自由正文与旁路操作不在边界内。
-- 测试中已验证 surface 替换后记录与视图仍然有效；尚未验证从真实 profile 的 `cordis.yml` 启动，也未验证自动压缩流程。
+- 测试中已验证 surface 替换后记录与视图仍然有效，`cordis.yml` 的 Loader 启动通过源码 shim 验证；已构建的 `lib/` 入口与自动压力压缩尚未验证。
 
 ## 开发说明
 
@@ -62,4 +62,4 @@ ctx.decisionState.record(agent, {
 - `src/projection.ts` —— 按范围折叠记录；不可读或自相矛盾的记录把范围标为损坏，而不是重新开放单元。
 - `src/service.ts` — 宿主即时记录、有界视图与范围目录。
 - `src/tool.ts` —— `propose_open_work` 的校验、组装与渲染结果。
-- `tests/` — 折叠、校验、视图、投影、包入口契约、真实 Agent 循环集成测试，以及 surface 替换测试；运行 `pnpm exec vitest run packages/experimental/decision-state`。
+- `tests/` — 折叠、校验、视图、投影、包入口契约、Loader 启动、真实 Agent 循环集成测试，以及 surface 替换测试；运行 `pnpm exec vitest run packages/experimental/decision-state`。
