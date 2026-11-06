@@ -17,5 +17,6 @@ export {
   parseLedgerEntry,
   type DecisionProjectionState,
 } from './projection.ts'
+export { DecisionStateService, nextEntry, type DecisionChange } from './service.ts'
 export { DISPOSITIONS } from './types.ts'
 export type { Decision, Disposition, LedgerEntry, ScopeState } from './types.ts'

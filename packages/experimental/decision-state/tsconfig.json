@@ -13,6 +13,12 @@
     },
     {
       "path": "../../session/session-projection"
+    },
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../core/agent"
     }
   ],
   "include": [
