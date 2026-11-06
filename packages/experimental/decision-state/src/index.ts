@@ -18,5 +18,6 @@ export {
   type DecisionProjectionState,
 } from './projection.ts'
 export { DecisionStateService, nextEntry, type DecisionChange } from './service.ts'
+export { Config, createProposeOpenWorkTool, PROPOSE_OPEN_WORK, ScopeConfig } from './tool.ts'
 export { DISPOSITIONS } from './types.ts'
 export type { Decision, Disposition, LedgerEntry, ScopeState } from './types.ts'

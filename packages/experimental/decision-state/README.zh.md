@@ -40,11 +40,14 @@ if (result.ok) deliver(assemble(state, submission))
 - 交付物中已定部分的正确性，取决于写入账本的那条记录。记录由宿主在决定发生时写入；本包自身不识别决定。
 - 无法表达为单元处置的规则仍然只能靠上下文提醒。
 - 强制只覆盖受控提交；自由正文与旁路操作不在边界内。
-- 服务、投影、上下文提供者与工具注册尚未实现。
+- 上下文提供者（按请求注入视图）与端到端 agent 测试尚未实现。
 
 ## 开发说明
 
 - `src/state.ts` —— 确定性折叠；过期条目返回原状态引用。
 - `src/validate.ts` —— 提交校验、宿主组装、有界视图。
 - `src/types.ts` —— 决定与账本类型，以及 `decision-state` 消息来源。
+- `src/projection.ts` —— 把 `decision-state` 消息折叠为按范围的状态。
+- `src/service.ts` —— 宿主排队写入，在 pre-step 落成持久消息。
+- `src/tool.ts` —— `propose_open_work`，模型写入某个范围的唯一通道。
 - `tests/` —— 折叠、校验与视图行为；运行 `pnpm exec vitest run packages/experimental/decision-state`。

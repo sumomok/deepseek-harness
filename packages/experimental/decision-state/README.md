@@ -40,11 +40,14 @@ The view is bounded by the caller's row limit; omission counts are explicit rath
 - The decided part of a delivered proposal is only as correct as the ledger entry that recorded it. The host records entries at decision time; this package does not detect decisions by itself.
 - Rules that cannot be expressed as a unit disposition remain context-only.
 - Enforcement covers the controlled submission. Free prose and side-channel actions stay outside this boundary.
-- Service, projection, context provider and tool wiring are not implemented yet.
+- The context provider (per-request view injection) and an end-to-end agent test are not implemented yet.
 
 ## Dev Note
 
 - `src/state.ts` — deterministic fold; stale entries return the previous reference.
 - `src/validate.ts` — submission validation, host assembly, bounded view.
 - `src/types.ts` — decision and ledger types plus the `decision-state` message source.
+- `src/projection.ts` — fold of `decision-state` messages into per-scope state.
+- `src/service.ts` — queued host recording flushed as durable messages on pre-step.
+- `src/tool.ts` — `propose_open_work`, the model's only writable path into a scope.
 - `tests/` — fold, validation and view behavior; run `pnpm exec vitest run packages/experimental/decision-state`.

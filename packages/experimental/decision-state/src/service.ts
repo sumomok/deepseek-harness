@@ -14,6 +14,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import { applyEntryToProjection, decisionStateProjection, type DecisionProjectionState } from './projection.ts'
 import { EMPTY_SCOPE } from './state.ts'
+import { Config, createProposeOpenWorkTool } from './tool.ts'
 import type { Decision, LedgerEntry, ScopeState } from './types.ts'
 
 /** One queued state change; the recorder assigns the revision when it flushes. */
@@ -49,20 +50,23 @@ export function nextEntry(state: ScopeState, change: DecisionChange): LedgerEntr
 
 /** Records decisions for one agent and exposes the folded state. */
 export class DecisionStateService extends Service {
-  static inject = ['sessionProjections']
+  static inject = ['sessionProjections', 'tools']
+  static Config = Config
 
   private projection!: ProjectionHandle<DecisionProjectionState>
   private readonly pending = new Map<Agent, DecisionChange[]>()
 
   /**
    * @param ctx - owning plugin context.
+   * @param config - configured scopes; direct composition without a config gets the schema defaults.
    */
-  constructor(ctx: Context) {
+  constructor(ctx: Context, private readonly config: Config = Config.parse({})) {
     super(ctx, 'decisionState')
   }
 
   protected async [Service.init](): Promise<void> {
     this.projection = await this.ctx.sessionProjections.register(decisionStateProjection)
+    this.ctx.tools.register(createProposeOpenWorkTool(this, this.config))
     this.ctx.on('agent/pre-step', async ({ agent }, next) => {
       const decision = await next()
       if (decision.kind === 'reject') return decision
