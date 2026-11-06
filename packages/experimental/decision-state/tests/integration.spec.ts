@@ -2,7 +2,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { onTestFinished, expect, it } from 'vitest'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId, appendPluginRecord, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import DecisionState from '@deepseek-ai/dsh-experimental-decision-state'
@@ -26,6 +26,8 @@ it('injects recorded decisions, rejects rewrites, and assembles the accepted pro
     tasks: [{ id: 't1', title: 'work', unitIds: ['b', 'c'] }],
   })
   const adapter = new MockAdapter([rewrite, valid, textResponse('done')])
+  const events: SessionEvent[] = []
+  ctx.on('session/event', (session, event) => { if (session.id === 'decision-integration') events.push(event) })
   ctx.llm.registerAdapter(['mock'], adapter)
 
   const agent = await harness.create(SessionId('decision-integration'), { provider: 'mock', model: 'mock' })
@@ -53,4 +55,49 @@ it('injects recorded decisions, rejects rewrites, and assembles the accepted pro
   expect(textOf(adapter.requests[1]!)).toContain('方案被拒绝')
   expect(textOf(adapter.requests[1]!)).toContain('unit-decided')
   expect(adapter.requests).toHaveLength(2)
+
+  // The accepted result carries the assembled proposal back through the tool result.
+  const result = events.filter(event => event.type === 'tool/result').at(-1)
+  const resultText = result?.type === 'tool/result'
+    ? result.data.message.content.map(block => block.type === 'text' ? block.text : '').join('\n')
+    : ''
+  expect(resultText).toContain('方案已接受')
+  expect(resultText).toContain('"unitId":"b"')
+})
+
+it('refuses a duplicate unit before writing and repairs a corrupt scope', async () => {
+  const ctx = new Context()
+  onTestFinished(async () => { await ctx.fiber.dispose() })
+  await mountAgentLoopTestDependencies(ctx)
+  await ctx.plugin(DecisionState, { scopes: { demo: { units: ['a', 'b', 'c'] } } })
+  const harness = await mountAgentLoopTestHarness(ctx)
+  const agent = await harness.create(SessionId('decision-repair'), { provider: 'mock', model: 'mock' })
+
+  ctx.decisionState.record(agent, {
+    scope: 'demo',
+    decisions: [{ decisionId: 'd1', unitIds: ['a'], disposition: 'existing', targetIds: ['#1'], sourceEventSeqs: [1] }],
+    supersedes: [],
+  })
+  expect(() => ctx.decisionState.record(agent, {
+    scope: 'demo',
+    decisions: [{ decisionId: 'd2', unitIds: ['a'], disposition: 'new', targetIds: [], sourceEventSeqs: [2] }],
+    supersedes: [],
+  })).toThrowError(/unit a decided twice/)
+  expect(ctx.decisionState.scope(agent, 'demo').revision).toBe(1)
+
+  appendPluginRecord(agent.session, 'plugin:decision-state/record', {
+    scope: 'demo',
+    revision: 2,
+    active: [
+      { decisionId: 'd3', unitIds: ['b'], disposition: 'new', targetIds: [], sourceEventSeqs: [3] },
+      { decisionId: 'd4', unitIds: ['b'], disposition: 'new', targetIds: [], sourceEventSeqs: [4] },
+    ],
+  })
+  expect(ctx.decisionState.state(agent).corrupt).toContain('demo')
+
+  ctx.decisionState.repair(agent, 'demo', [
+    { decisionId: 'd5', unitIds: ['a'], disposition: 'existing', targetIds: ['#1'], sourceEventSeqs: [5] },
+  ])
+  expect(ctx.decisionState.state(agent).corrupt).not.toContain('demo')
+  expect(ctx.decisionState.open(agent, 'demo')).toEqual(['b', 'c'])
 })

@@ -67,10 +67,21 @@ it('renders open ids for an empty ledger and blocks a corrupt scope', () => {
   expect(renderView(state, catalog, 40, 4000, true)).toContain('校验失败')
 })
 
-it('truncates the view at the configured budget', () => {
-  const wide = foldRecord(EMPTY_SCOPE, record(1, [decide('d1', Array.from({ length: 200 }, (_, index) => `unit-${index}`))]))
+it('drops decided rows before the open catalog', () => {
+  const decided = Array.from({ length: 200 }, (_, index) => `u${index}`)
+  const open = Array.from({ length: 100 }, (_, index) => `o${index}`)
+  const wide = foldRecord(EMPTY_SCOPE, record(1, [decide('d1', decided)]))
   if (!wide.ok) throw new Error(wide.reason)
-  const view = renderView(wide.state, Array.from({ length: 200 }, (_, index) => `unit-${index}`), 40, 600)
-  expect(view.length).toBeLessThanOrEqual(600)
-  expect(view.endsWith('（视图超限，已截断）')).toBe(true)
+  const view = renderView(wide.state, [...decided, ...open], 200, 600)
+  expect(view).toContain('待处置单元：o0')
+  expect(view).toContain('o99')
+  expect(view).not.toContain('- u0: existing')
+})
+
+it('keeps the open catalog inside the view budget', () => {
+  const long = Array.from({ length: 4 }, (_, index) => decide(`d${index + 2}`, [`x${index}`], { targetIds: ['t'.repeat(120)] }))
+  const foldedLong = foldRecord(EMPTY_SCOPE, record(1, long))
+  if (!foldedLong.ok) throw new Error(foldedLong.reason)
+  const text = renderView(foldedLong.state, ['x0', 'x1', 'x2', 'x3', 'b', 'c', 'd'], 40, 500)
+  expect(text).toContain('待处置单元：b、c、d')
 })

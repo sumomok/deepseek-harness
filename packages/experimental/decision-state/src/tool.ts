@@ -92,6 +92,12 @@ export function createProposeOpenWorkTool(service: DecisionStateService, config:
   })
 }
 
+/** Maximum entries per submission array. */
+const MAX_FIELD_ENTRIES = 100
+
+/** Maximum characters per submitted identifier or title. */
+const MAX_FIELD_LENGTH = 200
+
 const propose = (service: DecisionStateService, config: Config, args: {
   scope: string
   revision: number
@@ -100,12 +106,19 @@ const propose = (service: DecisionStateService, config: Config, args: {
 }, exec: ToolRunContext) => {
   const agent = exec.agent
   if (agent === undefined) throw new HarnessError('propose_open_work requires an agent', 'DECISION_NO_AGENT')
-  const scope = config.scopes[args.scope]
+  const scope = Object.hasOwn(config.scopes, args.scope) ? config.scopes[args.scope] : undefined
   if (scope === undefined) throw new HarnessError(`unknown scope: ${args.scope}`, 'DECISION_UNKNOWN_SCOPE')
   const projection = service.state(agent)
   if (projection.corrupt.includes(args.scope) || projection.corrupt.includes(UNKNOWN_SCOPE)) {
     const errors: readonly ValidationError[] = [{ code: 'state-corrupt', detail: `scope ${args.scope} 的账本校验失败` }]
     return { status: 'rejected' as const, errors: errors.map(error => ({ code: String(error.code), detail: error.detail })) }
+  }
+  if (args.dispositions.length > MAX_FIELD_ENTRIES || args.tasks.length > MAX_FIELD_ENTRIES
+    || args.dispositions.some(entry => entry.unitId.length > MAX_FIELD_LENGTH
+      || (entry.targetIds ?? []).some(target => target.length > MAX_FIELD_LENGTH))
+    || args.tasks.some(task => task.id.length > MAX_FIELD_LENGTH || task.title.length > MAX_FIELD_LENGTH
+      || task.unitIds.some(unitId => unitId.length > MAX_FIELD_LENGTH))) {
+    return { status: 'rejected' as const, errors: [{ code: 'input-too-large', detail: '提交内容超过字段或条数上限' }] }
   }
   const state = service.scope(agent, args.scope)
   const submission: Submission = {

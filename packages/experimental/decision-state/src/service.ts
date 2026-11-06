@@ -15,8 +15,8 @@ import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import { decisionStateProjection, RECORD_TYPE, UNKNOWN_SCOPE, type DecisionProjectionState } from './projection.ts'
-import { EMPTY_SCOPE, openUnits, replaceDecisions } from './state.ts'
-import { renderView } from './validate.ts'
+import { EMPTY_SCOPE, foldRecord, openUnits, replaceDecisions } from './state.ts'
+import { MAX_LISTED_OPEN_UNITS, renderView } from './validate.ts'
 import { Config, createProposeOpenWorkTool } from './tool.ts'
 import type { Decision, DecisionRecord, ScopeState } from './types.ts'
 
@@ -54,6 +54,17 @@ export class DecisionStateService extends Service {
    */
   constructor(ctx: Context, private readonly config: Config = Config.parse({})) {
     super(ctx, 'decisionState')
+    for (const [scopeId, scope] of Object.entries(config.scopes)) {
+      if (scope.units.length > MAX_LISTED_OPEN_UNITS) {
+        throw new HarnessError(`scope ${scopeId} has ${scope.units.length} units; the view lists at most ${MAX_LISTED_OPEN_UNITS}`, 'DECISION_CONFIG_TOO_LARGE')
+      }
+      if (new Set(scope.units).size !== scope.units.length) {
+        throw new HarnessError(`scope ${scopeId} repeats a unit id`, 'DECISION_CONFIG_INVALID')
+      }
+      if (scope.units.some(unitId => unitId.length === 0)) {
+        throw new HarnessError(`scope ${scopeId} has an empty unit id`, 'DECISION_CONFIG_INVALID')
+      }
+    }
   }
 
   protected async [Service.init](): Promise<void> {
@@ -72,7 +83,8 @@ export class DecisionStateService extends Service {
    * Commit one decision change; the record carries the complete next state.
    * @param agent - agent whose Session records the change.
    * @param change - decisions to establish and ids to replace.
-   * @throws HarnessError when the scope is unknown or its recorded state failed validation.
+   * @throws HarnessError when the scope is unknown, its recorded state failed validation,
+   * or the change repeats a decision id or a decided unit.
    */
   record(agent: Agent, change: DecisionChange): void {
     if (!Object.hasOwn(this.config.scopes, change.scope)) {
@@ -83,11 +95,45 @@ export class DecisionStateService extends Service {
       throw new HarnessError(`decision state for ${change.scope} failed validation`, 'DECISION_STATE_CORRUPT')
     }
     const state = this.scope(agent, change.scope)
-    const record: DecisionRecord = {
-      scope: change.scope,
-      revision: state.revision + 1,
-      active: replaceDecisions(state, change.supersedes, change.decisions),
+    this.commit(agent, state, change.scope, change.supersedes, change.decisions)
+  }
+
+  /**
+   * Replace a corrupt scope with a host-supplied complete state.
+   * The model cannot reach this method; it exists so a bad committed record
+   * does not leave the scope permanently blocked.
+   * @param agent - agent whose Session records the repair.
+   * @param scope - scope to restore.
+   * @param decisions - complete active decisions after the repair.
+   * @throws HarnessError when the scope is unknown or the repair violates the ledger invariants.
+   */
+  repair(agent: Agent, scope: string, decisions: readonly Decision[]): void {
+    if (!Object.hasOwn(this.config.scopes, scope)) {
+      throw new HarnessError(`unknown decision scope: ${scope}`, 'DECISION_UNKNOWN_SCOPE')
     }
+    const state = this.scope(agent, scope)
+    this.commit(agent, state, scope, state.active.map(decision => decision.decisionId), decisions)
+  }
+
+  private commit(
+    agent: Agent,
+    state: ScopeState,
+    scope: string,
+    supersedes: readonly string[],
+    decisions: readonly Decision[],
+  ): void {
+    const known = new Set(state.active.map(decision => decision.decisionId))
+    const unknown = supersedes.filter(decisionId => !known.has(decisionId))
+    if (unknown.length > 0) {
+      throw new HarnessError(`unknown decision ids: ${unknown.join(', ')}`, 'DECISION_INVALID_CHANGE')
+    }
+    const record: DecisionRecord = {
+      scope,
+      revision: state.revision + 1,
+      active: replaceDecisions(state, supersedes, decisions),
+    }
+    const folded = foldRecord(state, record)
+    if (!folded.ok) throw new HarnessError(`decision change rejected: ${folded.reason}`, 'DECISION_INVALID_CHANGE')
     appendPluginRecord(agent.session, RECORD_TYPE, record)
   }
 

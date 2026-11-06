@@ -50,8 +50,8 @@ One runtime-context section per configured scope: the current revision, one line
 ## Known Limitations and Deferred Work
 
 - The decided part of a delivered proposal is only as correct as the record the host wrote. The host records at decision time; this package does not detect decisions by itself.
-- Scope catalogs are static configuration. Units cannot be added at runtime, and a scope whose latest record fails validation blocks submissions until a later valid record replaces it.
-- Open unit ids are listed up to 200 per scope; a larger catalog needs a read path that this package does not provide.
+- Scope catalogs are static configuration. Units cannot be added at runtime, and a scope whose latest record fails validation blocks submissions until the host restores it with `repair()` or a later valid record replaces it. The service folds every change before appending, so its own writes cannot create that block.
+- Open unit ids are listed up to 200 per scope; a larger catalog needs a read path that this package does not provide. One submission carries at most 100 entries with 200-character identifiers.
 - Enforcement covers the controlled submission and its rendered result. Free prose and side-channel actions stay outside this boundary.
 - A surface replacement and a real automatic pressure compaction leave the record and the view intact in tests, and a `cordis.yml` Loader boot is tested through a source shim; the committed `lib/` entry and an isolated-profile run are not verified yet.
 

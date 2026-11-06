@@ -8,7 +8,8 @@ import { boot } from '@deepseek-ai/dsh-app-boot'
 it('loads from a cordis.yml and exposes the service', async () => {
   // Source-mode shim: the committed package entry is `lib/`, which a keyless source test does not build.
   const { register: registerTsx } = await import('tsx/esm/api')
-  registerTsx()
+  const unregister = registerTsx()
+  onTestFinished(() => unregister())
   const dir = await mkdtemp(join(import.meta.dirname, '.loader-'))
   onTestFinished(async () => { await rm(dir, { recursive: true, force: true }) })
   const shim = join(dir, 'node_modules', '@deepseek-ai', 'dsh-experimental-decision-state')

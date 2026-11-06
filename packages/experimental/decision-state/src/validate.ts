@@ -9,7 +9,7 @@
  */
 
 import { decisionFor, openUnits } from './state.ts'
-import { DISPOSITIONS, type Decision, type Disposition, type ScopeState } from './types.ts'
+import { DISPOSITIONS, type Disposition, type ScopeState } from './types.ts'
 
 /** One unit disposition written by the model. */
 export interface SubmissionDisposition {
@@ -137,7 +137,7 @@ export function assemble(state: ScopeState, submission: Submission): AssembledPr
 }
 
 /** Maximum open unit ids listed before the view reports an omission count. */
-const MAX_LISTED_OPEN_UNITS = 200
+export const MAX_LISTED_OPEN_UNITS = 200
 
 /** Maximum characters of the assembled view. */
 const DEFAULT_VIEW_BUDGET = 4000
@@ -160,21 +160,25 @@ export function renderView(
 ): string {
   if (corrupt) return `范围状态校验失败，暂停提交（revision ${state.revision}）。请让宿主检查决策账本后重试。`
   const open = openUnits(state, catalog)
-  const decided = state.active.slice(0, limit)
-  const lines = [
-    `revision ${state.revision}：已定 ${state.active.length} 条（不可改写），待处置 ${open.length} 个。`,
-    ...decided.map((decision: Decision) => {
-      const targets = decision.targetIds.length === 0 ? '' : ` → ${decision.targetIds.join(', ')}`
-      return `- ${decision.unitIds.join('、')}: ${decision.disposition}${targets}`
-    }),
-  ]
-  if (state.active.length > decided.length) lines.push(`… 另有 ${state.active.length - decided.length} 条已定决定未展开。`)
-  if (open.length === 0) lines.push('没有待处置单元。')
-  else {
-    const listed = open.slice(0, MAX_LISTED_OPEN_UNITS)
-    lines.push(`待处置单元：${listed.join('、')}${open.length > listed.length ? ` …（另有 ${open.length - listed.length} 个未列出）` : ''}`)
+  const header = `revision ${state.revision}：已定 ${state.active.length} 条（不可改写），待处置 ${open.length} 个。`
+  const listed: readonly string[] = open.slice(0, MAX_LISTED_OPEN_UNITS)
+  const openLine = open.length === 0
+    ? '没有待处置单元。'
+    : `待处置单元：${listed.join('、')}${open.length > listed.length ? ` …（另有 ${open.length - listed.length} 个未列出）` : ''}`
+  // The open catalog is the submission checklist: every listed id must survive the budget.
+  const reserved = header.length + openLine.length + 2
+  const rows: string[] = []
+  for (const decision of state.active.slice(0, limit)) {
+    const targets = decision.targetIds.length === 0 ? '' : ` → ${decision.targetIds.join(', ')}`
+    rows.push(`- ${decision.unitIds.join('、')}: ${decision.disposition}${targets}`)
   }
-  const text = lines.join('\n')
-  if (text.length <= budget) return text
-  return `${text.slice(0, budget - 20)}…（视图超限，已截断）`
+  const omitted = state.active.length > rows.length ? `… 另有 ${state.active.length - rows.length} 条已定决定未展开。` : undefined
+  const kept: string[] = []
+  let used = reserved
+  for (const row of rows) {
+    if (used + row.length + 1 > budget) break
+    kept.push(row)
+    used += row.length + 1
+  }
+  return [header, ...kept, ...(omitted === undefined ? [] : [omitted]), openLine].join('\n')
 }
