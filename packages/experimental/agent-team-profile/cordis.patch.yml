@@ -24,6 +24,8 @@
       config:
         freshProvider: spawn
         forkProvider: fork
+        modelSelection: true
+        modelDiscovery: true
 
     - id: ui-agent-team
       name: '@deepseek-ai/dsh-experimental-client-ui-agent-team'

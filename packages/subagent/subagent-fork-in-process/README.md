@@ -35,6 +35,8 @@ Choose fork when the child needs the conversation's completed turns — a follow
 
 The seed ends at the parent's last completed turn. A parent's current tool-calling turn is still open when a subagent starts, so that in-flight turn is never included; before the first completed turn the seed is empty and the child behaves like a fresh spawn.
 
+A new child's resolved model selection takes precedence over model state in the seed. Model inheritance, reasoning-effort defaults, and continuation follow the [local child selection rules](../subagent/README.md#local-and-external-children).
+
 ### Minimal configuration
 
 Load the subagent service and this backend, then configure a delegation tool. This composition exposes a `subagent` tool backed by fork:
@@ -142,7 +144,7 @@ These limits define when the backend is the wrong choice; they are current packa
 
 - **The seed is a one-time snapshot** — the child sees the parent's completed turns as of the fork and nothing the parent logs afterwards; there is no live context sharing.
 - **Prefix reuse depends on matching request inputs** — parent and child messaging definitions match byte for byte; structured output, generated-SDK, route changes, or restored historical overrides can still break equality. Rationale: the [cache-preserving fork Agent Note](../../../.agents/notes/implemented/architecture/2026-08-10-fork-children-stay-one-shot.md).
-- **Shipped fork tools do not expose child LLM route selection** — they inherit the parent's provider and model so the copied history remains eligible for KV Cache reuse. Route selection stays disabled until a change can preserve reuse or expose a bounded recomputation cost.
+- **Shipped fork tools inherit the parent's LLM route by default** — a custom [`dsh-tool-subagent`](../tool-subagent/README.md#use-this-package) instance can enable `modelSelection`. Changing the route can prevent KV Cache reuse; the selected model must accept the retained conversation history.
 
 <a id="dev-note"></a>
 ### Dev Note

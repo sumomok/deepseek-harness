@@ -24,6 +24,8 @@ Lead 必须等待所需工作后才能给出最终答案。进程 teardown 仍�
 
 [Team profile](../../../../packages/experimental/agent-team-profile/README.zh.md) 禁用 `subagent`、`subagent_fork` 以及名称重叠的全局控件。模型直接委派使用支持 fresh 或 fork 上下文的 `spawn_teammate`，使这些子代理进入持久 roster。Workflow 仍通过 base profile 的 fresh `spawn` 提供方执行脚本编排；经模型工具创建的 workflow 子代理不会继承 teammate 的对话身份。Subagent 服务和提供方仍是共享基础设施。普通 Session fork 保留历史；[当前身份处理](../architecture/2026-10-13-team-identity-runtime-context.zh.md)提供 fork 自己的角色。
 
+启用模型选择后，Lead 可以通过共享 delegation-model API 为两种上下文模式的 teammate 选择 LLM 路由。[Session 授权决策](2026-08-24-user-authorized-subagent-model-routes.zh.md)同样约束 Team 的发现与执行。路由和后端校验先于 roster 名称预留；进入 provisioning 后的失败仍会占用名称。新子会话在 seed 之后记录解析后的模型选择，避免继承的模型历史覆盖所选路由。恢复保留子会话后续的选择，不重新应用创建选项。跨模型 fork 保留历史，但不保证提供方兼容性或缓存复用。
+
 ## Team identity
 
 共享 system 策略和全部工具 schema 在成员间保持一致；执行时检查角色权限。Team 工具根据调用者确定 Team，并接受成员名字，因此模型不需要 Team id。[必需 runtime-context 身份](../architecture/2026-10-13-team-identity-runtime-context.zh.md)负责身份注入、保留与 fork 处理。

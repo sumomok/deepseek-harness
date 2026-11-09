@@ -18,6 +18,7 @@ import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as tool from '../src/index.ts'
+import SubagentModelSelectionConfig from '../src/model-selection-settings.ts'
 import { SubagentPresetSelection } from '../src/preset-selection.ts'
 import { mountScriptedProvider, type Config as ProviderConfig } from './scripted-provider.ts'
 import { callSubagent, text } from './harness.ts'
@@ -45,6 +46,7 @@ async function setup(config: Omit<tool.Config, 'provider'>, providerConfig: Part
   await ctx.plugin(Loader)
   ctx.loader.builtins.include = Include
   await mountAgentLoopTestDependencies(ctx)
+  await ctx.plugin(SubagentModelSelectionConfig, {})
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(AgentPresets, { default: 'writer' })
   const presets = new Map<string, () => Promise<void>>()
@@ -138,10 +140,10 @@ describe('spawn preset selection', () => {
     expect(() => selection.resolve({ agent_preset: 1 })).toThrow(/must be one of/)
   })
 
-  it('requires the preset service when selection is configured', async () => {
+  it('requires the preset service when selection is configured', () => {
     const ctx = new Context()
     contexts.push(ctx)
-    await expect(tool.apply(ctx, { provider: 'spawn', agentPreset: 'writer' })).rejects.toThrow(/requires the agent-presets service/)
+    expect(() => { tool.apply(ctx, { provider: 'spawn', agentPreset: 'writer' }) }).toThrow(/requires the agent-presets service/)
   })
 
   it.each([

@@ -80,8 +80,7 @@ let policySessionCounter = 0
 /** Observe settings through the policy captured by a fresh top-level Agent. */
 async function capturePolicy(ctx: Context) {
   const { agent } = await ctx.agents.create({ sessionId: SessionId(`settings-policy-${++policySessionCounter}`) })
-  const policy = await ctx.sessionProjections.register(subagentModelSelectionProjectionDefinition)
-  return subagentModelSelectionPolicy(policy, agent.session)
+  return ctx.subagentModelSelection.policyFor(agent.session)?.routes
 }
 
 describe('SubagentModelSelectionConfig', () => {
@@ -93,6 +92,29 @@ describe('SubagentModelSelectionConfig', () => {
 
     expect(await capturePolicy(ctx)).toEqual(ALLOWED_MODELS)
     await ctx.fiber.dispose()
+  })
+
+  it('returns detached durable policy through the settings owner', async () => {
+    const ctx = await boot()
+    await selectionConfigs.get(ctx)!.update({ enabled: true, allowedModels: ALLOWED_MODELS })
+    const agent = await createAgent(ctx, 'policy-reader')
+    const first = ctx.subagentModelSelection.policyFor(agent.session)
+    expect(first).toEqual({ routes: ALLOWED_MODELS })
+    expect(first?.routes).not.toBe(ctx.subagentModelSelection.policyFor(agent.session)?.routes)
+    expect(first?.routes[0]).not.toBe(ctx.subagentModelSelection.policyFor(agent.session)?.routes[0])
+    await selectionConfigs.get(ctx)!.update({ enabled: false, allowedModels: [] })
+    expect(ctx.subagentModelSelection.policyFor(agent.session)).toEqual({ routes: ALLOWED_MODELS })
+  })
+
+  it.each(['modelSelection', 'modelDiscovery'] as const)('requires the settings owner when %s is enabled', async (option) => {
+    const ctx = ownContext(new Context())
+    await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
+    await ctx.plugin(SubagentRuntime)
+    await expect(ctx.plugin(tool, { provider: 'spawn', [option]: true })).rejects.toMatchObject({
+      name: 'SubagentError', code: 'model_selection_owner_unavailable',
+    })
+    expect(ctx.tools.get('subagent')).toBeUndefined()
+    expect(ctx.tools.get('list_subagent_models')).toBeUndefined()
   })
 
   it('defaults off and follows the validated user layer', async () => {
@@ -187,7 +209,7 @@ describe('SubagentModelSelectionConfig', () => {
       setup: async (agentCtx, agent) => {
         prepared = agent
         const fiber = agentCtx.inject(tool.inject, (runtimeCtx) => {
-          return tool.apply(runtimeCtx, {
+          tool.apply(runtimeCtx, {
             provider: 'spawn',
             modelSelection: true,
             modelDiscovery: true,
@@ -402,14 +424,14 @@ describe('SubagentModelSelectionConfig', () => {
     await ctx.fiber.dispose()
   })
 
-  it('permits independently configured delegation tools without a settings service', async () => {
+  it('permits default delegation tools without a settings service', async () => {
     const ctx = ownContext(new Context())
     await mountAgentLoopTestDependencies(ctx)
     await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(SubagentRuntime)
     await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
-    await ctx.plugin(tool, { provider: 'spawn', modelSelection: true })
-    await ctx.plugin(tool, { provider: 'spawn', toolName: 'another_spawn', modelSelection: true })
+    await ctx.plugin(tool, { provider: 'spawn' })
+    await ctx.plugin(tool, { provider: 'spawn', toolName: 'another_spawn' })
     expect(ctx.tools.get('subagent')).toBeDefined()
     expect(ctx.tools.get('another_spawn')).toBeDefined()
     expect(ctx.tools.get('list_subagent_models')).toBeUndefined()

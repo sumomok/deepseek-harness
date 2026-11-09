@@ -16,7 +16,7 @@ Host 自有的 `subagent-model-selection` 设置 section 保存显式 `enabled` 
 
 固定的 `list_subagent_models` schema 不枚举策略。调用时，它列出已授权且已注册的提供方，并取其公布模型目录与已记录路由列表的交集。精确查询先要求授权，再解析模型元数据及全部支持的推理强度，也允许目录未列出的 ID。没有已记录策略时，发现只解析父 Agent 当前生效的路由，即使目录未列出它。委派执行器会在适配器预检前独立校验显式提供方、模型或强度选择是否符合相同授权。没有选择字段的调用保留配置或继承的路由。
 
-模型选择没有无限制的静态模式。默认关闭的 Host 设置授权其他子级路由；没有该授权时，仍可选择父级路由及其支持的强度。各委派工具的 `modelSelection` 选项只控制自身路由字段。每个作用域的一个委派实例启用 `modelDiscovery` 并负责发现；设置、发现和委派读取包内同一个授权投影。Web 与 Desktop preset 默认挂载发现工具，启用 spawn 路由字段，并为 fork 保持关闭，以保留对继承前缀的复用；自定义 fork 组合可以在相同 Session 授权下启用这些字段。工具安装不采样或扩大授权。
+模型选择没有无限制的静态模式。默认关闭的 Host 设置授权其他子级路由；没有该授权时，仍可选择父级路由及其支持的强度。各委派工具的 `modelSelection` 选项只控制自身路由字段。每个作用域的一个委派实例启用 `modelDiscovery` 并负责发现。启用模型选择或发现需要设置服务，由其拥有私有授权投影，并向共享 delegation-model API 提供 Session 策略读取。普通委派和 Team 工具使用该 API；Team 工具拥有各成员作用域的发现功能，在卸载前遮蔽继承的发现工具。Web 与 Desktop preset 默认挂载发现工具，启用 spawn 路由字段，并为 fork 保持关闭，以保留对继承前缀的复用；自定义 fork 组合可以在相同 Session 授权下启用这些字段。工具安装不采样或扩大授权。
 
 ## Alternatives considered
 
@@ -35,7 +35,7 @@ Host 自有的 `subagent-model-selection` 设置 section 保存显式 `enabled` 
 - 新适配器注册和新公布模型不会扩大用户授权。
 - 适配器移除或目录查询失败可能使提供方发现不可用，但不会删除已存路由决定；只要适配器接受某个获准模型，即使建议性目录省略它，该模型仍可使用。
 - 允许列表本身不消耗父级请求 token。只有 `list_subagent_models` 结果进入 transcript。`modelSelection` 选项增加三个路由字段；`modelDiscovery` 增加固定发现 schema。两个选项都默认关闭；随附 headless 与 SDK profile 两者都不携带。
-- 策略事件仅存在于日志，并在 Agent 组合期间、两套 SDK 开始订阅运行前追加。随附 SDK profile 不启用这项 Web 自有偏好，因此该事件不会改变任一 SDK 的预期通知或持久 Session 输出；其持久投影由包级恢复测试负责，不会为了发出该事件而虚构 SDK 组合。
+- 策略事件仅存在于日志，并在 Agent 组合期间、两套 SDK 开始订阅运行前追加。base bundle 为普通委派与可选的 Team 统一挂载一次默认关闭的设置 owner。随附 SDK profile 不启用这项偏好，因此该事件不会改变任一 SDK 的预期通知或持久 Session 输出；其持久投影由包级恢复测试负责，不会为了发出该事件而虚构 SDK 组合。
 - 单元覆盖固定设置校验、异常持久值、Session 取样与继承、共享定义、父级路由默认值、发现限制、执行器拒绝，以及设置 UI 的暂存写入与 revision 检查。组装 Web 场景固定真实设置文档与 Plugins 设置卡流程。
 
 ## Related decisions

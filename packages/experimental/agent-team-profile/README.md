@@ -48,6 +48,8 @@ In an existing profile’s `package.json`, keep `@deepseek-ai/dsh-experimental-a
 
 The layer adds the Agent Teams domain and its scoped creation, roster, messaging, interruption, waiting, and task-board tools. Direct delegation uses `spawn_teammate`, which supports fresh and fork context. The `subagent` and `subagent_fork` tools and overlapping global child controls are disabled. Workflow retains the base profile’s `spawn` provider, while the underlying Subagent services and both providers remain available to teammates and workflow.
 
+The Lead can inspect `list_subagent_models` and pass `provider`, `model`, and optional `reasoning_effort` to `spawn_teammate` for either context mode. The bundle enables selection and discovery; the shared settings service still restricts explicit selection to the parent's route unless the user authorizes alternatives. Configure `subagent-model-selection-settings` with `enabled: true` and exact `allowedModels`, or use the Web settings card, then start a new Lead Session. Existing Sessions retain their recorded authorization. See the [delegation settings contract](../../subagent/tool-subagent/README.md) for configuration and inheritance.
+
 In Web and Desktop conversations, the [Team UI](../client-ui-agent-team/README.md) displays the member roster and shared task board and opens teammate sessions. The same bundle switch controls the tools and browser UI. The Plugins page reads the bundle's [icon](icon.svg) from its `package.json.icon` declaration, including while the bundle is disabled.
 
 -----

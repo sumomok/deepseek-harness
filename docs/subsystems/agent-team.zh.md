@@ -23,6 +23,8 @@ interface TeamMemberSnapshot {
 
 每个 member 都从 `provisioning` 开始，并且只到达一个终态 roster phase：`active` 或 `failed`。roster 的 `running`／`inactive` 状态单独派生，绝不会重写该记录。
 
+`SpawnTeammateRequest.provider` 选择可继续运行的 Subagent 后端；`agentOptions` 提供子 Agent 的 LLM 提供方、模型和推理强度。后端能力检查先于名称预留。驻留成员视图报告其当前模型选择；非驻留成员模型未知时省略该字段。Subagent descriptor 和模型选择事件负责模型恢复，Team 快照不增加模型字段。
+
 ## 消息与历史 mailbox
 
 新发送返回 inbox 接收结果或拒绝。目标保存现有 `agent-message` source，包含真实发送者 Session id 和发送者名称正文前缀。Team 不为新消息提供 outbox 或重发去重。[包约定](../../packages/experimental/agent-team/README.zh.md#understand-the-implementation)定义持久化。以下 mailbox 类型继续可读，以便历史 Lead 日志仍能回放；Team 不投递其中的 pending 记录。

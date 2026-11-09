@@ -4,11 +4,10 @@ import type { Context } from '@deepseek-ai/cordis'
 import type LlmRuntime from '@deepseek-ai/dsh-llm'
 import type { LlmProviderInfo } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { parentAgentOptionsForDelegation } from '@deepseek-ai/dsh-subagent'
+import { parentAgentOptionsForDelegation, SubagentError } from '@deepseek-ai/dsh-subagent'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
-import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
-import type { AllowedModelRoute, ModelSelectionPolicy } from './model-selection.ts'
-import { subagentModelSelectionPolicy } from './model-selection-state.ts'
+import type { ModelSelectionPolicy } from './model-selection.ts'
+import type SubagentModelSelectionConfig from './model-selection-settings.ts'
 
 interface ListSubagentModelsRequest {
   readonly provider?: string
@@ -36,16 +35,26 @@ function modelLine(provider: string, model: { id: string; name: string; descript
   return `${provider}/${model.id} — ${model.name}${model.description === undefined ? '' : `: ${model.description}`}`
 }
 
+/** Resolve the live policy owner so service replacement cannot retain a stale reader. */
+function policyOwner(ctx: Context): SubagentModelSelectionConfig {
+  const owner = ctx.get('subagentModelSelection')
+  if (owner === undefined) {
+    throw new SubagentError(
+      'child model discovery requires the subagentModelSelection service; mount @deepseek-ai/dsh-tool-subagent/model-selection-settings',
+      'model_selection_owner_unavailable',
+    )
+  }
+  return owner
+}
+
 /** Read the requested provider, allowed models, or exact-model efforts. */
 async function listSubagentModels(
   ctx: Context,
-  policyHandle: ProjectionHandle<AllowedModelRoute[] | null>,
   request: ListSubagentModelsRequest,
   exec: ToolRunContext,
 ): Promise<string> {
   if (exec.agent === undefined) throw new Error('list_subagent_models requires a calling agent')
-  const routes = subagentModelSelectionPolicy(policyHandle, exec.agent.session)
-  let policy = routes === undefined ? undefined : { routes }
+  let policy = policyOwner(ctx).policyFor(exec.agent.session)
   const selectionEnabled = policy !== undefined
   if (policy === undefined) {
     const { provider, model } = parentAgentOptionsForDelegation(exec.agent)
@@ -99,14 +108,14 @@ async function listSubagentModels(
 
 /**
  * Register discovery of the calling Session’s authorized child models.
- * @param ctx - Context carrying the tool registry and LLM service.
- * @param policyHandle - retained reader for the Session’s authorized child routes.
+ * Scoped registrations shadow inherited tools; duplicates in the same scope fail.
+ * The owning fiber removes discovery on unload. Selection settings must be ready.
+ * @param ctx - Owning context carrying tools, subagentModelSelection, and an optional LLM service.
+ * @returns The exact tool-registry disposer; calling it restores inherited discovery.
  */
-export function registerListSubagentModels(
-  ctx: Context,
-  policyHandle: ProjectionHandle<AllowedModelRoute[] | null>,
-): void {
-  ctx.tools.register(defineTool({
+export function registerListSubagentModels(ctx: Context): () => void {
+  policyOwner(ctx)
+  return ctx.tools.register(defineTool({
     name: 'list_subagent_models',
     description:
       'Inspect subagent models without changing the current Agent. No arguments: providers; '
@@ -127,7 +136,7 @@ export function registerListSubagentModels(
       render: (_args, result) => [{ type: 'text', text: result }],
     },
     execute(args, exec) {
-      return listSubagentModels(ctx, policyHandle, args, exec)
+      return listSubagentModels(ctx, args, exec)
     },
   }))
 }

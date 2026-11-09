@@ -393,6 +393,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   AgentHandle: 'core.md',
   ModelSelection: 'core.md',
   AllowedModelRoute: 'subagent.md',
+  ModelSelectionPolicy: 'subagent.md',
   SubagentModelSelectionSettings: 'subagent.md',
   AgentOptions: 'core.md',
   TurnBoundaryProjection: 'core.md',

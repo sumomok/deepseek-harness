@@ -11,3 +11,12 @@
       name: '@deepseek-ai/dsh-experimental-agent-team'
     - id: tool-agent-team
       name: '@deepseek-ai/dsh-experimental-tool-agent-team'
+      config:
+        modelSelection: true
+        modelDiscovery: true
+- id: subagent-model-selection-settings
+  config:
+    enabled: true
+    allowedModels:
+      - { provider: deepseek-official, model: deepseek-v4-flash }
+      - { provider: deepseek-official, model: deepseek-v4-pro }

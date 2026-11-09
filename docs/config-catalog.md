@@ -1562,14 +1562,18 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-experimental-tool-agent-team`
 
-- `inject`: `agents` · `agentTeams` · `tools` · `systemPrompt`
-- `source`: [`packages/experimental/tool-agent-team/src/index.ts:17`](../packages/experimental/tool-agent-team/src/index.ts)
+- `inject`: `agents` · `agentTeams` · `tools` · `systemPrompt` · `subagents`
+- `source`: [`packages/experimental/tool-agent-team/src/index.ts:19`](../packages/experimental/tool-agent-team/src/index.ts)
 
 ```ts config-catalog
 /** Tool routing configuration. */
 export interface Config {
   /** Register `interrupt_agent` and its policy guidance. Defaults to true; false leaves the domain API available. */
   readonly interrupt?: boolean
+  /** Expose child provider, model, and reasoning_effort selection. Defaults to false; requires the model-selection settings owner. */
+  readonly modelSelection?: boolean
+  /** Own list_subagent_models in each Team Agent scope. Defaults to false; requires the model-selection settings owner. */
+  readonly modelDiscovery?: boolean
   /** Continuable-subagent provider used for fresh teammates. */
   readonly freshProvider?: string
   /** Continuable-subagent provider used for completed-prefix fork teammates. */
@@ -4512,9 +4516,9 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-subagent`
 
-- `inject`: `tools` · `subagents` · `systemPrompt` · `sessionProjections`
+- `inject`: `tools` · `subagents` · `systemPrompt`
 - `refs`: [`AgentOptions`](subsystems/core.md)
-- `source`: [`packages/subagent/tool-subagent/src/index.ts:46`](../packages/subagent/tool-subagent/src/index.ts)
+- `source`: [`packages/subagent/tool-subagent/src/index.ts:37`](../packages/subagent/tool-subagent/src/index.ts)
 
 ```ts config-catalog
 /** Config: which registered provider this tool delegates to, plus child defaults. */
@@ -4528,20 +4532,22 @@ export interface Config extends PresetSelectionConfig {
   toolName?: string
   /**
    * Expose optional child `provider`, `model`, and `reasoning_effort` fields.
-   * Requires provider `agentOptions` support. Execution enforces the Session
-   * policy, or restricts explicit selection to the current parent route.
+   * Requires provider `agentOptions` support and the ready `subagentModelSelection`
+   * service. Execution enforces the Session policy, or restricts explicit
+   * selection to the current parent route.
    */
   modelSelection?: boolean
   /**
    * Register the shared `list_subagent_models` tool for this scope.
    * Enable on only one instance per scope; defaults to false and does not
-   * enable model selection. Discovery is removed when this instance unloads.
+   * enable model selection. Requires the ready `subagentModelSelection` service.
+   * Discovery is removed when this instance unloads.
    */
   modelDiscovery?: boolean
   /**
    * Agent options applied to every child; omitted fields use child-loop defaults.
    */
-  agentOptions?: AgentOptions
+  agentOptions?: AgentOptions | undefined
   /**
    * Maximum child depth: a non-negative safe integer (`0` forbids delegation),
    * or `'provider-managed'` to send no cap. A numeric cap

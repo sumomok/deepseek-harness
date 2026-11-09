@@ -54,11 +54,11 @@ export async function setup(toolConfig: SetupConfig, mockConfig: Partial<mock.Co
   const ctx = ownContext(new Context())
   const { withModelSelection, hostSelectionEnabled = true, parentAgentOptions, ...config } = toolConfig
   await mountAgentLoopTestDependencies(ctx)
+  await ctx.plugin(SubagentModelSelectionConfig, {
+    enabled: withModelSelection === true && hostSelectionEnabled,
+    allowedModels: TEST_ALLOWED_MODELS,
+  })
   if (withModelSelection === true) {
-    await ctx.plugin(SubagentModelSelectionConfig, {
-      enabled: hostSelectionEnabled,
-      allowedModels: TEST_ALLOWED_MODELS,
-    })
     await ctx.plugin(AgentLoop, { agents: [] })
     await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(SubagentRuntime)
@@ -69,7 +69,7 @@ export async function setup(toolConfig: SetupConfig, mockConfig: Partial<mock.Co
       ...parentAgentOptions !== undefined ? { agentOptions: parentAgentOptions } : {},
       setup: async (agentCtx) => {
         const fiber = agentCtx.inject(tool.inject, (runtimeCtx) => {
-          return tool.apply(runtimeCtx, { ...config, modelSelection: true, modelDiscovery: true })
+          tool.apply(runtimeCtx, { ...config, modelSelection: true, modelDiscovery: true })
         })
         await fiber.await()
       },

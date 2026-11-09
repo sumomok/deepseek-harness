@@ -23,6 +23,8 @@ interface TeamMemberSnapshot {
 
 Every member starts in `provisioning` and reaches exactly one terminal roster phase, `active` or `failed`. Roster `running`/`inactive` status is derived separately and never rewrites this record.
 
+`SpawnTeammateRequest.provider` selects the continuable Subagent backend; `agentOptions` supplies the child LLM provider, model, and reasoning effort. Backend capability checks precede name reservation. Resident member views report their current model selection; non-resident views omit an unknown model. The Subagent descriptor and model-selection events own model recovery, with no model fields added to Team snapshots.
+
 ## Messages and historical mailbox
 
 New sends return inbox acceptance or reject. The target stores the existing `agent-message` source with the real sender Session id and a sender-name content prefix. Team has no new-message outbox or resend deduplication. The [package contract](../../packages/experimental/agent-team/README.md#understand-the-implementation) defines persistence. The following mailbox types remain readable so historical Lead logs still replay; Team does not deliver their pending records.

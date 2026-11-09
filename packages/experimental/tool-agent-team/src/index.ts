@@ -3,7 +3,9 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { TeamTaskId } from '@deepseek-ai/dsh-experimental-agent-team'
+import { TeamError, TeamTaskId } from '@deepseek-ai/dsh-experimental-agent-team'
+import { SubagentError } from '@deepseek-ai/dsh-subagent'
+import { registerListSubagentModels, resolveDelegationModelOptions } from '@deepseek-ai/dsh-tool-subagent/delegation-model'
 import type { TeamMemberView } from '@deepseek-ai/dsh-experimental-agent-team'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { InferValue, ValueSchemaSpec } from '@deepseek-ai/dsh-tools'
@@ -11,12 +13,16 @@ import type { InferValue, ValueSchemaSpec } from '@deepseek-ai/dsh-tools'
 /** Cordis plugin name. */
 export const name = 'tool-agent-team'
 /** Services required by the Team tool plugin. */
-export const inject = ['agents', 'agentTeams', 'tools', 'systemPrompt']
+export const inject = ['agents', 'agentTeams', 'tools', 'systemPrompt', 'subagents']
 
 /** Tool routing configuration. */
 export interface Config {
   /** Register `interrupt_agent` and its policy guidance. Defaults to true; false leaves the domain API available. */
   readonly interrupt?: boolean
+  /** Expose child provider, model, and reasoning_effort selection. Defaults to false; requires the model-selection settings owner. */
+  readonly modelSelection?: boolean
+  /** Own list_subagent_models in each Team Agent scope. Defaults to false; requires the model-selection settings owner. */
+  readonly modelDiscovery?: boolean
   /** Continuable-subagent provider used for fresh teammates. */
   readonly freshProvider?: string
   /** Continuable-subagent provider used for completed-prefix fork teammates. */
@@ -26,6 +32,8 @@ export interface Config {
 /** Loader schema for the opt-in Team tool plugin. */
 export const Config: z<Config> = z.object({
   interrupt: z.boolean().default(true),
+  modelSelection: z.boolean().default(false),
+  modelDiscovery: z.boolean().default(false),
   freshProvider: z.string().default('spawn'),
   forkProvider: z.string().default('fork'),
 })
@@ -170,6 +178,7 @@ function install(agent: Agent, ctx: Context, config: Required<Config>): () => vo
   const disposers: Array<() => unknown> = []
   const register = (disposer: () => unknown): void => { disposers.push(disposer) }
   try {
+    if (config.modelDiscovery) register(registerListSubagentModels(scoped))
     register(scoped.systemPrompt.section({
       name: 'team:policy',
       order: scoped.systemPrompt.getSectionOrder('TEAM_POLICY'),
@@ -201,17 +210,41 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
           enum: ['fresh', 'fork'],
           description: 'fresh starts without Lead history; fork inherits completed Lead turns. Defaults to fresh.',
         },
+        ...config.modelSelection ? {
+          provider: {
+            type: 'string' as const,
+            description: `${config.modelDiscovery ? 'Inspect list_subagent_models before choosing. ' : ''}LLM provider id; supply with model. Omitted route inherits the Lead’s model. A changed route without reasoning_effort uses the model’s default.`,
+          },
+          model: { type: 'string' as const, description: 'Exact model id within provider; requires provider.' },
+          reasoning_effort: { type: 'string' as const, description: 'Model-specific reasoning effort id.' },
+        } : {},
       },
       output: jsonOutput(SPAWN_VALUE_SCHEMA),
       async execute(args, exec) {
         const agent = callingAgent(exec.agent, 'spawn_teammate')
+        if (ctx.agentTeams.membership(agent).role !== 'lead') {
+          throw new TeamError('only the Team Lead can create teammates', 'TEAM_LEAD_REQUIRED')
+        }
         const context = args.context ?? 'fresh'
+        const providerName = context === 'fork' ? config.forkProvider : config.freshProvider
+        const provider = ctx.subagents.getProvider(providerName)
+        if (provider === undefined) {
+          throw new SubagentError(`no subagent provider registered for "${providerName}"`, 'NO_PROVIDER')
+        }
+        const agentOptions = await resolveDelegationModelOptions(ctx, {
+          parent: agent,
+          provider,
+          config,
+          request: args,
+          signal: exec.signal,
+        })
         const result = await ctx.agentTeams.spawnTeammate(agent, {
           name: args.name,
           description: args.description,
           prompt: [{ type: 'text', text: args.prompt }],
           context,
-          provider: context === 'fork' ? config.forkProvider : config.freshProvider,
+          provider: providerName,
+          ...agentOptions === undefined ? {} : { agentOptions },
           signal: exec.signal,
         })
         return { member: modelMember(result.member) }
@@ -411,22 +444,30 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
 export function apply(ctx: Context, config: Config = {}): void {
   const resolved: Required<Config> = {
     interrupt: config.interrupt ?? true,
+    modelSelection: config.modelSelection ?? false,
+    modelDiscovery: config.modelDiscovery ?? false,
     freshProvider: config.freshProvider ?? 'spawn',
     forkProvider: config.forkProvider ?? 'fork',
+  }
+  if ((resolved.modelSelection || resolved.modelDiscovery) && ctx.get('subagentModelSelection') === undefined) {
+    throw new SubagentError(
+      'Team model selection and discovery require the subagentModelSelection service; mount @deepseek-ai/dsh-tool-subagent/model-selection-settings',
+      'model_selection_owner_unavailable',
+    )
   }
   const installed = new Map<Agent, () => void>()
   const maybeInstall = (agent: Agent): void => {
     if (installed.has(agent) || ctx.agentTeams.tryMembership(agent) === undefined) return
     installed.set(agent, install(agent, ctx, resolved))
   }
+  ctx.effect(() => () => {
+    for (const dispose of installed.values()) dispose()
+    installed.clear()
+  }, 'tool-team.scopedTools()')
   for (const agent of ctx.agents.list()) maybeInstall(agent)
   ctx.on('agent/created', ({ agent }) => { maybeInstall(agent) })
   ctx.on('agent/disposed', ({ agent }) => {
     installed.get(agent)?.()
     installed.delete(agent)
   })
-  ctx.effect(() => () => {
-    for (const dispose of installed.values()) dispose()
-    installed.clear()
-  }, 'tool-team.scopedTools()')
 }

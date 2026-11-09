@@ -3,7 +3,8 @@ import type { Volatile } from '@deepseek-ai/cordis'
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { SessionSeq } from '@deepseek-ai/dsh-session'
+import { SessionSeq, type Session } from '@deepseek-ai/dsh-session'
+import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-agent'
 import {
   subagentModelSelectionPolicy,
@@ -13,6 +14,7 @@ import {
   AllowedModelRouteSchema,
   assertAllowedModelRoutes,
   type AllowedModelRoute,
+  type ModelSelectionPolicy,
 } from './model-selection.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -47,6 +49,8 @@ export class SubagentModelSelectionConfig extends Service {
     allowedModels: z.array(AllowedModelRouteSchema).default([]).volatile(),
   })
 
+  private policy!: ProjectionHandle<AllowedModelRoute[] | null>
+
   constructor(ctx: Context, private config: Config) {
     super(ctx, 'subagentModelSelection')
   }
@@ -72,7 +76,17 @@ export class SubagentModelSelectionConfig extends Service {
       }
       if (allowedModels !== undefined) target.append('subagent/model-selection-policy', { allowedModels })
     })
-    await policyReady
+    this.policy = await policyReady
+  }
+
+  /**
+   * Read the Session's recorded child-route authorization without consulting current preferences.
+   * @param session - Prepared Session whose durable authorization applies.
+   * @returns Detached exact routes, or undefined to restrict explicit selection to the parent route.
+   */
+  policyFor(session: Session): ModelSelectionPolicy | undefined {
+    const routes = subagentModelSelectionPolicy(this.policy, session)
+    return routes === undefined ? undefined : { routes }
   }
 
   /**

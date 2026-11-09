@@ -878,12 +878,20 @@ export class SubagentManager {
       const { create } = inputs
       let structured: StructuredAttachment | undefined
       const setup = async (childCtx: Context, child: Agent): Promise<void> => {
-        // Only fresh creation appends the descriptor and delegated policy after
-        // the inherited marker; a cold resume replays those persisted events.
+        // Initial model and policy choices belong after inherited history;
+        // a cold resume retains the child's later recorded choices.
         if (inputs.composition.agentPreset !== undefined) {
           await applyChildComposition(childCtx, parent, inputs.composition)
         }
         if (create !== undefined) {
+          const { provider: agentProvider, model, reasoningEffort } = inputs.agentOptions
+          if (agentProvider !== undefined && model !== undefined) {
+            child.model.select({
+              provider: agentProvider,
+              model,
+              ...reasoningEffort === undefined ? {} : { reasoningEffort },
+            })
+          }
           if (inputs.composition.agentPreset !== undefined) {
             child.session.append('agent-preset/selected', { agentPreset: inputs.composition.agentPreset })
           }

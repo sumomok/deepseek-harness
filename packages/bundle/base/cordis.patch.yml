@@ -385,6 +385,10 @@
     - id: subagent
       name: '@deepseek-ai/dsh-subagent'
 
+    # One default-off policy owner shared by ordinary delegation and optional Teams.
+    - id: subagent-model-selection-settings
+      name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
+
     - id: subagent-spawn-in-process
       name: '@deepseek-ai/dsh-subagent-spawn-in-process'
       config:
