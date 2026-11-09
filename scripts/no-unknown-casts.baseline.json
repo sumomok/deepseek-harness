@@ -1784,9 +1784,6 @@
     "514d368a1007506da97412cee4b14191025685d1693f2c68442bb466b5054e02": 1,
     "e770821c1f637aca0a346d5f6e6f0873ca4d7e3b070b557cddf773c160ec599a": 1
   },
-  "packages/subagent/tool-subagent/src/index.ts": {
-    "7fe58280287ff63d40e979e72329f975e11015a95e9a8eec207a5a78748d3c89": 1
-  },
   "packages/subagent/tool-subagent/tests/model-selection.spec.ts": {
     "9a362ded6cf17e795dc9cb0c88a672eb17c03d90ae87987f53dbb3a3f6bcc467": 1
   },

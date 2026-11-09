@@ -13,6 +13,8 @@ description: "启用模型选择或发现的自定义委派组合需要挂载模
 
 两个选项都关闭的组合保持原样。基于 base 的 profile 挂载该服务，包括 Web、Desktop 和 headless。已在 `dsh-base` 之外自行插入此行的自定义组合须移除重复插入，并按 id 保留配置覆盖。现有 Session 的授权保持不变；设置变更仅作用于新建的顶层 Session。
 
+`SpawnTeammateRequest` 现在包含 Host Agent 选项，从 `@deepseek-ai/dsh-experimental-agent-team` 主入口导出，不再从 Client 共享的 `/types` 入口导出。TypeScript 使用方须改为从包主入口导入该类型。
+
 ## 迁移
 
 1. 在自定义组合中启用模型选择或发现之前，挂载设置插件：

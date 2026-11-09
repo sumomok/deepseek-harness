@@ -13,6 +13,8 @@ Custom compositions enabling `modelSelection` or `modelDiscovery` on `@deepseek-
 
 Compositions leaving both options disabled are unchanged. Base-backed profiles mount the service, including Web, Desktop, and headless. Custom trees that already insert this row alongside `dsh-base` must remove their duplicate insertion and retain any config override by id. Existing Session authorization remains unchanged; settings edits apply only to new top-level Sessions.
 
+`SpawnTeammateRequest` now includes Host Agent options and is exported from `@deepseek-ai/dsh-experimental-agent-team` instead of its Client-shared `/types` entry. TypeScript consumers must import this type from the main package entry.
+
 ## Migration
 
 1. Mount the settings plugin before enabling model selection or discovery in your custom composition:

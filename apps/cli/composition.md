@@ -140,6 +140,8 @@ flowchart LR
   cfg --> plugin_dsh_base_command_compact
   plugin_dsh_base_subagent["subagent<br/>@deepseek-ai/dsh-subagent"]
   cfg --> plugin_dsh_base_subagent
+  plugin_dsh_base_subagent_model_selection_settings["subagent-model-selection-settings<br/>@deepseek-ai/dsh-tool-subagent/model-selection-settings"]
+  cfg --> plugin_dsh_base_subagent_model_selection_settings
   plugin_dsh_base_subagent_spawn_in_process["subagent-spawn-in-process<br/>@deepseek-ai/dsh-subagent-spawn-in-process"]
   cfg --> plugin_dsh_base_subagent_spawn_in_process
   plugin_dsh_base_subagent_fork_in_process["subagent-fork-in-process<br/>@deepseek-ai/dsh-subagent-fork-in-process"]
@@ -272,6 +274,7 @@ flowchart LR
 | `compaction-basic` | `@deepseek-ai/dsh-compaction-basic` |
 | `command-compact` | `@deepseek-ai/dsh-command-compact` |
 | `subagent` | `@deepseek-ai/dsh-subagent` |
+| `subagent-model-selection-settings` | `@deepseek-ai/dsh-tool-subagent/model-selection-settings` |
 | `subagent-spawn-in-process` | `@deepseek-ai/dsh-subagent-spawn-in-process` |
 | `subagent-fork-in-process` | `@deepseek-ai/dsh-subagent-fork-in-process` |
 | `tool-subagent-control` | `@deepseek-ai/dsh-tool-subagent-control` |
