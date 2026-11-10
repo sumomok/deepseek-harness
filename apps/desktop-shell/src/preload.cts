@@ -17,6 +17,9 @@ const SHORTCUT_CHANNELS = {
 /** Mirrors `theme-channels.ts`; a sandboxed preload cannot import it. */
 const THEME_CHANNEL = 'dsh-desktop:theme-report'
 
+/** Mirrors `windows-layout.ts`; a sandboxed preload cannot import it. */
+const WINDOWS_TITLEBAR_HEIGHT = 40
+
 /** Marks `<html data-platform>` before the page's first script reads it. */
 function markPlatform(): void {
   const mark = (): void => { document.documentElement.dataset.platform = process.platform }
@@ -26,7 +29,27 @@ function markPlatform(): void {
   else mark()
 }
 
+/**
+ * Reserves the Windows caption band the native window buttons float over.
+ *
+ * Without this marker the shared client paints under them, so the page's first
+ * rows sit behind the minimize/maximize/close overlay. The height matches the
+ * window's `titleBarOverlay`, which the shell also recolors on palette changes.
+ */
+function markWindowsTitlebar(): void {
+  if (process.platform !== 'win32') return
+  const mark = (): void => {
+    const root = document.documentElement
+    root.dataset.windowsTitlebar = ''
+    root.style.setProperty('--dsh-windows-titlebar-height', `${WINDOWS_TITLEBAR_HEIGHT}px`)
+  }
+  const root = document.documentElement as HTMLElement | null
+  if (root === null) window.addEventListener('DOMContentLoaded', mark)
+  else mark()
+}
+
 markPlatform()
+markWindowsTitlebar()
 
 /**
  * Report the palette the page is painting to the shell.

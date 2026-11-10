@@ -6,20 +6,20 @@
   en: 42aa4c3ae6be24e6
   zh: 91cc497eebac63e7
 /deepseek-ai-dsh-desktop-shell/building-installable-packages:
-  en: 7c4ada7b81eed629
-  zh: 516e9bb0fe5c2fef
+  en: 57c3ca78fcf92906
+  zh: 7bf12e37eaa787e3
 /deepseek-ai-dsh-desktop-shell/closing-the-window-and-being-called-back:
   en: 9119a4192245ad4c
   zh: 946c2e2ff369f6e2
 /deepseek-ai-dsh-desktop-shell/updates:
-  en: f09f921b40023f0b
-  zh: 89bf9e8ab13cd122
+  en: 8f6fa80402a6cb3c
+  zh: 7869b2d45ef619cb
 /deepseek-ai-dsh-desktop-shell/updates/mandatory-updates:
-  en: 2edad4c10a1c5767
-  zh: 8a0d32ad15147668
+  en: 213bf2a0b98c6a87
+  zh: 6030ea65dfa002eb
 /deepseek-ai-dsh-desktop-shell/updates/publishing:
-  en: 45e8b733583459f3
-  zh: 3abb346125e0e3fb
+  en: f2fbc6a5f8418483
+  zh: cc269c104d2acdf4
 /deepseek-ai-dsh-desktop-shell/trust-and-signing:
   en: bf0d89ec83c8d2ed
   zh: 286cc07d7dc846f6
@@ -39,8 +39,8 @@
   en: 0ca88951276ca4c5
   zh: d2ca0f13c3709cd0
 /deepseek-ai-dsh-desktop-shell/office-engine-service:
-  en: c7ba492737f64988
-  zh: 6625e57822d8942f
+  en: 123a271998180ac4
+  zh: 3c27510c73887e8f
 /deepseek-ai-dsh-desktop-shell/data-location-service:
   en: 88dcb8a6a84d5328
   zh: 93d012bcb030a357
@@ -51,5 +51,5 @@
   en: 638446ee47f25b9b
   zh: 4c2fa3cca1e5fedd
 /deepseek-ai-dsh-desktop-shell/known-limitations-and-deferred-work:
-  en: 7accdcf086afc935
-  zh: 559efed0582356d5
+  en: 5d6665d0bbcca339
+  zh: 874dae61b69cfc22

@@ -54,8 +54,19 @@ export interface UpdateSnapshot {
   phase: UpdatePhase
   /** The running build's version. */
   currentVersion: string
+  /**
+   * The running build's sequence, when the installation declares one. Two
+   * builds of one version are told apart by this, never by the version.
+   */
+  currentBuild?: number
   /** The version the last check saw, when it saw one ahead of the running build. */
   latestVersion?: string
+  /**
+   * The sequence of the build [[latestVersion]] names, when that build declares
+   * one. A reader that shows both tells "the same version, a newer build" from
+   * "no update at all".
+   */
+  latestBuild?: number
   /** Release notes the manifest carries for [[latestVersion]], passed through as the feed wrote them. */
   releaseNotes?: string
   /** Transfer completion from 0 to 100; present only while `downloading`. */
@@ -95,6 +106,9 @@ export class UpdateState {
   /** The version the last check saw ahead of the running build. */
   private latestVersion: string | undefined
 
+  /** The sequence of the build [[latestVersion]] names, when it has one. */
+  private latestBuild: number | undefined
+
   /** Release notes for [[latestVersion]]. */
   private releaseNotes: string | undefined
 
@@ -116,8 +130,10 @@ export class UpdateState {
   /**
    * @param currentVersion - the running build's version, which never changes
    * while the process lives.
+   * @param currentBuild - the running build's sequence, when the installation
+   * declares one; omitted by a build that predates the release identity.
    */
-  constructor(private readonly currentVersion: string) {}
+  constructor(private readonly currentVersion: string, private readonly currentBuild?: number) {}
 
   /**
    * The whole state, as the service answers it.
@@ -127,7 +143,9 @@ export class UpdateState {
     return {
       phase: this.phase,
       currentVersion: this.currentVersion,
+      ...this.currentBuild === undefined ? {} : { currentBuild: this.currentBuild },
       ...this.latestVersion === undefined ? {} : { latestVersion: this.latestVersion },
+      ...this.latestBuild === undefined ? {} : { latestBuild: this.latestBuild },
       ...this.releaseNotes === undefined ? {} : { releaseNotes: this.releaseNotes },
       ...this.sample === undefined ? {} : {
         percent: this.sample.percent,
@@ -165,11 +183,15 @@ export class UpdateState {
    * @param version - the version the feed offers when it is ahead of the
    * running build, and undefined when the running build is current.
    * @param notes - release notes the manifest carries for that version.
+   * @param build - the sequence of the build that version names, when the
+   * manifest declares one. It is kept beside the version so a reader can tell
+   * "the same version, a newer build" from "nothing to install".
    */
-  checkSucceeded(at: string, version?: string, notes?: string): void {
+  checkSucceeded(at: string, version?: string, notes?: string, build?: number): void {
     this.checkedAt = at
     if (this.phase === 'ready' || this.phase === 'downloading') return
     this.latestVersion = version
+    this.latestBuild = version === undefined ? undefined : build
     this.releaseNotes = notes
     if (this.phase === 'checking') this.phase = 'idle'
   }
@@ -197,11 +219,13 @@ export class UpdateState {
    * An artifact transfer has started.
    * @param version - the version being transferred.
    * @param notes - release notes the manifest carries for it.
+   * @param build - the sequence of the build that version names, when known.
    */
-  downloadStarted(version: string, notes?: string): void {
+  downloadStarted(version: string, notes?: string, build?: number): void {
     if (this.final || this.phase === 'ready') return
     this.phase = 'downloading'
     this.latestVersion = version
+    this.latestBuild = build
     this.releaseNotes = notes
     this.reason = undefined
     this.sample = { percent: 0, transferred: 0, total: 0 }
@@ -222,11 +246,13 @@ export class UpdateState {
    * The transfer finished and its checksum matched the manifest.
    * @param version - the downloaded version.
    * @param notes - release notes the manifest carries for it.
+   * @param build - the sequence of the downloaded build, when known.
    */
-  downloadReady(version: string, notes?: string): void {
+  downloadReady(version: string, notes?: string, build?: number): void {
     if (this.final) return
     this.phase = 'ready'
     this.latestVersion = version
+    this.latestBuild = build
     this.releaseNotes = notes
     this.reason = undefined
     this.sample = undefined

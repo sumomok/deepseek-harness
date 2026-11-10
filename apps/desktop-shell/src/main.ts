@@ -48,7 +48,8 @@ import {
   type DataLocationServiceSpec, type MoveBody,
 } from './data-location-service.ts'
 import { appDataLocationHost } from './data-location-window.ts'
-import { forgetServerPort, readState, recordRun, reportStateWritesTo, setServerPort } from './desktop-state.ts'
+import { confirmedInstallOnLaunch, forgetServerPort, readState, recordBuildRun, recordRun, reportStateWritesTo, setServerPort } from './desktop-state.ts'
+import { restoreOfficeEnvironment } from './install-recovery.ts'
 import { decideDownload, downloadOutcome, type DownloadAlert } from './download-policy.ts'
 import { mainWindow, revealMainWindow } from './main-window.ts'
 import { shellLanguage } from './menu-text.ts'
@@ -74,7 +75,7 @@ import { nameLocale } from './move/names.ts'
 import { cloudRoots, iCloudSyncsDesktopAndDocuments, nodePreflightProbes, tempRoots } from './move/preflight.ts'
 import { nodeMoveEffects, retireAbandonedCopies } from './move/run.ts'
 import { samePathText } from './path-text.ts'
-import { nodeLockProbes, nodeProcessProbes, stopServerTree, type TreeCheck } from './process-tree.ts'
+import { ensureTreeGone, nodeLockProbes, nodeProcessProbes, stopServerTree, type TreeCheck } from './process-tree.ts'
 import { isExternalNavigationTarget, isServerNavigation } from './navigation.ts'
 import type { ListenHandoff } from './listen-socket.ts'
 import { setupNotifications, stopNotifications } from './notifications.ts'
@@ -119,8 +120,9 @@ import {
   ENDPOINT_ENV as UPDATE_ENDPOINT_ENV, startUpdateService,
   TOKEN_ENV as UPDATE_TOKEN_ENV, type UpdateServiceHandle,
 } from './update-service.ts'
-import { launchGate, setupUpdates, updateActions, updaterCacheDir, type UpdateHost } from './updater.ts'
+import { launchGate, readInstalledIdentity, setupUpdates, updateActions, updaterCacheDir, type UpdateHost } from './updater.ts'
 import { superviseAppLoad, type AppLoader } from './window-load.ts'
+import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
 
 // First statement of the process: every directory below is derived from the
 // application name, and the state of an existing installation lives under the
@@ -180,6 +182,8 @@ function resolveSpec(logDir: string): LaunchSpec {
 }
 
 let server: ServerHandle | undefined
+/** A failed teardown must be resolved before another server can write to the same home. */
+let serverStopCheck: TreeCheck = { kind: 'gone' }
 let stopAccountLogin: (() => void) | undefined
 let renderService: RenderServiceHandle | undefined
 let updateService: UpdateServiceHandle | undefined
@@ -188,7 +192,7 @@ let dataLocationService: DataLocationServiceHandle | undefined
 let lastMoveRefusal: MoveRefusal | undefined
 /** What the terminal's data location came to, as `/state` reports it ({@link terminalForLaunch}). */
 let settledTerminal: TerminalSync | undefined
-let officeEngineService: OfficeEngineServiceHandle | undefined
+let officeEngineService: (OfficeEngineServiceHandle & { readonly env: Record<string, string> }) | undefined
 /** This launch's Office engine state machine, which the launch tells when to start an upgrade's download. */
 let officeEngine: OfficeEngineManager | undefined
 let quitting = false
@@ -312,14 +316,19 @@ function clearAuthCookies(): Promise<number> {
  * engine service is closed first: its download runs in this process, outside
  * that tree, and writes under the data directory, so closing it stops a
  * running download and keeps a confirmation answered later from starting one.
- * It is not opened again before the next launch. Without a handle (a start
+ * A quit leaves it closed; a caller that starts the server again through
+ * [[startEmbeddedServer]] (the failed-install resume does) creates it anew
+ * together with that server's environment. Without a handle (a start
  * that failed before its URL line), a server still running is found among
  * this process's children by the bundled Node binary's path.
  * @returns whether the tree is gone.
  */
 async function stopServerCompletely(): Promise<TreeCheck> {
+  if (serverStopCheck.kind === 'running') serverStopCheck = await ensureTreeGone(serverStopCheck.survivors, nodeProcessProbes(process.platform))
+  if (serverStopCheck.kind !== 'gone') return serverStopCheck
   const handle = server
   const { nodeBin } = resolveSpec(app.getPath('logs'))
+  serverStopCheck = { kind: 'unconfirmed', detail: 'server teardown did not finish; restart the application before retrying' }
   const check = await stopServerTree({
     closeShellWriters: async () => {
       const engine = officeEngineService
@@ -332,12 +341,35 @@ async function stopServerCompletely(): Promise<TreeCheck> {
     sweep: () => sweepOrphanedServers(nodeBin, logLine),
     probes: nodeProcessProbes(process.platform),
   })
+  serverStopCheck = check
   server = undefined
   if (check.kind === 'running') {
     logLine(`[desktop] server tree not confirmed stopped; still running: ${check.survivors.map(entry => `${String(entry.pid)} ${entry.command}`).join(', ')}\n`)
   }
   if (check.kind === 'unconfirmed') logLine(`[desktop] server tree not confirmed stopped: ${check.detail}\n`)
   return check
+}
+
+/**
+ * A teardown that must precede an installer did not confirm what it stopped.
+ *
+ * The installer replaces the app directory, so an install started while this
+ * process's server tree may still be running would replace files a live
+ * process is writing. The updater receives this refusal instead of the
+ * install handoff and takes its install-failure path, which restarts what the
+ * teardown closed and keeps the downloaded candidate.
+ */
+class UpdateStopIncomplete extends Error {
+  /** Stable machine identity of the refusal, for the log. */
+  readonly code = 'UPDATE_STOP_INCOMPLETE'
+
+  /**
+   * @param detail - what the process-tree check reported.
+   */
+  constructor(detail: string) {
+    super(`the server process tree was not confirmed stopped before the install: ${detail}`)
+    this.name = 'UpdateStopIncomplete'
+  }
 }
 
 /**
@@ -413,13 +445,24 @@ async function performRebind(): Promise<boolean> {
 }
 
 /**
- * Start the embedded server with the migrated-plugin quarantine, logging to the
- * current {@link logLine}.
- * @param spec - the launch.
+ * Start the embedded server with the migrated-plugin quarantine and current
+ * Office service credentials. An unresolved teardown refuses a second writer.
+ * @param spec - the launch; its environment receives a recreated Office service.
  * @returns the running server.
  */
-function startEmbeddedServer(spec: ServerSpec): Promise<ServerHandle> {
-  return startServerWithQuarantine(spec, logLine, quarantineLoadFailureFromOutput, resolveHarnessHome())
+async function startEmbeddedServer(spec: ServerSpec): Promise<ServerHandle> {
+  if (serverStopCheck.kind === 'running') serverStopCheck = await ensureTreeGone(serverStopCheck.survivors, nodeProcessProbes(process.platform))
+  if (serverStopCheck.kind !== 'gone') {
+    const detail = serverStopCheck.kind === 'unconfirmed' ? serverStopCheck.detail : 'recorded server processes are still running'
+    throw new UpdateStopIncomplete(`${detail}; server restart is blocked to avoid concurrent writers`)
+  }
+  spec.env = await restoreOfficeEnvironment(spec.env, () => officeEngineService === undefined
+    ? startOfficeEngineForServer(resolveSpec(app.getPath('logs')), logLine)
+    : Promise.resolve(officeEngineService.env))
+  const engine = officeEngine
+  const started = await startServerWithQuarantine(spec, logLine, quarantineLoadFailureFromOutput, resolveHarnessHome())
+  void moveCleanup.idle().then(() => { engine?.runUpgrade() })
+  return started
 }
 
 /** Replace the native account watcher whenever the embedded Host changes origin. */
@@ -992,7 +1035,7 @@ async function confirmOfficeEngine(request: EngineConfirmRequest): Promise<boole
  * earlier engine is kept and the declared version is registered, the manager
  * begins its upgrade here, so the state reads `installing` before the server
  * starts; the download itself waits for [[officeEngine]]'s `runUpgrade` once
- * the app is shown and a cleanup of a finished data move's old copy has ended.
+ * the server is ready and cleanup of a finished data move's old copy has ended.
  * `NODE_PATH` names the current version's directory whether or not it is
  * installed yet, so an engine downloaded while the server runs is found by the
  * next conversion. Failing to open the loopback listener is not a reason to
@@ -1039,9 +1082,12 @@ async function startOfficeEngineForServer(spec: LaunchSpec, log: (chunk: string)
     log(`[desktop] office engine service unavailable (${message}); the preview engine cannot be downloaded this launch\n`)
     return engineEnv
   }
-  officeEngineService = started
+  officeEngineService = {
+    ...started,
+    env: { ...engineEnv, [OFFICE_ENGINE_ENDPOINT_ENV]: started.endpoint, [OFFICE_ENGINE_TOKEN_ENV]: started.token },
+  }
   log(`[desktop] office engine service on ${started.endpoint}\n`)
-  return { ...engineEnv, [OFFICE_ENGINE_ENDPOINT_ENV]: started.endpoint, [OFFICE_ENGINE_TOKEN_ENV]: started.token }
+  return officeEngineService.env
 }
 
 /**
@@ -1278,7 +1324,7 @@ function createBootWindow(receipt?: string): BootView {
     } : {},
     ...process.platform === 'win32' ? {
       titleBarStyle: 'hidden' as const,
-      titleBarOverlay: { height: 40, color: PALETTES[appearance].background, symbolColor: PALETTES[appearance].text },
+      titleBarOverlay: { height: WINDOWS_TITLEBAR_HEIGHT, color: PALETTES[appearance].background, symbolColor: PALETTES[appearance].text },
     } : {},
     // macOS: the click that activates the window also reaches the control under the pointer.
     acceptFirstMouse: true,
@@ -1457,8 +1503,12 @@ if (!locked) {
       microphoneStatus: () => systemPreferences.getMediaAccessStatus('microphone'),
       askForMicrophone: () => systemPreferences.askForMediaAccess('microphone'),
     })
-    const upgradedFrom = recordRun()
-    const view = createBootWindow(upgradedFrom === undefined ? undefined : `已更新到 v${app.getVersion()}`)
+    const installed = readInstalledIdentity()
+    const confirmedInstall = confirmedInstallOnLaunch(installed)
+    recordRun()
+    recordBuildRun(installed)
+    const buildLabel = installed === undefined ? '' : `(构建 ${String(installed.dshRelease.buildSequence)})`
+    const view = createBootWindow(confirmedInstall !== undefined ? `已更新到 v${app.getVersion()}${buildLabel}` : undefined)
     const logDir = app.getPath('logs')
     logFile = join(logDir, 'dsh-server.log')
     try {
@@ -1492,7 +1542,7 @@ if (!locked) {
     sink(`[desktop] server entry: ${spec.entry} (exists: ${String(existsSync(spec.entry))})\n`)
     sink(`[desktop] server cwd: ${spec.cwd}\n`)
     sink(`[desktop] server diagnostic reports: ${spec.reportDirectory}\n`)
-    if (upgradedFrom !== undefined) sink(`[desktop] first run after updating from ${upgradedFrom}\n`)
+    if (confirmedInstall !== undefined) sink(`[desktop] installed build ${String(confirmedInstall.target.dshRelease.buildSequence)} confirmed; previous build ${String(confirmedInstall.from.dshRelease.buildSequence)}\n`)
     if (isRecoveryRelaunch) sink('[desktop] this launch is an automatic recovery relaunch after repeated server crashes\n')
     view.phase(1)
     const host = {
@@ -1507,7 +1557,18 @@ if (!locked) {
       },
       prepareQuit: async () => {
         quitting = true
-        await stopServerBounded()
+        // The installer replaces this process's app directory, so it may only
+        // start once the server's whole tree is confirmed gone. A bounded stop
+        // resolves when its deadline passes and would hand an unconfirmed tree
+        // to the installer as success; the tree check is what the updater's
+        // install-failure path needs instead.
+        const check = await stopServerCompletely()
+        if (check.kind === 'running') {
+          throw new UpdateStopIncomplete(
+            `still running: ${check.survivors.map(entry => `${String(entry.pid)} ${entry.command}`).join(', ')}`,
+          )
+        }
+        if (check.kind === 'unconfirmed') throw new UpdateStopIncomplete(check.detail)
       },
       resumeAfterFailedInstall: (blocking: boolean) => resumeAfterFailedInstall({
         blocking,

@@ -19,6 +19,7 @@ productName: DSH Desktop
 # `desktop-state.json` out of reach and orphan the updater's download cache.
 # `appId` and `productName` above are what the artifact names, the bundle
 # identifier and the update feed are built from; they do not depend on this.
+# scripts/package.ts supplies version and dshRelease before asar creation/signing.
 extraMetadata:
   name: '@deepseek-ai/dsh-desktop'
 directories:
@@ -76,6 +77,13 @@ mac:
   identity: null
   category: public.app-category.developer-tools
   icon: build/icon.icns
+  # The standard name carries the build identity, because two builds of one
+  # upstream version must never share a file name. scripts/package.ts exports
+  # DSH_BUILD_SEQUENCE and DSH_SHORT_REVISION before this runs; a bridge build
+  # overrides the pattern to keep the legacy names old clients fetch. The zip
+  # target reads this key rather than a `zip:` section, whose schema this
+  # builder does not accept.
+  artifactName: ${productName}-${version}-b${env.DSH_BUILD_SEQUENCE}-${env.DSH_SHORT_REVISION}-${arch}-mac.${ext}
   # macOS gates ~/Downloads behind TCC: the first write there raises the
   # system's own consent prompt, and without this key the prompt names no
   # reason. The shell writes there for one reason only — a download the served
@@ -89,6 +97,7 @@ mac:
   # entitlement in build/entitlements.mac.plist; without it the system refuses
   # without asking.
   extendInfo:
+    ElectronSquirrelPreventDowngrades: false
     NSDownloadsFolderUsageDescription: DSH 需要访问「下载」文件夹,才能把你从应用里导出的文件保存到那里。
     NSMicrophoneUsageDescription: DSH 需要使用麦克风,才能把你说的话转成文字填进输入框。
   extraResources:
@@ -99,8 +108,12 @@ mac:
   # for the reason spelled out under `win.publish`.
   publish:
     - provider: generic
-      url: https://lhr.ink/dsh-updates/mac
+      url: https://lhr.ink/dsh-updates/v2/mac
       channel: latest
+# The dmg does not inherit the zip's `${arch}-mac` segment implicitly: without a
+# name here it would, and one target would then overwrite the other's identity.
+dmg:
+  artifactName: ${productName}-${version}-b${env.DSH_BUILD_SEQUENCE}-${env.DSH_SHORT_REVISION}-${arch}.${ext}
 win:
   electronLanguages:
     - en-US
@@ -132,7 +145,7 @@ win:
   # the release cycle. This product has one channel.
   publish:
     - provider: generic
-      url: https://lhr.ink/dsh-updates/win
+      url: https://lhr.ink/dsh-updates/v2/win
       channel: latest
 # The NSIS 3.12 toolset bundle, whose makensis runs natively on every packaging
 # host. The builder's default legacy toolset (NSIS 3.0.4.1) ships only an
@@ -146,6 +159,9 @@ toolsets:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  # Carries the build identity for the same reason as the mac targets: an NSIS
+  # installer for the next build of one version must not reuse this file name.
+  artifactName: ${productName} Setup ${version}-b${env.DSH_BUILD_SEQUENCE}-${env.DSH_SHORT_REVISION}.${ext}
   # One install mode, for all users. The mode page is gone with it, and so is
   # the failure it produced: an install that resolved to per-machine while the
   # updater had spawned the installer without elevation, whose silent uninstall

@@ -1,17 +1,42 @@
 /**
  * Path traversal prevention in the update channel.
  *
- * These tests verify that malicious update feeds cannot cause the updater to
- * write files outside the cache directory or perform other filesystem security
- * violations. The tests cover both POSIX and Windows-style attacks, as well
- * as legitimate prerelease versions that should continue to work.
+ * Two values of a feed reach the file system, and each is checked where it
+ * enters: the version through `validateFeedVersion`, the artifact name
+ * through `validateFeedFileName` inside the cache helpers. The `.part` file
+ * name carries a fixed-length digest of the complete build identity rather
+ * than any feed string, so even a value that slipped past validation cannot
+ * direct the path. The cases cover POSIX and Windows-style attacks, and the
+ * legitimate prerelease versions that must keep working.
+ * @module
  */
 
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { validateFeedVersion } from '../src/feed-validation.ts'
 import { partFileFor, placeInPendingCache } from '../src/pending-cache.ts'
+import type { ReleaseIdentity } from '../src/release-identity.ts'
+
+/** The source commit every build fixture names. */
+const REVISION = '0123456789abcdef0123456789abcdef01234567'
+
+/**
+ * One standard build's complete identity.
+ * @param version - the version the build publishes under.
+ * @param sequence - build sequence, the field two builds of one version differ in.
+ * @returns the identity the cache helpers take.
+ */
+function build(version: string, sequence = 101): ReleaseIdentity {
+  return {
+    version,
+    dshRelease: { schemaVersion: 2, runtimeVersion: version, buildSequence: sequence, revision: REVISION, kind: 'standard' },
+  }
+}
+
+/** The build the safe-path cases transfer. */
+const BUILD = build('0.2.2-rc.1')
 
 const directories: string[] = []
 
@@ -25,71 +50,60 @@ function cacheDirectory(): string {
   return directory
 }
 
-describe('malicious version strings', () => {
+describe('malicious feed version strings', () => {
   it('rejects POSIX parent directory traversal', () => {
-    const cacheDir = cacheDirectory()
-    expect(() => partFileFor(cacheDir, '../../../etc/passwd', 'app.zip')).toThrow()
-    expect(() => partFileFor(cacheDir, '1.0.0/../../evil', 'app.zip')).toThrow()
+    expect(() => validateFeedVersion('../../../etc/passwd')).toThrow()
+    expect(() => validateFeedVersion('1.0.0/../../evil')).toThrow()
   })
 
   it('rejects Windows parent directory traversal', () => {
-    const cacheDir = cacheDirectory()
-    expect(() => partFileFor(cacheDir, '..\\..\\Windows\\System32', 'app.exe')).toThrow()
-    expect(() => partFileFor(cacheDir, '1.0.0\\..\\..\\evil', 'app.exe')).toThrow()
+    expect(() => validateFeedVersion('..\\..\\Windows\\System32')).toThrow()
+    expect(() => validateFeedVersion('1.0.0\\..\\..\\evil')).toThrow()
   })
 
   it('rejects absolute POSIX paths', () => {
-    const cacheDir = cacheDirectory()
-    expect(() => partFileFor(cacheDir, '/etc/1.0.0', 'app.zip')).toThrow()
-    expect(() => partFileFor(cacheDir, '/tmp/../etc/1.0.0', 'app.zip')).toThrow()
+    expect(() => validateFeedVersion('/etc/1.0.0')).toThrow()
+    expect(() => validateFeedVersion('/tmp/../etc/1.0.0')).toThrow()
   })
 
   it('rejects Windows drive letters', () => {
-    const cacheDir = cacheDirectory()
-    expect(() => partFileFor(cacheDir, 'C:\\1.0.0', 'app.exe')).toThrow()
-    expect(() => partFileFor(cacheDir, 'D:\\Windows\\1.0.0', 'app.exe')).toThrow()
+    expect(() => validateFeedVersion('C:\\1.0.0')).toThrow()
+    expect(() => validateFeedVersion('D:\\Windows\\1.0.0')).toThrow()
   })
 
   it('rejects UNC paths', () => {
-    const cacheDir = cacheDirectory()
-    expect(() => partFileFor(cacheDir, '\\\\server\\share\\1.0.0', 'app.exe')).toThrow()
+    expect(() => validateFeedVersion('\\\\server\\share\\1.0.0')).toThrow()
   })
 
   it('rejects URL-encoded path traversal', () => {
-    const cacheDir = cacheDirectory()
-    expect(() => partFileFor(cacheDir, '1.0.0%2f%2e%2e', 'app.zip')).toThrow()
-    expect(() => partFileFor(cacheDir, '%2e%2e%2f1.0.0', 'app.zip')).toThrow()
-    expect(() => partFileFor(cacheDir, '1.0.0%5c%2e%2e', 'app.exe')).toThrow()
+    expect(() => validateFeedVersion('1.0.0%2f%2e%2e')).toThrow()
+    expect(() => validateFeedVersion('%2e%2e%2f1.0.0')).toThrow()
+    expect(() => validateFeedVersion('1.0.0%5c%2e%2e')).toThrow()
   })
 
   it('rejects double-encoded traversal', () => {
-    const cacheDir = cacheDirectory()
-    expect(() => partFileFor(cacheDir, '1%252e0%252e0', 'app.zip')).toThrow()
+    expect(() => validateFeedVersion('1%252e0%252e0')).toThrow()
   })
 
   it('rejects null byte injection', () => {
-    const cacheDir = cacheDirectory()
-    expect(() => partFileFor(cacheDir, '1.0.0\x00/etc/passwd', 'app.zip')).toThrow()
+    expect(() => validateFeedVersion('1.0.0\x00/etc/passwd')).toThrow()
   })
 
   it('rejects control characters', () => {
-    const cacheDir = cacheDirectory()
-    expect(() => partFileFor(cacheDir, '1.0.0\n', 'app.zip')).toThrow()
-    expect(() => partFileFor(cacheDir, '1.0.0\r\n', 'app.zip')).toThrow()
-    expect(() => partFileFor(cacheDir, '1.0.0\t', 'app.zip')).toThrow()
+    expect(() => validateFeedVersion('1.0.0\n')).toThrow()
+    expect(() => validateFeedVersion('1.0.0\r\n')).toThrow()
+    expect(() => validateFeedVersion('1.0.0\t')).toThrow()
   })
 
   it('rejects shell metacharacters', () => {
-    const cacheDir = cacheDirectory()
-    expect(() => partFileFor(cacheDir, '1.0.0|cmd', 'app.exe')).toThrow()
-    expect(() => partFileFor(cacheDir, '1.0.0;cmd', 'app.exe')).toThrow()
-    expect(() => partFileFor(cacheDir, '1.0.0&cmd', 'app.exe')).toThrow()
+    expect(() => validateFeedVersion('1.0.0|cmd')).toThrow()
+    expect(() => validateFeedVersion('1.0.0;cmd')).toThrow()
+    expect(() => validateFeedVersion('1.0.0&cmd')).toThrow()
   })
 
   it('rejects excessively long version strings', () => {
-    const cacheDir = cacheDirectory()
     const longVersion = '1.0.0-' + 'a'.repeat(200)
-    expect(() => partFileFor(cacheDir, longVersion, 'app.zip')).toThrow()
+    expect(() => validateFeedVersion(longVersion)).toThrow()
   })
 })
 
@@ -171,30 +185,26 @@ describe('malicious file names', () => {
   })
 })
 
-describe('legitimate prerelease versions', () => {
+describe('legitimate feed versions', () => {
   it('accepts standard prerelease tags', () => {
-    const cacheDir = cacheDirectory()
-    expect(() => partFileFor(cacheDir, '1.0.0-alpha', 'app.zip')).not.toThrow()
-    expect(() => partFileFor(cacheDir, '1.0.0-beta.1', 'app.zip')).not.toThrow()
-    expect(() => partFileFor(cacheDir, '1.0.0-rc.1', 'app.zip')).not.toThrow()
+    expect(() => validateFeedVersion('1.0.0-alpha')).not.toThrow()
+    expect(() => validateFeedVersion('1.0.0-beta.1')).not.toThrow()
+    expect(() => validateFeedVersion('1.0.0-rc.1')).not.toThrow()
   })
 
   it('accepts complex prerelease identifiers', () => {
-    const cacheDir = cacheDirectory()
-    expect(() => partFileFor(cacheDir, '2.0.0-alpha.1.beta', 'app.zip')).not.toThrow()
-    expect(() => partFileFor(cacheDir, '1.0.0-x.7.z.92', 'app.zip')).not.toThrow()
+    expect(() => validateFeedVersion('2.0.0-alpha.1.beta')).not.toThrow()
+    expect(() => validateFeedVersion('1.0.0-x.7.z.92')).not.toThrow()
   })
 
   it('accepts build metadata', () => {
-    const cacheDir = cacheDirectory()
-    expect(() => partFileFor(cacheDir, '1.0.0+build.123', 'app.zip')).not.toThrow()
-    expect(() => partFileFor(cacheDir, '1.0.0-rc.1+build.456', 'app.zip')).not.toThrow()
+    expect(() => validateFeedVersion('1.0.0+build.123')).not.toThrow()
+    expect(() => validateFeedVersion('1.0.0-rc.1+build.456')).not.toThrow()
   })
 
   it('accepts versions with hyphens in prerelease', () => {
-    const cacheDir = cacheDirectory()
-    expect(() => partFileFor(cacheDir, '1.0.0-alpha-test', 'app.zip')).not.toThrow()
-    expect(() => partFileFor(cacheDir, '1.0.0-pre-release-1', 'app.zip')).not.toThrow()
+    expect(() => validateFeedVersion('1.0.0-alpha-test')).not.toThrow()
+    expect(() => validateFeedVersion('1.0.0-pre-release-1')).not.toThrow()
   })
 
   it('creates safe cache keys for all legitimate versions', () => {
@@ -210,7 +220,7 @@ describe('legitimate prerelease versions', () => {
     ]
 
     for (const version of versions) {
-      const partFile = partFileFor(cacheDir, version, 'app.zip')
+      const partFile = partFileFor(cacheDir, build(version), 'app.zip')
       // Part file should be in cache directory
       expect(partFile.startsWith(cacheDir)).toBe(true)
       // Part file name should not contain the raw version (using digest instead)
@@ -225,7 +235,7 @@ describe('legitimate prerelease versions', () => {
 describe('path containment enforcement', () => {
   it('ensures part files stay within cache directory', () => {
     const cacheDir = cacheDirectory()
-    const partFile = partFileFor(cacheDir, '1.0.0', 'app.zip')
+    const partFile = partFileFor(cacheDir, BUILD, 'app.zip')
     expect(partFile.startsWith(cacheDir)).toBe(true)
     // Should be a direct child, not in pending subdirectory
     const relativePath = partFile.substring(cacheDir.length + 1)
@@ -266,25 +276,25 @@ describe('path containment enforcement', () => {
   })
 })
 
-describe('version to cache key conversion', () => {
+describe('build identity to cache key conversion', () => {
   it('produces consistent keys across calls', () => {
     const cacheDir = cacheDirectory()
-    const part1 = partFileFor(cacheDir, '1.0.0', 'app.zip')
-    const part2 = partFileFor(cacheDir, '1.0.0', 'app.zip')
+    const part1 = partFileFor(cacheDir, BUILD, 'app.zip')
+    const part2 = partFileFor(cacheDir, BUILD, 'app.zip')
     expect(part1).toBe(part2)
   })
 
-  it('produces different keys for different versions', () => {
+  it('produces different keys for different builds', () => {
     const cacheDir = cacheDirectory()
-    const part1 = partFileFor(cacheDir, '1.0.0', 'app.zip')
-    const part2 = partFileFor(cacheDir, '1.0.1', 'app.zip')
+    const part1 = partFileFor(cacheDir, build('1.0.0'), 'app.zip')
+    const part2 = partFileFor(cacheDir, build('1.0.1'), 'app.zip')
     expect(part1).not.toBe(part2)
   })
 
   it('produces fixed-length keys regardless of version length', () => {
     const cacheDir = cacheDirectory()
-    const shortPart = partFileFor(cacheDir, '1.0.0', 'app.zip')
-    const longPart = partFileFor(cacheDir, '1.0.0-very-long-prerelease-tag', 'app.zip')
+    const shortPart = partFileFor(cacheDir, build('1.0.0'), 'app.zip')
+    const longPart = partFileFor(cacheDir, build('1.0.0-very-long-prerelease-tag'), 'app.zip')
 
     // Extract the hash portion (between prefix and filename)
     const shortHash = shortPart.match(/dsh-resume-([0-9a-f]+)-/)?.[1]

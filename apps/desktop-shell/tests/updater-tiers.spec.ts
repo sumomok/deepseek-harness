@@ -1,42 +1,68 @@
 /**
  * Which tier a macOS check ends on, and what the channel reports when the
  * in-place one could not be reached. `updater.ts` drives electron and
- * electron-updater; both stand in here, while the app bundle the signature
- * probe reads and the manifest the download-page tier fetches are real.
+ * electron-updater; both stand in here, while the app bundle and its own
+ * `package.json` — the build's release identity — and the v2 manifest the
+ * download-page tier fetches are real files.
  *
  * The electron-updater stand-in covers every member `updater.ts` uses and
  * differs from the library in two ways that nothing here depends on. Its
- * `update-downloaded` payload carries only `version` and `releaseNotes`, where
+ * `update-downloaded` payload carries only `version` and `dshRelease`, where
  * the library sends `UpdateInfo & { downloadedFile: string }`. Its
- * `checkForUpdates()` only rejects, where the library also raises `error`, so
- * the demotion the `error` listener performs is reached here through the
- * caller's own catch instead.
+ * `checkForUpdates()` reports what the candidate callback accepted, where the
+ * library also runs its system and rollout checks first; the ordering of those
+ * checks is exercised against the real library in
+ * `updater-candidate.spec.ts`.
  * @module
  */
 
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { dump } from 'js-yaml'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ReleaseIdentity } from '../src/release-identity.ts'
 import type { UpdateHost } from '../src/updater.ts'
 
 /** The running build every case reports as installed. */
 const CURRENT = '0.1.0-rc.32'
 
+/** The running build's sequence. */
+const CURRENT_BUILD = 32
+
 /** The version the feed offers in every case that has one. */
 const NEXT = '0.1.0-rc.33'
+
+/** The offered build's sequence. */
+const NEXT_BUILD = 33
+
+/** The running build's source commit. */
+const REVISION = '0'.repeat(40)
+
+/** The offered build's source commit. */
+const NEXT_REVISION = '1'.repeat(40)
 
 /** What the transfer this feed offers is called. */
 const ARTIFACT = 'DSH Desktop-0.1.0-rc.33-arm64-mac.zip'
 
-/** The line [[checkGeneric]] ends a silent check on once it has found a version. */
-const FOUND_LINE = `${NEXT} is available; not interrupting the session`
+/** The artifact's bytes; the ready check reads them back from disk. */
+const ARTIFACT_BYTES = Buffer.from('the update artifact these cases verify\n')
+
+/** The base64 SHA-512 of [[ARTIFACT_BYTES]], as the manifest states it. */
+const SHA512 = createHash('sha512').update(ARTIFACT_BYTES).digest('base64')
+
+/** The artifact's length, as the manifest states it. */
+const ARTIFACT_SIZE = ARTIFACT_BYTES.byteLength
+
+/** The line [[checkGeneric]] ends a silent check on once it has found a build. */
+const FOUND_LINE = `${NEXT} · 构建 ${NEXT_BUILD} is available; not interrupting the session`
 
 /** The line [[checkGeneric]] writes when it is answering for an in-place tier the failure did not cost. */
-const FALLBACK_LINE = `${NEXT} was read straight from the feed; the in-place check did not get through`
+const FALLBACK_LINE = `${NEXT} · 构建 ${NEXT_BUILD} was read straight from the feed; the in-place check did not get through`
 
 /** The line a silent fallback answer ends on when the feed's red line is above the running build. */
-const MANDATORY_FALLBACK_LINE = `mandatory ${NEXT}: the in-place check did not get through`
+const MANDATORY_FALLBACK_LINE = `mandatory ${NEXT} · 构建 ${NEXT_BUILD}: the in-place check did not get through`
 
 /**
  * What the electron and electron-updater stand-ins read and record. Hoisted
@@ -45,6 +71,8 @@ const MANDATORY_FALLBACK_LINE = `mandatory ${NEXT}: the in-place check did not g
 const shell = vi.hoisted(() => ({
   /** What `app.getPath('exe')` answers; the bundle the signature probe reads sits two levels above it. */
   exePath: '',
+  /** What `app.getAppPath()` answers; the build's `package.json` sits directly under it. */
+  appPath: '',
   /** What `app.isPackaged` answers. */
   packaged: true,
   /** Every dialog the run put up, in order. */
@@ -56,12 +84,26 @@ const shell = vi.hoisted(() => ({
   /** What the app registered for `before-quit`, which is what stops its timers. */
   beforeQuit: [] as (() => void)[],
   /** Every updater the run built, so a case can raise the library's own events. */
-  instances: [] as { emit: (event: string, payload: unknown) => void }[],
-  /** What one `checkForUpdates()` answers. */
-  checkForUpdates: async (): Promise<unknown> => null,
+  instances: [] as FakeUpdater[],
+  /** What one `checkForUpdates()` answers; the updater is passed so a case can consult its candidate callback. */
+  checkForUpdates: async (_updater: FakeUpdater): Promise<unknown> => null,
   /** What one `downloadUpdate()` answers. */
   downloadUpdate: async (): Promise<void> => undefined,
 }))
+
+/** The members of the library class this module drives. */
+interface FakeUpdater {
+  /** The product's candidate callback, installed by `ensureUpdater` when the build declares an identity. */
+  isUpdateCandidate?: (info: unknown) => boolean | Promise<boolean>
+  /** Whether the library may accept a lower version; this product keeps it off. */
+  allowDowngrade: boolean
+  /** Whether the library transfers changed blocks only; this product turns it off. */
+  disableDifferentialDownload: boolean
+  emit: (event: string, payload: unknown) => void
+  checkForUpdates: () => Promise<unknown>
+  downloadUpdate: () => Promise<void>
+  quitAndInstall: () => void
+}
 
 vi.mock('electron', () => ({
   app: {
@@ -69,6 +111,7 @@ vi.mock('electron', () => ({
     getVersion: (): string => CURRENT,
     getName: (): string => 'DSH Desktop',
     getPath: (): string => shell.exePath,
+    getAppPath: (): string => shell.appPath,
     getLocale: (): string => 'zh-CN',
     once: (event: string, listener: () => void): void => {
       if (event === 'before-quit') shell.beforeQuit.push(listener)
@@ -101,10 +144,13 @@ vi.mock('electron', () => ({
 
 vi.mock('electron-updater', () => {
   /** Both platform classes: the module drives them through one set of members. */
-  class FakeUpdater {
+  class StandInUpdater implements FakeUpdater {
     autoDownload = true
     autoInstallOnAppQuit = true
+    allowDowngrade = true
+    disableDifferentialDownload = false
     logger: unknown = undefined
+    isUpdateCandidate?: (info: unknown) => boolean | Promise<boolean>
     private readonly listeners = new Map<string, ((payload: unknown) => void)[]>()
 
     constructor() {
@@ -121,7 +167,7 @@ vi.mock('electron-updater', () => {
     }
 
     async checkForUpdates(): Promise<unknown> {
-      return shell.checkForUpdates()
+      return shell.checkForUpdates(this)
     }
 
     async downloadUpdate(): Promise<void> {
@@ -132,23 +178,71 @@ vi.mock('electron-updater', () => {
       // Nothing replaces the application in a unit process.
     }
   }
-  return { MacUpdater: FakeUpdater, NsisUpdater: FakeUpdater }
+  return { MacUpdater: StandInUpdater, NsisUpdater: StandInUpdater }
 })
 
+/**
+ * The identity one standard build declares.
+ * @param version - its application version, which a standard build also reports as its runtime.
+ * @param build - its build sequence.
+ * @param revision - its source commit.
+ * @returns the identity.
+ */
+function identity(version: string, build: number, revision: string): ReleaseIdentity {
+  return {
+    version,
+    dshRelease: { schemaVersion: 2, runtimeVersion: version, buildSequence: build, revision, kind: 'standard' },
+  }
+}
+
+/**
+ * The manifest a v2 feed publishes.
+ * @param minimumBuildSequence - the publisher's red line, when it sets one.
+ * @param build - the build sequence it offers.
+ * @returns the parsed document a manifest read yields.
+ */
+function manifest(minimumBuildSequence?: number, build = NEXT_BUILD): Record<string, unknown> {
+  return {
+    version: NEXT,
+    dshRelease: identity(NEXT, build, NEXT_REVISION).dshRelease,
+    files: [{ url: ARTIFACT, sha512: SHA512, size: ARTIFACT_SIZE }],
+    path: ARTIFACT,
+    releaseDate: '2026-09-11T00:00:00.000Z',
+    releaseNotes: 'fixes the thing',
+    ...minimumBuildSequence === undefined ? {} : { minimumBuildSequence },
+  }
+}
+
 /** The manifest the download-page tier reads, as `publish-update.ts` writes it. */
-const MAC_FEED = [
-  `version: ${NEXT}`,
-  'files:',
-  `  - url: ${ARTIFACT}`,
-  '    sha512: TCBQnUqRgUNvpaLKDIw2gRPmMK4ArWs3HcAiWkuBOAo=',
-  `path: ${ARTIFACT}`,
-  "releaseDate: '2026-09-11T00:00:00.000Z'",
-  'releaseNotes: fixes the thing',
-  '',
-].join('\n')
+const MAC_FEED = dump(manifest())
 
 /** The same manifest with the publisher's red line above the running build. */
-const MANDATORY_FEED = MAC_FEED.replace(`version: ${NEXT}\n`, `version: ${NEXT}\nminimumVersion: ${NEXT}\n`)
+const MANDATORY_FEED = dump(manifest(NEXT_BUILD))
+
+/**
+ * The payload the library's own download raises once the artifact is cached and
+ * verified, with the file its ready check reads: the bytes under the name the
+ * feed publishes the artifact with.
+ * @returns the event payload.
+ */
+function downloaded(): Record<string, unknown> {
+  const directory = mkdtempSync(join(tmpdir(), 'dsh-download-'))
+  directories.push(directory)
+  const file = join(directory, ARTIFACT)
+  writeFileSync(file, ARTIFACT_BYTES)
+  return { version: NEXT, dshRelease: identity(NEXT, NEXT_BUILD, NEXT_REVISION).dshRelease, downloadedFile: file }
+}
+
+/**
+ * Answer one check the way the library would when its own system and rollout
+ * checks passed: with what the candidate callback said.
+ * @param updater - the instance the check runs on.
+ * @param info - the manifest the check reports.
+ * @returns the library's check result.
+ */
+async function candidateResult(updater: FakeUpdater, info: Record<string, unknown>): Promise<unknown> {
+  return { isUpdateAvailable: await updater.isUpdateCandidate?.(info) ?? false, updateInfo: info }
+}
 
 /** Directories one case created, removed by the shared teardown. */
 const directories: string[] = []
@@ -163,8 +257,9 @@ beforeAll(() => {
   // The whole tier ladder is a macOS one, and this file's own fork reports
   // whatever host it runs on.
   Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
-  // A feed nothing can reach, so a request that escaped the stub fails at once
-  // rather than reaching the published one.
+  // The root address only: the module appends the protocol's own
+  // `/v2/<platform>` path, so nothing here serves (or reaches) the old `/mac`
+  // source the bridge build replaced.
   process.env.DSH_UPDATE_FEED = 'http://127.0.0.1:1/dsh-updates'
 })
 
@@ -195,7 +290,8 @@ afterEach(() => {
 })
 
 /**
- * Build an app bundle for one case and point the stand-in `app` at it.
+ * Build an app bundle and its embedded package manifest for one case, and point
+ * the stand-in `app` at it.
  * @param signed - whether to seal it the way a certificate does, which is what
  * [[macAppIsSigned]] probes for.
  */
@@ -209,6 +305,10 @@ function bundle(signed: boolean): void {
     writeFileSync(join(contents, '_CodeSignature', 'CodeResources'), '<plist/>\n')
   }
   shell.exePath = join(contents, 'MacOS', 'DSH Desktop')
+  // The running build's own manifest, which is where the identity is read from.
+  shell.appPath = join(contents, 'Resources', 'app')
+  mkdirSync(shell.appPath, { recursive: true })
+  writeFileSync(join(shell.appPath, 'package.json'), JSON.stringify(identity(CURRENT, CURRENT_BUILD, REVISION)))
 }
 
 /** A log sink that a case can wait on, so nothing polls for a check to finish. */
@@ -243,7 +343,7 @@ function sink(): Sink {
         }
       }
     },
-    openLog: () => undefined,
+    openLog: (): void => undefined,
     prepareQuit: async () => undefined,
     resumeAfterFailedInstall: async () => undefined,
   }
@@ -299,9 +399,16 @@ describe('a signed build whose in-place check could not get through', () => {
     // The build can still replace itself, so nothing may claim otherwise.
     expect(snapshot.reason).not.toBe('this build installs an update by replacing it by hand')
     expect(snapshot.latestVersion).toBe(NEXT)
+    expect(snapshot.latestBuild).toBe(NEXT_BUILD)
 
-    // The tier survived, so the transfer this run still runs reaches `ready`.
-    shell.instances[0]?.emit('update-downloaded', { version: NEXT, releaseNotes: 'fixes the thing' })
+    // The tier survived, so a later check can still accept the build and the
+    // library's own download event is what makes it ready.
+    shell.checkForUpdates = async (updater: FakeUpdater): Promise<unknown> => candidateResult(updater, manifest())
+    shell.downloadUpdate = async (): Promise<void> => {
+      shell.instances[0]?.emit('update-downloaded', downloaded())
+    }
+    actions.check()
+    await waitFor(`downloaded ${NEXT} · 构建 ${NEXT_BUILD}; waiting for an explicit install`)
     expect(actions.state().phase).toBe('ready')
   })
 
@@ -333,8 +440,13 @@ describe('a signed build whose in-place check could not get through', () => {
     expect(snapshot.phase).toBe('failed')
     expect(snapshot.reason).toBe('TimeoutError')
     expect(snapshot.reason).not.toMatch(/^in-place update unavailable:/)
-    // The tier survived, so the transfer this run still runs reaches `ready`.
-    shell.instances[0]?.emit('update-downloaded', { version: NEXT, releaseNotes: 'fixes the thing' })
+
+    shell.checkForUpdates = async (updater: FakeUpdater): Promise<unknown> => candidateResult(updater, manifest())
+    shell.downloadUpdate = async (): Promise<void> => {
+      shell.instances[0]?.emit('update-downloaded', downloaded())
+    }
+    actions.check()
+    await waitFor(`downloaded ${NEXT} · 构建 ${NEXT_BUILD}; waiting for an explicit install`)
     expect(actions.state().phase).toBe('ready')
   })
 
@@ -393,7 +505,8 @@ describe('a signed build whose in-place check could not get through', () => {
     try {
       actions.check()
       await vi.advanceTimersByTimeAsync(10_000)
-      await waitFor(FOUND_LINE)
+      // A fatal failure still answers as the check that did not get through.
+      await waitFor(FALLBACK_LINE)
     } finally {
       vi.useRealTimers()
     }
@@ -401,9 +514,9 @@ describe('a signed build whose in-place check could not get through', () => {
     // A refused signature is not the next check's problem: this run cannot
     // install where it stands any more, and says so.
     expect(actions.state().reason).toMatch(/^in-place update unavailable:/)
-    // The verdict is final, so the transfer already in flight cannot report
+    // The verdict is final, so a transfer that arrives later cannot report
     // itself into a state offering an install that cannot happen.
-    shell.instances[0]?.emit('update-downloaded', { version: NEXT, releaseNotes: 'fixes the thing' })
+    shell.instances[0]?.emit('update-downloaded', downloaded())
     expect(actions.state().phase).toBe('failed')
   })
 
@@ -483,6 +596,74 @@ describe('a signed build whose in-place check could not get through', () => {
     }
     expect(attempts).toBe(3)
   })
+
+  it('installs the candidate callback on the library and lets its answer decide the check', async () => {
+    bundle(true)
+    let downloads = 0
+    shell.checkForUpdates = async (updater: FakeUpdater): Promise<unknown> => candidateResult(updater, manifest())
+    shell.downloadUpdate = async (): Promise<void> => { downloads += 1 }
+    const { host, waitFor } = sink()
+    const { updateActions } = await import('../src/updater.ts')
+    const actions = updateActions(host)
+
+    actions.check()
+    await waitFor(`downloading ${NEXT} · 构建 ${NEXT_BUILD} in the background`)
+
+    const instance = shell.instances[0]
+    expect(typeof instance?.isUpdateCandidate).toBe('function')
+    // A manifest that names the running build is not a candidate — the answer
+    // the library would report as "no update" even though the versions are
+    // equal and the build sequence matches.
+    const running = {
+      version: CURRENT,
+      dshRelease: identity(CURRENT, CURRENT_BUILD, REVISION).dshRelease,
+      files: [{ url: ARTIFACT, sha512: SHA512, size: ARTIFACT_SIZE }],
+    }
+    expect(await instance?.isUpdateCandidate?.(running)).toBe(false)
+    expect(downloads).toBe(1)
+    // The library's default comparison is replaced, and a downgrade is never
+    // left available as a fallback.
+    expect(instance?.allowDowngrade).toBe(false)
+    expect(instance?.disableDifferentialDownload).toBe(true)
+  })
+})
+
+describe('the candidate a transfer froze', () => {
+  it('keeps the build it froze when the feed moves on, and only readies that build’s download (U11)', async () => {
+    bundle(true)
+    shell.checkForUpdates = async (updater: FakeUpdater): Promise<unknown> => candidateResult(updater, manifest())
+    // The transfer never ends on its own; the events below stand in for the
+    // library finishing it.
+    shell.downloadUpdate = async (): Promise<void> => new Promise<void>(() => undefined)
+    const { host, waitFor } = sink()
+    const { updateActions } = await import('../src/updater.ts')
+    const actions = updateActions(host)
+
+    actions.check()
+    await waitFor(`downloading ${NEXT} · 构建 ${NEXT_BUILD} in the background`)
+
+    // The feed has published the next build, and a scheduled check runs while
+    // the transfer is in flight: it records when it ran and changes nothing.
+    shell.checkForUpdates = async (updater: FakeUpdater): Promise<unknown> => candidateResult(updater, manifest(undefined, NEXT_BUILD + 1))
+    actions.check()
+    await waitFor('check while a transfer is in flight')
+    expect(actions.state()).toMatchObject({ phase: 'downloading', latestBuild: NEXT_BUILD })
+
+    // A download event for another build is not made ready: the bytes the
+    // install would take were never the ones this check accepted.
+    shell.instances[0]?.emit('update-downloaded', {
+      version: NEXT,
+      dshRelease: identity(NEXT, NEXT_BUILD + 1, NEXT_REVISION).dshRelease,
+    })
+    // The transfer is reported as failed rather than ready: it ended on a build
+    // this channel did not freeze, and the candidate it did freeze is kept.
+    expect(actions.state()).toMatchObject({ phase: 'failed', latestVersion: NEXT, latestBuild: NEXT_BUILD })
+
+    shell.instances[0]?.emit('update-downloaded', downloaded())
+    await vi.waitFor(() => {
+      expect(actions.state()).toMatchObject({ phase: 'ready', latestVersion: NEXT, latestBuild: NEXT_BUILD })
+    })
+  })
 })
 
 describe('a build that cannot install where it stands', () => {
@@ -500,6 +681,7 @@ describe('a build that cannot install where it stands', () => {
       phase: 'failed',
       reason: 'this build installs an update by replacing it by hand',
       latestVersion: NEXT,
+      latestBuild: NEXT_BUILD,
     })
     // electron-updater is never built on this tier, so nothing can report a
     // download; the verdict stands for the rest of the run either way.
@@ -530,7 +712,9 @@ describe('a build that cannot install where it stands', () => {
 
   it('shows no code line for a failure that carries no code', async () => {
     bundle(false)
-    serveFeed('releaseNotes: no version here\n')
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      throw new Error('no route to the feed')
+    })
     const { host } = sink()
     const { setupUpdates } = await import('../src/updater.ts')
 
@@ -539,15 +723,31 @@ describe('a build that cannot install where it stands', () => {
     await shown
 
     expect(shell.dialogs.at(-1)?.detail).toBe(
-      '更新源缺少 version 字段(http://127.0.0.1:1/dsh-updates/mac/latest-mac.yml)\n\n稍后再试,或到发布页手动下载新版本。',
+      'no route to the feed\n\n稍后再试,或到发布页手动下载新版本。',
     )
+  })
+
+  it('shows the protocol code for a manifest that is not a v2 identity', async () => {
+    bundle(false)
+    serveFeed('version: 0.1.0-rc.33\nfiles: []\n')
+    const { host } = sink()
+    const { setupUpdates } = await import('../src/updater.ts')
+
+    const shown = nextDialog()
+    setupUpdates(host)()
+    await shown
+
+    // The refusal is a machine-readable code, not prose: this is the failure
+    // the release protocol names RELEASE_IDENTITY_INVALID.
+    expect(shell.dialogs.at(-1)?.message).toBe('无法检查更新')
+    expect(String(shell.dialogs.at(-1)?.detail)).toContain('错误码:RELEASE_IDENTITY_INVALID')
   })
 })
 
 describe('a manual check with the update already under way', () => {
   it('records the time and shows nothing while the transfer runs', async () => {
     bundle(true)
-    shell.checkForUpdates = async (): Promise<unknown> => ({ updateInfo: { version: NEXT, releaseNotes: 'fixes the thing' } })
+    shell.checkForUpdates = async (updater: FakeUpdater): Promise<unknown> => candidateResult(updater, manifest())
     // A transfer that never ends, which is what the second check lands on.
     shell.downloadUpdate = async (): Promise<void> => new Promise<void>(() => undefined)
     const { host, waitFor } = sink()
@@ -556,7 +756,7 @@ describe('a manual check with the update already under way', () => {
     const manual = setupUpdates(host)
 
     actions.check()
-    await waitFor(`downloading ${NEXT} in the background`)
+    await waitFor(`downloading ${NEXT} · 构建 ${NEXT_BUILD} in the background`)
     const before = actions.state().checkedAt
     // ISO 8601 records milliseconds, so the two checks must be told apart by one.
     await new Promise<void>((resolve) => { setTimeout(resolve, 5) })
@@ -574,9 +774,9 @@ describe('a manual check with the update already under way', () => {
 
   it('records the time and shows nothing while the update waits to be installed', async () => {
     bundle(true)
-    shell.checkForUpdates = async (): Promise<unknown> => ({ updateInfo: { version: NEXT } })
+    shell.checkForUpdates = async (updater: FakeUpdater): Promise<unknown> => candidateResult(updater, manifest())
     shell.downloadUpdate = async (): Promise<void> => {
-      shell.instances[0]?.emit('update-downloaded', { version: NEXT })
+      shell.instances[0]?.emit('update-downloaded', downloaded())
     }
     const { host, waitFor } = sink()
     const { setupUpdates, updateActions } = await import('../src/updater.ts')
@@ -584,12 +784,12 @@ describe('a manual check with the update already under way', () => {
     const manual = setupUpdates(host)
 
     actions.check()
-    await waitFor(`downloaded ${NEXT}; waiting for an explicit install`)
+    await waitFor(`downloaded ${NEXT} · 构建 ${NEXT_BUILD}; waiting for an explicit install`)
     const before = actions.state().checkedAt
     await new Promise<void>((resolve) => { setTimeout(resolve, 5) })
 
     manual()
-    await waitFor(`check while ${NEXT} waits to be installed`)
+    await waitFor(`check while ${NEXT} · 构建 ${NEXT_BUILD} waits to be installed`)
 
     expect(shell.dialogs).toHaveLength(0)
     const after = actions.state()
@@ -599,14 +799,14 @@ describe('a manual check with the update already under way', () => {
 
   it('says nothing on a check nobody clicked for', async () => {
     bundle(true)
-    shell.checkForUpdates = async (): Promise<unknown> => ({ updateInfo: { version: NEXT } })
+    shell.checkForUpdates = async (updater: FakeUpdater): Promise<unknown> => candidateResult(updater, manifest())
     shell.downloadUpdate = async (): Promise<void> => new Promise<void>(() => undefined)
     const { host, waitFor } = sink()
     const { updateActions } = await import('../src/updater.ts')
     const actions = updateActions(host)
 
     actions.check()
-    await waitFor(`downloading ${NEXT} in the background`)
+    await waitFor(`downloading ${NEXT} · 构建 ${NEXT_BUILD} in the background`)
     actions.check()
     await waitFor('check while a transfer is in flight')
 
@@ -617,9 +817,7 @@ describe('a manual check with the update already under way', () => {
 describe('the holding line the launch gate writes', () => {
   it('carries the transfer completion while a mandatory update downloads', async () => {
     bundle(true)
-    shell.checkForUpdates = async (): Promise<unknown> => ({
-      updateInfo: { version: NEXT, minimumVersion: NEXT },
-    })
+    shell.checkForUpdates = async (updater: FakeUpdater): Promise<unknown> => candidateResult(updater, manifest(NEXT_BUILD))
     // The transfer never ends, so the gate's line is the only thing moving.
     shell.downloadUpdate = async (): Promise<void> => new Promise<void>(() => undefined)
     const { host } = sink()
@@ -633,5 +831,117 @@ describe('the holding line the launch gate writes', () => {
     expect(shown.at(-1)).toBe('这是必须安装的更新,正在下载新版本… 42%')
     // One line, rewritten: no window and no taskbar progress came back with it.
     expect(shell.dialogs).toHaveLength(0)
+  })
+
+  it('blocks nothing on a library that refused the build for this machine', async () => {
+    bundle(true)
+    // The library's system check and rollout run before the candidate callback;
+    // an answer of "not available" is this machine's answer, and the shell must
+    // not read the raw feed to overrule it.
+    shell.checkForUpdates = async (): Promise<unknown> => ({ isUpdateAvailable: false, updateInfo: manifest(NEXT_BUILD) })
+    const { host } = sink()
+    const { launchGate } = await import('../src/updater.ts')
+
+    expect(await launchGate(host, () => undefined)).toBe(false)
+    // No block, no download page, and no transfer: the raw feed was not read.
+    expect(shell.dialogs).toEqual([])
+    expect(shell.opened).toEqual([])
+  })
+})
+
+describe('an in-place check that failed over a feed naming the installed build', () => {
+  it('reports the failure instead of an already-current answer (R12)', async () => {
+    bundle(true)
+    // The v2 feed names the build that is running. The native check still
+    // failed, so the answer is that failure — never 「已是最新版本」.
+    serveFeed(dump({
+      ...manifest(),
+      version: CURRENT,
+      dshRelease: identity(CURRENT, CURRENT_BUILD, REVISION).dshRelease,
+    }))
+    shell.checkForUpdates = async (): Promise<unknown> => { throw interrupted() }
+    const { host, waitFor } = sink()
+    const { setupUpdates, updateActions } = await import('../src/updater.ts')
+    const manual = setupUpdates(host)
+    const dialog = nextDialog()
+
+    vi.useFakeTimers()
+    try {
+      manual()
+      await vi.advanceTimersByTimeAsync(10_000)
+      await waitFor('is what the feed names; the in-place check did not get through')
+    } finally {
+      vi.useRealTimers()
+    }
+    await dialog
+
+    expect(shell.dialogs.map(entry => entry.message)).toEqual(['无法检查更新'])
+    expect(String(shell.dialogs[0]?.detail)).toContain('ECONNRESET')
+    expect(shell.opened).toEqual([])
+    const snapshot = updateActions(host).state()
+    expect(snapshot).toMatchObject({ phase: 'failed', reason: 'ECONNRESET' })
+    expect(snapshot.latestVersion).toBeUndefined()
+  })
+})
+
+describe('an in-place check that failed fatally', () => {
+  /** The failure the library raises when its channel file is gone, which is fatal. */
+  function missingChannelFile(): Error {
+    return Object.assign(new Error("ENOENT: no such file or directory, open 'latest-mac.yml'"), { code: 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND' })
+  }
+
+  it('reports the failure instead of an already-current answer (R12)', async () => {
+    bundle(true)
+    // The raw feed names the installed build; the native check never finished.
+    serveFeed(dump({
+      ...manifest(),
+      version: CURRENT,
+      dshRelease: identity(CURRENT, CURRENT_BUILD, REVISION).dshRelease,
+    }))
+    shell.checkForUpdates = async (): Promise<unknown> => { throw missingChannelFile() }
+    const { host, waitFor } = sink()
+    const { setupUpdates, updateActions } = await import('../src/updater.ts')
+    const manual = setupUpdates(host)
+    const dialog = nextDialog()
+
+    vi.useFakeTimers()
+    try {
+      manual()
+      await vi.advanceTimersByTimeAsync(30_000)
+      await waitFor('is what the feed names; the in-place check did not get through')
+    } finally {
+      vi.useRealTimers()
+    }
+    await dialog
+
+    expect(shell.dialogs.map(entry => entry.message)).toEqual(['无法检查更新'])
+    expect(String(shell.dialogs[0]?.detail)).toContain('ERR_UPDATER_CHANNEL_FILE_NOT_FOUND')
+    expect(shell.opened).toEqual([])
+    expect(updateActions(host).state()).toMatchObject({ phase: 'failed' })
+  })
+
+  it('does not hand a fatal failure to the download-page offer', async () => {
+    bundle(true)
+    serveFeed()
+    shell.checkForUpdates = async (): Promise<unknown> => { throw missingChannelFile() }
+    const { host, waitFor } = sink()
+    const { setupUpdates, updateActions } = await import('../src/updater.ts')
+    const manual = setupUpdates(host)
+    const dialog = nextDialog()
+
+    vi.useFakeTimers()
+    try {
+      manual()
+      await vi.advanceTimersByTimeAsync(30_000)
+      await waitFor('was read straight from the feed; the in-place check did not get through')
+    } finally {
+      vi.useRealTimers()
+    }
+    await dialog
+
+    expect(shell.dialogs.map(entry => entry.message)).toEqual(['无法检查更新'])
+    expect(String(shell.dialogs[0]?.detail)).toContain('ERR_UPDATER_CHANNEL_FILE_NOT_FOUND')
+    expect(shell.opened).toEqual([])
+    expect(updateActions(host).state()).toMatchObject({ phase: 'failed' })
   })
 })

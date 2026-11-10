@@ -31,7 +31,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { createWriteStream, existsSync, readFileSync } from 'node:fs'
-import { chmod, copyFile, cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
@@ -42,7 +42,9 @@ import { fileURLToPath } from 'node:url'
 import { DEPLOY_PNPM, filteredDeployArgs, verifyStagedPatches } from '../../../scripts/filtered-deploy.ts'
 import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, PLACEHOLDER_BUNDLES, seedBuiltinBundles } from '../src/profile-seed.ts'
 import { SERVER_LOG_ENV } from '../src/server.ts'
-import { auditArtifacts, expectedArtifacts, type ArtifactFile } from './artifact-names.ts'
+import type { ReleaseIdentity, ReleasePlatform } from '../src/release-identity.ts'
+import { buildRelease, collectReleaseArtifacts, recordBuildStaging, verifyBuildSource, verifyBuildStaging, verifyPackagedRelease, verifyRuntimeVersion } from './build-release.ts'
+import { parseReleaseBuildInput } from './release-manifest.ts'
 import { bundleClosure } from './bundle-closure.ts'
 import { packedTarball, type PackSource } from './npm-pack-cache.ts'
 import { assertDesktopClientTitle, DESKTOP_BUILD_STEPS, desktopRepositoryBuildEnvironment } from './client-build.ts'
@@ -90,6 +92,9 @@ interface Cli {
   win: boolean
   skipRepoBuild: boolean
   skipDeploy: boolean
+  /** Build input with identity and target platforms; it has no artifact hashes. */
+  releaseManifest: string | undefined
+  outputManifest: string | undefined
 }
 
 function parseCli(argv: string[]): Cli {
@@ -100,6 +105,9 @@ function parseCli(argv: string[]): Cli {
       'win': { type: 'boolean', default: false },
       'skip-repo-build': { type: 'boolean', default: false },
       'skip-deploy': { type: 'boolean', default: false },
+      'build-input': { type: 'string' },
+      'release-manifest': { type: 'string' },
+      'output-manifest': { type: 'string' },
     },
   })
   // Each platform costs about fifteen minutes, and a run that quietly built
@@ -107,7 +115,35 @@ function parseCli(argv: string[]): Cli {
   if (!values.mac && !values.win) {
     throw new Error('package: name the platforms to build — --mac, --win, or --mac --win.')
   }
-  return { mac: values.mac, win: values.win, skipRepoBuild: values['skip-repo-build'], skipDeploy: values['skip-deploy'] }
+  if (values['build-input'] !== undefined && values['release-manifest'] !== undefined) {
+    throw new Error('package: use only --build-input; --release-manifest is its alias')
+  }
+  if (values['skip-repo-build'] && !values['skip-deploy']) {
+    throw new Error('package: --skip-repo-build requires --skip-deploy and an existing staging tree verified against the requested source revision and content; omit both flags for a fresh build')
+  }
+  return {
+    mac: values.mac,
+    win: values.win,
+    skipRepoBuild: values['skip-repo-build'],
+    skipDeploy: values['skip-deploy'],
+    releaseManifest: values['build-input'] ?? values['release-manifest'],
+    outputManifest: values['output-manifest'],
+  }
+}
+
+/** Read the build-input JSON; buildRelease validates it before any build starts. */
+async function readReleaseInput(cli: Cli): Promise<unknown> {
+  if (cli.releaseManifest === undefined) {
+    throw new Error('package: pass --build-input <file> — the build identity is never inferred from the source package.')
+  }
+  const path = resolve(cli.releaseManifest)
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(await readFile(path, 'utf8'))
+  } catch (error) {
+    throw new Error(`package: cannot read release manifest ${path}: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  return parsed
 }
 
 /**
@@ -1081,46 +1117,9 @@ async function withBuildHome(action: (home: string) => Promise<void>): Promise<v
   }
 }
 
-/**
- * Check that this run left every artifact it owed in `dist-app`.
- *
- * `dist-app` is never cleared, so a listing of it proves nothing: the previous
- * version's files are still there, and a repackage of this version after a fix
- * finds this version's own files there too. Naming what these platforms owe and
- * requiring each file to be present, non-empty, and written since this run
- * started is what separates a build from a leftover.
- * @param cli - the parsed command line, which names the platforms built.
- * @param startedAt - epoch milliseconds at which this run began; anything older is a leftover.
- */
-async function verifyProducts(cli: Cli, startedAt: number): Promise<void> {
-  const dist = join(APP_DIR, 'dist-app')
-  const { version } = JSON.parse(await readFile(join(APP_DIR, 'package.json'), 'utf8')) as { version: string }
-  const expected = expectedArtifacts(version, { mac: cli.mac, win: cli.win })
-  const files = new Map<string, ArtifactFile>()
-  for (const name of expected) {
-    const path = join(dist, name)
-    if (!existsSync(path)) continue
-    const stats = await stat(path)
-    files.set(name, { bytes: stats.size, mtimeMs: stats.mtimeMs })
-  }
-  const audit = auditArtifacts(expected, files, startedAt)
-  if (audit.missing.length > 0 || audit.empty.length > 0 || audit.stale.length > 0) {
-    const damage = [
-      ...audit.missing.map(name => `${name} (missing)`),
-      ...audit.empty.map(name => `${name} (empty)`),
-      ...audit.stale.map(name => `${name} (stale: built before this run)`),
-    ]
-    throw new Error(`package: the build owes ${String(damage.length)} file(s) apps/desktop-shell/dist-app does not have: ${damage.join(', ')}`)
-  }
-  const listing = audit.verified.map(({ name, bytes }) => `${name} (${(bytes / 1e6).toFixed(1)} MB)`)
-  console.log(`package: verified ${String(listing.length)} product(s) of ${version} in apps/desktop-shell/dist-app:\n  ${listing.join('\n  ')}`)
-}
-
-async function main(buildHome: string): Promise<void> {
-  // Anchors the staleness check in verifyProducts: every artifact this run
-  // produces is written after this point.
-  const startedAt = Date.now()
-  const cli = parseCli(process.argv.slice(2))
+/** Prepare the server once and return the validated per-platform payload operation. */
+async function prepareRelease(cli: Cli, buildHome: string, identity: ReleaseIdentity): Promise<(target: PayloadTarget) => Promise<void>> {
+  if (cli.skipDeploy) await verifyBuildStaging(SERVER_STAGING, identity)
   if (!cli.skipRepoBuild) await run('repo build', 'pnpm', ['run', 'build'], ROOT, desktopRepositoryBuildEnvironment(process.env))
   assertDesktopClientTitle(ROOT)
   for (const step of DESKTOP_BUILD_STEPS) await run(step.name, 'pnpm', [...step.args])
@@ -1157,6 +1156,7 @@ async function main(buildHome: string): Promise<void> {
   // repository owns, and verifyStaging checks them whatever else was skipped.
   await stagePnpmLaunchers(PNPM_LAUNCHER_STAGING)
   await verifyStaging()
+  if (!cli.skipDeploy) await recordBuildStaging(SERVER_STAGING, identity)
   // `--skip-deploy` included: a reused staging carries the kit an earlier
   // deploy resolved, and that kit is the one the packaged app reads.
   const engines = verifyStagedOfficeEngines(join(SERVER_STAGING, 'node_modules'))
@@ -1184,26 +1184,60 @@ async function main(buildHome: string): Promise<void> {
   await verifyStagedBoot(SERVER_PAYLOADS[bootGate], buildHome)
   await verifyHandoffBoot(SERVER_PAYLOADS[bootGate], buildHome)
 
-  // `--publish never`: the run() helper sets CI=true, and electron-builder
-  // treats CI plus a `publish` block as a request to upload. Publishing is
-  // scripts/publish-update.ts's job, and the feed's generic provider has no
-  // uploader at all, so the build must only ever emit the manifests.
-  const builder = ['--filter', '@deepseek-ai/dsh-desktop-shell', 'exec', 'electron-builder', '--config', 'electron-builder.yml', '--publish', 'never']
   await stagePnpm()
-  if (cli.mac) {
-    await stageRuntime('darwin')
-    await derivePayloadOnce('darwin')
-    await run('electron-builder (mac)', 'pnpm', [...builder, '--mac'])
-  }
-  if (cli.win) {
-    await stageRuntime('win')
-    await derivePayloadOnce('win')
-    await run('electron-builder (win)', 'pnpm', [...builder, '--win'])
-    for (const name of (await readdir(join(APP_DIR, 'dist-app'))).filter(file => file.endsWith('.exe'))) {
-      await verifyNsisIntegrity(join(APP_DIR, 'dist-app', name))
-    }
-  }
-  await verifyProducts(cli, startedAt)
+  return derivePayloadOnce
 }
 
-await withBuildHome(main)
+async function main(buildHome: string): Promise<void> {
+  const cli = parseCli(process.argv.slice(2))
+  const input = await readReleaseInput(cli)
+  const distDir = join(APP_DIR, 'dist-app')
+  const targets: ReleasePlatform[] = [...cli.mac ? ['darwin' as const] : [], ...cli.win ? ['win32' as const] : []]
+  let preparePayload: ((target: PayloadTarget) => Promise<void>) | undefined
+  let outputPath: string | undefined
+  await buildRelease(input, targets, {
+    verifySource: identity => verifyBuildSource(ROOT, identity),
+    async prepare(identity) {
+      outputPath = cli.outputManifest === undefined
+        ? join(distDir, `release-manifest-b${String(identity.dshRelease.buildSequence)}-${targets.join('-')}.json`)
+        : resolve(cli.outputManifest)
+      if (existsSync(outputPath)) throw new Error(`package: final manifest already exists: ${outputPath}; choose a new build identity/output path`)
+      preparePayload = await prepareRelease(cli, buildHome, identity)
+    },
+    async build(platform, metadataArgs, environment) {
+      const target = platform === 'darwin' ? 'darwin' : 'win'
+      await stageRuntime(target)
+      if (preparePayload === undefined) throw new Error('package: payload preparation did not finish')
+      await preparePayload(target)
+      const identity = parseReleaseBuildInput(input)
+      await verifyRuntimeVersion(SERVER_PAYLOADS[target], identity)
+      // Builder receives release metadata before creating its asar, plist, and signatures.
+      await run(`electron-builder (${target})`, 'pnpm', [
+        '--filter', '@deepseek-ai/dsh-desktop-shell', 'exec', 'electron-builder',
+        '--config', 'electron-builder.yml', '--publish', 'never', ...metadataArgs,
+        platform === 'darwin' ? '--mac' : '--win',
+      ], ROOT, { ...process.env, ...environment })
+    },
+    inventory: (platform, identity, startedAt) => collectReleaseArtifacts(distDir, identity, platform, startedAt),
+    async verifyPackages(platform, identity, artifacts) {
+      if (platform === 'win32') {
+        for (const artifact of artifacts.filter(file => file.fileName.endsWith('.exe'))) {
+          await verifyNsisIntegrity(join(distDir, artifact.fileName))
+        }
+      }
+      await verifyPackagedRelease({ distDir, identity, platform, artifacts })
+    },
+    async writeManifest(manifest) {
+      if (outputPath === undefined) throw new Error('package: no final manifest output path')
+      await mkdir(dirname(outputPath), { recursive: true })
+      await writeFile(outputPath, JSON.stringify(manifest, null, 2) + '\n', { flag: 'wx' })
+      console.log(`package: verified final artifacts and wrote ${outputPath}`)
+    },
+  })
+}
+
+if (process.argv.includes('--help')) {
+  console.log('Usage: package --mac | --win | --mac --win --build-input <file> [--output-manifest <file>] [--skip-repo-build] [--skip-deploy]\nBuild input: {version,dshRelease,platforms:["darwin","win32"]}; --release-manifest is an alias for --build-input.\nFinal manifest: dist-app/release-manifest-b<sequence>-<darwin|win32|darwin-win32>.json. Publishing accepts this completed inventory only.\n--skip-repo-build requires --skip-deploy; reused staging must match the requested source revision and recorded content.')
+} else {
+  await withBuildHome(main)
+}

@@ -1,8 +1,9 @@
 /**
  * The app window's preload as the page sees it: it marks the document as a
- * desktop surface and reports the palette the page paints, first when the
- * observer starts and again whenever the root element's published theme
- * changes — the signal the shell needs when only the OS appearance moved.
+ * desktop surface, reserves the Windows caption band when the native window
+ * buttons float over the page, and reports the palette the page paints, first
+ * when the observer starts and again whenever the root element's published
+ * theme changes — the signal the shell needs when only the OS appearance moved.
  *
  * The preload runs in Electron's sandbox, not in this process, so the suite
  * evaluates its shipped source with the window, document, and observer handed
@@ -41,28 +42,41 @@ class FakeMutationObserver {
 
 /** The root element's published facts, in the two properties the preload reads. */
 interface FakeDocument {
-  documentElement: { dataset: Record<string, string>; style: { colorScheme: string } }
+  documentElement: {
+    dataset: Record<string, string>
+    style: { colorScheme: string; properties: Map<string, string>; setProperty: (name: string, value: string) => void }
+  }
   readyState: string
 }
 
 /**
  * Run the preload against a document root carrying these facts.
  * @param facts - published theme source, painted palette, and whatever else the root carries.
+ * @param platform - what `process.platform` reports to the preload.
  * @returns the document the preload ran against, for later mutation.
  */
-function runPreload(facts: { source?: string; scheme?: string } = {}): FakeDocument {
+function runPreload(facts: { source?: string; scheme?: string } = {}, platform = 'darwin'): FakeDocument {
   const dataset: Record<string, string> = {}
   if (facts.source !== undefined) dataset.dsThemeSource = facts.source
+  const properties = new Map<string, string>()
   const document: FakeDocument = {
-    documentElement: { dataset, style: { colorScheme: facts.scheme ?? '' } },
+    documentElement: {
+      dataset,
+      style: {
+        colorScheme: facts.scheme ?? '',
+        properties,
+        setProperty: (name: string, value: string): void => { properties.set(name, value) },
+      },
+    },
     readyState: 'complete',
   }
   const ipcRenderer = { send: (channel: string, payload: unknown): void => { fixture.sent.push({ channel, payload }) } }
   const contextBridge = { exposeInMainWorld: (): void => {} }
   const window = { addEventListener: (): void => {} }
   const electron = { contextBridge, ipcRenderer }
-  // `process` shadows the global so the platform mark is the same on every host.
-  const processStub = { platform: 'darwin' }
+  // `process` shadows the global so each platform's marks are the same on every host.
+  const processStub = { platform }
+  // oxlint-disable-next-line typescript/no-implied-eval typescript/no-unsafe-call -- evaluates the shipped preload source
   new Function('require', 'exports', 'document', 'window', 'MutationObserver', 'process', PRELOAD)(
     (id: string) => (id === 'electron' ? electron : undefined),
     {},
@@ -87,6 +101,18 @@ beforeEach(() => {
 describe('the window preload theme report', () => {
   it('marks the document as the platform it runs on', () => {
     expect(runPreload().documentElement.dataset.platform).toBe('darwin')
+  })
+
+  it('reserves the Windows caption band the native window buttons float over', () => {
+    const document = runPreload({}, 'win32')
+    expect(document.documentElement.dataset.windowsTitlebar).toBe('')
+    expect(document.documentElement.style.properties.get('--dsh-windows-titlebar-height')).toBe('40px')
+  })
+
+  it('leaves the caption band reserved by no other platform', () => {
+    const document = runPreload({}, 'darwin')
+    expect(document.documentElement.dataset.windowsTitlebar).toBeUndefined()
+    expect(document.documentElement.style.properties.has('--dsh-windows-titlebar-height')).toBe(false)
   })
 
   it('reports the palette the served UI published when observation starts', () => {

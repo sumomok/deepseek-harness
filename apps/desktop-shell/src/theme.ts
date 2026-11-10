@@ -7,6 +7,7 @@
 import { nativeTheme, type BrowserWindow } from 'electron'
 import { resolveHarnessHome } from './profile-seed.ts'
 import { storedThemePreference } from './theme-preference.ts'
+import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
 
 /**
  * Boot-page palettes, taken from the web UI's token sheet
@@ -143,7 +144,7 @@ export function applyThemeReport(
     window.setTitleBarOverlay({
       color: PALETTES[report.scheme].background,
       symbolColor: PALETTES[report.scheme].text,
-      height: 40,
+      height: WINDOWS_TITLEBAR_HEIGHT,
     })
   }
 }

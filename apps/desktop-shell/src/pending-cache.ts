@@ -40,11 +40,13 @@
  * @module @deepseek-ai/dsh-desktop-shell/pending-cache
  */
 
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
-import { compareVersions } from './version-order.ts'
-import { ensurePathContainment, validateFeedFileName, validateFeedVersion, versionToCacheKey } from './feed-validation.ts'
+import type { InstallReceipt } from './desktop-state.ts'
+import { ensurePathContainment, validateFeedFileName } from './feed-validation.ts'
+import { isSameBuild, releaseKey, type ReleaseIdentity } from './release-identity.ts'
 
 /** The subdirectory electron-updater takes a staged update from. */
 const PENDING = 'pending'
@@ -103,26 +105,38 @@ export function pendingDir(cacheDir: string): string {
 /**
  * Where the partial file of one artifact's transfer is kept.
  *
- * The name carries a digest of the version as well as the artifact name, so a
- * feed that moved on while a transfer was interrupted produces a different
- * name and the bytes of the version nobody will install are identifiable as
- * stale. The version is hashed to a fixed-length key to prevent path traversal
- * attacks through malicious version strings.
+ * The name carries a digest of the complete build identity as well as the
+ * artifact name. The version alone cannot key this file: two builds publish
+ * under one version whenever a fix ships as the next build of the same
+ * upstream version, and a bridge build carries a higher application version
+ * than the build that follows it, so a version-keyed name would have one
+ * transfer resume into another build's bytes, or discard a partial file that
+ * belongs to the frozen candidate the operation still holds. The identity is
+ * hashed to a fixed-length key so no value from the feed reaches the path
+ * verbatim.
  * @param cacheDir - the updater cache directory.
- * @param version - the version being transferred.
+ * @param identity - the build being transferred.
  * @param fileName - the artifact's name in the feed.
  * @returns the `.part` file path.
- * @throws when the version or file name is invalid or the path would escape
- * the cache directory.
+ * @throws when the file name is invalid or the path would escape the cache
+ * directory.
  */
-export function partFileFor(cacheDir: string, version: string, fileName: string): string {
-  const validatedVersion = validateFeedVersion(version)
+export function partFileFor(cacheDir: string, identity: ReleaseIdentity, fileName: string): string {
   const validatedFileName = validateFeedFileName(fileName)
-  const versionKey = versionToCacheKey(validatedVersion)
+  const identityKey = identityToCacheKey(identity)
   const safeName = basename(validatedFileName)
-  const partFile = join(cacheDir, `${PART_PREFIX}${versionKey.substring(0, 16)}-${safeName}.part`)
+  const partFile = join(cacheDir, `${PART_PREFIX}${identityKey.substring(0, 16)}-${safeName}.part`)
   ensurePathContainment(cacheDir, partFile)
   return partFile
+}
+
+/**
+ * Hash one build identity to the fixed-length key its cache files use.
+ * @param identity - the build to key.
+ * @returns the hex SHA-256 of the canonical identity key.
+ */
+function identityToCacheKey(identity: ReleaseIdentity): string {
+  return createHash('sha256').update(releaseKey(identity), 'utf8').digest('hex')
 }
 
 /**
@@ -209,10 +223,28 @@ export interface StartedInstall extends StagedArtifact {
   fromVersion: string
 }
 
-/** What one sweep of `pending` after an install did. */
-export type InstalledPendingSweep =
-  /** The running build is not newer than the one that started the install, so it did not land and the artifact is still to be installed. */
+/**
+ * What one sweep of `pending` after an install did.
+ *
+ * The first two entries are about the running build rather than the cache:
+ * only a running build equal to the receipt's `target` may sweep anything, and
+ * a build equal to neither identity says nothing about the install at all.
+ *
+ * A union rather than one interface because the `removed` and `failed` lists
+ * exist only for the two outcomes that removed something: the caller switches
+ * on the discriminant with no case left unchecked.
+ */
+export type InstalledBuildSweep =
+  /**
+   * The running build is the receipt's `from`: the install did not land and
+   * the artifact is still the update it has yet to take.
+   */
   | { kind: 'not-landed' }
+  /**
+   * The running build is neither `from` nor `target`: the outcome of that
+   * install is unknown, so nothing was removed and no success is claimed.
+   */
+  | { kind: 'unconfirmed' }
   /** `pending` holds no record: nothing is staged, or the library already emptied it. */
   | { kind: 'absent' }
   /** `pending` now vouches for a different artifact, which is a later download to keep. */
@@ -234,26 +266,35 @@ export type InstalledPendingSweep =
  * `current.blockmap`) live in the cache directory root, and the next update
  * downloads only the blocks that differ from them.
  *
- * The record decides: `pending` is emptied only while its record still names
- * `installed` by file name and sha512. Anything else there is a download made
- * after that install and is still worth handing to the library. Each entry is
- * removed on its own, so one the Windows installer still holds open is
- * reported without stopping the rest.
+ * The running build decides first, by identity and never by version order:
+ * comparing versions would treat a higher version as a landed install even
+ * when it is a build the user installed another way, and would treat a bridge
+ * build that lowered the application version as no install at all. A build
+ * equal to the receipt's `target` is the build the artifact installs; a build
+ * equal to `from` means the install did not land, and the artifact is still
+ * the update it has yet to take; a build equal to neither leaves the outcome
+ * unknown, and an unknown result is never cleaned up as if it had succeeded.
  *
- * Nothing is swept unless the running build is newer than the one that
- * started the install: the same version running again means the install did
- * not land, and the staged artifact is still the update it has yet to take.
+ * The record decides second: `pending` is emptied only while its record still
+ * names the receipt's artifact by file name and sha512. Anything else there is
+ * a download made after that install and is still worth handing to the
+ * library. Each entry is removed on its own, so one the Windows installer
+ * still holds open is reported without stopping the rest, and the record goes
+ * last so a partial sweep leaves `pending` vouching for what it held and the
+ * next launch tries again.
  * @param cacheDir - the updater cache directory.
- * @param installed - what `pending` held when the install was started, and the version that started it.
- * @param runningVersion - the version of the build now running.
+ * @param receipt - what the install wrote: both build identities and the artifact it takes.
+ * @param running - the identity of the build running now.
  * @returns what the sweep found and did.
  * @throws when `pending` holds a record but cannot be listed.
  */
-export function sweepInstalledPending(cacheDir: string, installed: StartedInstall, runningVersion: string): InstalledPendingSweep {
-  if (compareVersions(runningVersion, installed.fromVersion) <= 0) return { kind: 'not-landed' }
+export function sweepInstalledBuildPending(cacheDir: string, receipt: InstallReceipt, running: ReleaseIdentity): InstalledBuildSweep {
+  if (!isSameBuild(running, receipt.target)) {
+    return isSameBuild(running, receipt.from) ? { kind: 'not-landed' } : { kind: 'unconfirmed' }
+  }
   const staged = readStagedArtifact(cacheDir)
   if (staged === undefined) return { kind: 'absent' }
-  if (staged.fileName !== installed.fileName || staged.sha512 !== installed.sha512) return { kind: 'replaced' }
+  if (staged.fileName !== receipt.fileName || staged.sha512 !== receipt.sha512) return { kind: 'replaced' }
   const directory = pendingDir(cacheDir)
   const removed: string[] = []
   const failed: string[] = []
