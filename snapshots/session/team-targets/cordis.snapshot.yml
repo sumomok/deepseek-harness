@@ -37,12 +37,16 @@
             name: DeepSeek
             models:
               - id: deepseek-v4-flash
+                contextWindow: 1000000
               - id: deepseek-v4-pro
+                contextWindow: 1000000
           - id: deepseek-messages
             name: DeepSeek Messages
             models:
               - id: deepseek-v4-flash
+                contextWindow: 1000000
               - id: deepseek-v4-pro
+                contextWindow: 1000000
 
 - id: tool-subagent-control
   disabled: true
@@ -57,3 +61,12 @@
       name: '@deepseek-ai/dsh-experimental-agent-team'
     - id: tool-agent-team
       name: '@deepseek-ai/dsh-experimental-tool-agent-team'
+      config:
+        modelSelection: true
+        modelDiscovery: true
+- id: subagent-model-selection-settings
+  config:
+    enabled: true
+    allowedModels:
+      - { provider: deepseek-official, model: deepseek-v4-flash }
+      - { provider: deepseek-official, model: deepseek-v4-pro }

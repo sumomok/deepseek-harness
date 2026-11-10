@@ -5,6 +5,14 @@ import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { AgentOptions } from '@deepseek-ai/dsh-agent'
 import z from '@deepseek-ai/schemastery'
 
+/** Optional child defaults; omission remains absent instead of becoming an empty object. */
+export const AgentOptionsSchema: z<AgentOptions | undefined> = (z.object({
+  provider: z.string(),
+  model: z.string(),
+  reasoningEffort: z.string().min(1) as z<ReturnType<typeof ReasoningEffortId> | undefined>,
+  maxTokens: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER),
+}) as z<AgentOptions | undefined>).default(undefined)
+
 /** One exact child LLM route authorized by a user setting. */
 export interface AllowedModelRoute {
   /** Registered LLM provider id. */

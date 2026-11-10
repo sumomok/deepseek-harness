@@ -346,6 +346,20 @@ describe('package payload constraints', () => {
     } })).toContainEqual(expect.stringContaining('exports["./pipeline"] must expose'))
   })
 
+  it('publishes the shared delegation model runtime and declarations', () => {
+    const dir = 'packages/subagent/tool-subagent'
+    const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+    expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+    expect(checkWorkspaceManifest({ dir, manifest: {
+      ...manifest, files: manifest.files!.filter(file => file !== 'lib/delegation-model.js'),
+    } })).toEqual([expect.stringContaining('package.json files must be')])
+    for (const target of [undefined, { types: './src/delegation-model.ts', default: './lib/index.js' }]) {
+      expect(checkWorkspaceManifest({ dir, manifest: {
+        ...manifest, exports: { ...manifest.exports, './delegation-model': target },
+      } })).toContainEqual(expect.stringContaining('exports["./delegation-model"] must expose'))
+    }
+  })
+
   it('publishes the directory of each locale detail document after the locale resources', () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-detail-files-'))
     onTestFinished(() => { rmSync(dir, { recursive: true, force: true }) })

@@ -49,6 +49,8 @@
             name: DeepSeek
             models:
               - id: deepseek-v4-flash
+                contextWindow: 1000000
               - id: deepseek-v4-pro
+                contextWindow: 1000000
     - id: advanced-toolchain-presentation
       name: './presentation.mjs'

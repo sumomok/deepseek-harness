@@ -12,31 +12,22 @@ import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { AgentOptions } from '@deepseek-ai/dsh-agent'
-import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import {
   assertSubagentMaxDepth,
   delegationDepthOf,
-  parentAgentOptionsForDelegation,
+  SubagentError,
 } from '@deepseek-ai/dsh-subagent'
 import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
 import {
-  assertAllowedModelSelection,
-  hasConfiguredLlmSelection,
-  hasDelegationModelRequest,
-  preflightChildLlmRoute,
-  requestedAgentOptions,
-} from './model-selection.ts'
-import type { DelegationModelRequest } from './model-selection.ts'
-import { registerListSubagentModels } from './list-models.ts'
+  registerListSubagentModels,
+  resolveDelegationModelOptions,
+} from './delegation-model.ts'
+import { AgentOptionsSchema } from './model-selection.ts'
 import { SubagentPresetSelection, type PresetSelectionConfig, type PresetSelectionRequest } from './preset-selection.ts'
-import {
-  subagentModelSelectionProjectionDefinition,
-  subagentModelSelectionPolicy,
-} from './model-selection-state.ts'
 
 export const name = 'tool-subagent'
-export const inject = ['tools', 'subagents', 'systemPrompt', 'sessionProjections']
+export const inject = ['tools', 'subagents', 'systemPrompt']
 
 // Definition identity keeps shared guidance scoped to the actual visible tools,
 // including scoped overrides and independently loaded tool registries.
@@ -53,20 +44,22 @@ export interface Config extends PresetSelectionConfig {
   toolName?: string
   /**
    * Expose optional child `provider`, `model`, and `reasoning_effort` fields.
-   * Requires provider `agentOptions` support. Execution enforces the Session
-   * policy, or restricts explicit selection to the current parent route.
+   * Requires provider `agentOptions` support and the ready `subagentModelSelection`
+   * service. Execution enforces the Session policy, or restricts explicit
+   * selection to the current parent route.
    */
   modelSelection?: boolean
   /**
    * Register the shared `list_subagent_models` tool for this scope.
    * Enable on only one instance per scope; defaults to false and does not
-   * enable model selection. Discovery is removed when this instance unloads.
+   * enable model selection. Requires the ready `subagentModelSelection` service.
+   * Discovery is removed when this instance unloads.
    */
   modelDiscovery?: boolean
   /**
    * Agent options applied to every child; omitted fields use child-loop defaults.
    */
-  agentOptions?: AgentOptions
+  agentOptions?: AgentOptions | undefined
   /**
    * Maximum child depth: a non-negative safe integer (`0` forbids delegation),
    * or `'provider-managed'` to send no cap. A numeric cap
@@ -85,18 +78,7 @@ export const Config: z<Config> = z.object({
   toolName: z.string().default('subagent'),
   modelSelection: z.boolean().default(false),
   modelDiscovery: z.boolean().default(false),
-  // Prevent Schemastery from materializing omitted agentOptions as `{}`.
-  agentOptions: z.object({
-    provider: z.string(),
-    model: z.string(),
-    reasoningEffort: z.string().min(1) as z<ReturnType<typeof ReasoningEffortId> | undefined>,
-    maxTokens: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER),
-  }).default(undefined as unknown as {
-    provider: string
-    model: string
-    reasoningEffort: ReturnType<typeof ReasoningEffortId>
-    maxTokens: number
-  }),
+  agentOptions: AgentOptionsSchema,
   agentPreset: z.string().min(1),
   allowedAgentPresets: (z.array(z.string().min(1)).min(1) as z<string[] | undefined>).default(undefined),
   maxDepth: z.union([z.natural().max(Number.MAX_SAFE_INTEGER), z.const('provider-managed' as const)]),
@@ -145,9 +127,8 @@ function providerWording(inheritsConversation: boolean): { description: string; 
  * The owning composition shares its registrations across Agents; child startup resolves the selected preset.
  * @param ctx - Context that owns the registrations.
  * @param config - delegation-tool configuration.
- * @returns when the plugin is ready.
  */
-export async function apply(ctx: Context, config: Config): Promise<void> {
+export function apply(ctx: Context, config: Config): void {
   for (const field of ['persona', 'toolFilter']) {
     if (Object.hasOwn(config, field)) {
       throw new Error(`tool-subagent: ${field} is no longer supported; configure persona and tool plugins in an Agent Preset and select it with agentPreset (spawn only)`)
@@ -163,7 +144,12 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const toolName = config.toolName ?? 'subagent'
 
   const modelSelectionEnabled = config.modelSelection === true
-  const subagentModelSelectionProjectionHandle = await ctx.sessionProjections.register(subagentModelSelectionProjectionDefinition)
+  if (modelSelectionEnabled && ctx.get('subagentModelSelection') === undefined) {
+    throw new SubagentError(
+      'child model selection requires the subagentModelSelection service; mount @deepseek-ai/dsh-tool-subagent/model-selection-settings',
+      'model_selection_owner_unavailable',
+    )
+  }
 
   const assertSubagentProviderConfiguration = (subagentProvider: SubagentProvider): void => {
     presets.assertProvider(subagentProvider)
@@ -193,7 +179,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const initialProvider = ctx.subagents.getProvider(config.provider)
   if (initialProvider !== undefined) assertSubagentProviderConfiguration(initialProvider)
 
-  if (config.modelDiscovery === true) registerListSubagentModels(ctx, subagentModelSelectionProjectionHandle)
+  if (config.modelDiscovery === true) registerListSubagentModels(ctx)
 
   // Load order and HMR replacement can change provider availability while
   // this fiber remains active.
@@ -272,45 +258,14 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
           throw new Error('subagent tool requires a calling agent (exec.agent was undefined)')
         }
 
-        const routes = subagentModelSelectionPolicy(subagentModelSelectionProjectionHandle, parent.session)
-        const modelSelectionPolicy = routes === undefined ? undefined : { routes }
         const agentPreset = presets.resolve(args as PresetSelectionRequest)
-        const modelRequest = args as DelegationModelRequest
-        const parentOptions = parentAgentOptionsForDelegation(parent)
-        const requiresRoutePreflight = hasDelegationModelRequest(modelRequest)
-          || hasConfiguredLlmSelection(config.agentOptions)
-        const configuredChildAgentOptions = requiresRoutePreflight && providerRouteDefaults !== undefined
-          ? { ...providerRouteDefaults, ...config.agentOptions }
-          : config.agentOptions
-        const requestedChildAgentOptions = requestedAgentOptions(
-          parentOptions,
-          configuredChildAgentOptions,
-          modelRequest,
-          modelSelectionEnabled,
-        )
-        assertAllowedModelSelection(
-          modelSelectionPolicy,
-          parentOptions,
-          requestedChildAgentOptions,
-          modelRequest,
-        )
-        if (requiresRoutePreflight) {
-          const llm = ctx.get('llm')
-          if (llm === undefined) {
-            throw new Error('cannot resolve the selected child LLM route because the `llm` service is unavailable')
-          }
-          await preflightChildLlmRoute(
-            llm,
-            parentOptions,
-            requestedChildAgentOptions,
-            exec.signal,
-            providerRouteDefaults === undefined,
-          )
-          if (ctx.subagents.getProvider(config.provider) !== subagentProvider) {
-            throw new Error(`subagent provider "${config.provider}" changed while resolving the child LLM route; retry the delegation`)
-          }
-        }
-        exec.signal.throwIfAborted()
+        const requestedChildAgentOptions = await resolveDelegationModelOptions(ctx, {
+          parent,
+          provider: subagentProvider,
+          config,
+          request: args,
+          signal: exec.signal,
+        })
         const maxDepth = ctx.subagents.resolveMaxDepth(config.maxDepth)
         const request = {
           ...args.cwd === undefined ? {} : { cwd: args.cwd },

@@ -28,6 +28,16 @@
 
 **每条记录的五要素**：改了什么 / 为什么 / 要达到的效果 / 退役条件 / 状态；`在役` 与 `局部退役` 的记录另带 `路径` 行。状态取 `在役`、`局部退役`、`退役` 之一：在役与局部退役写明所在线，退役写明在哪一条线上退的役。**局部退役**指同一族里的部分子件已被上游覆盖或在新基座上失去落点、而族整体仍在役；子件逐条列出，族自己的退役条件不变。
 
+## team-model-selection — Lead 为 teammate 选择模型
+
+- **改了什么**：`spawn_teammate` 支持 `provider`、`model` 和 `reasoning_effort`，与普通 subagent 共用授权与模型发现；新建子会话记录自己的初始模型选择，恢复保留后续选择。官方 Team 组合启用该能力，基础组合统一提供模型授权设置服务。
+- **为什么**：Lead 需要按任务为 fresh 或 fork 成员分配已授权模型；仅设置子会话创建参数会被 fork 继承的请求历史覆盖。
+- **要达到的效果**：显式模型选择用于成员的实际请求，默认委托保持原有继承行为，非法选择在占用成员名称之前失败，模型发现按 Agent 作用域注册和释放。
+- **退役条件**：上游提供等价的 Team 模型参数、授权与发现，以及 fork 和恢复时的模型选择语义。
+- **状态**：在役（`feat/team-model-selection`；开发基线与合入目标均为 `core-patches`）。
+- **Agent Note**：[`agent-teams`](../.agents/notes/implemented/feature/2026-08-05-agent-teams.md)、[`user-authorized-subagent-model-routes`](../.agents/notes/implemented/feature/2026-08-24-user-authorized-subagent-model-routes.md)。
+- **路径**：`.agents/notes/implemented/feature/2026-08-05-agent-teams.*` `.agents/notes/implemented/feature/2026-08-24-user-authorized-subagent-model-routes.*` `apps/cli/composition.md` `apps/cli/tests/agent-team-models-headless.e2e.ts` `apps/cli/tests/profiles/headless/tests/fixtures/team*.mjs` `docs/defensive-patterns/package-surface.*` `docs/subsystems/agent-team.*` `docs/subsystems/subagent.*` `docs/tool-catalog.*` `docs/upgrade-guide/v0.2.2-rc.1/delegation-model-policy-owner/**` `packages/bundle/base/README.*` `packages/bundle/base/cordis.patch.yml` `packages/bundle/web-app/cordis.patch.yml` `packages/experimental/agent-team-profile/**` `packages/experimental/agent-team/**` `packages/experimental/tool-agent-team/**` `packages/subagent/subagent-dsh-sdk/tests/fixtures/loader/scoped-tool-subagent.ts` `packages/subagent/subagent-dsh-sdk/tests/fixtures/loader/dsh-sdk.patch.yml` `packages/subagent/subagent-fork-in-process/**` `packages/subagent/subagent/**` `packages/subagent/tool-subagent/**` `scripts/check-workspace-constraints.ts` `scripts/check-workspace-constraints.spec.ts` `scripts/gen-cordis-catalog.ts` `scripts/gen-tool-catalog.ts` `scripts/no-unknown-casts.baseline.json` `snapshots/sdk/subagent-*/**` `snapshots/sdk/bash-tool/**` `snapshots/session/advanced-toolchain/**` `snapshots/session/advanced-toolchain-runtime/**` `snapshots/session/cordis-inspect-jsdoc/**` `snapshots/session/ralph-loop/**` `snapshots/session/subagent-*/**` `snapshots/session/team-targets/**` `snapshots/session/team-direct-inbox/**` `snapshots/session/text-turn/**` `snapshots/session/workflow-run/**` `snapshots/web/fresh-round-trip/**` `tsconfig.base.json`
+
 ## ansi-line-parser-export — ui-primitives 导出 ANSI 行解析器
 
 - **改了什么**：`packages/client/ui-primitives/src/index.ts` 增加 `parseAnsiLines` 与其行类型的包入口导出，实现文件不动。

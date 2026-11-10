@@ -33,7 +33,7 @@ Choose it when the model should create and coordinate teammates by itself rather
 
 ### Smallest working example
 
-The smallest addition to an existing composition is the two-package fragment from the [agent-team README](../agent-team/README.md#smallest-working-setup): durable session storage, the team domain package, and this package. The plugin itself takes two optional settings:
+The smallest addition to an existing composition is the two-package fragment from the [agent-team README](../agent-team/README.md#smallest-working-setup): durable session storage, the team domain package, and this package. The plugin accepts these optional settings; model selection and discovery are off by default:
 
 ```yaml
 - id: tool-agent-team
@@ -47,10 +47,19 @@ The smallest addition to an existing composition is the two-package fragment fro
 |---|---|---|
 | `freshProvider` | `spawn` | Provider that starts fresh teammates |
 | `forkProvider` | `fork` | Provider that starts fork teammates |
+| `interrupt` | `true` | Expose `interrupt_agent` and its policy guidance |
+| `modelSelection` | `false` | Accept child LLM `provider`, `model`, and `reasoning_effort` |
+| `modelDiscovery` | `false` | Own `list_subagent_models` in each Team Agent scope |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-experimental-tool-agent-team) is the exhaustive source for every accepted field and its JSDoc.
 
 Try it by asking the Lead model: "create a teammate named reviewer to check the diff, then send reviewer the change summary". The model calls the creation tool and then the messaging tool.
+
+### Child model selection
+
+Enabling either model setting requires `@deepseek-ai/dsh-tool-subagent/model-selection-settings`; a missing owner fails plugin loading. Its recorded Session allowlist governs explicit choices. With `modelSelection`, `spawn_teammate` accepts `provider` and `model` together, plus optional `reasoning_effort`. Omission inherits the Lead’s last requested route or initial defaults. Changing the route without an effort uses the selected model’s default; effort alone adjusts the inherited route. Invalid, unauthorized, unresolved, cancelled, or unsupported selections fail before reserving a name, so the Lead can correct the request and retry. Disabled selection rejects explicit fields during execution as well as omitting them from the schema. The tool’s LLM `provider` is separate from the configured fresh/fork backend.
+
+With `modelDiscovery`, inspect `list_subagent_models` with no arguments for providers, `provider` for allowed models, and `provider` plus `model` for reasoning efforts. Team owns this registration per Agent, shadows inherited discovery, and restores the parent definition on unload. A duplicate in the same scope remains an error.
 
 ### What the model can do
 
@@ -128,11 +137,11 @@ One shared system policy covers Team availability, shared-cwd safety, task coord
 
 #### Token effect
 
-Fixed policy and schema cost on every Team member request. Identity is part of the complete runtime-context snapshot. An unchanged retained snapshot adds no message; changed or removed context causes the loop to append a complete snapshot, including identity. Tool calls add compact JSON roster, task, wait, or receipt results. Peer content is retained by the Team domain in the target's history.
+Fixed policy and schema cost on every Team member request. Opt-in selection adds three spawn parameters; opt-in discovery adds one tool schema and its on-demand results without listing models in the shared policy. Identity is part of the complete runtime-context snapshot. An unchanged retained snapshot adds no message; changed or removed context causes the loop to append a complete snapshot, including identity. Tool calls add compact JSON roster, task, wait, or receipt results. Peer content is retained by the Team domain in the target's history.
 
 #### KV Cache effect
 
-With the same provider/model, shared system policy, and tool schemas, a fork retains the parent request prefix and appends its task and current runtime context. Tool results and peer messages append after the reusable request prefix. Sessions recorded with identity inside the system prompt can change that prefix on their first request under this layout; actual provider cache hits remain best-effort.
+With the same provider/model, shared system policy, and tool schemas, a fork retains the parent request prefix and appends its task and current runtime context. Selecting another model or changing the exposed selection/discovery schemas can prevent provider cache reuse; fork history remains available. Tool results and peer messages append after the reusable request prefix. Sessions recorded with identity inside the system prompt can change that prefix on their first request under this layout; actual provider cache hits remain best-effort.
 
 ## Known Limitations and Deferred Work
 

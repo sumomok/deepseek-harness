@@ -33,7 +33,7 @@ kind: "package-reference"
 
 ### 最小工作示例
 
-对现有组合的最小增量是 [agent-team README](../agent-team/README.zh.md#smallest-working-setup) 中的两包片段：持久会话存储、团队领域包与本包。插件本身只有两个可选设置：
+对现有组合的最小增量是 [agent-team README](../agent-team/README.zh.md#smallest-working-setup) 中的两包片段：持久会话存储、团队领域包与本包。插件支持以下可选设置；模型选择与发现默认关闭：
 
 ```yaml
 - id: tool-agent-team
@@ -47,10 +47,19 @@ kind: "package-reference"
 |---|---|---|
 | `freshProvider` | `spawn` | 启动 fresh teammate 的提供方 |
 | `forkProvider` | `fork` | 启动 fork teammate 的提供方 |
+| `interrupt` | `true` | 提供 `interrupt_agent` 及其策略指引 |
+| `modelSelection` | `false` | 接受子 LLM 的 `provider`、`model` 与 `reasoning_effort` |
+| `modelDiscovery` | `false` | 在各 Team Agent 作用域拥有 `list_subagent_models` |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-experimental-tool-agent-team)是每个受支持字段及其 JSDoc 的穷尽式真源。
 
 试试这样要求 Lead 模型：「创建一个名为 reviewer 的 teammate 检查 diff，再把变更摘要发给 reviewer」。模型会调用创建工具，然后调用消息工具。
+
+### 子模型选择
+
+启用任一模型设置都需要 `@deepseek-ai/dsh-tool-subagent/model-selection-settings`；缺少 owner 时插件加载失败。其记录到 Session 的允许列表决定可显式选择的路由。启用 `modelSelection` 后，`spawn_teammate` 接受成对的 `provider` 与 `model`，以及可选的 `reasoning_effort`。省略时继承 Lead 上次请求的路由或初始默认值。切换路由而不指定 effort 时使用所选模型的默认值；仅指定 effort 会调整继承路由的 effort。无效、未授权、无法解析、已取消或不支持的选择会在预留名字前失败，Lead 可修正请求后重试。选择关闭时，执行阶段拒绝显式字段，schema 也省略这些字段。工具中的 LLM `provider` 与配置的 fresh/fork 后端相互独立。
+
+启用 `modelDiscovery` 后，无参数调用 `list_subagent_models` 查看提供方，传 `provider` 查看允许的模型，同时传 `provider` 与 `model` 查看 reasoning effort。Team 在每个 Agent 作用域拥有该注册，覆盖继承的发现工具，卸载时恢复父级定义。同一作用域中的重复注册仍报错。
 
 ### 模型能做什么
 
@@ -128,11 +137,11 @@ member scope 上的一个 `team:policy` 段落说明共享的协作规则；固�
 
 #### Token 影响
 
-每次 Team member 请求都有固定策略与 schema 成本。身份是完整 runtime-context 快照的一部分。保留的快照未变化时不追加消息；context 变化或被移除时，loop 追加包含身份的完整快照。工具调用会增加紧凑 JSON roster、task、wait 或 receipt 结果。Peer 内容由 Team 领域保留在 target 历史中。
+每次 Team member 请求都有固定策略与 schema 成本。启用选择会增加三个 spawn 参数；启用发现会增加一个工具 schema 及其按需结果，不会把模型列表放入共享策略。身份是完整 runtime-context 快照的一部分。保留的快照未变化时不追加消息；context 变化或被移除时，loop 追加包含身份的完整快照。工具调用会增加紧凑 JSON roster、task、wait 或 receipt 结果。Peer 内容由 Team 领域保留在 target 历史中。
 
 #### KV Cache 影响
 
-provider／model、共享 system 策略和工具 schema 相同时，fork 保留父请求前缀并追加任务与当前 runtime context。工具结果与 peer 消息追加在可复用请求前缀之后。原先在 system prompt 中记录身份的 Session，首次使用此布局请求时可能改变该前缀；提供方实际缓存命中仍为尽力而为。
+provider／model、共享 system 策略和工具 schema 相同时，fork 保留父请求前缀并追加任务与当前 runtime context。选择其他模型或改变暴露的选择／发现 schema 可能导致提供方无法复用缓存；fork 历史仍然可用。工具结果与 peer 消息追加在可复用请求前缀之后。原先在 system prompt 中记录身份的 Session，首次使用此布局请求时可能改变该前缀；提供方实际缓存命中仍为尽力而为。
 
 ## 已知限制与延期工作
 

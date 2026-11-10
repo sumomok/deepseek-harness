@@ -4,6 +4,10 @@
 
 统一的 activation API 管理本地会话和外部执行。
 
+## 模型选择授权
+
+`ModelSelectionPolicy.routes` 包含 Session 授权的精确 `{ provider, model }` 对。设置服务的 `policyFor(session)` 返回独立的策略副本；返回 `undefined` 时，显式选择仅限父级路由。普通委派和 Team 工具通过共享 delegation-model API 读取该服务。新建的本地子会话在继承事件后记录解析后的模型选择；恢复的子会话保留自己的后续选择。
+
 ## 能力与 activation 请求
 
 所有后端都使用 startActivation。能力标记校验请求选项；prepareContinuable 选择本地 Agent 创建，start 选择一次外部执行。面向模型的工具采用 parent 回传。Workflow 与 code mode 消费者可以等待 caller 结果，不额外向父代理注入消息。历史子会话的 descriptor 不可用时，以 `mode: 'unknown'` 保持可发现性，但不授予继续执行能力；[包 README](../../packages/subagent/subagent/README.zh.md) 定义目录持久化语义。
@@ -407,6 +411,17 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 ### `ctx.subagentModelSelection` — `SubagentModelSelectionConfig`
 
 Host settings owner that records Session authorization before the first model request.
+
+```ts cordis-catalog
+/**
+ * Read the Session's recorded child-route authorization without consulting current preferences.
+ * @param session - Prepared Session whose durable authorization applies.
+ * @returns Detached exact routes, or undefined to restrict explicit selection to the parent route.
+ */
+policyFor(session: Session): ModelSelectionPolicy | undefined
+```
+
+Types: [Session](session.zh.md)
 
 Source: [`packages/subagent/tool-subagent/src/model-selection-settings.ts`](../../packages/subagent/tool-subagent/src/model-selection-settings.ts)
 

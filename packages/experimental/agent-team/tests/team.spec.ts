@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -97,6 +97,7 @@ interface TeamServiceInternals {
   }
   readonly journal: {
     state(root: Agent): unknown
+    transact<T>(rootId: SessionId, operation: () => Promise<T>): Promise<T>
   }
   disposeRuntime(): Promise<void>
   scheduleRecovery(agent: Agent): void
@@ -116,7 +117,7 @@ function spawn(
   ctx: Context,
   lead: Agent,
   name: string,
-  options: { context?: 'fresh' | 'fork'; provider?: string } = {},
+  options: { context?: 'fresh' | 'fork'; provider?: string; agentOptions?: AgentOptions; signal?: AbortSignal } = {},
 ) {
   const context = options.context ?? 'fresh'
   return ctx.agentTeams.spawnTeammate(lead, {
@@ -125,7 +126,8 @@ function spawn(
     prompt: content(`${name} initial`),
     context,
     provider: options.provider ?? (context === 'fork' ? 'fork' : 'spawn'),
-    signal: SIGNAL,
+    ...options.agentOptions === undefined ? {} : { agentOptions: options.agentOptions },
+    signal: options.signal ?? SIGNAL,
   })
 }
 
@@ -334,14 +336,88 @@ describe('Team identity and provisioning', () => {
     if (member !== undefined) await waitNoAgent(ctx, member.id)
   })
 
+  it('rejects missing or incapable backends before reserving a name and permits retry', async () => {
+    const { ctx, lead } = await setup(['hang'])
+    const backend = ctx.subagents.getProvider('spawn')!
+    ctx.subagents.registerProvider({
+      name: 'external', capabilities: backend.capabilities, inheritsParentContext: false,
+      start: () => Promise.reject(new Error('unexpected external start')),
+    })
+    ctx.subagents.registerProvider({
+      ...backend, name: 'no-options', capabilities: { ...backend.capabilities, agentOptions: false },
+      prepareContinuable: backend.prepareContinuable!.bind(backend),
+    })
+    const start = vi.spyOn(ctx.subagents, 'startActivation')
+    for (const [provider, code, agentOptions] of [
+      ['missing', 'NO_PROVIDER', undefined],
+      ['external', 'UNSUPPORTED_CAPABILITY', undefined],
+      ['no-options', 'UNSUPPORTED_CAPABILITY', { model: 'child-model' }],
+    ] as const) {
+      await expect(spawn(ctx, lead, 'retry-worker', {
+        provider, ...agentOptions === undefined ? {} : { agentOptions },
+      })).rejects.toMatchObject({ code })
+      expect(durable(lead).members).toEqual([])
+    }
+    expect(start).not.toHaveBeenCalled()
+    expect((await spawn(ctx, lead, 'retry-worker')).member.name).toBe('retry-worker')
+  })
+
+  it.each(['cancel', 'replace'] as const)('rejects %s while queued before reserving a teammate', async (change) => {
+    const { ctx, lead } = await setup(['hang'])
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const queued = teamInternals(ctx).journal.transact(lead.id, async () => {
+      entered.resolve(undefined)
+      await release.promise
+    })
+    await entered.promise
+    const controller = new AbortController()
+    const original = ctx.subagents.getProvider('spawn')!
+    const get = vi.spyOn(ctx.subagents, 'getProvider')
+    const spawning = spawn(ctx, lead, 'queued-worker', { signal: controller.signal })
+    expect(get).toHaveBeenCalledWith('spawn')
+    const reason = new Error('cancel queued creation')
+    const rejected = change === 'cancel'
+      ? expect(spawning).rejects.toBe(reason)
+      : expect(spawning).rejects.toMatchObject({ code: 'PROVIDER_CHANGED' })
+    if (change === 'cancel') controller.abort(reason)
+    else get.mockReturnValue({ ...original })
+    release.resolve(undefined)
+    await queued
+    await rejected
+    expect(durable(lead).members).toEqual([])
+    get.mockRestore()
+    expect((await spawn(ctx, lead, 'queued-worker')).member.name).toBe('queued-worker')
+  })
+
+  it('forwards child options independently of the backend and displays live model selections', async () => {
+    const { ctx, lead } = await setup(['hang'])
+    const start = vi.spyOn(ctx.subagents, 'startActivation')
+    const agentOptions = { provider: 'mock', model: 'child-model' }
+    const spawned = await spawn(ctx, lead, 'model-worker', { agentOptions })
+    expect(start).toHaveBeenCalledTimes(1)
+    expect(start.mock.calls[0]?.[0]).toMatchObject({ provider: 'spawn', request: { agentOptions } })
+    const child = await waitRunning(ctx, spawned.member.id)
+    expect(spawned.member).toMatchObject({ provider: 'spawn', model: 'child-model' })
+    lead.model.select({ provider: 'mock', model: 'lead-selected' })
+    child.model.select({ provider: 'mock', model: 'child-selected' })
+    expect(ctx.agentTeams.listMembers(lead).map(member => member.model)).toEqual(['lead-selected', 'child-selected'])
+    expect(child.options.model).toBe('child-model')
+    ctx.agentTeams.interrupt(lead, 'model-worker')
+    await waitNoAgent(ctx, child.id)
+    expect(ctx.agentTeams.listMembers(lead)[1]).not.toHaveProperty('model')
+  })
+
   it('records failed provisioning durably, reserves its name, and counts it against the limit', async () => {
     const { ctx, lead } = await setup([], { maxMembers: 1 })
-    await expect(spawn(ctx, lead, 'failed-worker', { provider: 'missing' })).rejects.toThrow()
+    const failure = new TeamError('backend provisioning failed', 'TEST_START_FAILURE')
+    vi.spyOn(ctx.subagents, 'startActivation').mockRejectedValueOnce(failure)
+    await expect(spawn(ctx, lead, 'failed-worker')).rejects.toBe(failure)
 
     expect(ctx.agentTeams.listMembers(lead)[1]).toMatchObject({
       name: 'failed-worker',
       status: 'failed',
-      provider: 'missing',
+      provider: 'spawn',
     })
     await expect(spawn(ctx, lead, 'failed-worker')).rejects.toMatchObject({ code: 'TEAM_MEMBER_NAME_TAKEN' })
     await expect(spawn(ctx, lead, 'other-worker')).rejects.toMatchObject({ code: 'TEAM_MEMBER_LIMIT' })

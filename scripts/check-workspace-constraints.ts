@@ -233,9 +233,8 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh-creation-recommendations': ['references/*.md', 'skills/*.md'],
   // Official-plugin recommendations ship the skill text their provider loads.
   '@deepseek-ai/dsh-plugin-recommendations': ['skills/*.md'],
-  // The Web Host mounts the default-off settings owner independently of the
-  // delegation-tool instances.
-  '@deepseek-ai/dsh-tool-subagent': ['lib/model-selection-settings.js'],
+  // Delegation tools share model selection; the Host mounts its settings owner independently.
+  '@deepseek-ai/dsh-tool-subagent': ['lib/model-selection-settings.js', 'lib/delegation-model.js'],
   // The JSONL backend resolves its private verification Worker relative to
   // import.meta.url; it is shipped without a public package subpath.
   '@deepseek-ai/dsh-session-persistence-jsonl': ['lib/worker.cjs'],
@@ -600,6 +599,10 @@ export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): st
     if (manifest.name === '@deepseek-ai/dsh-tools'
       && !hasExportPair(manifest, './pipeline', './lib/types/pipeline.d.ts', './lib/pipeline.js')) {
       errors.push(`${label}: exports["./pipeline"] must expose lib/types/pipeline.d.ts and lib/pipeline.js`)
+    }
+    if (manifest.name === '@deepseek-ai/dsh-tool-subagent'
+      && !hasExportPair(manifest, './delegation-model', './lib/types/delegation-model.d.ts', './lib/delegation-model.js')) {
+      errors.push(`${label}: exports["./delegation-model"] must expose lib/types/delegation-model.d.ts and lib/delegation-model.js`)
     }
     const expectedFiles = expectedDshPackageFiles(manifest, detailDocumentFiles(join(root, dir)))
     if (!sameStringList(manifest.files, expectedFiles)) {

@@ -19,7 +19,8 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import { registerListSubagentModels } from '@deepseek-ai/dsh-tool-subagent/delegation-model'
 import * as tool from '../src/index.ts'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -167,6 +168,56 @@ describe('list_subagent_models', () => {
     expect(ctx.tools.get('list_subagent_models', second.agent)).toBeUndefined()
   })
 
+  it('returns the exact scoped disposer and restores inherited discovery', async () => {
+    const ctx = await setupListTool()
+    const inherited = ctx.tools.get('list_subagent_models')
+    const { agent } = await ctx.agents.create({ sessionId: SessionId('scoped-discovery') })
+    const register = vi.spyOn(ctx.tools, 'register')
+    try {
+      const dispose = registerListSubagentModels(agent.ctx)
+      expect(dispose).toBe(register.mock.results.at(-1)?.value)
+      const scoped = ctx.tools.get('list_subagent_models', agent)
+      expect(scoped).toBeDefined()
+      expect(scoped).not.toBe(inherited)
+      expect(ctx.tools.get('list_subagent_models')).toBe(inherited)
+      expect(() => registerListSubagentModels(agent.ctx)).toThrow('already registered')
+      expect(ctx.tools.get('list_subagent_models', agent)).toBe(scoped)
+      dispose()
+      expect(ctx.tools.get('list_subagent_models', agent)).toBe(inherited)
+      const owner = await agent.ctx.plugin((owned) => { registerListSubagentModels(owned) })
+      expect(ctx.tools.get('list_subagent_models', agent)).not.toBe(inherited)
+      await owner.dispose()
+      expect(ctx.tools.get('list_subagent_models', agent)).toBe(inherited)
+    } finally {
+      register.mockRestore()
+    }
+  })
+
+  it('reads the live settings owner after removal and replacement', async () => {
+    const ctx = ownContext(new Context())
+    await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
+    await ctx.plugin(AgentLoop, { agents: [] })
+    const owner = await ctx.plugin(SubagentModelSelectionConfig, {
+      enabled: true, allowedModels: [{ provider: 'alpha', model: 'fast' }],
+    })
+    registerListSubagentModels(ctx)
+    ctx.llm.registerAdapter(['alpha', 'beta'], new CatalogAdapter())
+    const { agent } = await ctx.agents.create({ sessionId: SessionId('settings-owner-replacement') })
+    callingAgents.set(ctx, agent)
+    expect(text(await call(ctx, {}))).toBe('alpha — ALPHA API')
+    await owner.dispose()
+    const removed = await call(ctx, {})
+    expect(removed.isError).toBe(true)
+    expect(text(removed)).toContain('requires the subagentModelSelection service')
+    await ctx.plugin(SubagentModelSelectionConfig, {
+      enabled: true, allowedModels: [{ provider: 'beta', model: 'fast' }],
+    })
+    expect(text(await call(ctx, {}))).toBe('alpha — ALPHA API')
+    const fresh = await ctx.agents.create({ sessionId: SessionId('replacement-policy') })
+    callingAgents.set(ctx, fresh.agent)
+    expect(text(await call(ctx, {}))).toBe('beta — BETA API')
+  })
+
   it('requires a calling Agent and an effective parent route', async () => {
     const ctx = ownContext(new Context())
     await ctx.plugin(SessionProjectionRegistry)
@@ -174,6 +225,8 @@ describe('list_subagent_models', () => {
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SubagentModelSelectionConfig)
     await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(SubagentRuntime)
     await ctx.plugin(tool, { provider: 'unused', modelDiscovery: true })
@@ -209,6 +262,8 @@ describe('list_subagent_models', () => {
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SubagentModelSelectionConfig)
     await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(SubagentRuntime)
     await ctx.plugin(tool, { provider: 'unused', modelDiscovery: true })

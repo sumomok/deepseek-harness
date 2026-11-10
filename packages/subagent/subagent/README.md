@@ -56,9 +56,12 @@ The current `maxActiveSubagents` value is sampled before every new or cold-resum
 
 At capacity, creation or cold resume rejects with `ACTIVATION_LIMIT_REACHED` (browser prompts receive `subagent/delivery-unavailable`): wait for a child to finish or continue using the existing agents. Admission does not queue, because a parent waiting for descendants must not wait for its own occupied slot. Slots are process-local and do not constrain cumulative Session history or token usage.
 
+<a id="local-and-external-children"></a>
 ### Local and external children
 
 `startActivation({ provider, label, request, signal, delivery })` returns `{ childId, messageId?, result, dispose }`. Supplying `childId` selects a local backend and guarantees `messageId`. Local children accept later messages and can cold-resume; external children expose one execution and reject continuation. `request.agentOptions` overrides supported child model settings. `delivery: 'parent'` supplies the model-facing completion notice; `delivery: 'caller'` lets workflows await the result without a parent notice or initial return guidance. Local parent delivery requires persistence; caller delivery can use an ephemeral local session. Cold resume requires persistence and Session query.
+
+For a new local child, omitted model settings inherit the parent's latest request header, or its creation options before the first request. Changing provider or model without an explicit reasoning effort uses the selected route's default effort. The resolved initial selection is recorded after inherited history and governs the child's first request. Warm continuation and cold resume preserve the child's later recorded selection, including a pending change that has not yet reached a request.
 
 ### Child presets
 

@@ -21,8 +21,11 @@
   en: 60ea90ce57cca56f
   zh: 181e48b7d4dcf755
 /deepseek-ai-dsh-experimental-tool-agent-team/use-this-package/smallest-working-example:
-  en: 9af650a79711b3b3
-  zh: 2930360011b544e0
+  en: 88ac5b160809ed84
+  zh: 668a543302c2d289
+/deepseek-ai-dsh-experimental-tool-agent-team/use-this-package/child-model-selection:
+  en: 29c21944f1949fc0
+  zh: 51fed62950a2317c
 /deepseek-ai-dsh-experimental-tool-agent-team/use-this-package/what-the-model-can-do:
   en: be42811bbcc3b438
   zh: 014bd055ca694315
@@ -57,11 +60,11 @@
   en: e8687e69bcdf411d
   zh: 84480d4dd33cf339
 /deepseek-ai-dsh-experimental-tool-agent-team/model-experience/team-policy-and-tools/token-effect:
-  en: 3f49674f937a8ca3
-  zh: 79d34d605732abb1
+  en: fbc9d1ca96e7eca5
+  zh: 721735d81186cb60
 /deepseek-ai-dsh-experimental-tool-agent-team/model-experience/team-policy-and-tools/kv-cache-effect:
-  en: 2ba143e89873e768
-  zh: 4f09446c0fb13cdb
+  en: 8f5fc0a07b2b512c
+  zh: 8bb8a575e14ba9e3
 /deepseek-ai-dsh-experimental-tool-agent-team/known-limitations-and-deferred-work:
   en: 945184aa77ac76dd
   zh: 620b07948615a019

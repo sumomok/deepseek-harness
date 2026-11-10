@@ -11,8 +11,9 @@ const entry = (path: string) => ({
   clean: false,
 })
 
-/** Build self-contained Loader entries so the package needs no private chunks. */
+/** Build self-contained public entries so the package needs no private chunks. */
 export default defineConfig([
   entry('lib/types/index.js'),
   entry('lib/types/model-selection-settings.js'),
+  entry('lib/types/delegation-model.js'),
 ])

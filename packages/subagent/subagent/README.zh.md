@@ -56,9 +56,12 @@ kind: "package-reference"
 
 容量耗尽时，新建或冷恢复以 `ACTIVATION_LIMIT_REACHED` 拒绝（浏览器消息返回 `subagent/delivery-unavailable`）：等待子代理完成，或继续使用现有代理。接纳不会排队，避免等待后代的父代理又等待自己占用的名额。名额仅存在于当前进程，不限制累计 Session 历史或 token 用量。
 
+<a id="local-and-external-children"></a>
 ### 本地与外部子级
 
 `startActivation({ provider, label, request, signal, delivery })` 返回 `{ childId, messageId?, result, dispose }`。提供 `childId` 会选择本地后端，并保证返回 `messageId`。本地子级接受后续消息并支持冷恢复；外部子级只暴露一次执行，拒绝继续输入。`request.agentOptions` 覆盖后端支持的子级模型设置。`delivery: 'parent'` 提供面向模型的完成通知；`delivery: 'caller'` 让工作流等待结果，不发送父级通知，也不附加初始返回指导。本地父级投递需要持久化，调用方投递可以使用临时本地会话；冷恢复需要持久化与 Session 查询服务。
+
+新建本地子级时，省略的模型设置继承父级最近一次请求的头部；父级尚未发出请求时，继承其创建选项。更换提供方或模型且未显式指定推理强度时，使用所选路由的默认推理强度。解析后的初始选择记录在继承的历史之后，并用于子级的首次请求。驻留期间继续执行与冷恢复均保留子级后来记录的选择，包括尚未用于请求的待生效更改。
 
 ### 子级 preset
 

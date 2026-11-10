@@ -20,7 +20,6 @@ import type {
   CreateTeamTaskRequest,
   SendTeamMessageRequest,
   SendTeamMessageResult,
-  SpawnTeammateRequest,
   SpawnTeammateResult,
   TeamMemberView,
   TeamTaskView,
@@ -28,7 +27,10 @@ import type {
   UpdateTeamTaskRequest,
 } from './types.ts'
 
+import type { SpawnTeammateRequest } from './runtime-types.ts'
+
 export type * from './types.ts'
+export type { SpawnTeammateRequest } from './runtime-types.ts'
 export type { TeamMembership } from './roster.ts'
 export { TeamId, TeamMessageId, TeamTaskId } from './types.ts'
 export { TeamError } from './error.ts'

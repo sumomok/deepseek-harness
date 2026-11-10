@@ -35,6 +35,8 @@ kind: "package-reference"
 
 初始内容止于父级最后一个已完成的轮次。subagent 启动时，父级当前的工具调用轮次仍在进行，因此该进行中的轮次绝不会被包含；在第一个已完成轮次之前，初始内容为空，子 agent 的行为与全新 spawn 相同。
 
+新建子级解析得到的模型选择优先于初始内容中的模型状态。模型继承、推理强度默认值与继续执行遵循[本地子级选择规则](../subagent/README.zh.md#local-and-external-children)。
+
 ### 最小配置
 
 先加载 subagent 服务与本后端，再配置一个委派工具。此组合暴露由 fork 支撑的 `subagent` 工具：
@@ -142,7 +144,7 @@ fork 会把保留的已完成历史复制到子 agent 的请求中，子 agent �
 
 - **初始内容是一次性快照**——子 agent 只能看到 fork 时父级已完成的轮次，看不到父级此后记录的任何内容；不会实时共享上下文。
 - **前缀复用取决于请求输入是否匹配**——父级与子级的消息定义都逐字节相同；结构化输出、生成 SDK、路由变化或恢复的历史覆盖仍可破坏相等性。理由见[保持 fork 缓存的 Agent Note](../../../.agents/notes/implemented/architecture/2026-08-10-fork-children-stay-one-shot.zh.md)。
-- **随附 fork 工具不公开子级 LLM（大语言模型）路由选择**——它们继承父级提供方与模型，使复制的历史仍有资格复用 KV Cache。在某项改动能保留复用或公开有界重算成本前，路由选择保持禁用。
+- **随附 fork 工具默认继承父级 LLM（大语言模型）路由**——自定义的 [`dsh-tool-subagent`](../tool-subagent/README.zh.md#use-this-package) 实例可以启用 `modelSelection`。更换路由可能导致无法复用 KV Cache；所选模型必须能接受保留的对话历史。
 
 <a id="dev-note"></a>
 ### 开发备注

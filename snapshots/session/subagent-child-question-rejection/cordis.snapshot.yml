@@ -50,7 +50,9 @@
             name: DeepSeek
             models:
               - id: deepseek-v4-flash
+                contextWindow: 1000000
               - id: deepseek-v4-pro
+                contextWindow: 1000000
     - id: tool-ask-user
       name: '@deepseek-ai/dsh-tool-ask-user'
     - id: child-question-tripwire

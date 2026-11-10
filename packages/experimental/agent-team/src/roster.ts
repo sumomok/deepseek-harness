@@ -6,7 +6,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { MessageId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import { foldSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
+import { foldSubagentDescriptor, SubagentError } from '@deepseek-ai/dsh-subagent'
 import { errorMessage, TeamError } from './error.ts'
 import type { TeamJournal } from './journal.ts'
 import type { TeamRuntimeLifecycle } from './lifecycle.ts'
@@ -14,8 +14,8 @@ import { readPersistedSession } from './persisted.ts'
 import type { TeamState } from './projection.ts'
 import { messageAccepted } from './session-message.ts'
 import { TeamId } from './types.ts'
+import type { SpawnTeammateRequest } from './runtime-types.ts'
 import type {
-  SpawnTeammateRequest,
   SpawnTeammateResult,
   TeamMemberSnapshot,
   TeamMemberView,
@@ -126,17 +126,18 @@ export class TeamRoster {
   list(membership: TeamMembership): TeamMemberView[] {
     const { root } = membership
     const state = this.journal.state(root)
+    const leadModel = root.model.current()?.model
     const result: TeamMemberView[] = [{
       id: root.id,
       name: 'lead',
       role: 'lead',
       status: availability(root),
-      ...root.options.model === undefined ? {} : { model: root.options.model },
+      ...leadModel === undefined ? {} : { model: leadModel },
       diagnostics: [],
     }]
     for (const member of state.members) {
       const live = this.ctx.agents.get(member.id)
-      const model = live?.options.model ?? root.options.model
+      const model = live?.model.current()?.model
       result.push({
         id: member.id,
         name: member.name,
@@ -239,17 +240,36 @@ export class TeamRoster {
     const root = membership.root
     const name = this.memberName(request.name)
     const description = requiredText(request.description, 'description', 200)
+    const providerName = requiredText(request.provider, 'provider', 200)
+    const provider = this.ctx.subagents.getProvider(providerName)
+    if (provider === undefined) {
+      throw new SubagentError(`no subagent provider registered for "${providerName}"`, 'NO_PROVIDER')
+    }
+    if (provider.prepareContinuable === undefined) {
+      throw new SubagentError(`subagent provider "${providerName}" does not support continuable teammates`, 'UNSUPPORTED_CAPABILITY')
+    }
+    if (request.agentOptions !== undefined && !provider.capabilities.agentOptions) {
+      throw new SubagentError(`subagent provider "${providerName}" does not support the "agentOptions" capability`, 'UNSUPPORTED_CAPABILITY')
+    }
     const childId = brandString<SessionId>(randomUUID())
     const member: TeamMemberSnapshot = {
       id: childId,
       name,
       description,
-      provider: requiredText(request.provider, 'provider', 200),
+      provider: providerName,
       context: request.context,
       phase: 'provisioning',
     }
 
     await this.journal.transact(root.id, async () => {
+      signal.throwIfAborted()
+      this.membership(caller)
+      if (this.ctx.subagents.getProvider(providerName) !== provider) {
+        throw new SubagentError(
+          `subagent provider "${providerName}" changed before teammate reservation; retry the creation`,
+          'PROVIDER_CHANGED',
+        )
+      }
       const state = this.journal.state(root)
       if (state.members.some(member => member.name === name)) {
         throw new TeamError(`teammate name "${name}" was already used in this Team`, 'TEAM_MEMBER_NAME_TAKEN')
@@ -264,11 +284,12 @@ export class TeamRoster {
       const started = await this.ctx.subagents.startActivation({
         delivery: 'parent',
         childId,
-        provider: request.provider,
+        provider: providerName,
         label: description,
         request: {
           prompt: request.prompt,
           parent: root,
+          ...request.agentOptions === undefined ? {} : { agentOptions: request.agentOptions },
         },
         signal,
       })
@@ -419,6 +440,7 @@ export class TeamRoster {
   /** Build one runtime member row after successful creation. */
   private memberView(member: TeamMemberSnapshot & { readonly phase: 'active' }): TeamMemberView {
     const live = this.ctx.agents.get(member.id)
+    const model = live?.model.current()?.model
     return {
       id: member.id,
       name: member.name,
@@ -427,7 +449,7 @@ export class TeamRoster {
       description: member.description,
       provider: member.provider,
       context: member.context,
-      ...live?.options.model === undefined ? {} : { model: live.options.model },
+      ...model === undefined ? {} : { model },
       diagnostics: [],
     }
   }

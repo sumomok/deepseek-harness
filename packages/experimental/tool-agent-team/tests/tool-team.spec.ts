@@ -4,15 +4,22 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
+import Include from '@deepseek-ai/cordis-plugin-include'
+import Group from '@deepseek-ai/cordis-plugin-group'
+import AgentPresets from '@deepseek-ai/dsh-agent-preset-registry'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { ToolCallId, createUserMessage } from '@deepseek-ai/dsh-llm'
-import { scopeOf } from '@deepseek-ai/dsh-scope'
+import { ReasoningEffortId, ToolCallId, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { scopeOf, scopeParentOf } from '@deepseek-ai/dsh-scope'
 import { SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SessionQueryEngine from '@deepseek-ai/dsh-session-query'
-import SubagentService from '@deepseek-ai/dsh-subagent'
+import SubagentService, { SubagentError } from '@deepseek-ai/dsh-subagent'
+import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
+import SubagentModelSelectionConfig from '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
+import { registerListSubagentModels } from '@deepseek-ai/dsh-tool-subagent/delegation-model'
 import * as SubagentFork from '@deepseek-ai/dsh-subagent-fork-in-process'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { renderPrompt, renderContextSnapshot } from '@deepseek-ai/dsh-system-prompt'
@@ -74,7 +81,11 @@ afterEach(async () => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-async function setup(script: ConstructorParameters<typeof MockAdapter>[0], legacyControl = false) {
+async function setup(
+  script: ConstructorParameters<typeof MockAdapter>[0],
+  legacyControl = false,
+  config: toolTeam.Config = {},
+) {
   const ctx = new Context()
   contexts.add(ctx)
   await mountAgentLoopTestDependencies(ctx)
@@ -89,8 +100,20 @@ async function setup(script: ConstructorParameters<typeof MockAdapter>[0], legac
   await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
   await ctx.plugin(SubagentFork, { providerName: 'fork' })
   await ctx.plugin(TeamService)
-  const fiber = await ctx.plugin(toolTeam)
-  const adapter = new MockAdapter(script)
+  if (config.modelSelection || config.modelDiscovery) {
+    await ctx.plugin(SubagentModelSelectionConfig, {
+      enabled: true,
+      allowedModels: ['mock', 'child-model', 'lead-selected'].map(model => ({ provider: 'mock', model })),
+    })
+  }
+  const fiber = await ctx.plugin(toolTeam, config)
+  const adapter = new MockAdapter(script, {
+    efforts: [
+      { id: ReasoningEffortId('low'), name: 'Low' },
+      { id: ReasoningEffortId('high'), name: 'High' },
+    ],
+    defaultEffort: ReasoningEffortId('low'),
+  })
   ctx.llm.registerAdapter(['mock'], adapter)
   const lead = await ctx.agentLoop.create(SessionId('tool-team-lead'), { provider: 'mock', model: 'mock' })
   return { ctx, lead, fiber, adapter }
@@ -767,7 +790,229 @@ describe('dsh-tool-team', () => {
     expect(text(result)).toContain('unknown tool "list_agents"')
     expect('default' in toolTeam).toBe(false)
     expect(toolTeam.name).toBe('tool-agent-team')
-    expect(toolTeam.inject).toEqual(['agents', 'agentTeams', 'tools', 'systemPrompt'])
+    expect(toolTeam.inject).toEqual(['agents', 'agentTeams', 'tools', 'systemPrompt', 'subagents'])
+  })
+
+  it('rejects disabled model fields in execution before reserving a teammate', async () => {
+    const { ctx, lead } = await setup(['hang'])
+    expect(JSON.stringify(ctx.tools.get('spawn_teammate', lead)?.parameters)).not.toContain('reasoning_effort')
+    const start = vi.spyOn(ctx.agentTeams, 'spawnTeammate')
+    for (const request of [{ provider: 'mock', model: 'mock' }, { reasoning_effort: 'low' }]) {
+      const result = await execute(ctx, lead, 'spawn_teammate', {
+        name: 'retry-worker', description: 'worker', prompt: 'work', ...request,
+      })
+      expect(result.isError).toBe(true)
+      expect(text(result)).toContain('child model selection is disabled')
+    }
+    expect(start).not.toHaveBeenCalled()
+    expect(lead.session.snapshotEvents().filter(event => event.type === 'team/member')).toEqual([])
+    expect((await execute(ctx, lead, 'spawn_teammate', {
+      name: 'retry-worker', description: 'worker', prompt: 'work',
+    })).isError).toBe(false)
+  })
+
+  it.each(['modelSelection', 'modelDiscovery'] as const)('requires the settings owner only when %s is enabled', async (setting) => {
+    const { ctx, lead, fiber } = await setup([])
+    await fiber.dispose()
+    await expect(ctx.plugin(toolTeam, { [setting]: true })).rejects.toMatchObject({
+      code: 'model_selection_owner_unavailable',
+    })
+    expect(ctx.tools.get('spawn_teammate', lead)).toBeUndefined()
+    expect(ctx.tools.get('list_subagent_models', lead)).toBeUndefined()
+  })
+
+  it('rejects malformed, unauthorized, and unresolvable selections without reserving names', async () => {
+    const { ctx, lead, adapter } = await setup(['hang'], false, { modelSelection: true })
+    const start = vi.spyOn(ctx.agentTeams, 'spawnTeammate')
+    for (const [request, diagnostic] of [
+      [{ provider: 'mock' }, 'must be supplied together'],
+      [{ model: 'child-model' }, 'must be supplied together'],
+      [{ provider: '', model: 'child-model' }, 'must be non-empty'],
+      [{ provider: 'mock', model: 'forbidden' }, 'not allowed for this Session'],
+      [{ reasoning_effort: 'unsupported' }, 'unsupported'],
+    ] as const) {
+      const result = await execute(ctx, lead, 'spawn_teammate', {
+        name: 'retry-worker', description: 'worker', prompt: 'work', ...request,
+      })
+      expect(result.isError).toBe(true)
+      expect(text(result)).toContain(diagnostic)
+    }
+    const routeFailure = new SubagentError('selected route unavailable', 'TEST_ROUTE', { cause: new Error('adapter unavailable') })
+    vi.spyOn(adapter, 'resolveModel').mockRejectedValueOnce(routeFailure)
+    const failedRoute = await execute(ctx, lead, 'spawn_teammate', {
+      name: 'retry-worker', description: 'worker', prompt: 'work', provider: 'mock', model: 'child-model',
+    })
+    expect(failedRoute.isError).toBe(true)
+    expect(text(failedRoute)).toContain('selected route unavailable')
+    expect(start).not.toHaveBeenCalled()
+    expect(lead.session.snapshotEvents().filter(event => event.type === 'team/member')).toEqual([])
+    expect((await execute(ctx, lead, 'spawn_teammate', {
+      name: 'retry-worker', description: 'worker', prompt: 'work', provider: 'mock', model: 'child-model',
+    })).isError).toBe(false)
+  })
+
+  it.each(['cancel', 'replace'] as const)('contains %s during model preflight before roster admission', async (change) => {
+    const { ctx, lead, adapter } = await setup(['hang'], false, { modelSelection: true })
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const resolve = adapter.resolveModel.bind(adapter)
+    vi.spyOn(adapter, 'resolveModel').mockImplementationOnce(async (provider, model) => {
+      entered.resolve(undefined)
+      await release.promise
+      return resolve(provider, model)
+    })
+    const original = ctx.subagents.getProvider('spawn')!
+    const get = vi.spyOn(ctx.subagents, 'getProvider')
+    const controller = new AbortController()
+    const request = { name: 'retry-worker', description: 'worker', prompt: 'work', provider: 'mock', model: 'child-model' }
+    const running = execute(ctx, lead, 'spawn_teammate', request, controller.signal)
+    await entered.promise
+    if (change === 'cancel') controller.abort(new Error('cancel model preflight'))
+    else get.mockReturnValue({ ...original })
+    release.resolve(undefined)
+    const result = await running
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain(change === 'cancel' ? 'cancel model preflight' : 'changed while resolving')
+    expect(lead.session.snapshotEvents().filter(event => event.type === 'team/member')).toEqual([])
+    get.mockRestore()
+    expect((await execute(ctx, lead, 'spawn_teammate', request)).isError).toBe(false)
+  })
+
+  it.each(['fresh', 'fork'] as const)('selects a %s child model and resets inherited effort on a changed route', async (context) => {
+    const { ctx, lead, adapter } = await setup([textResponse('lead ready'), 'hang'], false, { modelSelection: true, modelDiscovery: true })
+    lead.model.select({ provider: 'mock', model: 'lead-selected', reasoningEffort: ReasoningEffortId('high') })
+    await runTurn(lead, 'record Lead selection')
+    const result = await execute(ctx, lead, 'spawn_teammate', {
+      name: 'selected-worker', description: 'worker', prompt: 'work', context, provider: 'mock', model: 'child-model',
+    })
+    expect(result.isError).toBe(false)
+    const child = await waitRunning(ctx, spawnedChildId(ctx, lead, result))
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(2) })
+    expect(child.session.requestHeader()?.config).toMatchObject({ provider: 'mock', model: 'child-model', reasoningEffort: 'low' })
+    expect(child.options).not.toHaveProperty('reasoningEffort')
+    expect(JSON.parse(text(result))).toMatchObject({ member: { provider: context === 'fresh' ? 'spawn' : 'fork', model: 'child-model' } })
+    child.model.select({ provider: 'mock', model: 'mock' })
+    expect(JSON.parse(text(await execute(ctx, lead, 'list_agents', {})))).toMatchObject([
+      { model: 'lead-selected' }, { model: 'mock' },
+    ])
+    expect(JSON.stringify(ctx.tools.get('spawn_teammate', lead)?.parameters)).toContain('Inspect list_subagent_models before choosing')
+  })
+
+  it.each([
+    [{}, 'high'],
+    [{ provider: 'mock', model: 'lead-selected' }, 'high'],
+    [{ reasoning_effort: 'low' }, 'low'],
+  ] as const)('inherits the last requested Lead route with request %j and effort %s', async (request, effort) => {
+    const { ctx, lead, adapter } = await setup([textResponse('lead ready'), 'hang'], false, { modelSelection: true })
+    lead.model.select({ provider: 'mock', model: 'lead-selected', reasoningEffort: ReasoningEffortId('high') })
+    await runTurn(lead, 'record Lead selection')
+    const result = await execute(ctx, lead, 'spawn_teammate', {
+      name: 'inherited-worker', description: 'worker', prompt: 'work', ...request,
+    })
+    expect(result.isError).toBe(false)
+    const child = await waitRunning(ctx, spawnedChildId(ctx, lead, result))
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(2) })
+    expect(child.session.requestHeader()?.config).toMatchObject({ provider: 'mock', model: 'lead-selected', reasoningEffort: effort })
+    expect(JSON.stringify(ctx.tools.get('spawn_teammate', lead)?.parameters)).not.toContain('list_subagent_models')
+  })
+
+  it('owns discovery per Agent, shadows inherited discovery, and restores it across HMR', async () => {
+    const { ctx, lead, fiber } = await setup(['hang'], false, { modelDiscovery: true })
+    await fiber.dispose()
+    const disposeParent = registerListSubagentModels(ctx)
+    const inherited = ctx.tools.get('list_subagent_models')
+    const first = await ctx.plugin(toolTeam, { modelDiscovery: true })
+    const own = ctx.tools.get('list_subagent_models', lead)
+    expect(own).toBeDefined()
+    expect(own).not.toBe(inherited)
+    const spawned = await execute(ctx, lead, 'spawn_teammate', { name: 'discovery-worker', description: 'worker', prompt: 'work' })
+    const child = await waitRunning(ctx, spawnedChildId(ctx, lead, spawned))
+    const childOwn = ctx.tools.get('list_subagent_models', child)
+    expect(childOwn).not.toBe(own)
+    expect(childOwn).not.toBe(inherited)
+    const discovered = await execute(ctx, child, 'list_subagent_models', { provider: 'mock', model: 'child-model' })
+    expect(discovered.isError).toBe(false)
+    expect(text(discovered)).toContain('low (default)')
+    await first.dispose()
+    for (const agent of [lead, child]) expect(ctx.tools.get('list_subagent_models', agent)).toBe(inherited)
+    const second = await ctx.plugin(toolTeam, { modelDiscovery: true })
+    expect(ctx.tools.get('list_subagent_models', lead)).not.toBe(own)
+    expect(ctx.tools.get('list_subagent_models', child)).not.toBe(childOwn)
+    await second.dispose()
+    expect(ctx.tools.get('list_subagent_models', lead)).toBe(inherited)
+    disposeParent()
+    expect(ctx.tools.get('list_subagent_models', lead)).toBeUndefined()
+  })
+
+  it('keeps Team discovery below the standing preset scope and restores it after preset changes and HMR', async () => {
+    const { ctx, fiber } = await setup([], false, { modelDiscovery: true })
+    await fiber.dispose()
+    await ctx.plugin(Loader)
+    ctx.loader.builtins.include = Include
+    ctx.loader.builtins.group = Group
+    ctx.loader.builtins.subagentTool = ToolSubagent
+    await ctx.plugin(AgentPresets, { default: 'standard' })
+    // Match the Web standard delegation group; minimal contributes no delegation tools.
+    await ctx.agentPresets.register({ id: 'standard', plugins: [{
+      name: 'cordis:group', group: true, config: [{
+        name: 'cordis:subagentTool',
+        config: { provider: 'spawn', toolName: 'subagent', modelSelection: true, modelDiscovery: true },
+      }],
+    }] })
+    await ctx.agentPresets.register({ id: 'minimal', plugins: [] })
+    await using preset = await ctx.agentPresets.acquireScope('standard')
+    const inherited = ctx.tools.get('list_subagent_models', preset.key)
+    expect(inherited).toBeDefined()
+    expect(ctx.tools.get('list_subagent_models')).toBeUndefined()
+    const { agent } = await ctx.agents.create({
+      sessionId: SessionId('preset-team-lead'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+      setup: async (agentCtx) => { await ctx.agentPresets.mount(agentCtx, 'standard') },
+    })
+    const agentScope = scopeOf(agent.ctx)
+    expect(agentScope).toBeDefined()
+    expect(agentScope).not.toBe(preset.key)
+    expect(scopeParentOf(agentScope!)).toBe(preset.key)
+    expect(ctx.tools.get('list_subagent_models', agent)).toBe(inherited)
+    const first = await ctx.plugin(toolTeam, { modelDiscovery: true })
+    const own = ctx.tools.get('list_subagent_models', agent)
+    expect(own).toBeDefined()
+    expect(own).not.toBe(inherited)
+    expect(ctx.tools.schemas(agent).filter(tool => tool.name === 'list_subagent_models')).toHaveLength(1)
+    await ctx.agentPresets.select(agent, 'minimal')
+    expect(ctx.tools.get('list_subagent_models', agent)).toBe(own)
+    await first.dispose()
+    expect(ctx.tools.get('list_subagent_models', agent)).toBeUndefined()
+    await ctx.agentPresets.select(agent, 'standard')
+    expect(ctx.tools.get('list_subagent_models', agent)).toBe(inherited)
+    const second = await ctx.plugin(toolTeam, { modelDiscovery: true })
+    expect(ctx.tools.get('list_subagent_models', agent)).not.toBe(inherited)
+    expect(ctx.tools.get('list_subagent_models', agent)).not.toBe(own)
+    const discovered = await execute(ctx, agent, 'list_subagent_models', { provider: 'mock', model: 'child-model' })
+    expect(discovered.isError).toBe(false)
+    expect(text(discovered)).toContain('low (default)')
+    await second.dispose()
+    expect(ctx.tools.get('list_subagent_models', agent)).toBe(inherited)
+  })
+
+  it('rolls back earlier Agent registrations when a later Agent has a same-layer discovery duplicate', async () => {
+    const { ctx, lead, fiber } = await setup([], false, { modelDiscovery: true })
+    await fiber.dispose()
+    const later = await ctx.agentLoop.create(SessionId('later-team-lead'), { provider: 'mock', model: 'mock' })
+    const dispose = registerListSubagentModels(later.ctx)
+    const existing = ctx.tools.get('list_subagent_models', later)
+    await expect(ctx.plugin(toolTeam, { modelDiscovery: true })).rejects.toThrow(/already registered/u)
+    expect(ctx.tools.get('list_subagent_models', later)).toBe(existing)
+    expect(ctx.tools.get('list_subagent_models', lead)).toBeUndefined()
+    for (const agent of [lead, later]) {
+      expect(ctx.tools.get('spawn_teammate', agent)).toBeUndefined()
+      expect((await assembly(ctx, agent)).contexts.some(context => context.name === 'team:identity')).toBe(false)
+    }
+    dispose()
+    const retry = await ctx.plugin(toolTeam, { modelDiscovery: true })
+    for (const agent of [lead, later]) expect(ctx.tools.get('list_subagent_models', agent)).toBeDefined()
+    await retry.dispose()
+    for (const agent of [lead, later]) expect(ctx.tools.get('list_subagent_models', agent)).toBeUndefined()
   })
 
   it('uses configured fresh and fork provider names', async () => {

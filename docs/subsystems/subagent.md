@@ -4,6 +4,10 @@ English | [中文](subagent.zh.md)
 
 The unified activation API manages local conversations and external executions.
 
+## Model-selection authorization
+
+`ModelSelectionPolicy.routes` contains the Session's exact authorized `{ provider, model }` pairs. The settings service's `policyFor(session)` returns a detached policy, or `undefined` to restrict explicit selection to the parent route. Ordinary delegation and Team tools read this service through the shared delegation-model API. New local children record their resolved model selection after inherited events; resumed children retain their own later selection.
+
 ## Capabilities and activation requests
 
 Every backend uses startActivation. Capability flags validate request options; prepareContinuable selects local Agent creation, while start selects one external execution. The model-facing tool uses parent delivery. Workflow and code mode consumers can await caller results without injecting another parent message. Historical children with unavailable descriptors remain discoverable as `mode: 'unknown'` without granting continuation capabilities; the [package README](../../packages/subagent/subagent/README.md) defines catalog persistence.
@@ -405,6 +409,17 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 ### `ctx.subagentModelSelection` — `SubagentModelSelectionConfig`
 
 Host settings owner that records Session authorization before the first model request.
+
+```ts cordis-catalog
+/**
+ * Read the Session's recorded child-route authorization without consulting current preferences.
+ * @param session - Prepared Session whose durable authorization applies.
+ * @returns Detached exact routes, or undefined to restrict explicit selection to the parent route.
+ */
+policyFor(session: Session): ModelSelectionPolicy | undefined
+```
+
+Types: [Session](session.md)
 
 Source: [`packages/subagent/tool-subagent/src/model-selection-settings.ts`](../../packages/subagent/tool-subagent/src/model-selection-settings.ts)
 

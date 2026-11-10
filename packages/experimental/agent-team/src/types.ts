@@ -161,16 +161,6 @@ export interface Config {
   readonly disposalTimeoutMs?: number
 }
 
-/** Input for creating one durable teammate. */
-export interface SpawnTeammateRequest {
-  readonly name: string
-  readonly description: string
-  readonly prompt: ContentBlock[]
-  readonly context: 'fresh' | 'fork'
-  readonly provider: string
-  readonly signal: AbortSignal
-}
-
 /** Result after one teammate reaches a durable active or failed edge. */
 export interface SpawnTeammateResult {
   readonly member: TeamMemberView

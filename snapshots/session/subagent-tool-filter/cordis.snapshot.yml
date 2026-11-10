@@ -37,7 +37,9 @@
             name: DeepSeek
             models:
               - id: deepseek-v4-flash
+                contextWindow: 1000000
               - id: deepseek-v4-pro
+                contextWindow: 1000000
 
 # The parent owns its file and web tools; the child selects a separate preset.
 - id: tool-fs

@@ -46,7 +46,7 @@ describe('Agent Teams profile bundle', () => {
     })
     expect(inserted.find(entry => entry.id === 'tool-agent-team')).toMatchObject({
       name: '@deepseek-ai/dsh-experimental-tool-agent-team',
-      config: { freshProvider: 'spawn', forkProvider: 'fork' },
+      config: { freshProvider: 'spawn', forkProvider: 'fork', modelSelection: true, modelDiscovery: true },
     })
     expect(inserted.find(entry => entry.id === 'ui-agent-team')).toMatchObject({
       name: '@deepseek-ai/dsh-experimental-client-ui-agent-team',

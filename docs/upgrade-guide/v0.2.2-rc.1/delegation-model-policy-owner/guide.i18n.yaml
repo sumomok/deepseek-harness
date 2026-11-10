@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.1/delegation-model-policy-owner/guide.md
+/:
+  en: 36421c2f8f77f9ed
+  zh: 701ec8748cba8186
+/model-selectable-delegation-requires-the-policy-service:
+  en: 8d114124158a83f1
+  zh: d871d66f7433fc83
+/model-selectable-delegation-requires-the-policy-service/change:
+  en: a8fad8923b2dbd91
+  zh: 3ca983c79e182a96
+/model-selectable-delegation-requires-the-policy-service/migration:
+  en: 988ec7f562eedfe4
+  zh: aee48128dbc30d82

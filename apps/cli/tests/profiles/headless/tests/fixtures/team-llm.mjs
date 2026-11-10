@@ -177,6 +177,10 @@ function lead(messages) {
 }
 
 class TeamFixtureAdapter extends LlmAdapter {
+  resolveModel(provider, model) {
+    return Promise.resolve({ provider, id: model, name: model, context: { contextWindow: 1000000 } })
+  }
+
   async * stream(options) {
     const tools = options.tools.map(tool => tool.name)
     if (tools.includes('subagent') || tools.includes('subagent_fork')) {
