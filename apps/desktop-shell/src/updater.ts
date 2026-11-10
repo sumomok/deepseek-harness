@@ -50,21 +50,39 @@
  * download page a manual check that finds an update asks 「发现新版本 / 去下载」
  * instead, because that tier has no other way to hand the download over.
  *
- * Above that sits one mandatory layer, keyed on the feed's `minimumVersion`:
- * a build older than that line downloads without being asked, and at launch it
- * cannot reach the app until the update is installed. The rule is decided in
- * one place ([[isMandatory]]) and read from two.
+ * Above that sits one mandatory layer, keyed on the feed's
+ * `minimumBuildSequence`: a build below that line downloads without being
+ * asked, and at launch it cannot reach the app until the update is installed.
+ * The rule is decided in one place ([[isBelowRedLine]]) and read from two.
+ *
+ * **What "newer" means is a build identity, not a version.** Every build that
+ * follows this protocol embeds a `dshRelease` object in its own package
+ * manifest, and every v2 feed entry repeats it
+ * ([[@deepseek-ai/dsh-desktop-shell/release-identity]]). The feed lives under
+ * `<FEED_BASE>/v2/<platform>/`, a build without an embedded identity is
+ * refused rather than guessed at, and the old `/mac`, `/win` sources are never
+ * read — a v2 feed that is unreachable is a failed check, not a reason to fall
+ * back to the protocol the bridge build replaced.
+ *
+ * The library still owns the questions the shell must not answer twice: which
+ * systems may install this update, which users are inside the rollout, and
+ * whether the artifact's signature and checksum hold. This module supplies the
+ * one policy the library cannot know — the ordering of two builds of the same
+ * application version — through `isUpdateCandidate`, runs after the library's
+ * own checks, and treats a refusal by either side as "no update" only when it
+ * really was one: an error is a failure, never "already up to date".
  * @module @deepseek-ai/dsh-desktop-shell/updater
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { app, BrowserWindow, dialog, Menu, shell, type MenuItemConstructorOptions, type MessageBoxOptions } from 'electron'
 import { load } from 'js-yaml'
 import { MacUpdater, NsisUpdater, type AppUpdater, type UpdateCheckResult } from 'electron-updater'
 import { mainWindow } from './main-window.ts'
 import { menuText } from './menu-text.ts'
-import { compareVersions } from './version-order.ts'
 import { closeInstalling, showInstalling } from './progress-window.ts'
 import {
   CHECK_RETRY_DELAYS_MS, RESUME_RETRY_DELAYS_MS, RETRY_DELAYS_MS, checkFailureDetail, classifyDownloadError,
@@ -72,14 +90,17 @@ import {
 } from './download-retry.ts'
 import { updaterLogLine, type UpdaterLogChannel } from './updater-log.ts'
 import { UpdateState, type UpdateSnapshot } from './update-state.ts'
-import { readState, setInstalledUpdate } from './desktop-state.ts'
+import { readState, setInstalledUpdateV2, type InstallReceipt } from './desktop-state.ts'
 import {
-  appCacheDir, discardStaleParts, type InstalledPendingSweep, partFileFor, placeInPendingCache, readStagedArtifact,
-  sweepInstalledPending,
+  appCacheDir, discardStaleParts, type InstalledBuildSweep, partFileFor, placeInPendingCache,
+  sweepInstalledBuildPending,
 } from './pending-cache.ts'
 import { discardPart, resumeDownload } from './resumable-download.ts'
 import type { UpdateServiceSpec } from './update-service.ts'
-import { validateFeedVersion } from './feed-validation.ts'
+import {
+  decideUpdate, identityIfPresent, isBelowRedLine, isSameBuild, parseReleaseIdentity, parseUpdateOffer,
+  ReleaseIdentityError, type ReleaseArch, type ReleaseIdentity, type ReleasePlatform, type UpdateOffer,
+} from './release-identity.ts'
 
 /**
  * The published feed, and **the only URL literal this module may contain**.
@@ -98,17 +119,23 @@ import { validateFeedVersion } from './feed-validation.ts'
 const FEED_DEFAULT = 'https://lhr.ink/dsh-updates'
 
 /**
- * Base of the static update feed. The per-platform subdirectories match the
- * `publish` blocks in electron-builder.yml, which is what makes one
- * `scripts/publish-update.ts` run serve both platforms.
+ * Base of the static update feed, and the root `DSH_UPDATE_FEED` still names
+ * as a whole: the protocol's own path is appended to it below.
  */
 const FEED_BASE = process.env.DSH_UPDATE_FEED ?? FEED_DEFAULT
 
-/** Windows feed: `latest.yml` plus the NSIS installer and its blockmap. */
-const FEED_WIN = `${FEED_BASE}/win`
+/**
+ * The protocol version this build reads, fixed by the build rather than by a
+ * setting: a build that could be switched between protocols could be pointed
+ * back at the source the bridge build exists to leave behind.
+ */
+const FEED_PROTOCOL = 'v2'
+
+/** Windows feed: `latest.yml` plus the NSIS installer. */
+const FEED_WIN = `${FEED_BASE}/${FEED_PROTOCOL}/win`
 
 /** macOS feed: `latest-mac.yml` plus the zipped app. */
-const FEED_MAC = `${FEED_BASE}/mac`
+const FEED_MAC = `${FEED_BASE}/${FEED_PROTOCOL}/mac`
 
 /** Where the Help menu's "Report an Issue" lands: a prefilled new-issue page. */
 const ISSUE_NEW_URL = 'https://github.com/sumomok/deepseek-harness/issues/new'
@@ -157,41 +184,23 @@ export interface UpdateHost {
    */
   openLog: () => void
   /**
-   * Mark the app as quitting and tear the embedded server down. Resolves once
-   * the server process tree is gone, which is the precondition for handing
-   * control to an installer that replaces the app directory.
+   * Mark the app as quitting and tear the embedded server down. Resolves only
+   * once the server's whole process tree is confirmed gone, which is the
+   * precondition for handing control to an installer that replaces the app
+   * directory; a stop that cannot be confirmed **rejects** with a failure
+   * carrying `code: 'UPDATE_STOP_INCOMPLETE'`, and the install is then not
+   * handed over.
    */
   prepareQuit: () => Promise<void>
   /**
-   * Undo [[prepareQuit]] after the installer this run handed over to failed
-   * and left the process running: clear the quitting state, restart the
-   * server unless the mandatory block holds the app, and show the window.
+   * Undo [[prepareQuit]] after the installer this run handed over to failed,
+   * or after a teardown that could not be confirmed: clear the quitting state,
+   * restart the server unless the mandatory block holds the app, and show the
+   * window.
    * @param blocking - whether the mandatory-update block holds the app.
    * @returns once the app is back.
    */
   resumeAfterFailedInstall: (blocking: boolean) => Promise<void>
-}
-
-/** One entry of the `files` list in a `latest*.yml` manifest. */
-interface FeedFile {
-  /** Artifact name relative to the feed directory. */
-  url: string
-  /** The artifact's base64 sha512, which is what the updater cache is validated against. */
-  sha512: string
-  /** Whether the installer must be started elevated; set for a per-machine Windows build. */
-  isAdminRightsRequired?: boolean
-}
-
-/** The subset of a `latest*.yml` manifest this module reads. */
-interface Feed {
-  /** The published version. */
-  version: string
-  /** Artifacts of the published version, most preferred first. */
-  files?: FeedFile[]
-  /** Release notes written by `scripts/publish-update.ts`. */
-  releaseNotes?: string
-  /** Publisher's red line: a build below this version must update to stay usable. */
-  minimumVersion?: string
 }
 
 /** The single updater instance; its event listeners must be registered once. */
@@ -215,11 +224,69 @@ let macSigned: boolean | undefined
  */
 let macInstallUnavailable = false
 
-/** Version of the update already downloaded and waiting to be installed. */
-let stagedVersion: string | undefined
+/**
+ * The candidate this channel has accepted: the build a check may download and
+ * the artifact an install would take.
+ *
+ * It is frozen by the first thing that acts on it — a transfer in flight, or
+ * an update downloaded and waiting for its install — because the bytes on disk
+ * and the receipt the install writes both name this build. A later check may
+ * replace it only while nothing is acting on it; a check that finds nothing
+ * takes it away.
+ */
+let frozenOffer: UpdateOffer | undefined
 
-/** Release notes of the staged update, for the install dialog. */
-let stagedNotes: string | undefined
+/**
+ * The candidate whose bytes this process verified on disk and has not installed.
+ *
+ * Ownership of a downloaded update cannot be read from the reported phase: a
+ * hand-off that never started leaves the artifact intact, and a check that
+ * trusts the phase alone would replace a file that is still installable. Once
+ * set, every check and every transfer stands down for the rest of the run; the
+ * process ends when the installer takes over.
+ */
+let downloadedOffer: UpdateOffer | undefined
+
+/**
+ * The candidate whose downloaded bytes are being verified right now.
+ *
+ * Separate from [[downloadedOffer]] on purpose: until the read finishes, the
+ * file has not been shown to be the accepted artifact, and an install click in
+ * that window must find nothing to install. Checks and retries stand down for
+ * the same reason they do while a transfer is in flight.
+ */
+let verifyingOffer: UpdateOffer | undefined
+
+/**
+ * The install this process is carrying out, from the click until the installer
+ * takes over or the attempt is given up.
+ *
+ * The receipt, the server teardown, the hand-off, and the recovery after a
+ * refusal are one operation. A second request arriving between them must not
+ * write a second receipt, stop the server twice, or clear the receipt of the
+ * attempt that is still running. The lock is taken before the receipt is
+ * written and released only once a failed attempt has finished restoring the
+ * app, so the retry its dialog offers is a new attempt rather than a rival of
+ * the one being cleaned up.
+ */
+let installing: UpdateOffer | undefined
+
+/**
+ * What the library accepted inside the check that is running right now.
+ *
+ * Written only by the candidate callback [[ensureUpdater]] installs and read
+ * only by the check that owns it, so a candidate from one check can never be
+ * downloaded by another: the check that never asked has no candidate to
+ * misuse.
+ */
+let acceptedOffer: UpdateOffer | undefined
+
+/**
+ * The check in flight, so two callers share one answer. The launch gate and a
+ * check the Settings entry started can overlap; both must read the same
+ * candidate and neither may erase the other's.
+ */
+let sharedCheck: Promise<UpdateOffer | undefined> | undefined
 
 /**
  * Whether a download is in flight, which stays true across a retry's wait: the
@@ -244,12 +311,6 @@ let checkInFlight = false
  */
 let blocking = false
 
-/** Version the feed offers, known from a check before any download finished. */
-let offeredVersion: string | undefined
-
-/** The macOS manifest the gate already fetched, so the blocking path does not refetch. */
-let macFeed: Feed | undefined
-
 /**
  * Where the boot page's holding line is written while the launch gate keeps
  * the app shut, and undefined at every other moment. Set only for the tier
@@ -270,17 +331,177 @@ function mandatoryDownloadLine(percent: number | undefined): string {
 }
 
 /**
+ * The one line about this installation's own package that is worth writing
+ * before the updater's log sink exists, which the main process can ask for.
+ */
+let reportIdentityLine: (line: string) => void = (line) => { process.stderr.write(line) }
+
+/** What one read of the running build's own manifest found. */
+interface InstalledIdentityRead {
+  /** The identity the manifest declares, when it declares a usable one. */
+  identity?: ReleaseIdentity
+  /** The line describing what was found, written once. */
+  line: string
+}
+
+/** The identity read of this process, cached because a package cannot change under it. */
+let installedIdentityRead: InstalledIdentityRead | undefined
+
+/**
+ * Read the release identity this installation declares, out of its own package
+ * manifest at `app.getAppPath()/package.json`.
+ *
+ * The manifest is the only acceptable source of "which build am I": user state,
+ * the feed, and the environment can all name a build the running code is not.
+ * A package that predates this protocol declares no `dshRelease`, and a
+ * source-tree launch has no packaged manifest at all; both read as undefined,
+ * which every caller treats as "this build cannot decide an update" rather than
+ * as a build it may guess at. Nothing here stops the app from running, and the
+ * answer is cached because the installed package cannot change while this
+ * process lives.
+ * @returns the identity this installation declares, or undefined when it declares none.
+ */
+export function readInstalledIdentity(): ReleaseIdentity | undefined {
+  if (installedIdentityRead === undefined) {
+    installedIdentityRead = readOwnIdentity()
+    reportIdentityLine(installedIdentityRead.line)
+  }
+  return installedIdentityRead.identity
+}
+
+/**
+ * Read and validate this installation's own package manifest.
+ * @returns what the manifest declares and the one line describing it.
+ */
+function readOwnIdentity(): InstalledIdentityRead {
+  let file: string
+  let manifest: unknown
+  try {
+    file = join(app.getAppPath(), 'package.json')
+    manifest = JSON.parse(readFileSync(file, 'utf8'))
+  } catch (error) {
+    // A development start, or an installation whose manifest cannot be read:
+    // no identity can be confirmed, and none is invented.
+    return { line: `[updater] no readable application manifest under ${app.getAppPath()} (${messageOf(error)}); updates are disabled\n` }
+  }
+  try {
+    const identity = identityIfPresent(manifest)
+    if (identity === undefined) {
+      return { line: `[updater] ${file} declares no dshRelease identity; updates are disabled\n` }
+    }
+    const { version, dshRelease } = identity
+    return {
+      identity,
+      line: `[updater] installed build ${version}, build ${String(dshRelease.buildSequence)}, runtime ${dshRelease.runtimeVersion}, revision ${dshRelease.revision}\n`,
+    }
+  } catch (error) {
+    // An embedded identity this build refuses is an installation defect, not a
+    // reason to guess: every check reports it and nothing is downloaded.
+    return { line: `[updater] the dshRelease identity in ${file} is unusable (${messageOf(error)}); updates are disabled\n` }
+  }
+}
+
+/**
+ * The identity of this installation, refusing to answer when it has none.
+ * @returns the running build's identity.
+ * @throws [[ReleaseIdentityError]] when the installation declares no usable identity.
+ */
+function requireInstalledIdentity(): ReleaseIdentity {
+  const identity = readInstalledIdentity()
+  if (identity === undefined) {
+    const line = (installedIdentityRead?.line ?? '').trim().replace(/^\[updater\] /u, '')
+    throw new ReleaseIdentityError('RELEASE_IDENTITY_INVALID', 'dshRelease', line)
+  }
+  return identity
+}
+
+/**
+ * The platform and architecture a feed offer must name for this process.
+ *
+ * Only the two published targets follow this protocol; a build running
+ * anywhere else cannot say which artifact belongs to it, so it fails its check
+ * visibly instead of picking one.
+ * @returns the platform this build is.
+ * @throws [[ReleaseIdentityError]] when this is neither a published platform nor architecture.
+ */
+function releasePlatform(): ReleasePlatform {
+  if (process.platform === 'darwin' || process.platform === 'win32') return process.platform
+  throw new ReleaseIdentityError('RELEASE_IDENTITY_INVALID', 'platform', `this update protocol publishes macOS and Windows builds only, this is ${process.platform}`)
+}
+
+/** Whether this macOS process runs translated onto arm64 hardware, resolved once. */
+let macTranslated: boolean | undefined
+
+/**
+ * The architecture the update library selects artifacts for.
+ *
+ * That is this process's own architecture, with one exception the library makes
+ * for macOS: an x64 build running through Rosetta on Apple-silicon hardware is
+ * treated as arm64 there, and the library prefers the arm64-named artifact —
+ * which Squirrel then installs. The frozen artifact must be the file the library
+ * downloads, so this reports that same answer instead of [[process.arch]].
+ * @returns the architecture the library selects for.
+ * @throws [[ReleaseIdentityError]] when it is neither arm64 nor x64.
+ */
+function releaseArch(): ReleaseArch {
+  if (process.arch === 'arm64') return 'arm64'
+  if (process.arch !== 'x64') {
+    throw new ReleaseIdentityError('RELEASE_IDENTITY_INVALID', 'arch', `this update protocol publishes arm64 and x64 builds only, this is ${process.arch}`)
+  }
+  if (process.platform !== 'darwin') return 'x64'
+  macTranslated ??= translatedOnArm64()
+  return macTranslated ? 'arm64' : 'x64'
+}
+
+/**
+ * Whether macOS reports this x64 process as translated onto arm64 hardware.
+ * @returns true when the Rosetta translation flag is set.
+ */
+function translatedOnArm64(): boolean {
+  try {
+    return execFileSync('sysctl', ['-n', 'sysctl.proc_translated'], { encoding: 'utf8' }).trim() === '1'
+  } catch {
+    // The key exists only on Apple-silicon macOS; an Intel host, or one without
+    // sysctl, reports nothing and needs no arm64 preference.
+    return false
+  }
+}
+
+/**
+ * The message of one failure, for a log line.
+ * @param error - the value a read or a check failed with.
+ * @returns its message, or its string form for a thrown non-error.
+ */
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * The human label of one build: its application version and, when it declares
+ * one, its build sequence.
+ * @param identity - the build to label, if there is one.
+ * @returns the label, or the version Electron reports when no identity is known.
+ */
+function buildLabel(identity: ReleaseIdentity | undefined): string {
+  if (identity === undefined) return app.getVersion()
+  return `${identity.version} · 构建 ${String(identity.dshRelease.buildSequence)}`
+}
+
+/**
  * What the channel is doing, as the Settings entry reads it. Built on first use
- * rather than at import, because `app.getVersion()` needs the app object.
+ * rather than at import, because `app.getVersion()` and the installed identity
+ * need the app object.
  */
 let channelState: UpdateState | undefined
 
 /**
  * The reportable state of the update channel.
+ * @param host - logging and quit coordination from the main process.
  * @returns the machine every stage of the channel writes into.
  */
-function updateState(): UpdateState {
-  channelState ??= new UpdateState(app.getVersion())
+function updateState(host: UpdateHost): UpdateState {
+  reportIdentityLine = host.log
+  channelState ??= new UpdateState(app.getVersion(), readInstalledIdentity()?.dshRelease.buildSequence)
   return channelState
 }
 
@@ -315,39 +536,61 @@ function canInstallInPlace(): boolean {
 }
 
 /**
- * Whether this build is below the publisher's red line. The feed's
- * `minimumVersion` is the only input, and an absent field means no red line —
- * so a feed that never sets one behaves exactly as it did before the field
- * existed.
- * @param minimumVersion - the feed's `minimumVersion`, if it carries one.
- * @returns true when the running build must update before it can be used.
+ * Read the old protocol's `minimumVersion` off a manifest electron-updater
+ * parsed. The field survives the library's js-yaml parse even though its
+ * `UpdateInfo` type does not declare it, which is exactly why it is read here:
+ * a v2 feed that still carries it is refused rather than interpreted.
+ * @param info - the parsed manifest.
+ * @returns the field's value, or undefined when the manifest sets none.
  */
-function isMandatory(minimumVersion: string | undefined): boolean {
-  return minimumVersion !== undefined && compareVersions(app.getVersion(), minimumVersion) < 0
+function versionRedLineOf(info: unknown): unknown {
+  return (info as { minimumVersion?: unknown } | null | undefined)?.minimumVersion
 }
 
 /**
- * Read the feed's `minimumVersion` off a manifest electron-updater parsed.
- * The field is this product's own addition, so it is absent from the library's
- * `UpdateInfo` type but survives its js-yaml parse.
- * @param info - the parsed manifest.
- * @returns the red line, or undefined when the feed sets none.
+ * Read the candidate a v2 manifest describes for this machine.
+ *
+ * Every entry point passes its manifest through here — the library's parsed
+ * `UpdateInfo` and the shell's own read of the same document alike — so one
+ * parser decides what this build may download. The old protocol's
+ * `minimumVersion` is refused rather than ignored: a v2 feed that carried both
+ * red lines could state two different rules about who must update, and this
+ * protocol has only the build sequence.
+ * @param manifest - the parsed `latest*.yml` document.
+ * @returns the offer for this platform and architecture.
+ * @throws [[ReleaseIdentityError]] when the document is not a usable v2 manifest.
  */
-function minimumOf(info: unknown): string | undefined {
-  const value = (info as { minimumVersion?: unknown } | null | undefined)?.minimumVersion
-  return typeof value === 'string' ? value : undefined
+function offerFrom(manifest: unknown): UpdateOffer {
+  if (versionRedLineOf(manifest) !== undefined) {
+    throw new ReleaseIdentityError(
+      'UPDATE_MANIFEST_INVALID',
+      'minimumVersion',
+      'a v2 feed states its red line as minimumBuildSequence, not as a version',
+    )
+  }
+  return parseUpdateOffer(manifest, releasePlatform(), releaseArch())
 }
 
 /**
  * Absolute URL of one feed artifact. electron-builder leaves spaces unencoded
- * in the manifest's `url` field, so the name is encoded here; an already
- * encoded name is passed through, and both spellings resolve to one address.
+ * in the manifest's `url` field, so the file name is encoded here; it is the
+ * one segment the frozen artifact named, which is also the name the library
+ * caches the download under.
  * @param base - the platform feed directory.
- * @param entryUrl - the `url` field of the manifest entry.
+ * @param entryUrl - the artifact's file name, as the accepted offer carries it.
  * @returns the absolute download URL.
  */
 function feedFileUrl(base: string, entryUrl: string): string {
-  return `${base}/${entryUrl.includes('%') ? entryUrl : encodeURI(entryUrl)}`
+  return `${base}/${encodeURI(entryUrl)}`
+}
+
+/**
+ * The v2 feed directory one platform reads.
+ * @param platform - the platform whose artifacts are wanted.
+ * @returns the feed base for that platform.
+ */
+function feedBase(platform: ReleasePlatform): string {
+  return platform === 'darwin' ? FEED_MAC : FEED_WIN
 }
 
 /** Release notes trimmed to what a dialog can show without becoming a wall of text. */
@@ -358,7 +601,7 @@ function notesDetail(notes: string | undefined): string {
 }
 
 /**
- * Fetch and parse one platform manifest.
+ * Fetch one platform's v2 manifest and parse it as YAML.
  *
  * The status a refusal carried is attached as a code rather than left to the
  * message, which is this repository's own Chinese prose that no pattern in
@@ -369,16 +612,14 @@ function notesDetail(notes: string | undefined): string {
  * failure to every caller. It is the same code electron-updater's own manifest
  * read raises, so one status is named the same way whichever half met it.
  *
- * The version field is validated to prevent path traversal attacks: version
- * strings are used in filesystem paths, so a malicious feed could attempt to
- * write outside the cache directory through crafted version values like
- * `../../etc/passwd` or `C:\Windows\System32\malware`.
+ * The document is returned unvalidated because [[offerFrom]] is the one place
+ * that decides what a manifest may say; this function only gets the bytes.
  * @param url - the manifest to read.
- * @returns the parsed manifest with validated version field.
- * @throws when the feed refuses the request, carrying [[httpErrorCode]], when
- * the manifest carries no `version` field, or when the version is invalid.
+ * @returns the parsed YAML document.
+ * @throws when the feed refuses the request, carrying [[httpErrorCode]], or
+ * when the body is not a YAML document.
  */
-async function fetchFeed(url: string): Promise<Feed> {
+async function fetchManifest(url: string): Promise<unknown> {
   const response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(MAC_FEED_TIMEOUT_MS) })
   if (!response.ok) {
     throw Object.assign(
@@ -386,28 +627,7 @@ async function fetchFeed(url: string): Promise<Feed> {
       { code: httpErrorCode(response.status) },
     )
   }
-  const feed = load(await response.text()) as Feed | undefined
-  if (feed?.version === undefined) throw new Error(`更新源缺少 version 字段(${url})`)
-
-  // Validate version to prevent path traversal attacks
-  try {
-    validateFeedVersion(feed.version)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    throw new Error(`${message}(${url})`)
-  }
-
-  // Validate minimumVersion if present
-  if (feed.minimumVersion !== undefined) {
-    try {
-      validateFeedVersion(feed.minimumVersion)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      throw new Error(`更新源的 minimumVersion 无效:${message}(${url})`)
-    }
-  }
-
-  return feed
+  return load(await response.text())
 }
 
 /**
@@ -472,10 +692,13 @@ async function ask(options: MessageBoxOptions): Promise<number> {
  * help menu does rather than a second entry point with its own rules.
  */
 export function setupUpdates(host: UpdateHost): () => void {
+  // The identity is read here first for the package it names, and this is the
+  // earliest caller with a log sink to put that line in.
+  reportIdentityLine = host.log
   const check = app.isPackaged
     ? (reason: CheckReason): void => { void runCheck(host, reason) }
     : (reason: CheckReason): void => {
-      updateState().markUnavailable('development launch: there is no installed app to replace')
+      updateState(host).markUnavailable('development launch: there is no installed app to replace')
       host.log('[updater] skipped: development launches have no installed app to replace\n')
       if (reason === 'manual') {
         void ask({
@@ -514,33 +737,44 @@ export function setupUpdates(host: UpdateHost): () => void {
  * @returns the four halves [[startUpdateService]] needs.
  */
 export function updateActions(host: UpdateHost): UpdateServiceSpec {
+  reportIdentityLine = host.log
   return {
-    state: (): UpdateSnapshot => updateState().snapshot(),
+    state: (): UpdateSnapshot => updateState(host).snapshot(),
     check: () => { if (app.isPackaged) void runCheck(host, 'requested') },
     download: () => { if (app.isPackaged) void restartDownload(host) },
-    install: () => { void installStaged(host, stagedVersion ?? '') },
+    install: () => {
+      // The service calls this only in the `ready` phase, which nothing but a
+      // verified `update-downloaded` produces; that file — not merely the
+      // frozen candidate — is what the click installs. Both are required here
+      // again so the action cannot outrun the verification it depends on, and
+      // an install already under way is never entered a second time.
+      const offer = downloadedOffer
+      if (offer !== undefined && installing === undefined && updateState(host).isReady()) void installStaged(host, offer)
+    },
   }
 }
 
 /**
- * Transfer the version the last check found, or find one first.
+ * Transfer the candidate the last check froze, or find one first.
  *
  * This is what the Settings entry's retry does after a transfer gave up. A
  * transfer already in flight is left alone, because restarting it would throw
- * away the bytes the resumable downloader is holding.
+ * away the bytes the resumable downloader is holding, and a verified download
+ * waiting for its install is retried by installing it, never by transferring
+ * it again.
  * @param host - logging and quit coordination from the main process.
  */
 async function restartDownload(host: UpdateHost): Promise<void> {
-  if (blocking || downloading || stagedVersion !== undefined) return
-  const version = offeredVersion
-  if (version === undefined || !canInstallInPlace()) {
+  if (blocking || downloading || verifyingOffer !== undefined || downloadedOffer !== undefined) return
+  const offer = frozenOffer
+  if (offer === undefined || !canInstallInPlace()) {
     await runCheck(host, 'requested')
     return
   }
   const started = ensureUpdater(host)
-  updateState().downloadStarted(version, stagedNotes)
-  host.log(`[updater] downloading ${version} on request\n`)
-  await download(host, version, async () => { await started.downloadUpdate() })
+  updateState(host).downloadStarted(offer.identity.version, offer.releaseNotes, offer.identity.dshRelease.buildSequence)
+  host.log(`[updater] downloading ${buildLabel(offer.identity)} on request\n`)
+  await download(host, offer, async () => { await started.downloadUpdate() })
 }
 
 /**
@@ -559,61 +793,86 @@ async function restartDownload(host: UpdateHost): Promise<void> {
  */
 export async function launchGate(host: UpdateHost, onBlock: (message: string) => void): Promise<boolean> {
   if (!app.isPackaged) return false
+  reportIdentityLine = host.log
   try {
     const verdict = await Promise.race([
       resolveGate(host),
-      new Promise<false>((resolvePromise) => { setTimeout(() => { resolvePromise(false) }, GATE_TIMEOUT_MS) }),
+      new Promise<UpdateOffer | undefined>((resolvePromise) => {
+        setTimeout(() => { resolvePromise(undefined) }, GATE_TIMEOUT_MS)
+      }),
     ])
-    if (!verdict) return false
+    if (verdict === undefined) return false
     blocking = true
+    frozenOffer = verdict
     if (canInstallInPlace()) {
       blockLine = onBlock
       onBlock(mandatoryDownloadLine(undefined))
-      void blockWithInstaller(host)
+      void blockWithInstaller(host, verdict)
     } else {
       onBlock('这是必须安装的更新,请下载新版本后继续。')
-      void blockOnDownloadPage(host)
+      void blockOnDownloadPage(host, verdict)
     }
     return true
   } catch (error) {
     // An unreachable or malformed feed opens the gate: the red line is
     // enforced on a later launch that can read it.
-    host.log(`[updater] launch gate skipped: ${error instanceof Error ? error.message : String(error)}\n`)
+    host.log(`[updater] launch gate skipped: ${messageOf(error)}\n`)
     return false
   }
 }
 
 /**
- * Ask the feed whether this build is below the red line. The verdict is read
- * through whichever path will act on it, so the gate and the block agree on
- * what they saw.
+ * Ask the feed whether this build is below the red line, and return the
+ * candidate that verdict is about.
+ *
+ * The two tiers answer from different authorities and must not be mixed. An
+ * in-place build asks the library, and only a candidate the library accepted
+ * may block the launch: a feed that names a mandatory build the library
+ * refuses for this system or this rollout would otherwise hold the app shut
+ * forever, with no installer willing to take it. A build that cannot install in
+ * place has no library answer to read, so the download-page tier reads the
+ * same v2 manifest itself, through the same parser and the same decision.
+ *
+ * A library check that failed produced no accepted candidate, so it blocks
+ * nothing: the run opens the app and a later launch decides again. The old
+ * source is never read in its place.
  * @param host - logging and quit coordination from the main process.
- * @returns true when this build may not open the app.
+ * @returns the candidate blocking this launch, or undefined when the app may open.
  */
-async function resolveGate(host: UpdateHost): Promise<boolean> {
+async function resolveGate(host: UpdateHost): Promise<UpdateOffer | undefined> {
+  const installed = readInstalledIdentity()
+  if (installed === undefined) {
+    // No identity means no ordering this build may act on. Locking someone out
+    // of their own machine over an unreadable package would be worse than the
+    // check the next build performs.
+    host.log('[updater] launch gate skipped: this build declares no release identity\n')
+    return undefined
+  }
   if (canInstallInPlace()) {
     try {
-      const result = await checkFeedWithRetry(host, ensureUpdater(host))
-      const minimum = minimumOf(result?.updateInfo)
-      if (!isMandatory(minimum)) return false
-      stagedNotes = typeof result?.updateInfo.releaseNotes === 'string' ? result.updateInfo.releaseNotes : undefined
-      offeredVersion = result?.updateInfo.version
-      host.log(`[updater] mandatory: ${app.getVersion()} is below the feed's minimumVersion ${String(minimum)}\n`)
-      return true
+      const offer = await acceptedCheck(host)
+      if (offer === undefined || !isBelowRedLine(installed, offer.minimumBuildSequence)) return undefined
+      host.log(`[updater] mandatory: ${buildLabel(installed)} is below the feed's ${buildLabel(offer.identity)}\n`)
+      return offer
     } catch (error) {
       if (process.platform !== 'darwin') throw error
+      // A feed this build refuses is a failed check, not a verdict about this
+      // build's ability to install: the tier stays, and the caller reports the
+      // failure instead of falling through to the download page.
+      if (error instanceof ReleaseIdentityError) throw error
       // A check the retries could not get through says nothing about whether
-      // this build can replace itself, so the tier survives it and the raw
-      // manifest read below still decides this launch.
+      // this build can replace itself. It also produced no candidate, and no
+      // candidate means no block: the raw manifest is not used to overrule the
+      // library the failed check never got an answer from.
       if (classifyDownloadError(error) === 'fatal') demoteMac(host, error)
+      return undefined
     }
   }
-  const feed = await fetchFeed(`${FEED_MAC}/latest-mac.yml`)
-  if (!isMandatory(feed.minimumVersion)) return false
-  host.log(`[updater] mandatory: ${app.getVersion()} is below the feed's minimumVersion ${String(feed.minimumVersion)}\n`)
-  macFeed = feed
-  offeredVersion = feed.version
-  return true
+  const offer = offerFrom(await fetchManifest(`${FEED_MAC}/latest-mac.yml`))
+  if (decideUpdate(installed, offer.identity).kind !== 'available') return undefined
+  if (!isBelowRedLine(installed, offer.minimumBuildSequence)) return undefined
+  host.log(`[updater] mandatory: ${buildLabel(installed)} is below the feed's ${buildLabel(offer.identity)}\n`)
+  return offer
 }
 
 /**
@@ -626,9 +885,8 @@ async function resolveGate(host: UpdateHost): Promise<boolean> {
 function demoteMac(host: UpdateHost, error: unknown): void {
   if (macInstallUnavailable) return
   macInstallUnavailable = true
-  const message = error instanceof Error ? error.message : String(error)
-  updateState().markUnavailable(`in-place update unavailable: ${describeDownloadError(error)}`)
-  host.log(`[updater] in-place update unavailable (${message}); this run falls back to the download page\n`)
+  updateState(host).markUnavailable(`in-place update unavailable: ${describeDownloadError(error)}`)
+  host.log(`[updater] in-place update unavailable (${messageOf(error)}); this run falls back to the download page\n`)
 }
 
 /**
@@ -659,6 +917,83 @@ async function checkFeedWithRetry(host: UpdateHost, instance: AppUpdater): Promi
 }
 
 /**
+ * Ask the library what it will offer this build, and take the candidate it
+ * accepted out of the check.
+ *
+ * The library is the only authority on whether this machine may install an
+ * update at all: its system check and its rollout check run before the
+ * candidate callback, so a `false` here means "nothing for this machine" even
+ * when the manifest names a newer build. Nothing in this module re-reads the
+ * feed to overrule that answer.
+ *
+ * The candidate is checked against the manifest the library reports, because a
+ * check that says "available" while naming a different build than the one the
+ * callback accepted is a disagreement this shell must not resolve by picking
+ * one: the download would then fetch bytes no check approved.
+ * @param host - logging and quit coordination from the main process.
+ * @returns the candidate the library accepted, or undefined when it accepted none.
+ * @throws [[ReleaseIdentityError]] for a manifest this build refuses, and any
+ * failure the check itself met.
+ */
+async function acceptedCheck(host: UpdateHost): Promise<UpdateOffer | undefined> {
+  sharedCheck ??= runAcceptedCheck(host)
+  try {
+    return await sharedCheck
+  } finally {
+    sharedCheck = undefined
+  }
+}
+
+/**
+ * Perform one check and reduce its answer to a candidate.
+ * @param host - logging and quit coordination from the main process.
+ * @returns the accepted candidate, or undefined when the library offered none.
+ * @throws the same failures [[acceptedCheck]] documents.
+ */
+async function runAcceptedCheck(host: UpdateHost): Promise<UpdateOffer | undefined> {
+  const checking = ensureUpdater(host)
+  acceptedOffer = undefined
+  let result: UpdateCheckResult | null
+  try {
+    result = await checkFeedWithRetry(host, checking)
+  } catch (error) {
+    // The candidate belongs to this check alone; leaving it behind would let a
+    // later download act on a build this check never reported.
+    acceptedOffer = undefined
+    throw error
+  }
+  const accepted = takeAcceptedOffer()
+  if (result?.isUpdateAvailable !== true) {
+    if (accepted !== undefined) {
+      throw new Error('the update library reported no update while its candidate callback accepted one')
+    }
+    return undefined
+  }
+  if (accepted === undefined) {
+    throw new Error('the update library reported an update without asking this product for a candidate')
+  }
+  const reported = parseReleaseIdentity(result.updateInfo)
+  if (!isSameBuild(accepted.identity, reported)) {
+    throw new ReleaseIdentityError(
+      'RELEASE_IDENTITY_CONFLICT',
+      'dshRelease.buildSequence',
+      `the check accepted ${buildLabel(accepted.identity)} but the library reported ${buildLabel(reported)}`,
+    )
+  }
+  return accepted
+}
+
+/**
+ * Take the candidate the check in flight accepted.
+ * @returns the candidate, and the module no longer holds it.
+ */
+function takeAcceptedOffer(): UpdateOffer | undefined {
+  const offer = acceptedOffer
+  acceptedOffer = undefined
+  return offer
+}
+
+/**
  * Transfer one update, absorbing the interruptions a transfer of this size
  * meets on a working connection.
  *
@@ -668,12 +1003,12 @@ async function checkFeedWithRetry(host: UpdateHost, instance: AppUpdater): Promi
  * through [[updateState]] alone.
  *
  * The transfer runs in two halves. electron-updater's own download goes first
- * and unchanged, because it is the half that can transfer a differential
- * update; each of its attempts is a whole download, since it sends no `Range`
- * header and deletes the partial file on every failure. Only when
+ * and unchanged; each of its attempts is a whole download, since it sends no
+ * `Range` header and deletes the partial file on every failure. Only when
  * [[RETRY_DELAYS_MS]] is spent does [[resumeArtifact]] take over the same
  * artifact, keeping what already arrived across as many interruptions as it
- * meets, and hand the finished file back through the updater cache.
+ * meets, and hand the finished file back through the updater cache. The offer
+ * given here is the one both halves transfer, whatever the feed says later.
  *
  * A transient failure that outlives both halves returns false and demotes
  * nothing — a dropped connection says nothing about whether this build can
@@ -682,17 +1017,21 @@ async function checkFeedWithRetry(host: UpdateHost, instance: AppUpdater): Promi
  * `ERR_UPDATER_*` — is thrown after demoting macOS, which is what drops the
  * caller's check to the download page.
  * @param host - logging and quit coordination from the main process.
- * @param version - the version being transferred.
+ * @param offer - the candidate being transferred.
  * @param run - performs one whole download through electron-updater.
  * @returns true when the download finished.
  */
-async function download(host: UpdateHost, version: string, run: () => Promise<void>): Promise<boolean> {
+async function download(host: UpdateHost, offer: UpdateOffer, run: () => Promise<void>): Promise<boolean> {
+  // One transfer owns the channel. A second caller can reach here with the same
+  // candidate — the launch gate and a check share one library answer — and the
+  // bytes already moving are for that same artifact.
+  if (downloading) return true
   downloading = true
   try {
     // The mandatory launch block takes no fallback: the app is shut until this
     // returns, and a plan that spends minutes resuming would read as a hang
     // where the retry plan's half-minute does not.
-    const resume = blocking ? undefined : async (): Promise<boolean> => resumeArtifact(host, version)
+    const resume = blocking ? undefined : async (): Promise<boolean> => resumeArtifact(host, offer)
     const outcome = await transferWithFallback({
       run,
       resume,
@@ -708,11 +1047,11 @@ async function download(host: UpdateHost, version: string, run: () => Promise<vo
       },
     })
     if (outcome !== 'exhausted') return true
-    updateState().downloadFailed('the transfer could not be completed')
+    updateState(host).downloadFailed('the transfer could not be completed')
     return false
   } catch (error) {
     const detail = describeDownloadError(error)
-    updateState().downloadFailed(detail)
+    updateState(host).downloadFailed(detail)
     if (classifyDownloadError(error) === 'fatal') {
       host.log(`[updater] download failed: ${detail}\n`)
       if (process.platform === 'darwin') demoteMac(host, error)
@@ -753,54 +1092,49 @@ export function updaterCacheDir(): string {
 }
 
 /**
- * Transfer this platform's artifact with the shell's own resumable downloader
- * and stage it where electron-updater takes a cached update from.
+ * Transfer the frozen candidate's artifact with the shell's own resumable
+ * downloader and stage it where electron-updater takes a cached update from.
  *
- * The manifest is read directly rather than through the library, because what
- * the transfer needs from it — the artifact's URL, its base64 sha512, and
- * whether the installer must be elevated — is what the library keeps to itself.
- * The `.part` file is keyed by version and artifact name and lives in the cache
- * directory root, where electron-updater's own failure handling does not reach
- * it; every other partial file there is dropped, because the feed has moved on
- * from whatever they were.
+ * The transfer is bound to the offer the check accepted — its file name, its
+ * base64 sha512 and its size — and reads nothing else: a feed read here could
+ * name a build published while this transfer was running, and the bytes would
+ * then belong to a candidate no check approved. The `.part` file is keyed by the
+ * build's whole identity, so a later build's transfer never continues this
+ * one, and every other partial file in the cache root is dropped.
+ *
+ * The finished bytes are only *staged*: the transfer that owns this plan runs
+ * the library again afterwards, and the library is what validates the cache
+ * and raises `update-downloaded`. Nothing here declares the update ready.
  * @param host - logging and quit coordination from the main process.
- * @param version - the version electron-updater was transferring, for the log.
+ * @param offer - the candidate being transferred.
  * @returns true when the artifact is staged and worth handing back.
  */
-async function resumeArtifact(host: UpdateHost, version: string): Promise<boolean> {
-  const isMac = process.platform === 'darwin'
-  const base = isMac ? FEED_MAC : FEED_WIN
-  const extension = isMac ? '.zip' : '.exe'
+async function resumeArtifact(host: UpdateHost, offer: UpdateOffer): Promise<boolean> {
+  const { fileName, sha512, size, isAdminRightsRequired } = offer.artifact
+  const base = feedBase(offer.platform)
   try {
-    const feed = await fetchFeed(`${base}/${isMac ? 'latest-mac.yml' : 'latest.yml'}`)
-    const artifact = feed.files?.find(file => file.url.toLowerCase().endsWith(extension))
-    if (artifact === undefined) {
-      host.log(`[updater] resume unavailable: ${base} lists no ${extension} artifact for ${feed.version}\n`)
-      return false
-    }
     const cacheDir = updaterCacheDir()
-    const url = feedFileUrl(base, artifact.url)
-    const fileName = basename(decodeURIComponent(new URL(url).pathname))
-    const partFile = partFileFor(cacheDir, feed.version, fileName)
+    const url = feedFileUrl(base, fileName)
+    const partFile = partFileFor(cacheDir, offer.identity, fileName)
     discardStaleParts(cacheDir, partFile)
-    host.log(`[updater] resuming ${feed.version} (electron-updater was transferring ${version}) from ${url}\n`)
-    await withRetry(async () => {
-      await resumeDownload({ url, partFile, sha512: artifact.sha512 }, {
-        onProgress: (sample) => { updateState().downloadProgress(sample) },
-      })
-    }, RESUME_RETRY_DELAYS_MS, {
+    host.log(`[updater] resuming ${buildLabel(offer.identity)} (${fileName}) from ${url}\n`)
+    const received = await withRetry(async () => resumeDownload({ url, partFile, sha512 }, {
+      onProgress: (sample) => { updateState(host).downloadProgress(sample) },
+    }), RESUME_RETRY_DELAYS_MS, {
       sleep: async (ms) => { await new Promise<void>((resolvePromise) => { setTimeout(resolvePromise, ms) }) },
       onRetry: (attempt, total, delayMs, error) => {
         host.log(`[updater] resume interrupted (${describeDownloadError(error)}); retry ${String(attempt)}/${String(total)} in ${String(Math.round(delayMs / 1000))}s\n`)
       },
     })
-    placeInPendingCache({
-      cacheDir,
-      sourceFile: partFile,
-      fileName,
-      sha512: artifact.sha512,
-      isAdminRightsRequired: artifact.isAdminRightsRequired === true,
-    })
+    if (received !== size) {
+      // The manifest names this artifact's length; bytes of another length are
+      // not the frozen artifact, and staging them would hand the library a file
+      // the feed never described.
+      host.log(`[updater] resume produced ${String(received)} bytes for ${fileName}, the feed says ${String(size)}; discarding it\n`)
+      discardPart(partFile)
+      return false
+    }
+    placeInPendingCache({ cacheDir, sourceFile: partFile, fileName, sha512, isAdminRightsRequired })
     discardPart(partFile)
     host.log(`[updater] staged ${fileName} in ${cacheDir}; handing it back to electron-updater\n`)
     return true
@@ -818,28 +1152,46 @@ async function resumeArtifact(host: UpdateHost, version: string): Promise<boolea
  * button is offered for a fault that outlasted them rather than for the first
  * dropped packet.
  * @param host - logging and quit coordination from the main process.
+ * @param offer - the candidate the gate blocked on.
  */
-async function blockWithInstaller(host: UpdateHost): Promise<void> {
+async function blockWithInstaller(host: UpdateHost, offer: UpdateOffer): Promise<void> {
   const blocked = ensureUpdater(host)
   try {
-    updateState().downloadStarted(offeredVersion ?? app.getVersion(), stagedNotes)
-    if (await download(host, offeredVersion ?? '', async () => { await blocked.downloadUpdate() })) return
+    updateState(host).downloadStarted(offer.identity.version, offer.releaseNotes, offer.identity.dshRelease.buildSequence)
+    if (await download(host, offer, async () => { await blocked.downloadUpdate() })) return
   } catch (error) {
     // [[download]] logged the failure and cleaned up after it; what the
     // blocking path adds is that this one has no tier to fall back to.
     host.log(`[updater] mandatory download cannot proceed: ${describeDownloadError(error)}\n`)
   }
+  await retryMandatoryDownload(host, offer, '下载没有完成。')
+}
+
+/**
+ * The mandatory block's one way out of a download that produced no installable
+ * file: download it again, or quit.
+ *
+ * A transfer that gave up and a file that finished but is not the accepted
+ * artifact are the same situation to the person in front of the boot page, so
+ * both come here and the block keeps one retry/quit surface. Every retry starts
+ * the whole transfer again against the same frozen candidate; nothing here
+ * installs, and nothing lets the app open.
+ * @param host - logging and quit coordination from the main process.
+ * @param offer - the candidate the launch is blocked on.
+ * @param detail - what went wrong, in one line.
+ */
+async function retryMandatoryDownload(host: UpdateHost, offer: UpdateOffer, detail: string): Promise<void> {
   const answer = await ask({
     type: 'error',
     title: '更新下载失败',
     message: '必须安装的更新没有下载成功',
-    detail: '检查网络后重试,或退出应用稍后再启动。',
+    detail: `${detail}\n检查网络后重试,或退出应用稍后再启动。`,
     buttons: ['重试', '退出应用'],
     defaultId: 0,
     cancelId: 1,
   })
   if (answer === 0) {
-    await blockWithInstaller(host)
+    await blockWithInstaller(host, offer)
     return
   }
   app.quit()
@@ -849,34 +1201,32 @@ async function blockWithInstaller(host: UpdateHost): Promise<void> {
  * Launch block without an in-place installer: the only paths are downloading
  * the replacement in a browser or quitting.
  * @param host - logging and quit coordination from the main process.
+ * @param offer - the candidate the gate blocked on.
  */
-async function blockOnDownloadPage(host: UpdateHost): Promise<void> {
-  const feed = macFeed
-  const artifact = feed?.files?.[0]?.url
+async function blockOnDownloadPage(host: UpdateHost, offer: UpdateOffer): Promise<void> {
+  const version = offer.identity.version
   const answer = await ask({
     type: 'warning',
-    title: `必须更新到 ${feed?.version ?? ''}`,
-    message: `当前版本 ${app.getVersion()} 需要更新后才能继续使用`,
-    detail: notesDetail(feed?.releaseNotes) || `请下载并替换为 ${feed?.version ?? '新版本'}。`,
+    title: `必须更新到 ${version}`,
+    message: `当前版本 ${buildLabel(readInstalledIdentity())} 需要更新后才能继续使用`,
+    detail: notesDetail(offer.releaseNotes) || `请下载并替换为 ${version}。`,
     buttons: ['去下载', '退出应用'],
     defaultId: 0,
     cancelId: 1,
   })
-  if (answer === 0 && artifact !== undefined) {
-    await openDownloadPage(host, artifact)
-  }
+  if (answer === 0) await openDownloadPage(host, offer)
   app.quit()
 }
 
 /**
- * Hand one feed artifact to the system browser and say what to do with it. The
- * two paths that give up on installing in place end here, so the instructions
- * are written once.
+ * Hand one frozen artifact to the system browser and say what to do with it.
+ * The two paths that give up on installing in place end here, so the
+ * instructions are written once.
  * @param host - logging and quit coordination from the main process.
- * @param artifact - the manifest's `url` for the artifact to download.
+ * @param offer - the candidate whose artifact the user downloads by hand.
  */
-async function openDownloadPage(host: UpdateHost, artifact: string): Promise<void> {
-  const target = feedFileUrl(FEED_MAC, artifact)
+async function openDownloadPage(host: UpdateHost, offer: UpdateOffer): Promise<void> {
+  const target = feedFileUrl(feedBase(offer.platform), offer.artifact.fileName)
   host.log(`[updater] opening ${target}\n`)
   await shell.openExternal(target)
   await ask({
@@ -893,12 +1243,12 @@ async function openDownloadPage(host: UpdateHost, artifact: string): Promise<voi
  * tier when the in-place path fails part-way through. The fallback re-runs the
  * same check rather than deferring it, so one check still ends in one answer.
  *
- * The two failures that reach the fallback are reported differently, because
- * only one of them costs the tier. A fatal failure demotes macOS, and the
- * answer below is then this run's own tier. A transient one leaves the build
- * able to replace itself, so the answer below is a fallback: it names the
- * version it found and records the check as failed, which the next check on
- * the in-place tier starts over from.
+ * Every failure that reaches the fallback is reported as the check it was:
+ * the answer names the version the feed carries and records the check as
+ * failed, which the next check starts over from. Only the tier differs — a
+ * fatal failure demotes macOS for the rest of the run, a transient one leaves
+ * it able to replace itself — and neither turns the failure into an
+ * "already up to date" answer.
  *
  * A download the network alone defeated never reaches this catch: [[download]]
  * absorbs it and ends the check where it stands, because the tier is still the
@@ -920,18 +1270,26 @@ async function runCheck(host: UpdateHost, reason: CheckReason): Promise<void> {
         return
       } catch (error) {
         if (process.platform !== 'darwin') throw error
+        // A refused identity or manifest is this check's own failure. It says
+        // nothing about whether the build can replace itself, so it neither
+        // demotes the tier nor becomes a download-page answer: the caller
+        // reports the failure as what it was.
+        if (error instanceof ReleaseIdentityError) throw error
         // Same rule as the gate: a transient failure that outlived the retries
         // costs this check, which [[checkGeneric]] answers below, not the tier
         // for the rest of the run.
+        // A fatal failure also costs the in-place tier, but it is still a check
+        // that did not get through: the answer below must report that failure,
+        // never read the raw feed as an "up to date" verdict the library never
+        // reached.
         if (classifyDownloadError(error) === 'fatal') demoteMac(host, error)
-        else fallback = { error }
+        fallback = { error }
       }
     }
     await checkGeneric(host, reason, fallback)
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    updateState().checkFailed(new Date().toISOString(), describeDownloadError(error))
-    host.log(`[updater] check failed: ${message}\n`)
+    updateState(host).checkFailed(new Date().toISOString(), describeDownloadError(error))
+    host.log(`[updater] check failed: ${messageOf(error)}\n`)
     if (reason === 'manual') {
       await ask({
         type: 'warning',
@@ -947,37 +1305,56 @@ async function runCheck(host: UpdateHost, reason: CheckReason): Promise<void> {
  * In-place tier, stage one: compare against the feed. What the check finds
  * decides which of the later stages the user sees, and a check landing on an
  * update already under way leaves it where it is rather than starting over.
+ *
+ * The library's `isUpdateAvailable` is the only thing that says "there is an
+ * update": an `updateInfo` that came back is not an offer, because the
+ * library's system check and rollout check may have refused it after the
+ * manifest was read. Only a candidate the library accepted — and that this
+ * check, not another, put in [[acceptedOffer]] — is downloaded.
  * @param host - logging and quit coordination from the main process.
  * @param reason - what started this check.
  */
 async function checkInPlace(host: UpdateHost, reason: CheckReason): Promise<void> {
+  const installed = requireInstalledIdentity()
   const checking = ensureUpdater(host)
+  const state = updateState(host)
   // A downloaded update and a transfer in flight are both already reported
   // where the update lives — the Settings row's button — so a check on top of
   // either starts nothing and shows nothing, whoever asked for it. It still
   // records when it ran, which the Settings page shows as 上次检查.
-  if (stagedVersion !== undefined || downloading) {
-    updateState().checkSucceeded(new Date().toISOString(), stagedVersion ?? offeredVersion, stagedNotes)
-    host.log(`[updater] check while ${stagedVersion === undefined ? 'a transfer is in flight' : `${stagedVersion} waits to be installed`}\n`)
+  if (downloading || verifyingOffer !== undefined || downloadedOffer !== undefined) {
+    const frozen = frozenOffer
+    state.checkSucceeded(
+      new Date().toISOString(),
+      frozen?.identity.version,
+      frozen?.releaseNotes,
+      frozen?.identity.dshRelease.buildSequence,
+    )
+    host.log(`[updater] check while ${downloading ? 'a transfer is in flight' : verifyingOffer !== undefined ? 'the downloaded update is being verified' : `${buildLabel(frozen?.identity)} waits to be installed`}\n`)
     return
   }
-  updateState().checkStarted()
-  const result = await checkFeedWithRetry(host, checking)
-  const version = result?.updateInfo.version
-  if (version === undefined || compareVersions(version, app.getVersion()) <= 0) {
-    updateState().checkSucceeded(new Date().toISOString())
-    host.log(`[updater] no update: installed ${app.getVersion()}, feed ${version ?? 'unavailable'}\n`)
+  state.checkStarted()
+  const offer = await acceptedCheck(host)
+  if (offer === undefined) {
+    // The library accepted nothing: either the feed is not ahead of this build,
+    // or the library's own system and rollout checks refused it. Both are "no
+    // update", and the feed is not read again to overrule either — a machine
+    // the library refuses must not be sent down another install path.
+    frozenOffer = undefined
+    state.checkSucceeded(new Date().toISOString())
+    host.log(`[updater] no update: installed ${buildLabel(installed)}, the feed offers nothing this machine may install\n`)
     if (reason === 'manual') await reportUpToDate()
     return
   }
-  const notes = typeof result?.updateInfo.releaseNotes === 'string' ? result.updateInfo.releaseNotes : undefined
-  stagedNotes = notes
-  offeredVersion = version
-  updateState().checkSucceeded(new Date().toISOString(), version, notes)
-  if (isMandatory(minimumOf(result?.updateInfo))) {
+  frozenOffer = offer
+  const version = offer.identity.version
+  const notes = offer.releaseNotes
+  const build = offer.identity.dshRelease.buildSequence
+  state.checkSucceeded(new Date().toISOString(), version, notes, build)
+  if (isBelowRedLine(installed, offer.minimumBuildSequence)) {
     // Mid-session mandatory: start immediately, but let the work in progress
     // finish — the next launch is where the gate stops being negotiable.
-    host.log(`[updater] mandatory ${version}: downloading without asking\n`)
+    host.log(`[updater] mandatory ${buildLabel(offer.identity)}: downloading without asking\n`)
     void ask({
       type: 'warning',
       title: `必须更新到 ${version}`,
@@ -985,15 +1362,15 @@ async function checkInPlace(host: UpdateHost, reason: CheckReason): Promise<void
       detail: notesDetail(notes) || '下载完成后可以立即重启安装,也可以在下次启动时完成。',
       buttons: ['好'],
     })
-    updateState().downloadStarted(version, notes)
-    await download(host, version, async () => { await checking.downloadUpdate() })
+    state.downloadStarted(version, notes, build)
+    await download(host, offer, async () => { await checking.downloadUpdate() })
     return
   }
   // Nothing is asked and nothing is shown: the transfer starts here and the
   // Settings entry is where it becomes visible, once it is installable.
-  host.log(`[updater] downloading ${version} in the background\n`)
-  updateState().downloadStarted(version, notes)
-  await download(host, version, async () => { await checking.downloadUpdate() })
+  host.log(`[updater] downloading ${buildLabel(offer.identity)} in the background\n`)
+  state.downloadStarted(version, notes, build)
+  await download(host, offer, async () => { await checking.downloadUpdate() })
 }
 
 /**
@@ -1010,6 +1387,154 @@ async function checkInPlace(host: UpdateHost, reason: CheckReason): Promise<void
  * @param host - logging and quit coordination from the main process.
  * @returns the configured updater.
  */
+/** The fields of electron-updater's `update-downloaded` payload this module reads. */
+interface DownloadedUpdate {
+  /** The build's application version. */
+  readonly version?: unknown
+  /** The build's release identity. */
+  readonly dshRelease?: unknown
+  /** The absolute path of the file the library wrote. */
+  readonly downloadedFile?: unknown
+}
+
+/**
+ * Accept the library's finished download only when its bytes are the frozen artifact.
+ *
+ * The library selects the file it downloads from the manifest's whole list with
+ * rules of its own — [[parseUpdateOffer]] mirrors them so a check freezes the
+ * same file — but a matching build identity alone does not say which file
+ * arrived, because two artifacts of one build can differ. The event names the
+ * file the library wrote, and this reads that file back: its name, its length,
+ * and its SHA-512 must be the accepted artifact's. Only then does the update
+ * become installable, and the candidate is owned from here until the installer
+ * takes over.
+ * @param host - logging and quit coordination from the main process.
+ * @param info - the payload `update-downloaded` carried.
+ */
+async function acceptDownloaded(host: UpdateHost, info: DownloadedUpdate): Promise<void> {
+  // On macOS this is the end of electron-updater's own download, not the end of
+  // the install: Squirrel is handed the file at [[installStaged]].
+  downloading = false
+  const offer = frozenOffer
+  const downloaded = ((): ReleaseIdentity | undefined => {
+    try {
+      return parseReleaseIdentity(info)
+    } catch (error) {
+      host.log(`[updater] downloaded update carries no usable identity (${messageOf(error)}); not offering it\n`)
+      return undefined
+    }
+  })()
+  if (offer === undefined || downloaded === undefined || !isSameBuild(offer.identity, downloaded)) {
+    // The bytes on disk belong to a build this channel did not freeze. Making
+    // it ready would offer an install of something no check approved, so the
+    // transfer is reported as failed and the candidate stays what it was.
+    const detail = offer === undefined
+      ? 'the download finished for no frozen candidate'
+      : `the download finished for ${buildLabel(downloaded)} instead of ${buildLabel(offer.identity)}`
+    updateState(host).downloadFailed(detail)
+    host.log(`[updater] ${detail}; not offering it for install\n`)
+    // Under the mandatory block there is no settings entry to retry from and no
+    // window to show the failure in: the boot page would wait forever, so the
+    // same retry/quit surface the transfer failures use answers this one.
+    if (blocking && offer !== undefined) await retryMandatoryDownload(host, offer, detail)
+    return
+  }
+  if (downloadedOffer !== undefined || verifyingOffer !== undefined) {
+    host.log('[updater] the downloaded update is already being verified or waiting to be installed\n')
+    return
+  }
+  // Verification owns the candidate while it runs, and nothing else: an install
+  // click in this window must not reach the installer, and a check must not
+  // replace the file being read. Only a passed verification makes it
+  // installable.
+  verifyingOffer = offer
+  let problem: string | undefined
+  try {
+    problem = await downloadedArtifactProblem(offer, info.downloadedFile)
+  } finally {
+    verifyingOffer = undefined
+  }
+  if (problem !== undefined) {
+    updateState(host).downloadFailed(problem)
+    host.log(`[updater] ${problem}; not offering it for install\n`)
+    if (blocking) await retryMandatoryDownload(host, offer, problem)
+    return
+  }
+  downloadedOffer = offer
+  const { version, dshRelease } = offer.identity
+  updateState(host).downloadReady(version, offer.releaseNotes, dshRelease.buildSequence)
+  host.log(`[updater] downloaded ${buildLabel(offer.identity)}; waiting for an explicit install\n`)
+  // The ordinary path stops here: the update is reported, and the click that
+  // installs it comes from the Settings entry. Only the mandatory launch block,
+  // which owns the app and has no other surface, asks.
+  if (blocking) void offerInstall(host, offer)
+}
+
+/**
+ * The file name the update library caches one published name under.
+ * @param fileName - the artifact's name as the feed publishes it.
+ * @returns the name the library's own basename produces.
+ */
+function cachedFileName(fileName: string): string {
+  try {
+    return decodeURIComponent(fileName)
+  } catch {
+    // A published name that is not valid percent-encoding stands as it is, and
+    // the library's basename of it keeps the same spelling.
+    return fileName
+  }
+}
+
+/**
+ * What is wrong with the file the library reported as downloaded, if anything.
+ *
+ * Name, length, and digest are checked against the frozen artifact rather than
+ * against the feed read again: a manifest that changed between the check and
+ * the download cannot make different bytes acceptable here.
+ * @param offer - the frozen candidate.
+ * @param downloadedFile - the path the library reported.
+ * @returns the problem in one line, or undefined when the file is the artifact.
+ */
+async function downloadedArtifactProblem(offer: UpdateOffer, downloadedFile: unknown): Promise<string | undefined> {
+  if (typeof downloadedFile !== 'string' || downloadedFile === '') return 'the library reported no downloaded file'
+  const name = basename(downloadedFile)
+  if (name !== offer.artifact.fileName && name !== cachedFileName(offer.artifact.fileName)) {
+    return `the library downloaded ${name} instead of ${offer.artifact.fileName}`
+  }
+  let size: number
+  try {
+    size = statSync(downloadedFile).size
+  } catch (error) {
+    return `the downloaded file cannot be read (${describeDownloadError(error)})`
+  }
+  if (size !== offer.artifact.size) {
+    return `the downloaded file is ${String(size)} bytes, the accepted feed says ${String(offer.artifact.size)}`
+  }
+  let digest: string
+  try {
+    digest = await sha512Of(downloadedFile)
+  } catch (error) {
+    return `the downloaded file cannot be read (${describeDownloadError(error)})`
+  }
+  if (digest !== offer.artifact.sha512) return 'the downloaded file does not match the accepted SHA-512'
+  return undefined
+}
+
+/**
+ * The base64 SHA-512 of one file, which is the spelling a manifest carries.
+ * @param path - the file to read.
+ * @returns the digest of its bytes.
+ */
+function sha512Of(path: string): Promise<string> {
+  return new Promise((resolveDigest, rejectDigest) => {
+    const hash = createHash('sha512')
+    createReadStream(path)
+      .on('data', (chunk: string | Buffer) => { hash.update(chunk) })
+      .on('error', rejectDigest)
+      .on('end', () => { resolveDigest(hash.digest('base64')) })
+  })
+}
+
 function ensureUpdater(host: UpdateHost): AppUpdater {
   if (updater !== undefined) return updater
   const built: AppUpdater = process.platform === 'darwin'
@@ -1017,6 +1542,31 @@ function ensureUpdater(host: UpdateHost): AppUpdater {
     : new NsisUpdater({ provider: 'generic', url: FEED_WIN, channel: FEED_CHANNEL })
   built.autoDownload = false
   built.autoInstallOnAppQuit = false
+  // Set after the provider and channel are configured, because those setters
+  // may turn downgrade back on. This product never allows one: a lower build
+  // sequence is refused by the candidate callback, and a lower runtime is
+  // refused no matter how large its sequence is.
+  built.allowDowngrade = false
+  // Same-version artifacts cannot be addressed by the library's blockmap
+  // derivation, which builds the old file's URL by substituting the version
+  // string; two builds of one version would collide there. Every transfer is a
+  // full download on both platforms until a build's complete identity can be
+  // used to address its predecessor.
+  built.disableDifferentialDownload = true
+  // The one comparison this product owns. Everything the library checks before
+  // it — whether this system supports the update, whether this user is inside
+  // the rollout — has already been asked by the time the callback runs, so the
+  // callback answers only "is this build ahead of mine", and throws for a
+  // manifest this build refuses instead of calling it "no update".
+  const installed = readInstalledIdentity()
+  if (installed !== undefined) {
+    built.isUpdateCandidate = (info) => {
+      const offer = offerFrom(info)
+      if (decideUpdate(installed, offer.identity).kind === 'current') return false
+      acceptedOffer = offer
+      return true
+    }
+  }
   // [[updaterLogLine]] decides which of electron-updater's own lines reach the
   // log and how. `debug` is registered rather than left unset because upstream
   // guards every call on it with `!= null`: an unset channel would drop the two
@@ -1027,11 +1577,11 @@ function ensureUpdater(host: UpdateHost): AppUpdater {
   }
   built.logger = { info: write('info'), warn: write('warn'), error: write('error'), debug: write('debug') }
   built.on('download-progress', (progress) => {
-    updateState().downloadProgress(progress)
+    updateState(host).downloadProgress(progress)
     // The only surface a transfer writes to, and only while the launch gate
     // holds the app shut: the boot page's own line, rewritten in place. No
     // window, no taskbar or Dock progress, nothing on the ordinary path.
-    blockLine?.(mandatoryDownloadLine(updateState().snapshot().percent))
+    blockLine?.(mandatoryDownloadLine(updateState(host).snapshot().percent))
   })
   built.on('error', (error) => {
     host.log(`[updater] error: ${error.message}\n`)
@@ -1039,6 +1589,14 @@ function ensureUpdater(host: UpdateHost): AppUpdater {
     // staging and signature check, or the NSIS installer failing to start.
     if (handedOff !== undefined) {
       void installFailed(host, handedOff, error)
+      return
+    }
+    // Between the receipt and the hand-off the install path owns every failure —
+    // its own catch restores the app and releases the attempt. Classifying one
+    // here as a check or transfer failure would demote the tier under an install
+    // that is still in progress, so it is named as belonging to that path.
+    if (installing !== undefined) {
+      host.log(`[updater] error while preparing to install ${buildLabel(installing.identity)}: ${error.message}\n`)
       return
     }
     // A failure while a download is in flight is delivered twice: here, and to
@@ -1056,17 +1614,22 @@ function ensureUpdater(host: UpdateHost): AppUpdater {
     if (process.platform === 'darwin') demoteMac(host, error)
   })
   built.on('update-downloaded', (info) => {
-    // On macOS this is the end of electron-updater's own download, not the end
-    // of the install: Squirrel is handed the file at [[installStaged]].
-    downloading = false
-    stagedVersion = info.version
-    stagedNotes = typeof info.releaseNotes === 'string' ? info.releaseNotes : undefined
-    updateState().downloadReady(info.version, stagedNotes)
-    host.log(`[updater] downloaded ${info.version}; waiting for an explicit install\n`)
-    // The ordinary path stops here: the update is reported, and the click that
-    // installs it comes from the Settings entry. Only the mandatory launch
-    // block, which owns the app and has no other surface, asks.
-    if (blocking) void offerInstall(host, info.version)
+    // The payload says which file the library wrote; accepting it takes reading
+    // that file back, which is not a step this listener can wait for. A read
+    // that rejects is the transfer's failure, never a candidate: no installer
+    // may be reached from an update whose bytes were not verified.
+    void acceptDownloaded(host, info).catch((error: unknown) => {
+      verifyingOffer = undefined
+      downloading = false
+      const detail = `could not verify the downloaded update (${describeDownloadError(error)})`
+      updateState(host).downloadFailed(detail)
+      host.log(`[updater] ${detail}; not offering it\n`)
+      // A rejection escaped the verification itself; under the mandatory block
+      // it must still reach the retry/quit surface rather than leave the boot
+      // page waiting on an install that will never come.
+      const offer = frozenOffer
+      if (blocking && offer !== undefined) void retryMandatoryDownload(host, offer, detail)
+    })
   })
   updater = built
   return built
@@ -1098,12 +1661,13 @@ const INSTALL_PROMISE = process.platform === 'darwin'
  * this — the ordinary path reports the downloaded update and waits for a click
  * that reaches [[installStaged]] directly.
  * @param host - logging and quit coordination from the main process.
- * @param version - the downloaded version.
+ * @param offer - the downloaded candidate.
  */
-async function offerInstall(host: UpdateHost, version: string): Promise<void> {
-  const notes = notesDetail(stagedNotes)
+async function offerInstall(host: UpdateHost, offer: UpdateOffer): Promise<void> {
+  const version = offer.identity.version
+  const notes = notesDetail(offer.releaseNotes)
   const detail = notes === ''
-    ? `当前版本 ${app.getVersion()},安装后为 ${version}。\n\n${INSTALL_PROMISE}`
+    ? `当前版本 ${buildLabel(readInstalledIdentity())},安装后为 ${buildLabel(offer.identity)}。\n\n${INSTALL_PROMISE}`
     : `更新内容:\n${notes}\n\n${INSTALL_PROMISE}`
   const answer = await ask({
     type: 'info',
@@ -1118,62 +1682,157 @@ async function offerInstall(host: UpdateHost, version: string): Promise<void> {
     host.log(`[updater] ${version} stays downloaded; it installs when the user says so\n`)
     return
   }
-  await installStaged(host, version)
+  await installStaged(host, offer)
 }
 
 /**
- * Record which staged artifact the install about to start takes, so the
- * launch after it can recognize that artifact in `pending` and remove it
+ * Record the install about to start, so the launch after it can tell whether
+ * that install landed and, if it did, which artifact to take out of `pending`
  * ([[sweepAfterInstall]]).
+ *
+ * The receipt names both builds and the artifact's bytes. Version order is not
+ * recorded because it is not evidence: a launch that reports a higher version
+ * can be a build the user installed another way, and a bridge build lowers the
+ * application version while it is the newer build.
  * @param host - logging from the main process.
+ * @param offer - the candidate being handed to the installer.
+ * @returns whether the receipt reached the disk; false means the hand-off must
+ * not start, because the launch after it could never recognize the install.
  */
-function rememberInstall(host: UpdateHost): void {
-  const staged = readStagedArtifact(updaterCacheDir())
-  if (staged === undefined) {
-    host.log('[updater] pending holds no record to remember for this install\n')
-    return
+function rememberInstall(host: UpdateHost, offer: UpdateOffer): boolean {
+  const installed = readInstalledIdentity()
+  if (installed === undefined) {
+    host.log('[updater] not handing the install over: this build declares no release identity to record\n')
+    return false
   }
-  setInstalledUpdate({ fromVersion: app.getVersion(), ...staged })
+  const receipt: InstallReceipt = {
+    schemaVersion: 2,
+    from: installed,
+    target: offer.identity,
+    fileName: offer.artifact.fileName,
+    sha512: offer.artifact.sha512,
+  }
+  if (!setInstalledUpdateV2(receipt)) {
+    host.log('[updater] not handing the install over: the install receipt could not be written\n')
+    return false
+  }
+  return true
 }
 
 /**
  * Remove the artifact an earlier launch installed from electron-updater's
  * `pending` directory, which the library itself leaves there until the next
- * update's download starts ([[sweepInstalledPending]] decides what may go).
- * The remembered install is forgotten once `pending` no longer holds it, and
- * kept while it still might: an install that did not land, or an entry that
- * could not be removed, which the next launch tries again.
+ * update's download starts ([[sweepInstalledBuildPending]] decides what may go).
+ *
+ * The running build's own identity decides what the last install did: the
+ * receipt's target means it landed and its artifact may go; the receipt's
+ * `from` means it did not and the artifact is still the update this machine has
+ * yet to take; any other build leaves the outcome unknown, and unknown is never
+ * cleaned up as if it had succeeded. A legacy `installedUpdate` record names no
+ * target, so it is not read here at all rather than guessed from version order.
  * @param host - logging from the main process.
  */
 function sweepAfterInstall(host: UpdateHost): void {
-  const installed = readState().installedUpdate
-  if (installed === undefined) return
-  let sweep: InstalledPendingSweep
+  const receipt = readState().installedUpdateV2
+  if (receipt === undefined) return
+  const running = readInstalledIdentity()
+  if (running === undefined) {
+    host.log('[updater] keeping the last install receipt: this build declares no release identity to confirm it against\n')
+    return
+  }
+  let sweep: InstalledBuildSweep
   try {
-    sweep = sweepInstalledPending(updaterCacheDir(), installed, app.getVersion())
+    sweep = sweepInstalledBuildPending(updaterCacheDir(), receipt, running)
   } catch (error) {
-    host.log(`[updater] could not sweep ${installed.fileName} from pending: ${describeDownloadError(error)}\n`)
+    host.log(`[updater] could not sweep ${receipt.fileName} from pending: ${describeDownloadError(error)}\n`)
     return
   }
   switch (sweep.kind) {
     case 'not-landed':
+      host.log(`[updater] ${buildLabel(receipt.target)} has not been installed yet; its artifact stays in pending\n`)
       return
+    case 'unconfirmed': {
+      const detail = `this is ${buildLabel(running)}, neither the build that started the install (${buildLabel(receipt.from)}) nor its target (${buildLabel(receipt.target)})`
+      host.log(`[updater] the last install is unconfirmed: ${detail}; nothing is removed\n`)
+      return
+    }
     case 'incomplete':
       host.log(`[updater] removed ${sweep.removed.join(', ') || 'nothing'} from pending; ${sweep.failed.join(', ')} remain until the next launch\n`)
       return
     case 'emptied':
-      host.log(`[updater] removed the installed ${installed.fileName} from pending (${sweep.removed.join(', ')})\n`)
-      setInstalledUpdate(undefined)
+      host.log(`[updater] removed the installed ${receipt.fileName} from pending (${sweep.removed.join(', ')})\n`)
+      forgetInstall(host)
       return
     case 'absent':
     case 'replaced':
-      setInstalledUpdate(undefined)
+      forgetInstall(host)
       return
     default: {
       const unreachable: never = sweep
       throw new Error(`unhandled pending sweep: ${JSON.stringify(unreachable)}`)
     }
   }
+}
+
+/**
+ * Forget the install receipt the launch after an install has finished with.
+ * @param host - logging from the main process.
+ */
+function forgetInstall(host: UpdateHost): void {
+  if (!setInstalledUpdateV2(undefined)) {
+    host.log('[updater] could not clear the install receipt; the next launch will report the install again\n')
+  }
+}
+
+/**
+ * Give up an install that was never handed to the installer, and give the app
+ * back.
+ *
+ * Nothing was installed, so the downloaded candidate is kept — the Settings
+ * entry's retry takes it again — and no success is claimed anywhere. A failure
+ * that came after the teardown also undoes that teardown: the receipt is
+ * cleared because no installer ever read it, the notice comes down, and the
+ * host restarts what the stop closed.
+ * @param host - logging and quit coordination from the main process.
+ * @param offer - the candidate the install was about.
+ * @param why - what stopped the hand-off, in one line.
+ * @param stopped - whether [[UpdateHost.prepareQuit]] had already run.
+ */
+async function installNotStarted(host: UpdateHost, offer: UpdateOffer, why: string, stopped: boolean): Promise<void> {
+  const version = offer.identity.version
+  host.log(`[updater] not handing ${version} to the installer: ${why}; the downloaded update is kept for a retry\n`)
+  if (stopped) {
+    if (!setInstalledUpdateV2(undefined)) {
+      host.log('[updater] could not clear the install receipt for the install that never started\n')
+    }
+    closeInstalling()
+    await host.resumeAfterFailedInstall(blocking)
+  }
+  // The attempt has finished putting the app back, and only now may another one
+  // begin: releasing the install lock while the recovery is still running would
+  // let a queued click race the restore it depends on.
+  installing = undefined
+  // The verified artifact is untouched, so the phase goes back to `ready`: the
+  // install can be tried again from the same button, and replacement is barred
+  // by [[downloadedOffer]] rather than by the reported phase.
+  updateState(host).downloadReady(version, offer.releaseNotes, offer.identity.dshRelease.buildSequence)
+  const answer = await ask({
+    type: 'error',
+    title: '更新安装未开始',
+    message: `v${version} 没有开始安装`,
+    detail: stopped
+      ? '重启安装前没能确认后台服务已经停止,应用会继续运行。已下载的更新还在,稍后可以重试。'
+      : '安装前的记录没有写成,应用会继续运行。已下载的更新还在,稍后可以重试。',
+    buttons: blocking ? ['重试', '退出应用'] : ['好'],
+    defaultId: 0,
+    cancelId: blocking ? 1 : 0,
+  })
+  if (!blocking) return
+  if (answer === 0) {
+    await installStaged(host, offer)
+    return
+  }
+  app.quit()
 }
 
 /**
@@ -1184,10 +1843,26 @@ function sweepAfterInstall(host: UpdateHost): void {
  * install itself: the server goes down, macOS puts up the standing notice
  * because Squirrel takes the screen for around fifteen seconds, and Windows
  * hands over to an NSIS installer that paints its own progress within a second.
+ *
+ * The receipt goes to disk first: it is the only record the launch after the
+ * install can recognize it by, so an install it cannot be written for does not
+ * start at all — no installer is called and the downloaded candidate stays.
  * @param host - logging and quit coordination from the main process.
- * @param version - the downloaded version.
+ * @param offer - the downloaded candidate.
  */
-async function installStaged(host: UpdateHost, version: string): Promise<void> {
+async function installStaged(host: UpdateHost, offer: UpdateOffer): Promise<void> {
+  if (installing !== undefined) {
+    // The settings entry and a boot-page dialog can both reach the click, and a
+    // second receipt or teardown would tear down what the first is doing.
+    host.log(`[updater] an install of ${buildLabel(installing.identity)} is already under way; leaving it to finish\n`)
+    return
+  }
+  installing = offer
+  const version = offer.identity.version
+  if (!rememberInstall(host, offer)) {
+    await installNotStarted(host, offer, 'the install receipt could not be recorded', false)
+    return
+  }
   if (process.platform === 'darwin') {
     // Put the notice up before the teardown, so nothing about the next fifteen
     // seconds is left to be guessed at. The main window goes with the server it
@@ -1197,9 +1872,17 @@ async function installStaged(host: UpdateHost, version: string): Promise<void> {
     mainWindow()?.hide()
     showInstalling(version)
   }
-  rememberInstall(host)
   host.log(`[updater] stopping the server before installing ${version}\n`)
-  await host.prepareQuit()
+  try {
+    await host.prepareQuit()
+  } catch (error) {
+    // The teardown did not confirm that the server tree is gone, so an installer
+    // that replaces the app directory must not start: the refusal from the main
+    // process is the whole answer, and the install-failure path restores what
+    // the stop closed.
+    await installNotStarted(host, offer, `teardown not confirmed, the installer was not started (${describeDownloadError(error)})`, true)
+    return
+  }
   if (process.platform === 'darwin') {
     // MacUpdater.quitAndInstall takes no arguments — it declares the two the
     // base class has and ignores both. It returns immediately, and what follows
@@ -1209,7 +1892,7 @@ async function installStaged(host: UpdateHost, version: string): Promise<void> {
     // it swaps the bundles. The relaunch is Squirrel's `open`, so the new
     // process inherits neither this one's argv nor its environment.
     host.log(`[updater] handing ${version} to Squirrel\n`)
-    handedOff = version
+    handedOff = offer
     updater?.quitAndInstall()
     return
   }
@@ -1238,16 +1921,16 @@ async function installStaged(host: UpdateHost, version: string): Promise<void> {
   // `$INSTDIR` comes from the registry's InstallLocation, read in `.onInit`
   // before any page exists, so neither mode can land anywhere but the directory
   // the app already occupies.
-  handedOff = version
+  handedOff = offer
   updater?.quitAndInstall(false, true)
 }
 
 /**
- * The version handed to the installer, from the hand-off until the installer
+ * The candidate handed to the installer, from the hand-off until the installer
  * fails. Set only once the server is stopped and the window hidden, so an
  * `error` while it is set belongs to the install.
  */
-let handedOff: string | undefined
+let handedOff: UpdateOffer | undefined
 
 /**
  * Recover from an installer that failed after the hand-off. The app is still
@@ -1259,17 +1942,20 @@ let handedOff: string | undefined
  * Under the mandatory block the app stays closed and the only choices are
  * installing again or quitting.
  * @param host - logging and quit coordination from the main process.
- * @param version - the version whose install failed.
+ * @param offer - the candidate whose install failed.
  * @param error - what the installer reported.
  */
-async function installFailed(host: UpdateHost, version: string, error: unknown): Promise<void> {
+async function installFailed(host: UpdateHost, offer: UpdateOffer, error: unknown): Promise<void> {
   handedOff = undefined
-  const message = error instanceof Error ? error.message : String(error)
-  host.log(`[updater] installing ${version} failed (${message}); bringing the app back\n`)
+  const version = offer.identity.version
+  host.log(`[updater] installing ${version} failed (${messageOf(error)}); bringing the app back\n`)
   closeInstalling()
   if (process.platform === 'darwin') demoteMac(host, error)
-  else updateState().markUnavailable(`install failed: ${message}`)
+  else updateState(host).markUnavailable(`install failed: ${messageOf(error)}`)
   await host.resumeAfterFailedInstall(blocking)
+  // The failed attempt owns the install until the app is back; the retry below
+  // (and the settings entry before it) starts a new one.
+  installing = undefined
   if (!blocking) return
   const answer = await ask({
     type: 'error',
@@ -1281,20 +1967,26 @@ async function installFailed(host: UpdateHost, version: string, error: unknown):
     cancelId: 1,
   })
   if (answer === 0) {
-    await installStaged(host, version)
+    await installStaged(host, offer)
     return
   }
   app.quit()
 }
 
 /**
- * The download-page tier: read the feed directly and, when it is ahead, open
- * the download in the system browser. This is where an unsigned macOS build
- * lives — it can see a new version but not replace itself with one — and where
- * a signed build lands once its in-place path is gone for the run. The dialog
- * is confined to the menu item and to the feed's red line: nothing else
+ * The download-page tier: read the v2 manifest directly and, when it is ahead,
+ * open the download in the system browser. This is where an unsigned macOS
+ * build lives — it can see a new build but not replace itself with one — and
+ * where a signed build lands once its in-place path is gone for the run. The
+ * dialog is confined to the menu item and to the feed's red line: nothing else
  * interrupts a session with a download this build cannot install anyway, and
  * what it found is reported through [[updateState]] instead.
+ *
+ * This tier has no library, so the manifest is read here; it is parsed and
+ * decided by the same functions the library path uses. It is never reached by a
+ * library that *refused* a candidate — a refusal is answered as "no update" on
+ * the in-place tier — so it cannot be used to overrule the library's system or
+ * rollout check.
  *
  * A check whose in-place path was merely interrupted is answered here as well,
  * and that answer stops short of the download page: the build can still
@@ -1307,31 +1999,31 @@ async function installFailed(host: UpdateHost, version: string, error: unknown):
  * page is this build's own tier.
  */
 async function checkGeneric(host: UpdateHost, reason: CheckReason, fallback?: { error: unknown }): Promise<void> {
-  updateState().checkStarted()
-  const feed = await fetchFeed(`${FEED_MAC}/latest-mac.yml`)
-  const version = feed.version
-  if (compareVersions(version, app.getVersion()) <= 0) {
-    updateState().checkSucceeded(new Date().toISOString())
-    host.log(`[updater] no update: installed ${app.getVersion()}, feed ${version}\n`)
-    if (reason === 'manual') await reportUpToDate()
-    return
+  const installed = requireInstalledIdentity()
+  if (releasePlatform() !== 'darwin') {
+    throw new ReleaseIdentityError(
+      'RELEASE_IDENTITY_INVALID',
+      'platform',
+      `the download page serves macOS builds only, this is ${process.platform}`,
+    )
   }
-  const artifact = feed.files?.[0]?.url
-  if (artifact === undefined) throw new Error(`更新源缺少 files[].url(${FEED_MAC}/latest-mac.yml)`)
-  const notes = typeof feed.releaseNotes === 'string' ? feed.releaseNotes : undefined
-  updateState().checkSucceeded(new Date().toISOString(), version, notes)
-  if (fallback === undefined) {
-    // This build's own tier: replacing the app by hand is the only way this
-    // version gets installed, for the rest of the run.
-    updateState().markUnavailable('this build installs an update by replacing it by hand')
-  } else {
-    // A fallback answer for an in-place tier the failure did not cost. The
-    // build can still replace itself, so what is reported is the check that
-    // did not get through — which the next check starts over from — rather
-    // than a verdict about this build.
+  const state = updateState(host)
+  state.checkStarted()
+  const offer = offerFrom(await fetchManifest(`${FEED_MAC}/latest-mac.yml`))
+  const version = offer.identity.version
+  const build = offer.identity.dshRelease.buildSequence
+  const ahead = decideUpdate(installed, offer.identity).kind === 'available'
+  const notes = ahead ? offer.releaseNotes : undefined
+  state.checkSucceeded(new Date().toISOString(), ahead ? version : undefined, notes, ahead ? build : undefined)
+  if (fallback !== undefined) {
+    // A fallback answer for an in-place check that did not get through. What is
+    // reported is that failure — which the next check starts over from — rather
+    // than a verdict about this build. That holds even when the feed read here
+    // names the installed build: the native check never finished, so this is a
+    // failure to report, never "already up to date".
     const fallbackReason = describeDownloadError(fallback.error)
-    host.log(`[updater] ${version} was read straight from the feed; the in-place check did not get through (${fallbackReason})\n`)
-    updateState().checkFailed(new Date().toISOString(), fallbackReason)
+    host.log(`[updater] ${ahead ? `${buildLabel(offer.identity)} was read straight from the feed` : `installed ${buildLabel(installed)} is what the feed names`}; the in-place check did not get through (${fallbackReason})\n`)
+    state.checkFailed(new Date().toISOString(), fallbackReason)
     // The answer stops here rather than continuing into the download page: a
     // machine that can install where it stands must not be sent to replace its
     // own application by hand over a check that will be tried again. A click
@@ -1342,27 +2034,37 @@ async function checkGeneric(host: UpdateHost, reason: CheckReason, fallback?: { 
       await ask({
         type: 'warning',
         message: '无法检查更新',
-        detail: checkFailureDetail(fallback.error, '稍后会自动重试,新版本已记录在设置里。'),
+        detail: checkFailureDetail(fallback.error, ahead ? '稍后会自动重试,新版本已记录在设置里。' : '稍后会自动重试。'),
         buttons: ['好'],
       })
-    } else if (isMandatory(feed.minimumVersion)) {
-      host.log(`[updater] mandatory ${version}: the in-place check did not get through; the launch gate and the next check are what enforce it\n`)
+    } else if (isBelowRedLine(installed, offer.minimumBuildSequence)) {
+      host.log(`[updater] mandatory ${buildLabel(offer.identity)}: the in-place check did not get through; the launch gate and the next check are what enforce it\n`)
     }
     return
   }
-  const mandatory = isMandatory(feed.minimumVersion)
+  if (!ahead) {
+    host.log(`[updater] no update: installed ${buildLabel(installed)}, feed ${buildLabel(offer.identity)}\n`)
+    if (reason === 'manual') await reportUpToDate()
+    return
+  }
+  // This build's own tier: replacing the app by hand is the only way this build
+  // gets installed, for the rest of the run. No candidate is frozen: this tier
+  // downloads nothing, and the artifact its dialog offers is passed to it
+  // directly rather than left behind as an installable update.
+  state.markUnavailable('this build installs an update by replacing it by hand')
+  const mandatory = isBelowRedLine(installed, offer.minimumBuildSequence)
   if (reason !== 'manual' && !mandatory) {
-    host.log(`[updater] ${version} is available; not interrupting the session\n`)
+    host.log(`[updater] ${buildLabel(offer.identity)} is available; not interrupting the session\n`)
     return
   }
   const answer = await ask({
     type: mandatory ? 'warning' : 'info',
     title: mandatory ? `必须更新到 ${version}` : `发现新版本 ${version}`,
     message: mandatory
-      ? `当前版本 ${app.getVersion()} 需要更新后才能继续使用`
-      : `发现新版本 ${version}`,
-    detail: notesDetail(feed.releaseNotes)
-      || (mandatory ? '下次启动时需要完成更新才能进入应用。' : `当前版本 ${app.getVersion()}。`),
+      ? `当前版本 ${buildLabel(installed)} 需要更新后才能继续使用`
+      : `发现新版本 ${buildLabel(offer.identity)}`,
+    detail: notesDetail(notes)
+      || (mandatory ? '下次启动时需要完成更新才能进入应用。' : `当前版本 ${buildLabel(installed)}。`),
     buttons: ['去下载', '稍后'],
     defaultId: 0,
     cancelId: 1,
@@ -1371,15 +2073,15 @@ async function checkGeneric(host: UpdateHost, reason: CheckReason, fallback?: { 
     host.log(`[updater] user postponed ${version}\n`)
     return
   }
-  await openDownloadPage(host, artifact)
+  await openDownloadPage(host, offer)
 }
 
-/** Confirm to a manual checker that the installed version is current. */
+/** Confirm to a manual checker that the installed build is current. */
 async function reportUpToDate(): Promise<void> {
   await ask({
     type: 'info',
     message: '已是最新版本',
-    detail: `当前版本 ${app.getVersion()}。`,
+    detail: `当前版本 ${buildLabel(readInstalledIdentity())}。`,
     buttons: ['好'],
   })
 }
@@ -1470,14 +2172,23 @@ function buildMenu(onCheck: () => void, onOpenLog: () => void): void {
 
 /**
  * The About dialog: what this is, which build, and where its updates come from.
+ *
+ * The label carries the build sequence, because the application version alone
+ * cannot tell two builds of one upstream version apart; the revision is the
+ * full Git object name the release manifest records, which is what makes a
+ * report traceable back to source.
  * @param title - the localized word for "about", used as the dialog title.
  */
 async function showAbout(title: string): Promise<void> {
+  const identity = readInstalledIdentity()
+  const build = identity === undefined
+    ? '当前构建没有内嵌发布身份,更新检查不可用。'
+    : `构建 ${String(identity.dshRelease.buildSequence)},revision ${identity.dshRelease.revision}。`
   await ask({
     type: 'info',
     title,
-    message: `${app.getName()} ${app.getVersion()}`,
-    detail: `DeepSeek Harness 的桌面客户端,内置 dsh web 服务。\n更新来自 ${FEED_BASE}。`,
+    message: `${app.getName()} ${buildLabel(identity)}`,
+    detail: `DeepSeek Harness 的桌面客户端,内置 dsh web 服务。\n${build}\n更新来自 ${FEED_BASE}。`,
     buttons: ['好'],
   })
 }

@@ -8,14 +8,22 @@
 
 ## 构建安装包
 
+桌面发布有两个版本和一个排序编号。源码工作区与捆绑的 DSH 运行时保留上游版本，插件兼容性使用运行时版本。应用在实际 Electron `version` 旁嵌入 `dshRelease`：`schemaVersion: 2`、`runtimeVersion`、正安全整数 `buildSequence`、完整的 40 位小写 Git `revision`，以及 `kind`（`bridge` 或 `standard`）。只有 `buildSequence` 用于更新排序；revision 标识源码，只判断相等。普通构建的应用版本与运行时版本必须相等。
+
+本次迁移示例使用过渡应用版本 `0.2.2-rc.4`、运行时 `0.2.2-rc.1`，然后发布序号更大的普通 `0.2.2-rc.1` 构建。这些是示例发布值，不是已发布版本或固定协议常量；示例构建号也尚未分配为正式发布。选定过渡版本前，须清点所有历史发布，确认它高于全部旧应用版本，不能只看当前 `latest`。打包在签名前通过 `extraMetadata.version` 设置应用版本，并保留 `extraMetadata.name`；源码包版本与版本同步检查保持不变。每个序号在两个平台间统一分配且只分配一次：任何包内字节变化，包括同一源码重新签名或压缩，都需要新序号。见[桌面构建升级指南](../../docs/upgrade-guide/v0.2.2-rc.1/desktop-build-updates/guide.zh.md)。
+
 ```sh
-pnpm exec tsx apps/desktop-shell/scripts/package.ts --mac        # zip + dmg (arm64), runnable on this machine
-pnpm exec tsx apps/desktop-shell/scripts/package.ts --win        # NSIS installer (x64), cross-packaged from macOS
+pnpm exec tsx apps/desktop-shell/scripts/package.ts --help
+pnpm exec tsx apps/desktop-shell/scripts/package.ts --mac --win --build-input build-input.json
 ```
+
+Mac 最终产物验证需要 macOS 的 `ditto`、`hdiutil`、`plutil` 和 `codesign`。NSIS 验证需要完整的 7-Zip 可执行文件，由 `DSH_RELEASE_7ZIP` 选择，或默认使用 macOS/Linux 的 `7zz`、Windows 的 `7z.exe`；捆绑的 `7za` 不支持 NSIS。解包器缺失或身份验证失败时，不会写入最终发布清单。
 
 产物落在 `apps/desktop-shell/dist-app/`。流水线按 python/sdk-runtime 配方暂存服务端(legacy hoisted `pnpm deploy`,经 `pnpm dlx` 用暂存 rc.38 的那个版本 pnpm 11.7.0 运行、恢复 hoist、重装 deploy 删掉的工作区开发依赖、物化符号链接、像发布时那样把暂存的 `@deepseek-ai/dsh` 清单里的 `workspace:` 范围改写成暂存树里的版本,使插件管理器从注册表提供官方按需组合包),删掉本机编译的原生 `build/` 树以强制走多平台预编译产物,补齐 macOS 安装时跳过的平台分包可选依赖的 Windows x64 成员(名字里写 `win32-x64`,或像 sherpa-onnx 那样写 `win-x64`;以版本范围声明的成员,取本机已装成员的版本;`.cache/npm-pack` 里已有的压缩包,哈希与 registry 上该版本的 `dist.integrity` 一致时直接解压,每个压缩包用一次 `npm view` 核对,其余的用 `npm pack` 重新取),再按平台暂存 Node 运行时(`--skip-repo-build` / `--skip-deploy` 复用既有产物)。仓库构建是带 `DSH_CLIENT_TITLE=北冥` 的 `pnpm run build`，该值是所有界面语言下的浏览器标题（`scripts/client-build.ts`）；客户端构建记录或 `apps/web/dist/index.html` 缺少这个标题时，运行在暂存之前停下，`--skip-repo-build` 也一样。通过这项检查后再打包 `@deepseek-ai/dsh-desktop-app`；它的浏览器半边不嵌入任何客户端构建取值。每份载荷冒烟测试之前先过一道载荷门禁:每条平台规则至少丢弃一个目录,每个平台分包目录都要对得上它所在的 target,活下来的模块不得按名解析已被裁掉的包。打包载荷(`scripts/bundle-closure.ts`)要查找的第三方包名里含 `'`、`"` 或 `` ` `` 时,它在构建或删除任何东西之前就停下,因为它的可达性扫描读说明符只读到下一个引号字符为止。每次运行(`--skip-deploy` 也一样)还会在暂存的 LibreOffice kit 为 `darwin-arm64` 或 `win32-x64` 声明的引擎版本不是这个包要带的那个——`DESKTOP_ENGINE_HOSTS`(`scripts/office-engine-gate.ts`)里的 `engineVersion`,两个目标都是 0.1.5——或是 `ENGINE_DOWNLOADS` 没登记的版本时停下(见「Office 引擎服务」一节)。部署按发布时长而不是按锁文件解析 kit,所以新版 kit 发布满一天之后重新部署,暂存到的就是它。要带上它,得先登记它的引擎(已发布压缩包的大小、`dist.integrity`,以及在这个版本上验过的一次转换),再调高 `engineVersion`;之后每个下载过引擎的人都会在不被询问的情况下把新版本下载一次。用 `--skip-deploy` 复用一份能通过这项检查的暂存可以保住当前版本,但那份暂存也带着它那次部署暂存下的工作区包、客户端 bundle 与 vendored 插件,所以只适合在这个壳之外什么都不改的重新打包;新版 kit 发布满一天之后的其他发版,要么登记它的引擎并调高 `engineVersion`,要么在 `pnpm-workspace.yaml` 的 `overrides` 里钉住 kit,而那属于 core patch。不带 `--skip-deploy` 的运行在部署之前先删掉 `staging/server`,所以被这项检查停下的运行留下的是被拒的 kit;能通过检查的暂存要在这样的运行之前另外复制一份,复用前再拷回 `staging/server`,`--skip-deploy` 才会用到它。
 
-**一次运行只构建被点名的平台,绝不去猜它能猜到的那个**:`--mac`、`--win`,或者两者都要;两个都不给的运行会在构建任何东西之前停下。运行结束时它会检查该版本为这些平台该交付的每一个文件——mac 的 zip 与 dmg、Windows 安装程序,以及各自的 `.blockmap`——都在 `dist-app` 里、非空、而且**是本次运行开始之后写下的**,打印通过校验的清单,并点名其中缺失、为空或属于遗留的文件。`dist-app` 从不清空,过去每个版本的产物都还在;而修完一个问题重打同一个版本时,该版本自己的文件早已顶着完全相同的名字躺在那里:光看「在不在」分不出「某个平台压根没构建」和「某个平台的产物是上一次运行留下的」。期望的文件名是 electron-builder 对已声明 target 的默认命名,放在 `scripts/artifact-names.ts`,由 `tests/artifact-names.spec.ts` 对着 `electron-builder.yml` 钉住。
+**构建输入与发布清单是不同文件。**`--build-input` 读取 `{version, dshRelease, platforms}`，不要求最终摘要。`platforms` 为 `["darwin"]`、`["win32"]` 或两者，必须与 `--mac` / `--win` 相符。打包命令中的 `--release-manifest` 是 `--build-input` 的别名，两者不能同时传入。输入 revision 必须等于干净检出的 HEAD；源码 shell 与 app-boot 版本必须等于 `runtimeVersion`。`--skip-repo-build` 必须同时传 `--skip-deploy`；两者复用的暂存必须匹配已记录的源码身份、内容摘要与实际运行时版本。跳过编译不能从未经验证的旧输出创建新部署。
+
+检查新生成且非空的产物及解包后的应用身份后，打包对最终字节计算摘要，写入 `dist-app/release-manifest-b<sequence>-<targets>.json`；两个平台都构建时，targets 固定为 `darwin-win32`。`--output-manifest <file>` 可选择其他输出；已有清单绝不覆盖。清单包含 `{version, dshRelease, platforms}`，各平台项记录 `arch` 和 `artifacts: [{fileName, sha512, size}]`。普通产物名含构建序号；过渡包命名保持旧客户端兼容。清单包含 macOS zip/dmg、Windows NSIS 及各自 blockmap，具体由 [artifact-names.ts](scripts/artifact-names.ts) 定义。发布者必须在发布前验证生成的原生包；解析与身份检查本身不能证明可安装。
 
 **整个构建跑在自己创建、结束即删的一次性 `$DSH_HOME` 上**,于是它启动的任何服务端都不会改动这台机器自己的 harness 状态——`prepareProfile` 会重写 profile 的根配置,`healProfilesModuleFallback` 会把每一条扁平兜底符号链接重指到这次构建随后就要删掉的暂存树上。启动门禁按壳播种真实 home 的同样方式播种那个临时 home,再要求每个声明了浏览器那一半的内置插件都出现在所服务 index 点名的 client 模块里,于是它证明的是载荷的性质,而不是构建机自己 profile 的性质。
 
@@ -37,14 +45,18 @@ pnpm exec tsx apps/desktop-shell/scripts/package.ts --win        # NSIS installe
 
 ## 更新机制
 
-已安装的客户端读一个静态更新源——一个 electron-builder `generic` provider 目录,里面是清单与它们点名的产物:
+过渡客户端与普通客户端通过 electron-updater 的 `generic` provider 读取 v2 静态更新源。原目录继续供旧客户端使用：
 
 ```
-https://lhr.ink/dsh-updates/win/     latest.yml  + the NSIS installer + its blockmap
-https://lhr.ink/dsh-updates/mac/     latest-mac.yml + the zipped app
+https://lhr.ink/dsh-updates/v2/win/  latest.yml + build-named NSIS installer
+https://lhr.ink/dsh-updates/v2/mac/  latest-mac.yml + build-named zipped app
+https://lhr.ink/dsh-updates/win/     legacy latest.yml pinned to the bridge
+https://lhr.ink/dsh-updates/mac/     legacy latest-mac.yml pinned to the bridge
 ```
 
-更新源没有服务端:清单**本身**就是判断过程,所以 nginx 发一个目录已经把它整个实现了。更新源地址存在于两处——生成清单与打包内 `app-update.yml` 的 `electron-builder.yml`,以及运行时读取它们的 `src/updater.ts`——迁移更新源要同时改这两处。`channel: latest` 在两端都显式写出;默认行为会拿运行版本的预发布段给渠道命名,那会让渠道名随发布周期的每个阶段改名。
+清单保留 electron-updater 的标准 `version`、`files`、`path`、`sha512`、`size` 字段，并携带与应用相同的 `dshRelease` 身份。builder 配置与运行时都显式指定 `channel: latest`。v2 只接受构建序号更大、运行时版本不倒退且 `kind: standard` 的目标；相同序号对应不同身份会使检查失败。这允许过渡 rc.4 → 普通 rc.1，以及 rc.1 → 另一个 rc.1 构建，无需虚构 Electron 版本或开启 `allowDowngrade`。已安装身份缺失或损坏会禁用自动更新；更新源身份损坏属于检查失败，绝不会显示「已是最新版本」。
+
+v2 的每个 `files[]` 条目必须原样命名所发布的文件；百分号编码、绝对 URL、路径、查询串和片段会使整份清单无效。macOS 先按库的 arm64 规则筛选全部条目，再要求恰好一个 `.zip`。Windows 要求恰好一个 `.exe`，且其名称不能指向另一架构。零个或多个候选都会使检查失败，确保冻结产物就是库将下载的文件。
 
 **下载过程是安静的,只有装得上的更新才不是。**静默检查——启动后 15 秒、此后每四小时、**帮助 → 检查更新**,以及设置里的那个入口——发现新版本就直接开始传,不先征询。整个传输过程不上屏:没有对话框、没有窗口、没有任务栏或 Dock 进度,也不请求注意。唯一可见的状态是它的终点——一个已下载并校验通过的更新——由壳经下面那个更新服务报出,再由设置窗口画出来。**没有用户的决定就不会发生安装**,退出时或别的任何时候都一样:`autoInstallOnAppQuit` 关闭,应用只在有人点了那个窗口里的按钮之后的几秒里替换自己。那一次点击就是同意,所以不会再问第二遍;没装的更新留在盘上,下次启动照样报出来。帮助 → 检查更新 位置与文案都不变,跑的是同一个静默检查,作答只有「已是最新版本」「无法检查更新」两种——别处不显示的就这两个状态。「无法检查更新」的详情先是失败信息的第一行,再是一行 `错误码:`,列出 `cause` 链上的全部错误码(`ENOTFOUND`、`HTTP_ERROR_503`、`DSH_TRANSFER_CUT ← UND_ERR_SOCKET`),或被放弃的请求的 `TimeoutError`/`AbortError`;两样都没有的失败不显示错误码这一行。查到新版本的检查什么都不说:更新已经在设置那一行上,装它的按钮也在那里。在下载页那一层,手动检查查到新版本时改问「发现新版本 / 去下载」,因为那一层没有别的口子把下载交出去。
 
@@ -62,17 +74,17 @@ https://lhr.ink/dsh-updates/mac/     latest-mac.yml + the zipped app
 
 **Windows 为所有用户安装,因此更新会提权。**`perMachine: true` 加 `packElevateHelper: true` 把 `isAdminRightsRequired` 写进清单,更新器于是通过 `elevate.exe` 启动安装器。在 UAC 为普通设置的机器上,这是**每次安装一次确认框**;在 UAC 设为「从不通知」的机器上则被静默放行,什么也不会出现。没有这次提权,per-machine 的卸旧会中止——这是走到 `Failed to uninstall old application files: 2` 的两条路之一。
 
-**另一条路是旧卸载器的暂存路径,把它压短的是 `build/installer.nsh`。**更新会带 `--updated` 运行**旧**卸载器,它的卸载段在删除任何东西之前,先把安装目录里的每个文件搬进 `$PLUGINSDIR\old-install`。`$PLUGINSDIR` 位于 `%TEMP%`,所以每个暂存路径都是这个前缀加上该文件相对安装目录的路径——对装到 `D:\soft\DSH Desktop` 的安装,这个前缀长了 34 个字符,而载荷里最深的文件本就在 208 个字符处。261 个字符比 MAX_PATH 多一个,NSIS 又不支持长路径,搬移以 `ERROR_PATH_NOT_FOUND` 失败——模板把它报成 `File is busy`,而事实并非如此。五次重试之后安装器弹出「DSH Desktop 无法关闭」,而「重试」执行的又是同一次注定失败的尝试,因为超长的那条路径每次都是同一条。`customRemoveFiles` 替换掉了这套暂存:安装目录被**整个**改名成它自己的同级兄弟目录再在那里删除,于是它下面每条路径都保持原有长度,而且整个搬移留在同一个卷上。`customInit` 仍然先清掉旧版本的进程——应用本身、它的 `node.exe` 服务端,以及 `elevate.exe`(更新器正是从应用自己的 `resources` 目录启动它,并且它会在那儿等到整个安装结束)——因为活着的进程会让那次删除留下一个暂存目录,并让随后的解压覆盖旧版本仍在读取的文件。它先立刻杀掉 `elevate.exe`(不带 `/T`,因为安装器是它的子进程),再给应用与服务端 10 秒自行退出,超时后对残留连子进程一起杀。围绕它,退出时对停服务器封了顶(Windows 4 秒,落在安装器自己的耐心之内;别处 10 秒),到点照退;每次启动还会杀掉上一轮留下的服务器,匹配的是本安装那个内置 Node 的完整路径,而不是 `node` 映像名。
+**另一条路是旧卸载器的暂存路径,把它压短的是 `build/installer.nsh`。**更新会带 `--updated` 运行**旧**卸载器,它的卸载段在删除任何东西之前,先把安装目录里的每个文件搬进 `$PLUGINSDIR\old-install`。`$PLUGINSDIR` 位于 `%TEMP%`,所以每个暂存路径都是这个前缀加上该文件相对安装目录的路径——对装到 `D:\soft\DSH Desktop` 的安装,这个前缀长了 34 个字符,而载荷里最深的文件本就在 208 个字符处。261 个字符比 MAX_PATH 多一个,NSIS 又不支持长路径,搬移以 `ERROR_PATH_NOT_FOUND` 失败——模板把它报成 `File is busy`,而事实并非如此。五次重试之后安装器弹出「DSH Desktop 无法关闭」,而「重试」执行的又是同一次注定失败的尝试,因为超长的那条路径每次都是同一条。`customRemoveFiles` 替换掉了这套暂存:安装目录被**整个**改名成它自己的同级兄弟目录再在那里删除,于是它下面每条路径都保持原有长度,而且整个搬移留在同一个卷上。`customInit` 仍然先清掉旧版本的进程——应用本身、它的 `node.exe` 服务端,以及 `elevate.exe`(更新器正是从应用自己的 `resources` 目录启动它,并且它会在那儿等到整个安装结束)——因为活着的进程会让那次删除留下一个暂存目录,并让随后的解压覆盖旧版本仍在读取的文件。它先立刻杀掉 `elevate.exe`(不带 `/T`,因为安装器是它的子进程),再给应用与服务端 10 秒自行退出,超时后对残留连子进程一起杀。围绕它,普通退出时对停服务器封了顶（Windows 4 秒，落在安装器自己的耐心之内；别处 10 秒），到点照退；安装则必须确认已停止;每次启动还会杀掉上一轮留下的服务器,匹配的是本安装那个内置 Node 的完整路径,而不是 `node` 映像名。
 
 **那个「它还在跑吗」的判断,可能把满机器的进程都当成应用。**模板自带的「它还在跑吗」这一步收一个文件名参数,然后在 PowerShell 分支里把它忽略掉:它数的是可执行文件路径以 `$INSTDIR` 打头的进程,只要个数大于零就回答「在跑」。这个前缀不补分隔符,而 `String.StartsWith("")` 对任何字符串都为真——于是一个没解析出来的 `$INSTDIR` 会匹配整台机器,连安装器自己都算在内。它的清理这一步照同一个集合逐个 `Stop-Process -Force`,大多数会失败,下一轮又发现残留,最后停在「DSH Desktop 无法关闭。请手动关闭它,然后单击重试以继续」,而「重试」回到的是同一个循环。但上面那个对话框并不是这样来的——报告该问题的机器在一次失败安装中被以 250ms 采样盯了全程,看到的是五次 `old-uninstaller.exe`,以及一次进程检查都没有;它的 `$INSTDIR` 从向导里直接读出来是 `D:\soft\DSH Desktop`。这个过度匹配本身仍然是真的,而且拒绝它的代价很低。
 
-`build/installer.nsh`(按文件名从 `buildResources` 被取用)于是定义 `customCheckAppRunning`,把这一步整个换掉——安装器在卸旧之前走它,卸载器在开始搬文件之前也走它,两边经过的是同一个宏。它先清 `elevate.exe`,单独清、不带 `/T`(安装器是它的子进程,树杀会把安装本身杀掉;先清它也把本进程从应用的子孙链里摘了出来),再给应用与服务端 10 秒自行退出,超时后对残留连子进程一起杀——服务端自己的子进程占着同一批文件。三条硬约束框住它:`$INSTDIR` 只有在是绝对路径、长过卷根、目录存在、且目录里有本产品的可执行文件时才用作前缀,用时必补分隔符;本进程的 pid 从每个匹配集里排除;全程不弹任何对话框,因为一个用户满足不了的框正是内置版本走死的地方。前缀不可信时,清扫改按精确映像名——`elevate.exe` 经由本进程自己的祖先链定位,应用连树一起杀——而绝不碰裸的 `node.exe`,那名字在任何机器上都属于别人。围绕这一切,退出时对停服务器封了顶(Windows 4 秒,落在安装器自己的耐心之内;别处 10 秒),到点照退;每次启动还会杀掉上一轮留下的服务器,匹配的是本安装那个内置 Node 的完整路径,而不是 `node` 映像名。
+`build/installer.nsh`(按文件名从 `buildResources` 被取用)于是定义 `customCheckAppRunning`,把这一步整个换掉——安装器在卸旧之前走它,卸载器在开始搬文件之前也走它,两边经过的是同一个宏。它先清 `elevate.exe`,单独清、不带 `/T`(安装器是它的子进程,树杀会把安装本身杀掉;先清它也把本进程从应用的子孙链里摘了出来),再给应用与服务端 10 秒自行退出,超时后对残留连子进程一起杀——服务端自己的子进程占着同一批文件。三条硬约束框住它:`$INSTDIR` 只有在是绝对路径、长过卷根、目录存在、且目录里有本产品的可执行文件时才用作前缀,用时必补分隔符;本进程的 pid 从每个匹配集里排除;全程不弹任何对话框,因为一个用户满足不了的框正是内置版本走死的地方。前缀不可信时,清扫改按精确映像名——`elevate.exe` 经由本进程自己的祖先链定位,应用连树一起杀——而绝不碰裸的 `node.exe`,那名字在任何机器上都属于别人。围绕这一切,普通退出时对停服务器封了顶（Windows 4 秒，落在安装器自己的耐心之内；别处 10 秒），到点照退；安装则必须确认已停止;每次启动还会杀掉上一轮留下的服务器,匹配的是本安装那个内置 Node 的完整路径,而不是 `node` 映像名。
 
-**新版本自己会报到。**每次启动都把版本记进用户数据目录下的 `desktop-state.json`,而启动时读到一个更旧的版本——这正是「更新装完并自行重启了应用」的样子——就在启动页上留一行:「已更新到 vX.Y.Z」。别的什么都不变,没有要关掉的对话框。
+**启动页确认收据里的目标。**启动会把运行构建记进 `desktop-state.json`，但版本或序号变化本身不代表更新成功。「已更新到 vX.Y.Z」提示要求运行身份与安装收据的完整目标匹配，且不是该构建的重复启动。这确认的是应用身份，不保证服务端启动成功或数据库健康。
 
 **安装失败时**,下载好的安装程序仍在 `%LOCALAPPDATA%\@deepseek-aidsh-desktop-updater\pending\` 里。手动运行它——右键**以管理员身份运行**——装的就是这次更新要装的那一版,会话记录两种路径下都在。之所以要提权运行,是因为手动启动的安装程序没有 `elevate.exe` 替它索取 per-machine 卸旧所需的权限。
 
-**安装落地后,下一次启动会把它从 `pending` 里删掉。**electron-updater 只在下载失败或缓存记录与更新源对不上时清空这个目录,所以装好的 zip 或安装程序——整个安装包——本来会一直留到下一次更新开始下载。点击安装时,壳把暂存安装包的文件名、sha512 和当时运行的版本记进 `desktop-state.json`;更新后版本的第一次启动,在 `update-info.json` 仍指向那个安装包时清空 `pending`,再删掉这条记录。同一版本再次启动说明安装没有落地,文件留给上面说的手动安装;记录指向别的安装包说明那是之后的新下载,保留。重新拉起应用的 Windows 安装程序仍占着的条目会写进日志,记录保留,下次启动再试。缓存目录根下的差分基线(`update.zip`、`installer.exe`、`package.7z`、`current.blockmap`)从不动。由早于这项改动的版本发起的安装没有留下记录,它的安装包仍要等下一次更新下载时才清掉。
+**pending 缓存清理要求精确的安装目标。**交给安装器前，壳先把完整的 `from`、`target` 身份，以及暂存文件名和 SHA-512 持久化到 `installedUpdateV2`；收据写入失败就停止交接。之后启动时，仅在运行身份等于该目标，且 `update-info.json` 仍指向所记录文件及摘要时清空 `pending`。运行旧构建、无关的更高构建，或遇到不同的 pending 下载，都会保留缓存。删除失败保留收据以便重试，缓存根目录的基线（`update.zip`、`installer.exe`、`package.7z`、`current.blockmap`）保持不动。旧收据没有目标身份，不授权清理。新 reader 保留旧偏好；旧 writer 可能丢弃新字段，这只会安全地留下缓存，不会被当成安装成功。
 
 **如果连这条路也停在「无法关闭」**,说明本产品记录的安装目录丢了,把它写回去就足以放行一个旧版安装器:
 
@@ -82,49 +94,68 @@ reg add "HKLM\SOFTWARE\e36966b0-1805-5ec4-9648-404e09da7db1" /v InstallLocation 
 
 键名是 electron-builder 由 `appId` 推出的 GUID,也是安装器读取目录的唯一出处——旁边那个 `Uninstall` 项只带 `DisplayName` 与 `UninstallString`,本来就没有 `InstallLocation`,在那儿看到空值并不说明任何问题。这个值缺失的代价不止那句提示:`uninstallOldVersion` 会把从 `UninstallString` 推出的正确目录当作 `_?=` 交给旧卸载器,而旧卸载器自己的 `initMultiUser` 又在卸载段开始前用同一个空键覆盖掉 `$INSTDIR`——于是它什么也没卸,新版本却装进 `%ProgramFiles%\DSH Desktop` 这个兜底目录,应用被悄悄搬了家,旧的那份留在原地。
 
-**macOS 同样原地安装,前提是构建已签名。**Squirrel.Mac 只在替换件满足当前运行应用的 designated requirement 时才暂存更新,这正是发布构建要签名的原因(见下方「信任与签名」一节)。安静的检查、安静的传输,以及「只有点击才安装」这条规则都与 Windows 一致;不同的是安装本身。它要十五秒上下,其中大部分时间屏幕是空的——Squirrel 在解压与验签,而 ShipIt 要等本应用的所有进程退出才能开始换包——所以那次点击会立起一个常驻的「正在安装 vX」提示把这件事说清楚,并隐藏主窗口,因为它的服务马上就没了。**交给安装器之后安装失败,应用会回来**——Squirrel 拒收暂存的包,或 Windows 安装器没能启动,都会到达更新器的 `error` 事件:提示窗关掉,更新入口显示失败,本次运行不再提供原地安装,退出状态被清除,服务器按正常启动流程重启,窗口重新出现。在强制更新的启动拦截之下,服务出来的 UI 保持关闭,由一个对话框提供重试安装或退出。
+**macOS 原地安装要求签名连续。**Squirrel.Mac 要求替换件满足当前运行应用的 designated requirement；新包自身验签通过并不足够。ready 只表示下载文件及交接已准备好，原生签名校验仍可能在安装时失败。用户点击后，壳显示「正在安装 vX」并隐藏主窗口；ShipIt 必须等应用进程退出才能换包。
 
-**没有**签名的构建保持旧行为:自己比对版本,用系统浏览器打开下载,只在启动时或手动检查时,绝不在会话中途。走哪一条由每次检查现场判断:看 `Contents/_CodeSignature/CodeResources` 在不在——签名会写出它,ad-hoc 链接器签名不会。已签名的构建若在运行期以重试修不好的方式失败,本次运行剩余时间降到同一条下载路径,并留下一行日志,而不是让这次检查以错误框收场。
+**安装前必须确认服务端已停止。**同一时刻只有一次安装尝试负责收据、停服、安装器交接和失败恢复。并发点击或 API 请求被忽略并记入日志，不会重写或清空该次尝试的收据。收据写入失败或 teardown 未确认时不会调用安装器；需要恢复时，恢复完成后候选才回到 ready。检查不能替换它，之后的点击或重试会针对同一候选开始新的安装尝试。
 
-**下载中断会先重试,然后续传。**electron-updater 不保留失败传输的任何部分:全量下载不发 `Range` 头,而任何错误都会删掉半截文件并清空 pending 目录。因此 `src/download-retry.ts` 在失败前面放了三次完整重试——间隔 2 秒、6 秒、18 秒——而这一切都不上屏。会重试的是网络:连接被切断或被拒绝、DNS 失败、请求超时、任何 `net::ERR_…`,以及更新源返回的 5xx、408、425、429。不重试的是判定:`ERR_UPDATER_*` 拒绝、签名不符、校验和不匹配、4xx——以及分类器不认识的任何失败,它们默认按致命处理,这样一个不认识的错误不会再赔上三次整包传输。判定所依据的 code 会顺着失败的整条 `cause` 链去读,因为遇上它的是 Node 的 `fetch` 时,**连接被对端重置**只在那条链上留下名字——交到调用方手里的是一个光秃秃的 `TypeError: terminated`;决定权归最外层那个 code,所以一个裹着网络失败的拒绝仍然是拒绝。有两种失败在这两处都不留名字,各自有一条规则接住:被 `AbortSignal.timeout()` 或一次 abort 放弃掉的请求,判定读它的 `name`——`TimeoutError`、`AbortError`——于是更新源一次慢应答花掉的是一次重试,而不是 macOS 在本次运行剩余时间里的原地安装那一层;而被回绝时拿到的状态码,会以 `HTTP_ERROR_<status>` 挂到那个失败上——它的消息是本仓库自己写的中文,这里没有任何模式认得:壳自己那半传输这样挂,于是那里的 503 会重试、404 不会;壳自己那次清单读取也这样挂,否则一个被回绝的清单什么名字都没有。致命失败仍按上面那套层级规则走——macOS 在本次运行剩余时间降到下载页,并在那一层重跑这次检查。
+停服或安装失败会进入恢复流程；只有相关进程确认 gone 后，壳才重新创建 Office 服务、替换其启动环境并重启服务端。进程状态仍不确定时，恢复停止，错误被记录并显示，用户需要重启应用；不会启动可能与旧服务端并发写入的新实例。强制更新的启动拦截仍保持 UI 关闭，并提供重试或退出。
 
-**重试用尽之后接手的是壳自己的传输,它把已经到手的字节留着。**`src/resumable-download.ts` 带着 `If-Range` 校验子向更新源要 `bytes=<have>-`,追加写进一个 `.part` 文件,边写边算哈希,收尾时拿整份文件与清单里那个 base64 sha512 比对;它自己那份计划更长也更慢——2 秒、10 秒、30 秒、2 分钟、5 分钟——因为它的每次尝试只花掉一个请求而不是整个产物,足以熬过一次比换路由更久的中断。那份计划要重试的就是传输被切断:对端在正文中途重置或关掉连接、连接安静超过 60 秒的空闲上限、正文比它自己答应的长度短——这三种都以壳自己拥有的同一个 code 抛出,于是判定不依赖任何一句消息文本。而起点不是请求所要的那个 `206`、两趟都被答 `416`,以及完成后 sha512 不是清单里那个,都是终局,因为下一次尝试遇到的是同一个回答。随后 `src/pending-cache.ts` 把校验通过的文件落到 `<cacheDir>/pending/<fileName>`,并写上 electron-updater 自己会写的那份 `update-info.json`,这次传输再调一次 `downloadUpdate()`:库核对缓存、从缓存取文件,不开一个 socket 就发出 `update-downloaded`。库自己的传输永远排在前面,因为差量下载是它这一半才有的能力——在缓存里已有上一版产物的机器上,那只是个位数百分比的字节量,任何整包续传都比不过。`.part` 文件按版本加产物名命名,住在缓存目录的根下而不是 `pending` 里,因为 electron-updater 自己下载路径上的任何失败都会清空后者;更新源已经翻篇的那些 `.part`,下一次传输开始时就被丢掉。有两件事它不改变:全新安装之后的第一次更新仍然是整包传输,因为差量路径需要缓存目录里存在上一版的 `update.zip`;强制启动门也不走续传兜底,因为在它返回之前应用是关着的。**上 Authenticode 之前要回头看的一个前提**:electron-updater 把 `verifySignature` 写在下载任务内部,所以走缓存短路时它不执行。本产品不签任何 Windows 可执行文件(`electron-builder.yml` 写着 `signExecutable: false`,也没有 `publisherName`,而没有它 `verifySignature` 直接返回 null),所以被跳过的是一项今天什么也不做的检查——但一旦开始签名,这条路必须自己验签。每次重试与结束它的那个结论都写进 `dsh-server.log`。electron-updater 自己的日志也写进同一个文件,只去掉它的 `debug` 通道:一次差量下载会把整份分块计划从这个通道倒出来——在观测到的那一次更新里约 650 行 JSON,不含版本、大小,也不含失败——而概括同一份计划的那两行 `info`(`File has N changed blocks`、`Full: … To download: … (P%)`)保留。另有两行 `debug` 跟着一并保留,顶着 `debug:` 标记,因为它们说的事别处不记:`nativeUpdater.update-downloaded`,macOS 上 Squirrel 完成暂存的唯一凭据;以及 `updater cache dir: <path>`,它给出的目录决定下一次更新能不能走差量。electron-updater 写进那里的行里,唯一一条为「它自己已经恢复过来的失败」带上堆栈的,会被改写而不是照搬:在 Windows 与 macOS 上同样,`Cannot download differentially, fallback to full download` 带着堆栈、顶着 `error` 字样,出现在一次随后仍以全量下载完成的更新里,`src/updater-log.ts` 把它压成一行,只说原因。
+**没有**签名的构建用系统浏览器打开下载，只在启动时或手动检查时，绝不在会话中途。它与原地更新路径使用相同的、经过验证的构建序号和运行时版本规则。走哪一条由每次检查现场判断:看 `Contents/_CodeSignature/CodeResources` 在不在——签名会写出它,ad-hoc 链接器签名不会。已签名构建的原地更新若发生与发布身份无关的致命错误，本次运行剩余时间可以改用同一下载页，并把原因写入日志。身份错误仍显示为检查失败。
+
+**下载中断会先重试,然后续传。**electron-updater 不保留失败传输的任何部分:全量下载不发 `Range` 头,而任何错误都会删掉半截文件并清空 pending 目录。因此 `src/download-retry.ts` 在失败前面放了三次完整重试——间隔 2 秒、6 秒、18 秒——而这一切都不上屏。会重试的是网络:连接被切断或被拒绝、DNS 失败、请求超时、任何 `net::ERR_…`,以及更新源返回的 5xx、408、425、429。不重试的是判定:`ERR_UPDATER_*` 拒绝、签名不符、校验和不匹配、4xx——以及分类器不认识的任何失败,它们默认按致命处理,这样一个不认识的错误不会再赔上三次整包传输。判定所依据的 code 会顺着失败的整条 `cause` 链去读,因为遇上它的是 Node 的 `fetch` 时,**连接被对端重置**只在那条链上留下名字——交到调用方手里的是一个光秃秃的 `TypeError: terminated`;决定权归最外层那个 code,所以一个裹着网络失败的拒绝仍然是拒绝。有两种失败在这两处都不留名字,各自有一条规则接住:被 `AbortSignal.timeout()` 或一次 abort 放弃掉的请求,判定读它的 `name`——`TimeoutError`、`AbortError`——于是更新源一次慢应答花掉的是一次重试,而不是 macOS 在本次运行剩余时间里的原地安装那一层;而被回绝时拿到的状态码,会以 `HTTP_ERROR_<status>` 挂到那个失败上——它的消息是本仓库自己写的中文,这里没有任何模式认得:壳自己那半传输这样挂,于是那里的 503 会重试、404 不会;壳自己那次清单读取也这样挂,否则一个被回绝的清单什么名字都没有。致命失败遵循上述更新层级规则。
+
+**续传固定在已检查的候选上。**v2 在两个平台都禁用差分下载。先运行更新器的普通传输；有界重试用尽后，`src/resumable-download.ts` 用 `Range` 和 `If-Range` 续传冻结候选的 URL、大小和 SHA-512，传输期间不会重新获取 `latest` 来选择其他构建。重试间隔为 2 秒、10 秒、30 秒、2 分钟和 5 分钟；断连、60 秒空闲超时或正文不足可以重试，错误的 `206`、重复 `416` 或最终摘要不符则失败。半成品留在 `pending` 之外，避开更新器失败时的删除；含构建号的文件名与预期摘要区分不同下载。
+
+只有冻结产物会连同 `update-info.json` 暂存，再交回 `downloadUpdate()`，由库验证缓存并发出 `update-downloaded`。标为 ready 前，事件必须匹配冻结身份，还要读回其 `downloadedFile`：basename、字节长度和 SHA-512 都必须匹配冻结产物。校验期间禁止安装和替换候选；不匹配或读取失败会报告 failed，并保留候选。检查不能替换正在下载或已经 ready 的候选，包括其说明。
+
+强制更新阻断启动时，身份、文件名、大小或 SHA-512 不符，以及读取或摘要异常，都会显示与传输失败相同的「更新下载失败」重试/退出对话框。重试会重新完整下载同一冻结候选，不会自动安装，也不会打开主界面；退出则结束应用。非强制更新失败仍在设置中显示 failed 并提供重试。强制启动路径不走续传兜底。传输重试与最终结果写入 `dsh-server.log`。
+
+缓存命中会绕过 electron-updater 的下载 task，包括其中的 NSIS 签名检查。Windows 可执行文件当前没有 Authenticode 签名（`signExecutable: false` 且无 `publisherName`）；启用签名时也必须在缓存路径验签。macOS ready 状态不能代替安装时 Squirrel 的原生 designated requirement 校验。更新器日志保留原生准备完成与缓存目录的诊断，不输出差分分块计划。
 
 **要求多于一个范围的差分下载已打补丁。**electron-updater 6.8.9 没有给多段响应挂 `error` 监听,而计划中范围多于一个时发出的正是多段请求,于是传输中途被切断的连接会抛出一个没人监听的 `error` 事件——主进程里的未捕获异常,也就是 Electron 自带的「A JavaScript error occurred in the main process」对话框,盖在一次随后仍以全量下载完成的更新上面。`patches/electron-updater@6.8.9.patch` 携带上游的一行修复(electron-builder 提交 `5eed26b2a9cfd06a1dbe207b25a46ce2c0b05ae9`,PR #10021),直到有发行版带上它为止。`tests/electron-updater-multipart.spec.ts` 对着 `node_modules` 里的那份副本钉住这个行为,补丁在与不在都保持通过;真正来讨要这个补丁的是 pnpm——当某次升级让这条精确版本补丁变得无用或无法应用时,它会让安装失败。
 
-**检查被打断也会重试,用的是另一份计划。**一次检查只传一份小清单,被打断的代价是一个请求而不是整包传输,所以计划是两次重试——间隔 1 秒、3 秒;这四秒的等待还装得进强制启动门允许的十五秒,于是撞上断连的启动门是从一次重试、而不是从它自己的超时里得出结论。重试与不重试的界线和下载一致,由同一个分类器判定。瞬时失败熬过重试后,只赔上这一次检查:**macOS 保住原地安装的层级**,启动门退回自己去读 `latest-mac.yml`,下一次检查照旧先走原地这一条。只有重试修不好的失败——`ERR_UPDATER_*` 拒绝,或更新源上这个通道根本没有清单——才会把 macOS 在本次运行剩余时间降到下载页。
+**检查中断后在 1 秒和 3 秒后重试**，位于启动检查的 15 秒时限内，使用与下载相同的错误分类器。瞬时失败重试用尽后，macOS 保留原地安装能力；其他原地更新的致命错误，如 `ERR_UPDATER_CHANNEL_FILE_NOT_FOUND`，会让本次运行的剩余检查改用下载页层级。两者都报告原始的原生错误：即使备用读取的更新源指向当前构建，手动检查仍显示「无法检查更新」，该次响应既不会报告已是最新版本，也不会提供下载页更新。启动阻断必须有库已接受的候选。系统/灰度拒绝在原地更新层表示无更新；读取原始更新源不能推翻该拒绝或失败的检查。身份错误仍属于检查失败，不转入下载页。
 
 ### 强制更新
 
-清单里带一个本产品自有的字段 `minimumVersion`:低于它的客户端必须更新才能继续使用。
+v2 清单可带 `minimumBuildSequence`：低于该序号的运行构建必须更新才能使用。其值必须为正安全整数，且不大于目标构建。只有旧 v1 使用 `minimumVersion`；v2 拒绝该字段，避免两套规则冲突。
 
-| | Windows | macOS |
+| | Windows 和已签名 macOS 原地更新 | macOS 下载页更新 |
 |---|---|---|
-| **启动时** | 不展示 UI,服务端拆除,下载不经征询直接开始。下载失败时给出重试与退出两条路。 | 阻断对话框给下载或退出;两种选择都不会进入应用。 |
-| **会话中** | 立即下载并弹一次对话框告知;下载完成后仍可推迟安装。 | 提示一次;下次启动阻断。 |
+| **启动时** | UI 保持关闭，下载已接受的更新。失败时提供重试或退出；安装仍由用户决定。 | 阻断对话框提供下载或退出；两种选择都不会进入应用。 |
+| **会话中** | 立即下载并弹一次对话框告知；可以推迟安装。 | 提示一次；下次启动阻断。 |
 
 连不上的更新源会**放行**而不是关门——网络故障绝不能把人锁在自己的机器外面。这条线在发布时显式设定,此后自行延续,所以忘记加参数不会把它悄悄丢掉。
 
 ### 发布
 
+发布读取构建后生成的发布清单，不读取源码版本或构建输入。对于编号为 101 的双平台构建，命令为：
+
 ```sh
-pnpm exec tsx apps/desktop-shell/scripts/publish-update.ts --notes notes.txt             # ship the built version
-pnpm exec tsx apps/desktop-shell/scripts/publish-update.ts --notes notes.txt --dry-run   # verify without uploading
-pnpm exec tsx apps/desktop-shell/scripts/publish-update.ts --notes notes.txt --minimum-version 0.1.0-rc.8
-pnpm exec tsx apps/desktop-shell/scripts/publish-update.ts --notes notes.txt --republish  # repair a cut-off upload
-pnpm exec tsx apps/desktop-shell/scripts/publish-update.ts --notes notes.txt --no-prune   # leave every old version in place
-pnpm exec tsx apps/desktop-shell/scripts/publish-update.ts --notes notes.txt --no-tag     # leave the shipped commit untagged
+pnpm exec tsx apps/desktop-shell/scripts/publish-update.ts --help
+pnpm exec tsx apps/desktop-shell/scripts/publish-update.ts --release-manifest apps/desktop-shell/dist-app/release-manifest-b101-darwin-win32.json --notes notes.txt --no-prune
 ```
 
-脚本会拒绝与 `package.json` 对不上的 `dist-app`,重新校验安装程序的 NSIS 完整性 CRC,并断言本次构建盖过更新源在提供的版本。上传顺序是**先产物、两端校验、清单最后**,因此发布途中轮询的客户端读到的是旧清单指向旧产物,绝不会读到一份指着还在上传的文件的清单。它还会剔除本次不上传的产物在清单里的条目:macOS 构建会在 zip 旁边列出 dmg,而只有 zip 会发布,留着那条就等于在更新源里放了一个 404。
+清单的 `kind` 选择协议：过渡包走 v1，普通构建走 v2。`--feed-protocol v1|v2` 断言该选择，不匹配就拒绝。`--channel mac|win|all` 选择平台，默认 `all`，每个选中平台必须有产物。单独构建的 Mac 与 Windows 包可以共享同一完整发布身份，分别发布；各平台已记录的字节仍不可变。上传前，发布者校验本地产物 SHA-512/大小，以及解包后的应用身份是否与清单一致。Windows NSIS CRC 验证归档完整性，不是发布者签名。
 
-**更新源自己会清理,而且两类文件留的深度不同。**等两个清单都从更新源回读到新版本之后,脚本会列出各渠道目录,按两条规则裁掉多余的:**最新的两个版本留产物,最新的十个版本留 `.blockmap`**。更新过程中真正会从更新源取的只有其中一类——electron-updater 会下载新版本的 blockmap,但旧版本的那份先读客户端自己的缓存,只有缓存里没有了才回落到更新源;而旧**产物**它同样只从那个缓存里打开,从不走网络。所以留在服务器上的旧产物(138–174 MB 一个)是给回滚和手动下载用的,旧 blockmap(145–181 KB 一个)则是给缓存丢了的客户端兜底;两者留同样深,等于用前者的价钱买后者的好处。发布成功之前不删任何东西;版本按 semver 优先级排序而不是按名字排(`0.1.0-rc.9` 比 `0.1.0-rc.10` 旧);清单以及本次发布上传的一切永远不进候选;解析不出版本的名字只记一行日志、原样留着。`--no-prune` 跳过整个步骤;`--dry-run` 会把「会删什么、会留什么」原样打印出来,并且什么都不删。这套判断在 `scripts/prune-feed.ts`——一个纯函数,由 `tests/prune-feed.spec.ts` 脱离服务器测试。
+| 参数 | 行为 |
+|---|---|
+| `--minimum-build-sequence N` | 仅 v2；不大于目标序号的正安全整数。省略时各平台继承原下限；显式降低会输出警告。 |
+| `--minimum-version VERSION` | 仅 v1 过渡包；保留旧版版本下限。 |
+| `--republish` | 重试同身份、同字节。重新构建或签名后的不同字节需要更大序号。 |
+| `--dry-run` | 校验并报告，不上传或切换指针，但仍通过 SSH 读取更新源状态和 Git 远端 tag，不是离线检查。 |
+| `--no-prune` / `--prune` | 跳过清理 / 显式执行 v2 清理。默认只报告候选；v1 永不清理。过渡发布期间保持清理关闭。 |
+| `--no-tag` | 跳过发布 tag 及其预检。 |
 
-**发布成功之后会给所交付的 commit 打 tag。**等两个清单都回读到、清理步骤也跑完之后,本次发布被打上 `desktop-v<version>` ——带注解,消息就是这次的发布说明,于是 `git tag -n` 就能看到发布了什么——并把该 tag 推到 `origin`。这件事能不能成,在第一个字节上传之前就已判定:已跟踪文件有未提交改动、`desktop-v<version>` 在本地或 `origin` 上已经指向别的 commit、或者根本没有 `origin`,都会直接拒绝本次发布——此时产物还只在本地,重跑不花什么代价。未跟踪文件在这里不算未提交改动——发布运行自己会把日志写进工作树,被忽略的 `.env` 也长期躺在那里,两者都改不了构建所编译的东西。
+远端发布锁覆盖 live 状态检查、不可变上传、指针替换和回读。每次尝试拥有独立临时文件；已有产物只有字节一致才可复用。各平台的清单指针原子切换，但 macOS 与 Windows 不组成一个事务：失败时可能只有一个平台已发布。live 状态损坏或无法读取会使发布失败，不会被当成空源。HTTP 回读检查完整发布身份、产物条目和下限。
 
-**由哪一侧已经持有该 tag 来决定跑什么**,而 `origin` 是权威的一侧,因为其他每一个克隆读的都是它:两侧都没有,就在本地创建并推送;只有本仓库在 HEAD 上持有,就推送;只有 `origin` 在 HEAD 上持有,就把它 fetch 下来——因为为一个 `origin` 已经发布的名字在本地再造一个带注解的对象,推上去只会被 git 拒绝;两侧都在 HEAD 上持有,就一条 git 都不跑。后两种正是同一个仓库的多个工作树轮流发布时的常态。若打 tag 这一步在更新源已经开始下发之后失败,它会明说产物**已经**发布、只是 tag 没跟上,打印出手工补上的那一条命令,并以非零码退出。`--no-tag` 跳过该步骤连同它的前置校验;`--dry-run` 打印它会打什么 tag,不碰任何东西。这套判断在 `scripts/release-tag.ts`——一个纯函数,由 `tests/release-tag.spec.ts` 脱离仓库测试。
+持锁期间，无论发布哪个协议，都按本次选中平台同时要求 `bridge.runtimeVersion <= v2.runtimeVersion` 和 `bridge.buildSequence < v2.buildSequence`。冲突会在备份、序号预留、上传或指针替换之前返回 `PUBLISH_REFUSED`。另一协议的更新源不存在时允许首次发布；无身份的旧源只能通过匹配的逐平台发布历史取得身份，不能猜测。另一更新源损坏或无法读取会使检查失败。
 
-更新源在主机上的路径是 `/var/www/dsh-updates/{win,mac}`,由追加的单个带 `alias` 的 `location /dsh-updates/` 提供。那台 nginx 使用自定义前缀(`/data/third_party/nginx`),编译时不含 rewrite 模块,且 master 不归 systemd 管——重载请用 `nginx -s reload`,绝不要用 `systemctl`。该目录不套 BasicAuth,因为 electron-updater 不会带凭据。
+提交结果不确定时报告 `PUBLISH_UNKNOWN`，保留锁与恢复证据。再次发布前，先核实错误报告中的远端状态；不能仅因客户端命令结束就删除锁。成功发布以 `desktop-v<version>-b<sequence>` 为产物记录的 revision 打 tag。tag 冲突在上传前检查；发布后 tag 失败需要单独补救，因为更新源可能已经生效。历史版本 tag 不会移动。
+
+首轮先将普通构建 N 发布到 v2，再让 v1 公开过渡包 B，虽然 B 的序号更早分配。v1 永久固定在 B，保留全部显式产物和历史 blockmap 依赖。v2 清理按构建序号排序；修复坏发布须使用新序号。静态主机提供 `/var/www/dsh-updates/{win,mac}` 和 `/var/www/dsh-updates/v2/{win,mac}`，不使用 BasicAuth。
+
+发布者负责原生验收：使用原始旧包，在隔离的 macOS / Windows 安装中验证旧版 → 过渡包 → 普通 N → 同版本 N+1。Windows 的 `perMachine: true` 要求虚拟机或专用测试机器，另建用户并不足够。Squirrel 重启不保留 argv 或环境覆盖，因此隔离测试需要持久且受信任的旧 HTTPS 更新源映射；不能把测试地址写进生产包。单元测试与发布 dry-run 不能证明安装成功或签名连续性。
 
 ## 信任与签名
 
@@ -395,7 +426,7 @@ pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
 
 **它怎么来。** 壳在 root 里新建的暂存目录中运行随包的 pnpm:`runtime/node runtime/pnpm/bin/pnpm.mjs add <engine>@<version> --ignore-workspace --ignore-scripts --reporter=ndjson --config.node-linker=hoisted --store-dir=<staging>/.pnpm-store`,`runtime/` 放在 `PATH` 最前;开发启动用 `PATH` 上的 `pnpm`。它用随包的 Node 直接跑 `pnpm.mjs`,不经过 `dsh-pnpm.cmd`——Windows 上 Node 不借 shell 就起不了 `.cmd`——所以取消停下的就是 pnpm 本身。pnpm 按 registry 元数据列出的完整性值校验压缩包、按 `os` 与 `cpu` 过滤、保留 kit 要检查的可执行位,并且读用户自己的 `.npmrc`,那里配的镜像或代理照样生效;`--config.lockfile=true` 让那份文件关不掉锁文件。下载从不经过 Electron 的 session,否则 macOS 会给它写下的每个文件打上隔离属性。之后壳拿这次运行的 `pnpm-lock.yaml` 给引擎记下的完整性值,去比 `ENGINE_DOWNLOADS` 固定的那个;记录缺失或不一致就拒绝安装并删掉暂存目录,所以元数据指向别的压缩包时装不进来。壳再核对引擎的版本、它的 `prebuilds.json`,以及这份清单点名的可执行文件(必须是文件,Windows 以外还要有执行位),删掉这次运行自己的包仓库,让引擎在盘上只有一份,再把暂存目录改名到位。改名不跨卷,所以版本目录要么不存在,要么装着完整的引擎;被实时扫描占着的改名(`EPERM`、`EBUSY`、`EACCES`)每隔 500 毫秒重试,共九次,约 4.5 秒。进度来自 pnpm 的 `pnpm:fetching-progress` 记录。一次下载最多跑 30 分钟。
 
-**kit 声明了另一个引擎版本时,壳不再询问就升级引擎。** kit 只接受与它自己精确相同版本的引擎,所以 kit 声明了新版本的构建用不了盘上已有的引擎。启动时留下了一个更早的完整引擎、且声明的版本已登记时,服务在服务端起来之前就读作 `installing`、0 字节,因为 `@haoran/dsh-office-preview-notice` 只在页面加载时读一次状态,之后只在 `confirming` 或 `installing` 时才重读。下载等服务端就绪、启动闸门放行、并且正在进行的数据迁移旧副本清理结束之后才开始,因为下载写在数据目录下;所以因强制更新被拦住的启动什么都不下载,引擎服务没能启动的启动也不下载,因为那时用户既看不到进度也取消不了;它走同一套安装与完整性校验,不弹确认框,`dsh-server.log` 里记一行 `upgrading from <version>`。新引擎到位后删掉更早的那个。升级失败时读作 `failed` 并保留它,下次启动再试一次,提示里的重试会先询问;退出时也保留它。更早的引擎还在盘上时,取消任何一次下载(升级自己的那次或那次重试)以及在重试的确认框里拒绝,都是用户拒绝这次升级:更早的引擎在应答返回之前就删掉,所以紧接着退出也丢不了这次拒绝,下一次下载先询问。声明的版本没登记的启动保留更早的引擎,什么都不下载([Agent Note](../../.agents/notes/implemented/bug-fix/2026-10-03-desktop-office-engine-upgrade-without-asking.zh.md))。
+**kit 声明了另一个引擎版本时,壳不再询问就升级引擎。** kit 只接受与它自己精确相同版本的引擎,所以 kit 声明了新版本的构建用不了盘上已有的引擎。启动时留下了一个更早的完整引擎、且声明的版本已登记时,服务在服务端起来之前就读作 `installing`、0 字节,因为 `@haoran/dsh-office-preview-notice` 只在页面加载时读一次状态,之后只在 `confirming` 或 `installing` 时才重读。下载等服务端就绪、启动闸门放行、并且正在进行的数据迁移旧副本清理结束之后才开始,因为下载写在数据目录下;所以因强制更新被拦住的启动什么都不下载,引擎服务没能启动的启动也不下载,因为那时用户既看不到进度也取消不了;它走同一套安装与完整性校验,不弹确认框,`dsh-server.log` 里记一行 `upgrading from <version>`。恢复后的服务如遇服务端启动失败，会保留待处理的引擎升级；服务端重试成功且旧副本清理完成后，升级才开始。新引擎到位后删掉更早的那个。升级失败时读作 `failed` 并保留它,下次启动再试一次,提示里的重试会先询问;退出时也保留它。更早的引擎还在盘上时,取消任何一次下载(升级自己的那次或那次重试)以及在重试的确认框里拒绝,都是用户拒绝这次升级:更早的引擎在应答返回之前就删掉,所以紧接着退出也丢不了这次拒绝,下一次下载先询问。声明的版本没登记的启动保留更早的引擎,什么都不下载([Agent Note](../../.agents/notes/implemented/bug-fix/2026-10-03-desktop-office-engine-upgrade-without-asking.zh.md))。
 
 **这条本机服务是渲染服务、更新服务之外的第三个监听**,打开与传递的方式一样,token 是它自己的:`DSH_DESKTOP_OFFICE_ENGINE_ENDPOINT` 与 `DSH_DESKTOP_OFFICE_ENGINE_TOKEN` 只进服务端那一个子进程的环境。没有哪条路由读请求体。
 
@@ -497,7 +528,6 @@ pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
 - 服务端在已切换搬迁的新位置上起不来时，应用手里没有它的句柄。还在运行的（比如到了 180 秒启动时限）会按自带 Node 可执行文件的路径在应用自己的子进程里找到，连同整棵进程树一起停掉；已经退出的找不到，它启动的进程会在回滚期间继续运行，除非它们跑的是自带的 Node 可执行文件——清理先前运行留下的服务端时会把这些杀掉。
 - 搬迁窗口要等服务端和它启动的全部进程都停下才打开,而不是一确认就打开;在那之前应用窗口显示的是正在停掉的网页界面。实测约 0.6 秒,服务端停得慢时会更久:停止在 macOS 上最多等 10 秒、Windows 上 4 秒,之后最多再有三轮间隔半秒的强杀。
 - 搬迁要两分钟里一次文件操作都没有才算卡住;取新位置指纹时走一整棵很大的目录树只算一次操作。
-- 因服务端的进程无法确认已停下而撤回搬迁时,重新启动的服务端仍指向搬迁关掉的 Office 引擎服务,所以下一次启动之前无法下载引擎。
 - 数据搬迁还没在 Windows 真机上跑过,所以它在那里停掉服务端进程树的做法(经系统自带 `powershell.exe` 列进程、经它的 `taskkill.exe` 结束进程)还没验证。
 - 在 Windows 上，服务端的进程树经 `taskkill.exe` 停掉。它启动不了时，不管 Node 以 error 事件还是以抛错报出，都只会结束服务端本身，它启动的进程继续运行。下次启动清理先前运行留下的服务端时，能找到其中跑自带 Node 可执行文件的那些，但也是经 `taskkill.exe` 结束它们，所以它仍启动不了时，这些进程会继续运行。
 - 位置改变之前就导出了 `DSH_HOME` 的终端会一直带着旧值,直到重新打开;从这样的终端启动的应用会把这个值当成更新的值。

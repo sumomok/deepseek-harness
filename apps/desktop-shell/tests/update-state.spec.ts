@@ -13,15 +13,22 @@ const CURRENT = '0.1.0-rc.32'
 /** The version the feed offers in every case that has one. */
 const NEXT = '0.1.0-rc.33'
 
+/** The running build's sequence, as a build that declares one reports it. */
+const CURRENT_BUILD = 32
+
+/** The offered build's sequence. */
+const NEXT_BUILD = 33
+
 /** A fixed clock reading, so a recorded check time is comparable. */
 const CHECKED_AT = '2026-09-11T02:00:00.000Z'
 
 /**
  * A machine for one case.
+ * @param build - the running build's sequence, when the build declares one.
  * @returns a fresh machine reporting the running build.
  */
-function machine(): UpdateState {
-  return new UpdateState(CURRENT)
+function machine(build?: number): UpdateState {
+  return new UpdateState(CURRENT, build)
 }
 
 describe('the snapshot', () => {
@@ -276,5 +283,57 @@ describe('a build that cannot install an update', () => {
     state.checkFailed(CHECKED_AT, 'ECONNRESET')
     state.checkStarted()
     expect(state.snapshot().phase).toBe('checking')
+  })
+})
+
+describe('the build sequences beside the versions', () => {
+  it('reports the running build’s sequence when the installation declares one', () => {
+    expect(machine(CURRENT_BUILD).snapshot()).toEqual({
+      phase: 'idle',
+      currentVersion: CURRENT,
+      currentBuild: CURRENT_BUILD,
+    })
+  })
+
+  it('omits the sequence a build without a release identity cannot report', () => {
+    // Everything older than the release identity has no sequence, and guessing
+    // one from the version would order builds by a number nobody published.
+    expect(machine().snapshot().currentBuild).toBeUndefined()
+  })
+
+  it('keeps the offered sequence beside the offered version', () => {
+    const state = machine(CURRENT_BUILD)
+    state.checkStarted()
+    state.checkSucceeded(CHECKED_AT, NEXT, 'fixes the thing', NEXT_BUILD)
+    expect(state.snapshot()).toMatchObject({
+      latestVersion: NEXT,
+      latestBuild: NEXT_BUILD,
+      releaseNotes: 'fixes the thing',
+    })
+  })
+
+  it('tells a same-version newer build from nothing to install', () => {
+    const state = machine(CURRENT_BUILD)
+    state.checkStarted()
+    state.checkSucceeded(CHECKED_AT, NEXT, undefined, NEXT_BUILD)
+    expect(state.snapshot().latestVersion).toBe(NEXT)
+    expect(state.snapshot().latestBuild).toBe(NEXT_BUILD)
+    state.checkSucceeded(CHECKED_AT)
+    expect(state.snapshot().latestVersion).toBeUndefined()
+    expect(state.snapshot().latestBuild).toBeUndefined()
+  })
+
+  it('carries the sequence through a transfer and into ready', () => {
+    const state = machine(CURRENT_BUILD)
+    state.downloadStarted(NEXT, undefined, NEXT_BUILD)
+    expect(state.snapshot()).toMatchObject({ latestVersion: NEXT, latestBuild: NEXT_BUILD })
+    state.downloadReady(NEXT, undefined, NEXT_BUILD)
+    expect(state.snapshot()).toEqual({
+      phase: 'ready',
+      currentVersion: CURRENT,
+      currentBuild: CURRENT_BUILD,
+      latestVersion: NEXT,
+      latestBuild: NEXT_BUILD,
+    })
   })
 })

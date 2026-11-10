@@ -1,3 +1,48 @@
+diff --git a/out/AppUpdater.d.ts b/out/AppUpdater.d.ts
+index 449df368fa281f97fd6f9954fab49151db51b56b..2be6db7362d663e3ad0c32ab16894cc04f8917b0 100644
+--- a/out/AppUpdater.d.ts
++++ b/out/AppUpdater.d.ts
+@@ -58,6 +58,16 @@ export declare abstract class AppUpdater extends AppUpdater_base {
+      * @default false
+      */
+     allowDowngrade: boolean;
++    /**
++     * Decide whether one offered build is an update, in place of the SemVer comparison.
++     *
++     * The check runs only after the offered version parses and the system-support and rollout
++     * checks pass, so a product can order builds by its own identity without weakening those
++     * guarantees. `true` accepts the offer, `false` refuses it, and rejecting fails the check
++     * rather than reporting that no update exists. Left undefined, the library compares SemVer
++     * exactly as it always did.
++     */
++    isUpdateCandidate?: (updateInfo: UpdateInfo) => boolean | Promise<boolean>;
+     /**
+      * Web installer files might not have signature verification, this switch prevents to load them unless it is needed.
+      *
+diff --git a/out/AppUpdater.js b/out/AppUpdater.js
+index d6d5debc7943011135e97124b755a41268199313..6e0ff5d0fba05187575bfac50461cd04eec30c93 100644
+--- a/out/AppUpdater.js
++++ b/out/AppUpdater.js
+@@ -342,7 +342,8 @@ class AppUpdater extends events_1.EventEmitter {
+             throw (0, builder_util_runtime_1.newError)(`This file could not be downloaded, or the latest version (from update server) does not have a valid semver version: "${updateInfo.version}"`, "ERR_UPDATER_INVALID_VERSION");
+         }
+         const currentVersion = this.currentVersion;
+-        if ((0, semver_1.eq)(latestVersion, currentVersion)) {
++        const candidateCheck = this.isUpdateCandidate;
++        if (candidateCheck == null && (0, semver_1.eq)(latestVersion, currentVersion)) {
+             return false;
+         }
+         if (!(await Promise.resolve(this.isUpdateSupported(updateInfo)))) {
+@@ -354,6 +355,9 @@ class AppUpdater extends events_1.EventEmitter {
+         }
+         // https://github.com/electron-userland/electron-builder/pull/3111#issuecomment-405033227
+         // https://github.com/electron-userland/electron-builder/pull/3111#issuecomment-405030797
++        if (candidateCheck != null) {
++            return await candidateCheck(updateInfo);
++        }
+         const isLatestVersionNewer = (0, semver_1.gt)(latestVersion, currentVersion);
+         const isLatestVersionOlder = (0, semver_1.lt)(latestVersion, currentVersion);
+         if (isLatestVersionNewer) {
 diff --git a/out/differentialDownloader/multipleRangeDownloader.js b/out/differentialDownloader/multipleRangeDownloader.js
 index 56adc38fe831b39d8430ad8aabe8fd7a35c36b9f..79fd6e85b61a746029772b3a5acc3ce74822eeac 100644
 --- a/out/differentialDownloader/multipleRangeDownloader.js
