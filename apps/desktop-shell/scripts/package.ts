@@ -46,6 +46,7 @@ import type { ReleaseIdentity, ReleasePlatform } from '../src/release-identity.t
 import { buildRelease, collectReleaseArtifacts, recordBuildStaging, verifyBuildSource, verifyBuildStaging, verifyPackagedRelease, verifyRuntimeVersion } from './build-release.ts'
 import { parseReleaseBuildInput } from './release-manifest.ts'
 import { bundleClosure } from './bundle-closure.ts'
+import { prunesDocumentationMarkdown } from './payload-prune.ts'
 import { packedTarball, type PackSource } from './npm-pack-cache.ts'
 import { assertDesktopClientTitle, DESKTOP_BUILD_STEPS, desktopRepositoryBuildEnvironment } from './client-build.ts'
 import { restoreHoistedDependencies, type RestoredHoist } from './legacy-hoists.ts'
@@ -955,14 +956,6 @@ const PAYLOAD_PLATFORMS: Record<PayloadTarget, PayloadPlatform> = {
 const PRUNE_SUFFIXES = ['.map', '.pdb', '.ts', '.tsx', '.mts', '.cts', '.jsx', '.tsbuildinfo']
 
 /**
- * Markdown is pruned only when the basename is a documentation name: shipped
- * config trees carry runtime markdown (agent-preset `SKILL.md` instruction
- * files), and deleting those is a behavior bug, not a size win.
- */
-const DOC_MARKDOWN =
-  /^(readme|changelog|history|security|contributing|code_of_conduct|governance|authors|maintainers|backers|sponsors)\b|\.zh\.md$/i
-
-/**
  * The bilingual pairing record that sits beside every README in this
  * workspace. It is documentation metadata — git blob hashes for the doc-sync
  * gate — and 190 copies of it ride into the payload because `files` lists the
@@ -1006,7 +999,7 @@ async function deriveServerPayload(target: PayloadTarget, staged: PayloadSnapsho
       pruned += 1
       return false
     }
-    if ((lower.endsWith('.md') || lower.endsWith('.markdown')) && DOC_MARKDOWN.test(lower)) {
+    if (prunesDocumentationMarkdown(lower)) {
       pruned += 1
       return false
     }
