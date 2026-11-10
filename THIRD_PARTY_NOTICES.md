@@ -49,11 +49,11 @@ External packages installed for runtime use or embedded in distributed Host or b
 | [`@haoran/dsh-connection-banner`](apps/desktop-server/vendor/haoran-dsh-connection-banner-0.4.0.tgz) | MIT |
 | [`@haoran/dsh-crash-resume`](apps/desktop-server/vendor/haoran-dsh-crash-resume-0.6.0.tgz) | MIT |
 | [`@haoran/dsh-data-location`](apps/desktop-server/vendor/haoran-dsh-data-location-0.2.2.tgz) | MIT |
-| [`@haoran/dsh-desktop-update`](apps/desktop-server/vendor/haoran-dsh-desktop-update-0.3.0.tgz) | MIT |
+| [`@haoran/dsh-desktop-update`](apps/desktop-server/vendor/haoran-dsh-desktop-update-0.3.1.tgz) | MIT |
 | [`@haoran/dsh-llm-permission-gateway`](apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.7.1.tgz) | MIT |
 | [`@haoran/dsh-mcp-servers`](apps/desktop-server/vendor/haoran-dsh-mcp-servers-0.3.1.tgz) | MIT |
 | [`@haoran/dsh-office-preview-notice`](apps/desktop-server/vendor/haoran-dsh-office-preview-notice-0.3.0.tgz) | MIT |
-| [`@haoran/dsh-screenshot`](apps/desktop-server/vendor/haoran-dsh-screenshot-0.7.0.tgz) | MIT |
+| [`@haoran/dsh-screenshot`](apps/desktop-server/vendor/haoran-dsh-screenshot-0.9.0.tgz) | MIT |
 | [`@haoran/dsh-sidebar-autoscroll`](apps/desktop-server/vendor/haoran-dsh-sidebar-autoscroll-0.1.1.tgz) | MIT |
 | [`@haoran/dsh-vision-switch`](apps/desktop-server/vendor/haoran-dsh-vision-switch-0.4.1.tgz) | MIT |
 | [`@joplin/turndown-plugin-gfm`](https://github.com/laurent22/joplin-turndown-plugin-gfm) | MIT |
