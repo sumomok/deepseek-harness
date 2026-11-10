@@ -282,6 +282,36 @@ describe('the first launch after an install', () => {
     expect(readFileSync(join(cacheDir(), 'update.zip'), 'utf8')).toBe('baseline')
     expect(state().installedUpdateV2).toBeUndefined()
     expect(lines.some(line => line.includes(`removed the installed ${FILE_NAME} from pending`))).toBe(true)
+    // The artifact is kept for the next transfer before the sweep removes it,
+    // and the record names the build it installs rather than the version alone.
+    const baseline = JSON.parse(readFileSync(join(cacheDir(), 'dsh-differential', 'baseline.json'), 'utf8')) as Record<string, unknown>
+    expect(baseline.identity).toEqual(identity(TO_VERSION, 35, TO_REVISION))
+    expect(baseline.artifact).toEqual({ fileName: FILE_NAME, sha512: SHA512, size: ARTIFACT.length })
+    expect(readFileSync(join(cacheDir(), 'dsh-differential', `${baseline.key as string}.artifact`))).toEqual(ARTIFACT)
+  })
+
+  it('keeps no baseline for an artifact a later download replaced', async () => {
+    installBuild(identity(TO_VERSION, 35, TO_REVISION))
+    stagePending()
+    writeState({
+      installedUpdateV2: {
+        schemaVersion: 2,
+        from: identity(FROM_VERSION, 34, FROM_REVISION),
+        target: identity(TO_VERSION, 35, TO_REVISION),
+        fileName: FILE_NAME,
+        sha512: SHA512,
+      },
+    })
+    // A download made after the install: the record names another artifact, so
+    // this file is not the one the installer read.
+    writeFileSync(join(cacheDir(), 'pending', 'update-info.json'), JSON.stringify({ fileName: 'later.zip', sha512: SHA512, isAdminRightsRequired: false }))
+    const { host, lines } = sink()
+    const { setupUpdates } = await import('../src/updater.ts')
+
+    setupUpdates(host)
+
+    expect(existsSync(join(cacheDir(), 'dsh-differential', 'baseline.json'))).toBe(false)
+    expect(lines.some(line => line.includes('is left for the next update'))).toBe(true)
   })
 
   it('leaves `pending` and the receipt alone while the build that started the install runs again', async () => {

@@ -58,6 +58,29 @@ describe('electron-updater candidate hook', () => {
     expect(patch).toContain('response.on("error", reject);')
   })
 
+  it('keeps the verified differential pair in the installed copy and in the patch', () => {
+    const typings = read('apps/desktop-shell/node_modules/electron-updater/out/AppUpdater.d.ts')
+    const source = read('apps/desktop-shell/node_modules/electron-updater/out/AppUpdater.js')
+    const mac = read('apps/desktop-shell/node_modules/electron-updater/out/MacUpdater.js')
+    const patch = read(PATCH)
+    for (const text of [typings, patch]) {
+      expect(text).toContain('differentialDownloadBase?: Readonly<{')
+      expect(text).toContain('oldBlockMapFile: string;')
+      expect(text).toContain('the cache directory\'s `current.blockmap` nor the old URL derived')
+    }
+    // The pair reaches the download's own options, and the old blockmap is read
+    // from the supplied file instead of the cache directory or a derived URL.
+    expect(source).toContain('differentialDownloadBase: this.differentialDownloadBase,')
+    expect(source).toContain('if (explicitBase == null) {')
+    expect(source).toContain('(0, fs_extra_1.readFile)(explicitBase.oldBlockMapFile)')
+    expect(source).toContain(': explicitBase.oldFile,')
+    // macOS refuses a differential attempt on a missing `update.zip` unless the
+    // caller supplied the artifact, which is the file it must then check.
+    expect(mac).toContain('downloadUpdateOptions.differentialDownloadBase.oldFile')
+    expect(patch).toContain('explicitBase.oldBlockMapFile')
+    expect(patch).toContain('downloadUpdateOptions.differentialDownloadBase.oldFile')
+  })
+
   it('records the patch content\u2019s hash in the lockfile, which is what pnpm verifies', () => {
     const hash = createHash('sha256').update(read(PATCH), 'utf8').digest('hex')
     const lockfile = read(LOCKFILE)

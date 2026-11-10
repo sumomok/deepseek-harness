@@ -75,8 +75,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
-import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { app, BrowserWindow, dialog, Menu, shell, type MenuItemConstructorOptions, type MessageBoxOptions } from 'electron'
 import { load } from 'js-yaml'
@@ -92,9 +91,12 @@ import { updaterLogLine, type UpdaterLogChannel } from './updater-log.ts'
 import { UpdateState, type UpdateSnapshot } from './update-state.ts'
 import { readState, setInstalledUpdateV2, type InstallReceipt } from './desktop-state.ts'
 import {
-  appCacheDir, discardStaleParts, type InstalledBuildSweep, partFileFor, placeInPendingCache,
-  sweepInstalledBuildPending,
+  appCacheDir, discardStaleParts, type InstalledBuildSweep, partFileFor, pendingDir, placeInPendingCache,
+  readStagedArtifact, sweepInstalledBuildPending,
 } from './pending-cache.ts'
+import {
+  keepInstalledArtifact, prepareDifferentialBase, saveDifferentialBaseline, sha512OfFile, type PreparedDifferentialBase,
+} from './differential-cache.ts'
 import { discardPart, resumeDownload } from './resumable-download.ts'
 import type { UpdateServiceSpec } from './update-service.ts'
 import {
@@ -1028,12 +1030,17 @@ async function download(host: UpdateHost, offer: UpdateOffer, run: () => Promise
   if (downloading) return true
   downloading = true
   try {
+    // Decided once per transfer, before the first attempt: the pair describes the
+    // build that is running and the candidate is frozen, so neither a retry nor
+    // the resumable half may look for a different one.
+    const base = await differentialBaseFor(host, offer)
+    const instance = ensureUpdater(host)
     // The mandatory launch block takes no fallback: the app is shut until this
     // returns, and a plan that spends minutes resuming would read as a hang
     // where the retry plan's half-minute does not.
     const resume = blocking ? undefined : async (): Promise<boolean> => resumeArtifact(host, offer)
     const outcome = await transferWithFallback({
-      run,
+      run: async (): Promise<void> => { await runWithDifferentialBase(instance, base, run) },
       resume,
       delays: RETRY_DELAYS_MS,
       hooks: {
@@ -1064,6 +1071,143 @@ async function download(host: UpdateHost, offer: UpdateOffer, run: () => Promise
     // left [[downloading]] set would make every later check, and the Settings
     // entry's own retry, stand down for the rest of the run.
     downloading = false
+  }
+}
+
+/**
+ * Run one library download with, or without, the differential pair this shell
+ * verified.
+ *
+ * The two fields are set immediately before the call and restored after it: the
+ * library copies them into the download's own options as `downloadUpdate()`
+ * starts, so neither a later attempt nor the resumable half can inherit a pair
+ * that belonged to another transfer. Without a pair the library's own
+ * derivation is refused outright rather than left to substitute a version
+ * string, which is the whole reason [[ensureUpdater]] starts disabled.
+ * @param instance - the updater every download of this run goes through.
+ * @param base - the verified pair, or undefined for a full download.
+ * @param run - performs one library download.
+ * @returns when that download settled.
+ */
+async function runWithDifferentialBase(
+  instance: AppUpdater,
+  base: PreparedDifferentialBase | undefined,
+  run: () => Promise<void>,
+): Promise<void> {
+  if (base === undefined) {
+    await run()
+    return
+  }
+  instance.disableDifferentialDownload = false
+  instance.differentialDownloadBase = base
+  try {
+    await run()
+  } finally {
+    instance.disableDifferentialDownload = true
+    delete instance.differentialDownloadBase
+  }
+}
+
+/**
+ * Find the verified artifact this machine may difference the candidate against.
+ *
+ * The answer depends on the build running now, never on the version the feed
+ * publishes: two builds of one version share it, and the feed's previous build
+ * says nothing about what this machine has installed. A refusal is logged and
+ * the transfer proceeds in full.
+ * @param host - logging and quit coordination from the main process.
+ * @param offer - the frozen candidate about to be downloaded.
+ * @returns the verified pair, or undefined when this transfer is a full download.
+ */
+async function differentialBaseFor(host: UpdateHost, offer: UpdateOffer): Promise<PreparedDifferentialBase | undefined> {
+  const running = readInstalledIdentity()
+  if (running === undefined) return undefined
+  const prepared = await prepareDifferentialBase({
+    cacheDir: updaterCacheDir(),
+    running,
+    offer,
+    blockMapUrlFor: fileName => feedFileUrl(feedBase(offer.platform), `${fileName}.blockmap`),
+  })
+  if (prepared.kind === 'prepared') {
+    host.log(`[updater] downloading ${buildLabel(offer.identity)} as a difference from ${buildLabel(running)}\n`)
+    return prepared.base
+  }
+  host.log(`[updater] downloading ${buildLabel(offer.identity)} in full: ${prepared.detail}\n`)
+  return undefined
+}
+
+/**
+ * Keep a downloaded, verified artifact for the next transfer to difference
+ * against.
+ *
+ * This is the target build's whole artifact, saved while the build that runs
+ * now is still the one being replaced: it becomes usable only after the install
+ * lands and the next launch reports that same identity. Failing to keep it
+ * costs the next transfer a full download and nothing else, so it is reported
+ * and never turned into a download failure.
+ * @param host - logging and quit coordination from the main process.
+ * @param offer - the candidate that was just verified.
+ * @param downloadedFile - the file the library wrote.
+ */
+async function keepDownloadedBaseline(host: UpdateHost, offer: UpdateOffer, downloadedFile: unknown): Promise<void> {
+  if (typeof downloadedFile !== 'string' || downloadedFile === '') return
+  const saved = await saveDifferentialBaseline({
+    cacheDir: updaterCacheDir(),
+    platform: releasePlatform(),
+    arch: releaseArch(),
+    identity: offer.identity,
+    artifact: offer.artifact,
+    sourceFile: downloadedFile,
+  })
+  if (saved.kind === 'failed') {
+    host.log(`[updater] ${buildLabel(offer.identity)} is not kept for a later differential download: ${saved.detail}\n`)
+    return
+  }
+  host.log(`[updater] kept ${offer.artifact.fileName} as the baseline for the next differential download\n`)
+}
+
+/**
+ * Keep the artifact an install just landed from, before its launch sweeps it.
+ *
+ * The launch after an install is the only moment the artifact the installer
+ * read is still on disk: the receipt names the build it installs, and `pending`
+ * still holds the file. Saving it here is what makes the very next update
+ * differential instead of waiting for another full download to seed the cache.
+ * A build installed any other way has no such file, and its first update stays
+ * a full download.
+ * @param host - logging and quit coordination from the main process.
+ * @param receipt - what the install wrote: both identities and the artifact it takes.
+ */
+function keepInstalledBaseline(host: UpdateHost, receipt: InstallReceipt): void {
+  const cacheDir = updaterCacheDir()
+  const staged = readStagedArtifact(cacheDir)
+  if (staged === undefined) {
+    host.log('[updater] no staged artifact remains to keep for a differential download\n')
+    return
+  }
+  if (staged.fileName !== receipt.fileName || staged.sha512 !== receipt.sha512) {
+    host.log(`[updater] pending holds ${staged.fileName}, not the installed ${receipt.fileName}; it is left for the next update\n`)
+    return
+  }
+  const sourceFile = join(pendingDir(cacheDir), basename(staged.fileName))
+  try {
+    const saved = keepInstalledArtifact({
+      cacheDir,
+      platform: releasePlatform(),
+      arch: releaseArch(),
+      identity: receipt.target,
+      artifact: { fileName: receipt.fileName, sha512: receipt.sha512, size: statSync(sourceFile).size },
+      sourceFile,
+    })
+    if (saved.kind === 'failed') {
+      host.log(`[updater] the installed artifact is not kept for a differential download: ${saved.detail}\n`)
+      return
+    }
+    host.log('[updater] kept the installed artifact as the baseline for the next differential download\n')
+  } catch (error) {
+    // Keeping it is an optimization: the sweep below still decides what pending
+    // may lose, and the next update is a full download this time.
+    host.log(`[updater] the installed artifact could not be read back (${describeDownloadError(error)})\n`)
   }
 }
 
@@ -1451,6 +1595,7 @@ async function acceptDownloaded(host: UpdateHost, info: DownloadedUpdate): Promi
   let problem: string | undefined
   try {
     problem = await downloadedArtifactProblem(offer, info.downloadedFile)
+    if (problem === undefined) await keepDownloadedBaseline(host, offer, info.downloadedFile)
   } finally {
     verifyingOffer = undefined
   }
@@ -1512,27 +1657,12 @@ async function downloadedArtifactProblem(offer: UpdateOffer, downloadedFile: unk
   }
   let digest: string
   try {
-    digest = await sha512Of(downloadedFile)
+    digest = await sha512OfFile(downloadedFile)
   } catch (error) {
     return `the downloaded file cannot be read (${describeDownloadError(error)})`
   }
   if (digest !== offer.artifact.sha512) return 'the downloaded file does not match the accepted SHA-512'
   return undefined
-}
-
-/**
- * The base64 SHA-512 of one file, which is the spelling a manifest carries.
- * @param path - the file to read.
- * @returns the digest of its bytes.
- */
-function sha512Of(path: string): Promise<string> {
-  return new Promise((resolveDigest, rejectDigest) => {
-    const hash = createHash('sha512')
-    createReadStream(path)
-      .on('data', (chunk: string | Buffer) => { hash.update(chunk) })
-      .on('error', rejectDigest)
-      .on('end', () => { resolveDigest(hash.digest('base64')) })
-  })
 }
 
 function ensureUpdater(host: UpdateHost): AppUpdater {
@@ -1547,11 +1677,12 @@ function ensureUpdater(host: UpdateHost): AppUpdater {
   // sequence is refused by the candidate callback, and a lower runtime is
   // refused no matter how large its sequence is.
   built.allowDowngrade = false
-  // Same-version artifacts cannot be addressed by the library's blockmap
-  // derivation, which builds the old file's URL by substituting the version
-  // string; two builds of one version would collide there. Every transfer is a
-  // full download on both platforms until a build's complete identity can be
-  // used to address its predecessor.
+  // A full download until a transfer proves otherwise. The library derives an
+  // old artifact's blockmap URL by substituting the version string and takes the
+  // old artifact from a fixed name in its own cache, and neither describes two
+  // builds of one version: [[runWithDifferentialBase]] switches this off for one
+  // transfer at a time, and only with a pair this shell has verified against the
+  // build that is running.
   built.disableDifferentialDownload = true
   // The one comparison this product owns. Everything the library checks before
   // it — whether this system supports the update, whether this user is inside
@@ -1740,6 +1871,8 @@ function sweepAfterInstall(host: UpdateHost): void {
     host.log('[updater] keeping the last install receipt: this build declares no release identity to confirm it against\n')
     return
   }
+  // Before the sweep, which is the only thing that removes the file it reads.
+  if (isSameBuild(running, receipt.target)) keepInstalledBaseline(host, receipt)
   let sweep: InstalledBuildSweep
   try {
     sweep = sweepInstalledBuildPending(updaterCacheDir(), receipt, running)

@@ -1,5 +1,5 @@
 diff --git a/out/AppUpdater.d.ts b/out/AppUpdater.d.ts
-index 449df368fa281f97fd6f9954fab49151db51b56b..2be6db7362d663e3ad0c32ab16894cc04f8917b0 100644
+index 449df368fa281f97fd6f9954fab49151db51b56b..d0470f2180fd3cc2139f1c52133b70043ecce31d 100644
 --- a/out/AppUpdater.d.ts
 +++ b/out/AppUpdater.d.ts
 @@ -58,6 +58,16 @@ export declare abstract class AppUpdater extends AppUpdater_base {
@@ -19,11 +19,55 @@ index 449df368fa281f97fd6f9954fab49151db51b56b..2be6db7362d663e3ad0c32ab16894cc0
      /**
       * Web installer files might not have signature verification, this switch prevents to load them unless it is needed.
       *
+@@ -73,6 +83,19 @@ export declare abstract class AppUpdater extends AppUpdater_base {
+      * @default false
+      */
+     disableDifferentialDownload: boolean;
++    /**
++     * A differential source this product has already verified, in place of the library's own.
++     *
++     * When set, the old artifact is read from `oldFile` and its blockmap from
++     * `oldBlockMapFile`; neither the cache directory's `current.blockmap` nor the old URL derived
++     * from the version string is consulted. The caller owns both paths for the length of the
++     * download, and must leave this unset when it cannot prove the pair belongs to the build that
++     * is running. Left undefined, the library behaves exactly as it did.
++     */
++    differentialDownloadBase?: Readonly<{
++        oldFile: string;
++        oldBlockMapFile: string;
++    }>;
+     /**
+      * Allows developer to force the updater to work in "dev" mode, looking for "dev-app-update.yml" instead of "app-update.yml"
+      * Dev: `path.join(this.app.getAppPath(), "dev-app-update.yml")`
+@@ -211,6 +234,10 @@ export interface DownloadUpdateOptions {
+     readonly cancellationToken: CancellationToken;
+     readonly disableWebInstaller?: boolean;
+     readonly disableDifferentialDownload?: boolean;
++    readonly differentialDownloadBase?: Readonly<{
++        oldFile: string;
++        oldBlockMapFile: string;
++    }>;
+ }
+ /** @private */
+ export declare class NoOpLogger implements Logger {
 diff --git a/out/AppUpdater.js b/out/AppUpdater.js
-index d6d5debc7943011135e97124b755a41268199313..6e0ff5d0fba05187575bfac50461cd04eec30c93 100644
+index d6d5debc7943011135e97124b755a41268199313..e5228c17d2768c9f41afa755ed9195f5314c8bab 100644
 --- a/out/AppUpdater.js
 +++ b/out/AppUpdater.js
-@@ -342,7 +342,8 @@ class AppUpdater extends events_1.EventEmitter {
+@@ -151,6 +151,12 @@ class AppUpdater extends events_1.EventEmitter {
+          * @default false
+          */
+         this.disableDifferentialDownload = false;
++        /**
++         * A differential source this product has already verified, in place of the library's own.
++         *
++         * See AppUpdater.d.ts for the contract of `oldFile` and `oldBlockMapFile`.
++         */
++        this.differentialDownloadBase = undefined;
+         /**
+          * Allows developer to force the updater to work in "dev" mode, looking for "dev-app-update.yml" instead of "app-update.yml"
+          * Dev: `path.join(this.app.getAppPath(), "dev-app-update.yml")`
+@@ -342,7 +348,8 @@ class AppUpdater extends events_1.EventEmitter {
              throw (0, builder_util_runtime_1.newError)(`This file could not be downloaded, or the latest version (from update server) does not have a valid semver version: "${updateInfo.version}"`, "ERR_UPDATER_INVALID_VERSION");
          }
          const currentVersion = this.currentVersion;
@@ -33,7 +77,7 @@ index d6d5debc7943011135e97124b755a41268199313..6e0ff5d0fba05187575bfac50461cd04
              return false;
          }
          if (!(await Promise.resolve(this.isUpdateSupported(updateInfo)))) {
-@@ -354,6 +355,9 @@ class AppUpdater extends events_1.EventEmitter {
+@@ -354,6 +361,9 @@ class AppUpdater extends events_1.EventEmitter {
          }
          // https://github.com/electron-userland/electron-builder/pull/3111#issuecomment-405033227
          // https://github.com/electron-userland/electron-builder/pull/3111#issuecomment-405030797
@@ -43,6 +87,95 @@ index d6d5debc7943011135e97124b755a41268199313..6e0ff5d0fba05187575bfac50461cd04
          const isLatestVersionNewer = (0, semver_1.gt)(latestVersion, currentVersion);
          const isLatestVersionOlder = (0, semver_1.lt)(latestVersion, currentVersion);
          if (isLatestVersionNewer) {
+@@ -464,6 +474,7 @@ class AppUpdater extends events_1.EventEmitter {
+             cancellationToken,
+             disableWebInstaller: this.disableWebInstaller,
+             disableDifferentialDownload: this.disableDifferentialDownload,
++            differentialDownloadBase: this.differentialDownloadBase,
+         })
+             .catch((e) => {
+             throw errorHandler(e);
+@@ -646,8 +657,11 @@ class AppUpdater extends events_1.EventEmitter {
+                 return true;
+             }
+             const provider = downloadUpdateOptions.updateInfoAndProvider.provider;
++            const explicitBase = downloadUpdateOptions.differentialDownloadBase;
+             const blockmapFileUrls = await provider.getBlockMapFiles(fileInfo.url, this.app.version, downloadUpdateOptions.updateInfoAndProvider.info.version, this.previousBlockmapBaseUrlOverride);
+-            this._logger.info(`Download block maps (old: "${blockmapFileUrls[0]}", new: ${blockmapFileUrls[1]})`);
++            this._logger.info(explicitBase == null
++                ? `Download block maps (old: "${blockmapFileUrls[0]}", new: ${blockmapFileUrls[1]})`
++                : `Download block maps (old: "${explicitBase.oldBlockMapFile}", new: ${blockmapFileUrls[1]})`);
+             const downloadBlockMap = async (url) => {
+                 const data = await this.httpExecutor.downloadToBuffer(url, {
+                     headers: downloadUpdateOptions.requestHeaders,
+@@ -665,7 +679,9 @@ class AppUpdater extends events_1.EventEmitter {
+             };
+             const downloadOptions = {
+                 newUrl: fileInfo.url,
+-                oldFile: path.join(this.downloadedUpdateHelper.cacheDir, oldInstallerFileName),
++                oldFile: explicitBase == null
++                    ? path.join(this.downloadedUpdateHelper.cacheDir, oldInstallerFileName)
++                    : explicitBase.oldFile,
+                 logger: this._logger,
+                 newFile: installerPath,
+                 isUseMultipleRangeRequest: provider.isUseMultipleRangeRequest,
+@@ -693,10 +709,23 @@ class AppUpdater extends events_1.EventEmitter {
+             };
+             const newBlockMapData = await downloadBlockMap(blockmapFileUrls[1]);
+             await saveBlockMapToCacheDir(newBlockMapData, this.downloadedUpdateHelper.cacheDirForPendingUpdate);
+-            // get old blockmap from cache dir first, if not found, download it
+-            let oldBlockMapData = await getBlockMapFromCacheDir(this.downloadedUpdateHelper.cacheDir);
+-            if (oldBlockMapData == null) {
+-                oldBlockMapData = await downloadBlockMap(blockmapFileUrls[0]);
++            let oldBlockMapData;
++            if (explicitBase == null) {
++                // get old blockmap from cache dir first, if not found, download it
++                oldBlockMapData = await getBlockMapFromCacheDir(this.downloadedUpdateHelper.cacheDir);
++                if (oldBlockMapData == null) {
++                    oldBlockMapData = await downloadBlockMap(blockmapFileUrls[0]);
++                }
++            }
++            else {
++                // The caller proved this file is the blockmap of the artifact it also supplied, so
++                // neither the cache directory nor the version-substituted URL describes it.
++                try {
++                    oldBlockMapData = JSON.parse((0, zlib_1.gunzipSync)(await (0, fs_extra_1.readFile)(explicitBase.oldBlockMapFile)).toString());
++                }
++                catch (e) {
++                    throw new Error(`Cannot read the supplied differential blockmap "${explicitBase.oldBlockMapFile}": ${e}`);
++                }
+             }
+             await new GenericDifferentialDownloader_1.GenericDifferentialDownloader(fileInfo.info, this.httpExecutor, downloadOptions).download(oldBlockMapData, newBlockMapData);
+             return false;
+diff --git a/out/MacUpdater.js b/out/MacUpdater.js
+index 78b89a7ac91d2158583f642f6c608cbef8d5e711..f18d449fb44731395cd83c881ba0b6b8762e5d56 100644
+--- a/out/MacUpdater.js
++++ b/out/MacUpdater.js
+@@ -89,7 +89,11 @@ class MacUpdater extends AppUpdater_1.AppUpdater {
+             fileInfo: zipFileInfo,
+             downloadUpdateOptions,
+             task: async (destinationFile, downloadOptions) => {
+-                const cachedUpdateFilePath = path.join(this.downloadedUpdateHelper.cacheDir, CURRENT_MAC_APP_ZIP_FILE_NAME);
++                // An explicit base names the artifact this product verified, which need not be the
++                // ZIP the library last cached.
++                const cachedUpdateFilePath = downloadUpdateOptions.differentialDownloadBase == null
++                    ? path.join(this.downloadedUpdateHelper.cacheDir, CURRENT_MAC_APP_ZIP_FILE_NAME)
++                    : downloadUpdateOptions.differentialDownloadBase.oldFile;
+                 const canDifferentialDownload = () => {
+                     if (!(0, fs_extra_1.pathExistsSync)(cachedUpdateFilePath)) {
+                         log.info("Unable to locate previous update.zip for differential download (is this first install?), falling back to full download");
+@@ -106,7 +110,10 @@ class MacUpdater extends AppUpdater_1.AppUpdater {
+                 }
+             },
+             done: async (event) => {
+-                if (!downloadUpdateOptions.disableDifferentialDownload) {
++                // The copy seeds the library's own next differential download. A caller that supplies
++                // its own base keeps that artifact itself, so the copy would only duplicate a whole
++                // ZIP.
++                if (!downloadUpdateOptions.disableDifferentialDownload && downloadUpdateOptions.differentialDownloadBase == null) {
+                     try {
+                         const cachedUpdateFilePath = path.join(this.downloadedUpdateHelper.cacheDir, CURRENT_MAC_APP_ZIP_FILE_NAME);
+                         await (0, fs_extra_1.copyFile)(event.downloadedFile, cachedUpdateFilePath);
 diff --git a/out/differentialDownloader/multipleRangeDownloader.js b/out/differentialDownloader/multipleRangeDownloader.js
 index 56adc38fe831b39d8430ad8aabe8fd7a35c36b9f..79fd6e85b61a746029772b3a5acc3ce74822eeac 100644
 --- a/out/differentialDownloader/multipleRangeDownloader.js

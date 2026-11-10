@@ -17,9 +17,10 @@
  */
 
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { gzipSync } from 'node:zlib'
 import { dump } from 'js-yaml'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReleaseIdentity } from '../src/release-identity.ts'
@@ -79,6 +80,8 @@ const shell = vi.hoisted(() => ({
   dialogs: [] as { message?: unknown; title?: unknown; detail?: unknown }[],
   /** Every URL the run handed to the system browser, in order. */
   opened: [] as string[],
+  /** What `os.homedir()` answers, so no cache write reaches the real one. */
+  home: '',
   /** Called after each dialog is recorded, so a case can wait for one. */
   onDialog: undefined as (() => void) | undefined,
   /** What the app registered for `before-quit`, which is what stops its timers. */
@@ -97,13 +100,20 @@ interface FakeUpdater {
   isUpdateCandidate?: (info: unknown) => boolean | Promise<boolean>
   /** Whether the library may accept a lower version; this product keeps it off. */
   allowDowngrade: boolean
-  /** Whether the library transfers changed blocks only; this product turns it off. */
+  /** Whether the library transfers changed blocks only; a transfer with no proven pair leaves it off. */
   disableDifferentialDownload: boolean
+  /** The pair one transfer may difference against, set only for that transfer. */
+  differentialDownloadBase?: { oldFile: string; oldBlockMapFile: string }
   emit: (event: string, payload: unknown) => void
   checkForUpdates: () => Promise<unknown>
   downloadUpdate: () => Promise<void>
   quitAndInstall: () => void
 }
+
+vi.mock('node:os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:os')>()
+  return { ...actual, homedir: (): string => shell.home }
+})
 
 vi.mock('electron', () => ({
   app: {
@@ -149,6 +159,7 @@ vi.mock('electron-updater', () => {
     autoInstallOnAppQuit = true
     allowDowngrade = true
     disableDifferentialDownload = false
+    differentialDownloadBase?: { oldFile: string; oldBlockMapFile: string }
     logger: unknown = undefined
     isUpdateCandidate?: (info: unknown) => boolean | Promise<boolean>
     private readonly listeners = new Map<string, ((payload: unknown) => void)[]>()
@@ -253,7 +264,12 @@ const realPlatform = process.platform
 /** The feed this process names outside these cases, restored with the platform. */
 const realFeed = process.env.DSH_UPDATE_FEED
 
+/** The temporary home every cache lookup resolves under. */
+let homeDirectory = ''
+
 beforeAll(() => {
+  homeDirectory = mkdtempSync(join(tmpdir(), 'dsh-updater-home-'))
+  shell.home = homeDirectory
   // The whole tier ladder is a macOS one, and this file's own fork reports
   // whatever host it runs on.
   Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
@@ -264,6 +280,8 @@ beforeAll(() => {
 })
 
 afterAll(() => {
+  // The home outlives the per-case directories, which are removed after each.
+  rmSync(homeDirectory, { recursive: true, force: true })
   Object.defineProperty(process, 'platform', { value: realPlatform, configurable: true })
   if (realFeed === undefined) delete process.env.DSH_UPDATE_FEED
   else process.env.DSH_UPDATE_FEED = realFeed
@@ -624,7 +642,61 @@ describe('a signed build whose in-place check could not get through', () => {
     // The library's default comparison is replaced, and a downgrade is never
     // left available as a fallback.
     expect(instance?.allowDowngrade).toBe(false)
+    // No artifact pair was proven for this transfer, so the library's own
+    // version-substituted derivation stays refused.
     expect(instance?.disableDifferentialDownload).toBe(true)
+  })
+
+  it('differences the transfer only against the artifact kept for the running build', async () => {
+    bundle(true)
+    const running = identity(CURRENT, CURRENT_BUILD, REVISION)
+    const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+    const zipName = `DSH Desktop-${CURRENT}-${arch}-mac.zip`
+    const zipBytes = Buffer.from('the artifact this machine installed\n')
+    let seen: { disable: boolean; base?: { oldFile: string; oldBlockMapFile: string } | undefined } | undefined
+    shell.checkForUpdates = async (updater: FakeUpdater): Promise<unknown> => candidateResult(updater, manifest())
+    shell.downloadUpdate = async (): Promise<void> => {
+      const instance = shell.instances.at(-1)
+      seen = { disable: instance?.disableDifferentialDownload ?? true, base: instance?.differentialDownloadBase }
+    }
+    const { updateActions, updaterCacheDir } = await import('../src/updater.ts')
+    const { differentialCacheDir, saveDifferentialBaseline } = await import('../src/differential-cache.ts')
+    const cacheDir = updaterCacheDir()
+    const source = join(directories[directories.length - 1] ?? tmpdir(), 'installed.zip')
+    writeFileSync(source, zipBytes)
+    await saveDifferentialBaseline({
+      cacheDir,
+      platform: 'darwin',
+      arch,
+      identity: running,
+      artifact: { fileName: zipName, sha512: createHash('sha512').update(zipBytes).digest('base64'), size: zipBytes.byteLength },
+      sourceFile: source,
+    })
+    // A blockmap already kept: this case must not reach the network for one.
+    const record = JSON.parse(readFileSync(join(differentialCacheDir(cacheDir), 'baseline.json'), 'utf8')) as Record<string, unknown>
+    const blockmap = gzipSync(JSON.stringify({ version: '2', files: [] }))
+    const blockmapPath = join(differentialCacheDir(cacheDir), `${record.key as string}.blockmap`)
+    writeFileSync(blockmapPath, blockmap)
+    writeFileSync(join(differentialCacheDir(cacheDir), 'baseline.json'), JSON.stringify({
+      ...record,
+      blockmap: { sha512: createHash('sha512').update(blockmap).digest('base64'), size: blockmap.byteLength },
+    }))
+    const { host, waitFor } = sink()
+
+    updateActions(host).check()
+    await waitFor(`downloading ${NEXT} · 构建 ${NEXT_BUILD} in the background`)
+    // The log line is written before the transfer starts, so the pair is read
+    // where the library would read it instead of at that line.
+    await vi.waitFor(() => { expect(seen).toBeDefined() })
+    await vi.waitFor(() => { expect(shell.instances.at(-1)?.disableDifferentialDownload).toBe(true) })
+
+    expect(seen).toEqual({
+      disable: false,
+      base: { oldFile: join(differentialCacheDir(cacheDir), `${record.key as string}.artifact`), oldBlockMapFile: blockmapPath },
+    })
+    // The pair belongs to that one transfer: the next one starts from the
+    // library's refused default again.
+    expect(shell.instances.at(-1)?.differentialDownloadBase).toBeUndefined()
   })
 })
 
