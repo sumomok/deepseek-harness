@@ -61,6 +61,16 @@ const snapshotsRoot = fileURLToPath(new URL('./', import.meta.url))
 const dshBin = join(repoRoot, 'apps/cli/src/bin.ts')
 const tsconfigPath = join(repoRoot, 'tsconfig.json')
 
+/** Scenarios whose read results persist provider version tokens. */
+const fileVersionScenarios = new Set([
+  'agent-instructions', 'agent-instructions-budget', 'agent-instructions-budget-chains', 'agent-instructions-group-failure',
+  'apply-patch-rejected', 'apply-patch-update', 'deepseek-messages-system-prompt', 'deepseek-protocol-system-prompt',
+  'dsh-doc-load', 'dynamic-tool-prompt-updates', 'dynamic-tool-updates', 'fs-delete-recreate', 'fs-edit', 'fs-read',
+  'fs-read-window', 'fs-same-mode-empty-justification', 'fs-write-overwrite', 'fs-write-overwrite-bounded',
+  'in-history-series-start', 'parallel-tool-calls', 'pi-ai-conversation-updates', 'ptc-workspace-context',
+  'subagent-archive-lineage', 'system-prompt-in-history', 'working-directory', 'working-directory-consumers', 'worktree',
+])
+
 type SnapshotMode = 'replay' | 'record' | 'refresh'
 
 function snapshotMode(value: string | undefined): SnapshotMode {
@@ -868,7 +878,11 @@ async function verifyBackgroundConfinementFailure(log: string, cwd: string): Pro
   if (registered?.type !== 'job/registered') throw new Error('missing registered job')
   expect(registered.data.jobId).toMatch(/^bash-[0-9a-f]{16}$/)
   expect(started).toMatchObject({
-    isError: false, content: [{ type: 'text', text: `started background job ${registered.data.jobId}` }],
+    isError: false,
+    content: [{
+      type: 'text',
+      text: `started background job ${registered.data.jobId}. It will not reopen your turn — do not wait for it; job_output reads what it has produced so far.`,
+    }],
   })
   expect(inspected?.isError).toBe(false)
   const text = inspected?.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
@@ -1386,6 +1400,7 @@ describe('headless recorded-session snapshots', () => {
         join(baseComposition.dir, 'cordis.yml'),
         ...composition === baseComposition && !replaying ? [] : [compositionPatch],
         ...model === undefined ? [] : [join(baseComposition.dir, 'model.cordis.yml')],
+        ...fileVersionScenarios.has(scenario.name) ? [fileURLToPath(new URL('../file-version.cordis.yml', import.meta.url))] : [],
         ...existsSync(join(scenario.dir, 'runtime.cordis.yml')) ? [join(scenario.dir, 'runtime.cordis.yml')] : [],
       ]
       const patchRoot = '.snapshot-patches'

@@ -145,7 +145,11 @@ async function spawnCommand(
   return ctx.subprocess.spawn({
     argv: wrapped,
     cwd,
-    env: { ...GIT_ENV, GIT_TERMINAL_PROMPT: '0', GIT_LFS_SKIP_SMUDGE: '1', GIT_NO_LAZY_FETCH: '1', ...env },
+    // Git diagnostics join English error messages, so use one locale for both.
+    env: {
+      ...GIT_ENV, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8',
+      GIT_TERMINAL_PROMPT: '0', GIT_LFS_SKIP_SMUDGE: '1', GIT_NO_LAZY_FETCH: '1', ...env,
+    },
     signal,
     graceMs: config.graceMs,
     stdio: { stdin: 'ignore', stdout, stderr: { maxBytes: config.maxOutputBytes } },

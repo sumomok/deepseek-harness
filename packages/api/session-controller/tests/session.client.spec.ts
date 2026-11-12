@@ -502,27 +502,74 @@ describe('paging', () => {
     expect((mock.log.requests(PAGE) as SessionPageRequest[]).at(-1)).toMatchObject({ afterSeq: 5 })
   })
 
+  for (const loader of ['loadOlder', 'loadThrough'] as const) {
+    it(`${loader} resumes after a direct window replaces a completed deferred page`, async ({ mock, start }) => {
+      const oldest = plainTurn(SessionSeq(14), 0, 'older target', 'answer')
+      const target = plainTurn(SessionSeq(20), 1, 'target', 'answer')
+      const staged = plainTurn(SessionSeq(94), 2, 'staged', 'answer')
+      const newest = plainTurn(SessionSeq(100), 3, 'newest', 'answer')
+      const session = await sessionBench(mock, start, SID)
+      mock.stream(FOLLOW, followScript(history(newest, true)))
+      mock.remote.session.page.mockImplementation(pageRule((request) => {
+        if (request.beforeSeq === 100) return history(staged, true)
+        if (request.beforeSeq === 20) return history(oldest)
+        return history(target, true)
+      }))
+      await session.open()
+      await session.loadOlder({ deferConsumption: true })
+      expect(session.getSnapshot()).toMatchObject({ historyLoadStatus: 'pendingConsumption', loadingOlder: false })
+      expect(eventSeqs(session)).toEqual(newest.map(event => event.seq))
+
+      await expect(session.openAt(SessionSeq(23))).resolves.toBe(true)
+      expect(session.consumeOlder()).toBe(false)
+      expect(eventSeqs(session)).toEqual(target.map(event => event.seq))
+      expect(session.getSnapshot()).toMatchObject({ historyLoadStatus: 'idle', hasMore: true })
+
+      if (loader === 'loadOlder') await session.loadOlder()
+      else await session.loadThrough(SessionSeq(14))
+
+      expect(mock.log.requests(PAGE)).toHaveLength(3)
+      expect((mock.log.requests(PAGE) as SessionPageRequest[]).at(-1)).toMatchObject({ beforeSeq: 20 })
+      expect(eventSeqs(session)).toEqual([...oldest, ...target].map(event => event.seq))
+      expect(session.getSnapshot()).toMatchObject({ historyLoadStatus: 'idle', loadingOlder: false, hasMore: false })
+    })
+  }
+
   it('drops a staged older page that settles after a direct window replacement', async ({ mock, start }) => {
-    const oldest = plainTurn(SessionSeq(0), 0, '最旧问', '最旧答')
+    const oldest = plainTurn(SessionSeq(14), 0, '最旧问', '最旧答')
     const target = plainTurn(SessionSeq(20), 1, '目标问', '目标答')
-    const newest = plainTurn(SessionSeq(100), 2, '新问', '新答')
+    const obsolete = plainTurn(SessionSeq(94), 2, '旧窗口问', '旧窗口答')
+    const newest = plainTurn(SessionSeq(100), 3, '新问', '新答')
     const session = await sessionBench(mock, start, SID)
     mock.stream(FOLLOW, followScript(history(newest, true)))
     await session.open()
     const staged = Promise.withResolvers<RemoteResult<SessionEventsPage>>()
-    mock.remote.session.page.mockImplementation(pageRule(request => (
-      request.beforeSeq === undefined ? history(target) : staged.promise
-    )))
+    mock.remote.session.page.mockImplementation(pageRule((request) => {
+      if (request.beforeSeq === 100) return staged.promise
+      if (request.beforeSeq === 20) return history(oldest)
+      return history(target, true)
+    }))
     const loading = session.loadOlder({ deferConsumption: true })
-    await vi.waitFor(() => { expect(mock.log.requests(PAGE)).toHaveLength(1) })
-    await expect(session.openAt(SessionSeq(23))).resolves.toBe(true)
-    expect(eventSeqs(session)).toEqual(target.map(event => event.seq))
-    staged.resolve(history(oldest))
-    await loading
-    // The staged page belongs to the window the direct read replaced.
-    expect(eventSeqs(session)).toEqual(target.map(event => event.seq))
-    expect(session.getSnapshot()).toMatchObject({ historyLoadStatus: 'idle', loadingOlder: false })
-    expect(session.consumeOlder()).toBe(false)
+    try {
+      await vi.waitFor(() => { expect(mock.log.requests(PAGE)).toHaveLength(1) })
+      await expect(session.openAt(SessionSeq(23))).resolves.toBe(true)
+      expect(eventSeqs(session)).toEqual(target.map(event => event.seq))
+      await session.loadThrough(SessionSeq(14))
+      expect(mock.log.requests(PAGE)).toHaveLength(2)
+      staged.resolve(history(obsolete, true))
+      await loading
+      expect(eventSeqs(session)).toEqual(target.map(event => event.seq))
+      expect(session.getSnapshot()).toMatchObject({ historyLoadStatus: 'idle', loadingOlder: false })
+      expect(session.consumeOlder()).toBe(false)
+
+      await session.loadOlder()
+      expect(mock.log.requests(PAGE)).toHaveLength(3)
+      expect(eventSeqs(session)).toEqual([...oldest, ...target].map(event => event.seq))
+      expect(session.getSnapshot()).toMatchObject({ historyLoadStatus: 'idle', hasMore: false })
+    } finally {
+      staged.resolve(history(obsolete, true))
+      await loading
+    }
   })
 
   it('pages older history from a direct window without a journal cursor', async ({ mock, start }) => {

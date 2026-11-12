@@ -53,6 +53,19 @@ function registryFor(tag: string): string {
 
 const REGISTRY = registryFor(BASE_TAG)
 
+function registryForCommit(commit: string): string {
+  return REGISTRY.replace(`**基座 tag**：\`${BASE_TAG}\``, `**基座 commit**：\`${commit}\``)
+}
+
+/** Create an untagged upstream commit without changing the patch branch's history. */
+function upstreamCommit(fixture: ReturnType<typeof repository>, from: string, branch: string): string {
+  fixture.git(['checkout', '--quiet', '-b', branch, from])
+  fixture.write(`upstream/${branch}.md`, `${branch}\n`)
+  const commit = fixture.record(`upstream ${branch}, no trailer`)
+  fixture.git(['checkout', '--quiet', LINE])
+  return commit
+}
+
 let configRoot = ''
 let inherited: { global: string | undefined; noSystem: string | undefined } = { global: undefined, noSystem: undefined }
 
@@ -187,6 +200,7 @@ describe('parseRegistry', () => {
     expect(parseRegistry(REGISTRY)).toEqual<Registry>({
       declaredLines: [LINE],
       declaredBaseTags: [BASE_TAG],
+      declaredBaseCommits: [],
       malformedHeadings: [],
       unclosedFence: null,
       records: [
@@ -367,9 +381,9 @@ describe('findRegistryViolations', () => {
 
   it('accepts a release merge and a tree-preserving merge, and rejects any other merge', () => {
     const merges = [
-      { id: 'cccccccccc', subject: 'release', mergesRelease: true, treeUnchanged: false },
-      { id: 'dddddddddd', subject: 'join', mergesRelease: false, treeUnchanged: true },
-      { id: 'eeeeeeeeee', subject: 'topic', mergesRelease: false, treeUnchanged: false },
+      { id: 'cccccccccc', subject: 'release', mergesRelease: true, mergesBaseCommit: false, treeUnchanged: false },
+      { id: 'dddddddddd', subject: 'join', mergesRelease: false, mergesBaseCommit: false, treeUnchanged: true },
+      { id: 'eeeeeeeeee', subject: 'topic', mergesRelease: false, mergesBaseCommit: false, treeUnchanged: false },
     ]
     const violations = findRegistryViolations(patchLine({ merges }), registry)
     expect(violations.map(violation => [violation.kind, violation.subject])).toEqual([['merge-commit', 'eeeeeeeeee']])
@@ -461,6 +475,155 @@ describe('reading git', () => {
     expect(changedPaths(fixture.root, fixture.base, 'alpha/**')).toEqual(['alpha/a.md', 'alpha/deep/b.md'])
     expect(changedPaths(fixture.root, fixture.base, 'alpha/*.md')).toEqual(['alpha/a.md'])
     expect(changedPaths(fixture.root, fixture.base, 'snapshots/**/ui.expected.md')).toEqual([])
+  })
+})
+
+describe('explicit base commits', () => {
+  it('reads commit values and token locations with the registry fence semantics', () => {
+    const hash = 'a'.repeat(40)
+    const declaration = `**基座 commit**：\`${hash}\``
+    const source = ['~~~md', declaration, '~~~', declaration].join('\r\n')
+    expect(parseRegistry(source).declaredBaseCommits).toEqual([
+      { value: hash, line: 4, column: declaration.indexOf(hash) },
+    ])
+    expect(parseRegistry(`${declaration}\n${declaration}`).declaredBaseCommits).toHaveLength(2)
+  })
+
+  it('agrees with a full commit base already on the patch branch', (test) => {
+    const fixture = repository(test)
+    fixture.write(REGISTRY_PATH, registryForCommit(fixture.base))
+    fixture.record('registry\n\nPatch: alpha-seam')
+    expect(runCheck(fixture.root)).toEqual({
+      status: 'ok',
+      report: `1 commit(s), 0 merge(s), 2 changed path(s) and 2 registry record(s) agree against ${fixture.base}.`,
+    })
+  })
+
+  it('accepts only the explicitly declared second parent of an untagged two-parent merge', (test) => {
+    const fixture = repository(test)
+    fixture.record('registry\n\nPatch: alpha-seam')
+    const upstream = upstreamCommit(fixture, fixture.base, 'unreleased')
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', 'merge unreleased', upstream])
+    fixture.write(REGISTRY_PATH, registryForCommit(upstream))
+    fixture.record('declare commit\n\nPatch: alpha-seam')
+    expect(lineMerges(fixture.root, upstream, releaseCommits(fixture.root), upstream)).toMatchObject([
+      { mergesRelease: false, mergesBaseCommit: true, treeUnchanged: false },
+    ])
+    expect(lineMerges(fixture.root, upstream, releaseCommits(fixture.root))).toMatchObject([
+      { mergesBaseCommit: false },
+    ])
+    expect(runCheck(fixture.root).status).toBe('ok')
+  })
+
+  it.for(['', 'HEAD', 'HEAD~1', BASE_TAG, 'a'.repeat(7), 'A'.repeat(40), `${'a'.repeat(40)}^{commit}`, 'a'.repeat(41)])(
+    'rejects malformed commit declaration %j even off the patch branch', (value, test) => {
+      const fixture = repository(test, registryForCommit(value))
+      fixture.record('registry\n\nPatch: alpha-seam')
+      fixture.git(['checkout', '--quiet', '-b', 'develop'])
+      expect(runCheck(fixture.root)).toMatchObject({ status: 'failed', report: expect.stringContaining('base-commit-invalid:') as string })
+    },
+  )
+
+  it.for(['tag', 'blob', 'tree', 'missing'] as const)('rejects a full SHA naming %s instead of a commit', (kind, test) => {
+    const fixture = repository(test)
+    fixture.record('registry\n\nPatch: alpha-seam')
+    fixture.git(['tag', '-a', 'annotated', '-m', 'annotated'])
+    const value = kind === 'missing' ? '0'.repeat(40)
+      : fixture.git(['rev-parse', kind === 'tag' ? 'refs/tags/annotated' : kind === 'blob' ? 'HEAD:base.md' : 'HEAD^{tree}'])
+    fixture.write(REGISTRY_PATH, registryForCommit(value))
+    const result = runCheck(fixture.root)
+    expect(result.status).toBe('failed')
+    expect(result.report).toContain(kind === 'missing' ? 'cat-file -t' : 'not a commit object')
+  })
+
+  it('rejects a full hexadecimal ref name that does not identify its own commit object', (test) => {
+    const fixture = repository(test)
+    fixture.record('registry\n\nPatch: alpha-seam')
+    const alias = 'b'.repeat(40)
+    fixture.git(['update-ref', `refs/heads/${alias}`, fixture.base])
+    fixture.write(REGISTRY_PATH, registryForCommit(alias))
+    expect(runCheck(fixture.root).status).toBe('failed')
+  })
+
+  it('rejects an existing commit that HEAD has not merged', (test) => {
+    const fixture = repository(test)
+    fixture.record('registry\n\nPatch: alpha-seam')
+    const upstream = upstreamCommit(fixture, fixture.base, 'not-merged')
+    fixture.write(REGISTRY_PATH, registryForCommit(upstream))
+    expect(runCheck(fixture.root)).toMatchObject({ status: 'failed', report: expect.stringContaining('base-commit-not-merged:') as string })
+  })
+
+  it.for(['tag-and-commit', 'two-commits'] as const)('rejects %s declarations even off the patch branch', (kind, test) => {
+    const fixture = repository(test)
+    const declaration = `**基座 commit**：\`${fixture.base}\``
+    fixture.write(REGISTRY_PATH, `${kind === 'tag-and-commit' ? REGISTRY : registryForCommit(fixture.base)}\n${declaration}\n`)
+    fixture.record('registry\n\nPatch: alpha-seam')
+    fixture.git(['checkout', '--quiet', '-b', 'develop'])
+    expect(runCheck(fixture.root)).toMatchObject({ status: 'failed', report: expect.stringContaining('exactly one base declaration') as string })
+  })
+
+  it('rejects a descendant of the base as a merge parent', (test) => {
+    const fixture = repository(test)
+    fixture.record('registry\n\nPatch: alpha-seam')
+    const base = upstreamCommit(fixture, fixture.base, 'unreleased-base')
+    const descendant = upstreamCommit(fixture, base, 'unreleased-descendant')
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', 'merge descendant', descendant])
+    fixture.write(REGISTRY_PATH, registryForCommit(base).replace('`alpha/**` ', '`alpha/**` `upstream/**` '))
+    fixture.record('declare base\n\nPatch: alpha-seam')
+    const result = runCheck(fixture.root)
+    expect(result.status).toBe('failed')
+    expect(result.report).toContain('merge-commit:')
+    expect(result.report).not.toContain('trailer-count')
+  })
+
+  it('rejects a topic cut from a patch branch that already contains the base commit', (test) => {
+    const fixture = repository(test)
+    fixture.write(REGISTRY_PATH, registryForCommit(fixture.base))
+    fixture.record('registry\n\nPatch: alpha-seam')
+    fixture.git(['checkout', '--quiet', '-b', 'topic'])
+    fixture.write('alpha/topic.md', 'topic\n')
+    fixture.record('topic without trailer')
+    fixture.git(['checkout', '--quiet', LINE])
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', 'merge topic', 'topic'])
+    expect(runCheck(fixture.root).report).toContain('merge-commit:')
+  })
+
+  it('rejects an octopus even when its second parent exactly matches the declared commit', (test) => {
+    const fixture = repository(test)
+    fixture.record('registry\n\nPatch: alpha-seam')
+    const upstream = upstreamCommit(fixture, fixture.base, 'unreleased')
+    fixture.git(['checkout', '--quiet', '-b', 'topic'])
+    fixture.write('alpha/topic.md', 'topic\n')
+    fixture.record('topic without trailer')
+    fixture.git(['checkout', '--quiet', LINE])
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', 'merge both', upstream, 'topic'])
+    expect(fixture.git(['show', '-s', '--format=%P', 'HEAD']).split(' ')).toEqual([
+      expect.any(String), upstream, fixture.git(['rev-parse', 'topic']),
+    ])
+    fixture.write(REGISTRY_PATH, registryForCommit(upstream))
+    fixture.record('declare commit\n\nPatch: alpha-seam')
+    expect(runCheck(fixture.root).report).toContain('merge-commit:')
+  })
+
+  it('rejects the earlier untagged merge after advancing the base to its descendant', (test) => {
+    const fixture = repository(test)
+    fixture.record('registry\n\nPatch: alpha-seam')
+    const first = upstreamCommit(fixture, fixture.base, 'first-unreleased')
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', 'merge first', first])
+    fixture.write(REGISTRY_PATH, registryForCommit(first))
+    fixture.record('declare first\n\nPatch: alpha-seam')
+    expect(runCheck(fixture.root).status).toBe('ok')
+    const second = upstreamCommit(fixture, first, 'second-unreleased')
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', 'merge second', second])
+    fixture.write(REGISTRY_PATH, registryForCommit(second))
+    fixture.record('declare second\n\nPatch: alpha-seam')
+    const result = runCheck(fixture.root)
+    expect(result.status).toBe('failed')
+    expect(result.report.split('\n').filter(line => line.includes('merge-commit:'))).toHaveLength(1)
+    expect(result.report).toContain('(merge first)')
+    expect(result.report).toContain('Moving the base commit does not authorize earlier untagged merges')
+    const merges = lineMerges(fixture.root, second, releaseCommits(fixture.root), second)
+    expect(merges.map(merge => merge.mergesBaseCommit)).toEqual([false, true])
   })
 })
 

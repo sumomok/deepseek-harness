@@ -1,6 +1,7 @@
 /**
  * Pure ACP transcript and session-log normalizers. They scrub session ids, run cwd, RPC ids,
  * timestamps, goal lifecycle clocks, and hook duration while preserving semantic payload values.
+ * Filesystem versions stay exact in metadata and PTC output; fixtures own their determinism.
  * The prompt-text and tool-schema scrubbers stay composable so one scenario per header class can
  * pin prompt and tool-schema sidecars.
  * @module @deepseek-ai/dsh-session-snapshot/normalize
@@ -224,7 +225,9 @@ function scrubValue(
   if (Array.isArray(value)) return value.map(v => scrubValue(v, ctx, cwdPathMode, identityMode))
   if (value !== null && typeof value === 'object') {
     const out: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(value)) out[k] = scrubValue(v, ctx, cwdPathMode, identityMode, k)
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = scrubValue(v, ctx, cwdPathMode, identityMode, k)
+    }
     if (
       (value as { sessionUpdate?: unknown }).sessionUpdate === 'usage_update'
       && typeof (value as { used?: unknown }).used === 'number'

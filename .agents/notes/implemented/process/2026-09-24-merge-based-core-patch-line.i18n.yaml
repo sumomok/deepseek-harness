@@ -2,18 +2,18 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-24-merge-based-core-patch-line.md
-/agent-note-the-core-patch-line-merges-upstream-releases-and-claims-its-diff-against-the-base-tag:
-  en: e49f8633c5ab850a
-  zh: b441555a474dab2c
-/agent-note-the-core-patch-line-merges-upstream-releases-and-claims-its-diff-against-the-base-tag/problem:
+/agent-note-the-core-patch-line-merges-upstream-and-claims-its-diff-against-an-explicit-base:
+  en: 5abae58853b89d87
+  zh: b20c22344a9be775
+/agent-note-the-core-patch-line-merges-upstream-and-claims-its-diff-against-an-explicit-base/problem:
   en: 3eaccbfdf5662e6b
   zh: 52bdf1b9149a3d22
-/agent-note-the-core-patch-line-merges-upstream-releases-and-claims-its-diff-against-the-base-tag/decision:
-  en: a6db352ea8b47bdd
-  zh: af64f525940b198a
-/agent-note-the-core-patch-line-merges-upstream-releases-and-claims-its-diff-against-the-base-tag/alternatives-considered:
+/agent-note-the-core-patch-line-merges-upstream-and-claims-its-diff-against-an-explicit-base/decision:
+  en: e1d3b5c137dd54f4
+  zh: 64ab2265cc1c0172
+/agent-note-the-core-patch-line-merges-upstream-and-claims-its-diff-against-an-explicit-base/alternatives-considered:
   en: 408584ca77350e5b
   zh: 0dec4531d992b550
-/agent-note-the-core-patch-line-merges-upstream-releases-and-claims-its-diff-against-the-base-tag/consequences:
-  en: 00a8951c4990547d
-  zh: f39679f4322a70da
+/agent-note-the-core-patch-line-merges-upstream-and-claims-its-diff-against-an-explicit-base/consequences:
+  en: 8c1b1df5fb971cb4
+  zh: a0913b0c2e4b85ec

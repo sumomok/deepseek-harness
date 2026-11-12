@@ -1,0 +1,3 @@
+- insert:
+    - id: snapshot-file-version
+      name: ./file-version-fixture.mjs

@@ -964,12 +964,12 @@ export class Session implements SessionFace {
     // page/baseline pair instead of applying it to an unrelated repair cut.
     const visible = this.assistantStream.replace(entries, assistantStream)
     if (directReplace) {
-      // Reads started for the previous window keep their registration until
-      // their own prepend settles: the page is then swallowed instead of
-      // landing beside the replacement window.
+      // Completed pages can be released immediately. In-flight reads retain
+      // their registration so their late prepend cannot enter the new window.
       if (this.olderRequest !== null) {
         this.olderRequest.discard = true
         this.olderRequest.page = null
+        if (this.historyLoadStatus === 'pendingConsumption') this.olderRequest = null
       }
       if (this.pendingHistory !== null) {
         this.pendingHistory.discard = true

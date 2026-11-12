@@ -2,7 +2,7 @@ import { rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import { scanCommand } from '../src/process.ts'
+import { runCommand, scanCommand } from '../src/process.ts'
 import { harness, repository } from './harness.ts'
 
 const disposers: (() => Promise<void>)[] = []
@@ -36,6 +36,27 @@ function rejectDoneOnTerminate(ctx: Context): void {
 }
 
 describe('streamed commands', () => {
+  it.each(['collected', 'streamed'] as const)('pins the diagnostic locale for %s commands', async (mode) => {
+    const root = await repository()
+    disposers.push(() => rm(root, { recursive: true, force: true }))
+    const ctx = await harness(root)
+    disposers.push(() => ctx.fiber.dispose())
+    const config = { timeoutMs: 30_000, graceMs: 1_000, maxOutputBytes: 1_024 }
+    const argv: [string, ...string[]] = [process.execPath, '-e',
+      'process.stdout.write(JSON.stringify([process.env.LANG, process.env.LC_ALL]) + "\\0")']
+    const fields: string[] = []
+    if (mode === 'collected') {
+      const result = await runCommand(ctx, config, ctx.sandboxPolicy.resolve(), root, argv, new AbortController().signal)
+      fields.push(result.stdout.slice(0, -1))
+    } else {
+      await scanCommand(ctx, config, ctx.sandboxPolicy.resolve(), root, argv, new AbortController().signal, (field) => {
+        fields.push(field)
+        return true
+      })
+    }
+    expect(fields).toEqual(['["C.UTF-8","C.UTF-8"]'])
+  })
+
   it('returns the early answer when stopping rejects the outcome of an unacknowledged launch', async () => {
     const root = await repository()
     disposers.push(() => rm(root, { recursive: true, force: true }))

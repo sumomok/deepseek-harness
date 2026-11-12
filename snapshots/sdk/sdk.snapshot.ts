@@ -71,6 +71,7 @@ import { deriveReplayScript, parseSessionLog } from '@deepseek-ai/dsh-llm-replay
 const corpusRoot = fileURLToPath(new URL('../', import.meta.url))
 
 const MINIMAL_SYSTEM_PROMPT = 'You are the environment-selected minimal software engineer.'
+const CHECKPOINT_REFERENCE_TEXT = 'A checkpoint or summary is a lossy index, not the record. When one names a file, a line, or a session event that governs the current question, read it before answering; if it cannot be read, say so rather than reconstructing it from the summary.'
 const MINIMAL_BASH_DESCRIPTION = `Run commands in a bash shell
 * When invoking this tool, the contents of the "command" parameter does NOT need to be XML-escaped.
 * You don't have access to the internet via this tool.
@@ -211,6 +212,10 @@ const SDK_ASSERTIONS: Readonly<Record<string, SdkAssertions>> = {
   'session-title-stability': { waitForProviderTitle: true },
   'dynamic-tool-updates': {
     expectedFinalResponse: 'DONE',
+    patches: [fileURLToPath(new URL('./dynamic-tool-updates/runtime.cordis.yml', import.meta.url))],
+  },
+  'system-prompt-in-history': {
+    patches: [fileURLToPath(new URL('./system-prompt-in-history/runtime.cordis.yml', import.meta.url))],
   },
   'tool-scheduler-recovery': {
     patches: [fileURLToPath(new URL('./tool-scheduler-recovery/runtime.cordis.yml', import.meta.url))],
@@ -249,7 +254,7 @@ const SDK_ASSERTIONS: Readonly<Record<string, SdkAssertions>> = {
   'persistent-tools': {
     environment: { DSH_SYSTEM_PROMPT: MINIMAL_SYSTEM_PROMPT },
     expectedTools: { bash: ['command'], str_replace_editor: ['command', 'path'], working_directory: [] },
-    expectedSystem: MINIMAL_SYSTEM_PROMPT,
+    expectedSystem: `${MINIMAL_SYSTEM_PROMPT}\n\n${CHECKPOINT_REFERENCE_TEXT}`,
     expectedToolDescriptions: { bash: MINIMAL_BASH_DESCRIPTION },
     runtimeContext: {
       includes: ['Current working directory:', 'Current DSH file policy: danger-full-access', 'Approval prompts are disabled in this session'],
@@ -1220,6 +1225,17 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
       )
       reconcileCatalogCreationTimes(ordered.map(log => log.content), 'validate')
       const actualContext = contextOf(ordered, cwd)
+      if (scenario.name === 'background-wait-steer') {
+        const events = parseSessionLog(ordered[0]!.content)
+        expect(events.filter(event => event.type === 'turn/end')).toMatchObject([
+          { data: { reason: { kind: 'completed' } } },
+        ])
+        expect(events.filter(event => event.type === 'tool/result').map(event => event.data.message.isError))
+          .toEqual([false, false])
+        expect(events.filter(event => event.type === 'job/settled')).toMatchObject([
+          { data: { cause: 'kill', status: 'killed' } },
+        ])
+      }
       if (scenario.name === 'team-default-enabled') {
         const parent = ordered[0]!
         const events = parseSessionLog(parent.content)

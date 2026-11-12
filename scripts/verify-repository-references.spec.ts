@@ -97,7 +97,7 @@ describe('maintained repository reference policy', () => {
   })
 
   it.each([
-    ['python/sdk/uv.lock', 'size = "HASH"', 1],
+    ['python/sdk/dependencies.toml', 'revision = "HASH"', 1],
     ['fixture.json', '{"revision": "HASH"}', 1],
     ['notes.md', 'release\ncommit HASH', 2],
     ['source.ts', '// commit HASH', 1],
@@ -108,7 +108,7 @@ describe('maintained repository reference policy', () => {
     ])
   })
 
-  it('accepts byte counts in the real lockfile and still rejects references on added lines', () => {
+  it('excludes the real generated lockfile, including reference-shaped generated content', () => {
     const file = 'python/sdk/uv.lock'
     const source = readFileSync(join(import.meta.dirname, '..', file), 'utf8').trimEnd()
     const sizes = new Set([...source.matchAll(/\bsize\s*=\s*(\d+)/g)].map(match => match[1] ?? ''))
@@ -116,10 +116,7 @@ describe('maintained repository reference policy', () => {
     expect(sizes).not.toContain('')
     expect(findRepositoryReferences(file, source, sizes)).toEqual([])
     const hash = `${numericCommit}a`
-    expect(findRepositoryReferences(file, `${source}\n# commit ${hash}\n# ${organizationUrl}`, new Set([...sizes, hash]))).toEqual([
-      { file, line: source.split('\n').length + 1, kind: 'commit-hash' },
-      { file, line: source.split('\n').length + 2, kind: 'organization-url' },
-    ])
+    expect(findRepositoryReferences(file, `${source}\n# commit ${hash}\n# ${organizationUrl}`, new Set([...sizes, hash]))).toEqual([])
   })
 
   it('excludes a real numeric commit prefix from both candidate resolution and file findings', (test) => {
@@ -140,6 +137,87 @@ describe('maintained repository reference policy', () => {
       ])
       return
     }
+  })
+
+  it.each(['\n', '\r\n', '\r'])('exempts only the registry base commit token with %j line endings', (ending) => {
+    const hash = 'ab'.repeat(20)
+    const declaration = `**基座 commit**：\`${hash}\``
+    const file = '.claude/core-patches.md'
+    const source = ['# Registry', declaration, `prose ${hash}`, `${declaration} beside ${hash}`, `${declaration} ${hash.slice(0, 12)}`]
+    // Each valid registry has exactly one declaration; nearby tokens remain ordinary references.
+    expect(findRepositoryReferences(file, source.slice(0, 3).join(ending), new Set([hash]))).toEqual([
+      { file, line: 3, kind: 'commit-hash' },
+    ])
+    for (const line of source.slice(3)) {
+      expect(findRepositoryReferences(file, line, new Set([hash, hash.slice(0, 12)]))).toEqual([
+        { file, line: 1, kind: 'commit-hash' },
+      ])
+    }
+    expect(findRepositoryReferences(file, declaration, new Set([hash]))).toEqual([])
+  })
+
+  it.each([
+    ['docs/base.md', 'DECLARATION'],
+    ['nested/.claude/core-patches.md', 'DECLARATION'],
+    ['.claude/core-patches.md', 'prose DECLARATION'],
+    ['.claude/core-patches.md', '**基座 tag**：`HASH`'],
+    ['.claude/core-patches.md', '**基座 commit**：`HASH^0`'],
+    ['.claude/core-patches.md', '```md\nDECLARATION\n```'],
+    ['.claude/core-patches.md', '~~~md\nDECLARATION\n~~~'],
+    ['.claude/core-patches.md', '   ````md\n```\nDECLARATION\n````'],
+    ['.claude/core-patches.md', '```md\n```js\nDECLARATION\n```'],
+    ['.claude/core-patches.md', '~~~md\n```\nDECLARATION\n~~~'],
+    ['.claude/core-patches.md', 'DECLARATION\n```'],
+    ['.claude/core-patches.md', '**基座 tag**：`dsh-v1.0.0`\nDECLARATION'],
+  ])('rejects a known hash outside the exact exemption in %s: %j', (file, template) => {
+    const hash = 'ab'.repeat(20)
+    const declaration = `**基座 commit**：\`${hash}\``
+    const source = template.replace('DECLARATION', declaration).replace('HASH', hash)
+    expect(findRepositoryReferences(file, source, new Set([hash]))).toEqual([
+      { file, line: source.split('\n').findIndex(line => line.includes(hash)) + 1, kind: 'commit-hash' },
+    ])
+  })
+
+  it.each(['ab'.repeat(6), 'AB'.repeat(20)])('rejects abbreviated or uppercase base declarations: %s', (hash) => {
+    expect(findRepositoryReferences('.claude/core-patches.md', `**基座 commit**：\`${hash}\``, new Set([hash.toLowerCase()]))).toEqual([
+      { file: '.claude/core-patches.md', line: 1, kind: 'commit-hash' },
+    ])
+  })
+
+  it('exempts a declaration after a matching longer fence closes, while rejecting the fenced hash', () => {
+    const hash = 'ab'.repeat(20)
+    const declaration = `**基座 commit**：\`${hash}\``
+    const source = ['   ~~~md', declaration, '   ~~~~', declaration].join('\n')
+    expect(findRepositoryReferences('.claude/core-patches.md', source, new Set([hash]))).toEqual([
+      { file: '.claude/core-patches.md', line: 2, kind: 'commit-hash' },
+    ])
+  })
+
+  it('rejects both tokens when the registry duplicates its base declaration', () => {
+    const hash = 'ab'.repeat(20)
+    const declaration = `**基座 commit**：\`${hash}\``
+    expect(findRepositoryReferences('.claude/core-patches.md', `${declaration}\n${declaration}`, new Set([hash]))).toEqual([
+      { file: '.claude/core-patches.md', line: 1, kind: 'commit-hash' },
+      { file: '.claude/core-patches.md', line: 2, kind: 'commit-hash' },
+    ])
+  })
+
+  it('keeps organization checks on the exempt declaration line', () => {
+    const hash = 'ab'.repeat(20)
+    expect(findRepositoryReferences('.claude/core-patches.md', `**基座 commit**：\`${hash}\` ${organizationUrl}`, new Set([hash]))).toEqual([
+      { file: '.claude/core-patches.md', line: 1, kind: 'organization-url' },
+    ])
+  })
+
+  it('exempts the real registry declaration during a repository scan, keeping identical prose references', (test) => {
+    const fixture = repository(test)
+    const declaration = `**基座 commit**：\`${fixture.commit}\``
+    fixture.write('.claude/core-patches.md', `${declaration}\nprose ${fixture.commit}`)
+    fixture.write('other.md', declaration)
+    expect(scanRepositoryReferences(fixture.root)).toEqual([
+      { file: '.claude/core-patches.md', line: 2, kind: 'commit-hash' },
+      { file: 'other.md', line: 1, kind: 'commit-hash' },
+    ])
   })
 
   it('permits only the independent kit repository and its source URLs', () => {
@@ -178,16 +256,16 @@ describe('maintained repository reference policy', () => {
   })
 
   it('skips generated dependency lock files but still checks maintained text', () => {
-    // A lock file records this byte count as a decimal run that is also a unique repository commit prefix;
-    // the numeric separators keep that run out of this file's own scanned text.
-    const byteCount = 6_344_383
-    const size = `size = ${String(byteCount)}`
-    const commits = new Set([String(byteCount)])
+    const hash = 'ab'.repeat(20)
+    const source = `revision = "${hash}"\n# ${organizationUrl}`
+    const commits = new Set([hash])
     for (const file of ['python/sdk/uv.lock', 'pnpm-lock.yaml', 'nested/dir/uv.lock']) {
-      expect(findRepositoryReferences(file, size, commits)).toEqual([])
+      expect(findRepositoryReferences(file, source, commits)).toEqual([])
     }
-    expect(findRepositoryReferences('docs/notes.md', size, commits))
-      .toEqual([{ file: 'docs/notes.md', line: 1, kind: 'commit-hash' }])
+    expect(findRepositoryReferences('docs/notes.md', source, commits)).toEqual([
+      { file: 'docs/notes.md', line: 1, kind: 'commit-hash' },
+      { file: 'docs/notes.md', line: 2, kind: 'organization-url' },
+    ])
   })
 
   it('does not fetch missing commits from a partial clone\'s promisor remote', (test) => {

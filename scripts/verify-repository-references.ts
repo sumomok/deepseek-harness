@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { lstatSync, readFileSync, readlinkSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { FULL_COMMIT_SHA, parseRegistry, REGISTRY_PATH } from './verify-core-patches.ts'
 import { canonicalReferenceText } from './verify-public-repository-links.ts'
 
 const root = resolve(import.meta.dirname, '..')
@@ -40,7 +41,9 @@ function isMaintained(file: string): boolean {
  * @param source - File text or a symlink's stored target.
  * @param commits - Lowercase, unambiguous full or abbreviated commit identifiers.
  * @returns One finding per line and reference kind; digests and other Git object types are accepted.
- * Decimal-only tokens are ignored, including actual commit identifiers.
+ * Decimal-only tokens are ignored, including actual commit identifiers. Only the single
+ * full lowercase base commit declaration token in the unfenced registry is exempt;
+ * a competing base tag, duplicate declaration, or unclosed fence disables the exception.
  */
 export function findRepositoryReferences(
   file: string,
@@ -48,12 +51,20 @@ export function findRepositoryReferences(
   commits: ReadonlySet<string>,
 ): RepositoryReference[] {
   if (!isMaintained(file)) return []
+  const registry = file === REGISTRY_PATH ? parseRegistry(source) : null
+  const declaration = registry?.declaredBaseCommits[0]
+  const exempt = registry?.unclosedFence === null && registry.declaredBaseTags.length === 0
+    && registry.declaredBaseCommits.length === 1 && declaration !== undefined && FULL_COMMIT_SHA.test(declaration.value)
+    ? declaration : undefined
   const references: RepositoryReference[] = []
-  for (const [index, line] of source.split('\n').entries()) {
+  const text = registry === null ? source : source.replace(/\r\n?/gu, '\n')
+  for (const [index, line] of text.split('\n').entries()) {
     if (organizationUrl.test(canonicalReferenceText(line).replace(kitRepositoryUrl, ''))) {
       references.push({ file, line: index + 1, kind: 'organization-url' })
     }
-    if ([...line.matchAll(commitCandidate)].some(match => commits.has(match[0].toLowerCase()))) {
+    if ([...line.matchAll(commitCandidate)].some(match =>
+      commits.has(match[0].toLowerCase())
+      && !(exempt?.line === index + 1 && exempt.column === match.index && exempt.value === match[0]))) {
       references.push({ file, line: index + 1, kind: 'commit-hash' })
     }
   }

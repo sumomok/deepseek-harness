@@ -138,6 +138,8 @@ export interface ISession {
    * partial Turn at the window's beginning. Stop at 500 messages or history
    * exhaustion even when those minima cannot be met. At most one page may be
    * loading or awaiting consumption; live events remain independently visible.
+   * A direct window replacement discards a prepared page immediately; an in-flight
+   * request blocks further older reads until its obsolete response settles.
    * @param options - deferConsumption keeps the page unpublished until consumeOlder; omitted consumes before completion.
    * @returns request completion; failures and no progress set snapshot.historyLoadStatus to error.
    */
