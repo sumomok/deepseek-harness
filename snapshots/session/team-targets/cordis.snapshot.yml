@@ -37,36 +37,17 @@
             name: DeepSeek
             models:
               - id: deepseek-v4-flash
-                contextWindow: 1000000
               - id: deepseek-v4-pro
-                contextWindow: 1000000
           - id: deepseek-messages
             name: DeepSeek Messages
             models:
               - id: deepseek-v4-flash
-                contextWindow: 1000000
               - id: deepseek-v4-pro
-                contextWindow: 1000000
+
+- insert:
+    - id: enable-team-fixture
+      name: ../../../packages/team/agent-team/tests/enable-team-fixture.ts
 
 - id: tool-subagent-control
-  disabled: true
-- id: tool-subagent-report
-  disabled: true
-- id: tool-subagent
-  disabled: true
-- id: tool-subagent-fork
-  disabled: true
-- insert:
-    - id: agent-team
-      name: '@deepseek-ai/dsh-experimental-agent-team'
-    - id: tool-agent-team
-      name: '@deepseek-ai/dsh-experimental-tool-agent-team'
-      config:
-        modelSelection: true
-        modelDiscovery: true
-- id: subagent-model-selection-settings
   config:
-    enabled: true
-    allowedModels:
-      - { provider: deepseek-official, model: deepseek-v4-flash }
-      - { provider: deepseek-official, model: deepseek-v4-pro }
+    interrupt: true

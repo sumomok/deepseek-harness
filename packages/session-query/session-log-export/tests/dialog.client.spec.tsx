@@ -1,173 +1,135 @@
 // @vitest-environment jsdom
-/**
- * The shared export panel: an indeterminate bar until the Host announces the
- * archive's extent, a determinate one with entry and size counts after, a
- * settled completion state, a failure that names its reason, and a footer that
- * cancels the transfer while it runs and closes the panel once it has settled.
- */
-
-import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useSyncExternalStore } from 'react'
+import { bindSnapshotSelector, contextMenuHook, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { SessionLogDownloadController } from '../src/client/controller.ts'
 import { SessionLogDownloadDialog } from '../src/client/Dialog.tsx'
 import type { SessionLogDownloadDialogProps } from '../src/client/Dialog.tsx'
-import { en } from '../src/client/locales.ts'
-import { SESSION_EXPORT_PROGRESS_START, type SessionExportProgress } from '../src/client/progress.ts'
+import { en, zh } from '../src/client/locales.ts'
+import { SESSION_EXPORT_PROGRESS_START } from '../src/client/progress.ts'
 
 const SID = 'session-export-dialog' as SessionId
-
-/** The runtime's own `{name}` interpolation, so the fixtures read what users read. */
-function translate(key: keyof typeof en, params?: Record<string, string | number>): string {
-  return en[key].replace(/\{(\w+)\}/g, (_match, name: string) => String(params?.[name] ?? ''))
+const OTHER = 'other-session' as SessionId
+const unused = (): never => { throw new Error('Root export dialog does not consume Session hooks') }
+const standard: GlobalStandardProps = {
+  useSessions: unused, useSessionStatus: unused, useSessionRetainInfo: unused,
+  useSessionAccess: () => true, useRemoteAccess: () => true, useWorkspaceAccess: () => true,
+  usePanelInfo: unused, useContextMenu: contextMenuHook(), useResource: unused, useWorkspaces: unused,
 }
 
 function bench(
-  controller = new SessionLogDownloadController(async () => new Response('zip', { status: 200 }), vi.fn()),
+  controller = new SessionLogDownloadController(async () => new Response('zip'), vi.fn()),
+  releasePending: () => void = () => {},
 ) {
+  onTestFinished(async () => { releasePending(); await controller.dispose() })
   const dismiss = vi.fn((sessionId: SessionId) => { controller.dismiss(sessionId) })
-  const cancel = vi.fn((sessionId: SessionId) => { controller.cancel(sessionId) })
-  function useSessionLogDownload<T>(selector: (state: ReturnType<typeof controller.store.getSnapshot>) => T): T {
-    return useSyncExternalStore(
-      listener => controller.store.subscribe(listener),
-      () => selector(controller.store.getSnapshot()),
-    )
-  }
-  const t = translate
-  const props = {
-    ...({ sessionId: SID, useSessionLogDownload, dismiss, t } as unknown as SessionLogDownloadDialogProps),
-    cancel,
+  const props: SessionLogDownloadDialogProps = {
+    ...standard, useSessionLogDownload: bindSnapshotSelector(controller.store), dismiss, cancel: vi.fn(), t: makeTranslate(en),
   }
   const view = render(<SessionLogDownloadDialog {...props} />)
-  return { controller, dismiss, cancel, view }
+  return { controller, dismiss, props, view }
 }
 
-function show(
-  controller: SessionLogDownloadController,
-  status: 'downloading' | 'success' | 'error',
-  progress: SessionExportProgress = SESSION_EXPORT_PROGRESS_START,
-  error: string | null = null,
-): void {
-  act(() => {
-    controller.store.set({ bySession: { [SID]: { open: true, status, error, progress } } })
-  })
+function close(view: ReturnType<typeof render>) {
+  const button = view.getAllByRole('button', { name: 'Close' }).at(-1)
+  if (button === undefined) throw new Error('Export dialog has no close button')
+  fireEvent.click(button)
 }
 
 afterEach(cleanup)
 
 describe('SessionLogDownloadDialog', () => {
-  it('says preparing until the first byte and transferring after it', async () => {
-    const b = bench()
-    show(b.controller, 'downloading')
-    const preparing = await b.view.findByRole('dialog', { name: 'Exporting Session' })
-    expect(preparing.textContent).toContain('Preparing a ZIP containing')
-
-    show(b.controller, 'downloading', { fraction: 0.2, entriesDone: 0, entriesTotal: 3, receivedBytes: 2048 })
-    // The store batches by animation frame, so the panel this already-open
-    // dialog renders arrives a frame later.
-    await waitFor(() => {
-      expect(b.view.getByRole('dialog', { name: 'Exporting Session' }).textContent)
-        .toContain('Transferring a ZIP containing')
-    })
-    expect(b.view.getByRole('dialog', { name: 'Exporting Session' }).textContent)
-      .not.toContain('Preparing a ZIP containing')
-  })
-
-  it('shows an indeterminate bar until the host announces the archive extent', async () => {
-    const b = bench()
-    show(b.controller, 'downloading')
-
-    const dialog = await b.view.findByRole('dialog', { name: 'Exporting Session' })
-    const bar = b.view.getByRole('progressbar', { name: 'Export progress' })
-    expect(bar.getAttribute('aria-valuenow')).toBeNull()
-    expect(bar.firstElementChild?.getAttribute('style')).toBeNull()
-    expect(dialog.textContent).toContain('Exported 0B')
-  })
-
-  it('keeps a single-entry archive indeterminate when the host announced no wire estimate', async () => {
-    const b = bench()
-    show(b.controller, 'downloading', {
-      fraction: null, entriesDone: 0, entriesTotal: 1, receivedBytes: 40_960,
-    })
-
-    const dialog = await b.view.findByRole('dialog', { name: 'Exporting Session' })
-    // The entry count never reaches the panel: with one entry it would read
-    // 0/1 for the whole transfer.
-    expect(dialog.textContent).toContain('Exported 40KB')
-    expect(dialog.textContent).not.toContain('0/1')
-    expect(b.view.getByRole('progressbar').getAttribute('aria-valuenow')).toBeNull()
-  })
-
-  it('shows the received size and the announced fraction once it can', async () => {
-    const b = bench()
-    show(b.controller, 'downloading', {
-      fraction: 0.5, entriesDone: 2, entriesTotal: 4, receivedBytes: 1024,
-    })
-
-    const dialog = await b.view.findByRole('dialog', { name: 'Exporting Session' })
-    expect(dialog.textContent).toContain('Exported 1.0KB')
-    expect(dialog.textContent).not.toContain('2/4')
-    const bar = b.view.getByRole('progressbar')
-    expect(bar.getAttribute('aria-valuenow')).toBe('50')
-    expect(bar.firstElementChild?.getAttribute('style')).toBe('width: 50%;')
-  })
-
-  it('cancels the transfer from the footer while it runs', async () => {
-    const b = bench()
-    show(b.controller, 'downloading')
-
-    const action = await b.view.findByRole('button', { name: 'Cancel' })
-    fireEvent.click(action)
-    await waitFor(() => { expect(b.cancel).toHaveBeenCalledWith(SID) })
-    expect(b.dismiss).not.toHaveBeenCalled()
-  })
-
-  it('closes without cancelling from the header control while it runs', async () => {
-    const b = bench()
-    show(b.controller, 'downloading')
-
-    await b.view.findByRole('dialog', { name: 'Exporting Session' })
-    const close = b.view.getAllByRole('button', { name: 'Close' })[0]
-    if (close === undefined) throw new Error('Session export panel has no close control')
-    fireEvent.click(close)
-    await waitFor(() => { expect(b.dismiss).toHaveBeenCalledWith(SID) })
-    expect(b.cancel).not.toHaveBeenCalled()
-  })
-
-  it('reports completion with a full bar and the browser hand-off', async () => {
-    const b = bench()
-    show(b.controller, 'success', { fraction: 1, entriesDone: 4, entriesTotal: 4, receivedBytes: 2048 })
-
-    const dialog = await b.view.findByRole('dialog', { name: 'Export complete' })
-    expect(dialog.textContent).toContain('Handed to the browser to save.')
-    expect(dialog.textContent).toContain('Exported 2.0KB')
-    expect(b.view.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('100')
-  })
-
-  it('names the failure reason and drops the bar', async () => {
-    const b = bench()
-    show(b.controller, 'error', SESSION_EXPORT_PROGRESS_START, 'HTTP 500 backend unavailable')
-
-    const dialog = await b.view.findByRole('dialog', { name: 'Export failed' })
-    expect(dialog.textContent).toContain('HTTP 500 backend unavailable')
-    expect(b.view.queryByRole('progressbar')).toBeNull()
-    const close = b.view.getAllByRole('button', { name: 'Close' }).at(-1)
-    if (close === undefined) throw new Error('Session export panel has no footer action')
-    fireEvent.click(close)
-    await waitFor(() => { expect(b.dismiss).toHaveBeenCalledWith(SID) })
-  })
-
-  it('uses fallback copy when a failure has no detail', async () => {
-    const b = bench()
-    show(b.controller, 'error', SESSION_EXPORT_PROGRESS_START, '')
-
-    const dialog = await b.view.findByRole('dialog', { name: 'Export failed' })
-    expect(dialog.textContent).toContain('Could not start the Session export.')
-  })
-
-  it('renders nothing for a Session with no export state', () => {
-    const b = bench()
+  it('shows a controller failure with the exported Session identity and closes it', async () => {
+    const b = bench(new SessionLogDownloadController(async () => { throw new Error('transport failed') }, vi.fn()))
+    await act(() => b.controller.download(SID))
+    const dialog = b.view.getByRole('dialog', { name: 'Export failed' })
+    expect(dialog.textContent).toContain(`Session: ${SID}`)
+    expect(dialog.textContent).toContain('transport failed')
+    fireEvent.click(b.view.getAllByRole('button', { name: 'Close' })[0]!)
+    expect(b.dismiss).toHaveBeenCalledWith(SID)
     expect(b.view.queryByRole('dialog')).toBeNull()
+  })
+
+  it('keeps one FIFO modal while Sessions download in parallel and settle out of order', async () => {
+    const first = Promise.withResolvers<Response>(), second = Promise.withResolvers<Response>()
+    const save = vi.fn()
+    const fetcher = vi.fn((input: string | URL) => String(input).includes(OTHER) ? second.promise : first.promise)
+    const b = bench(new SessionLogDownloadController(fetcher, save), () => {
+      first.resolve(new Response('zip'))
+      second.resolve(new Response('zip'))
+    })
+    let a!: Promise<void>, duplicate!: Promise<void>, other!: Promise<void>
+    act(() => { a = b.controller.download(SID); other = b.controller.download(OTHER); duplicate = b.controller.download(SID) })
+    expect(duplicate).toBe(a)
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(b.view.getAllByRole('dialog')).toHaveLength(1)
+    expect(b.view.getByRole('dialog').textContent).toContain(SID)
+    await act(async () => { second.resolve(new Response('zip')); await other })
+    expect(b.view.getByRole('dialog', { name: 'Exporting Session' }).textContent).toContain(SID)
+    close(b.view)
+    expect(b.view.getByRole('dialog', { name: 'Export complete' }).textContent).toContain(OTHER)
+    await act(async () => { first.resolve(new Response('zip')); await a })
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(b.view.getByRole('dialog').textContent).toContain(OTHER)
+    close(b.view)
+    expect(b.view.queryByRole('dialog')).toBeNull()
+  })
+
+  it('orders a new operation after existing open exports rather than historical Record insertion', async () => {
+    const b = bench()
+    await act(() => b.controller.download(SID))
+    close(b.view)
+    await act(() => b.controller.download(OTHER))
+    await act(() => b.controller.download(SID))
+    expect(b.view.getByRole('dialog').textContent).toContain(OTHER)
+    close(b.view)
+    expect(b.view.getByRole('dialog').textContent).toContain(SID)
+    expect(b.controller.store.getSnapshot().bySession[SID]?.order).toBe(2)
+  })
+
+  it('retains the root modal when the displayed conversation changes and identifies errors in FIFO order', async () => {
+    const b = bench(new SessionLogDownloadController(async () => { throw new Error('offline') }, vi.fn()))
+    b.view.rerender(<><article>{SID}</article><SessionLogDownloadDialog {...b.props} /></>)
+    await act(() => b.controller.download(SID))
+    const dialog = b.view.getByRole('dialog')
+    b.view.rerender(<><article>{OTHER}</article><SessionLogDownloadDialog {...b.props} /></>)
+    expect(b.view.getByRole('dialog')).toBe(dialog)
+    expect(dialog.textContent).toContain(SID)
+    expect(dialog.textContent).not.toContain(OTHER)
+    await act(() => b.controller.download(OTHER))
+    close(b.view)
+    expect(b.view.getByRole('dialog', { name: 'Export failed' }).textContent).toContain(OTHER)
+    expect(b.view.getByRole('dialog').textContent).toContain('offline')
+  })
+
+  it('does not reopen a dismissed in-flight operation for repeated requests or failure', async () => {
+    const gate = Promise.withResolvers<Response>()
+    const b = bench(new SessionLogDownloadController(() => gate.promise, vi.fn()), () => {
+      gate.resolve(new Response('zip'))
+    })
+    let pending!: Promise<void>
+    act(() => { pending = b.controller.download(SID) })
+    close(b.view)
+    expect(b.controller.download(SID)).toBe(pending)
+    expect(b.view.queryByRole('dialog')).toBeNull()
+    await act(async () => { gate.reject(new Error('offline')); await pending })
+    expect(b.view.queryByRole('dialog')).toBeNull()
+    expect(b.controller.store.getSnapshot().bySession[SID]).toMatchObject({ status: 'error', open: false })
+  })
+
+  it('uses localized fallback copy and ignores absent entries', () => {
+    const b = bench()
+    act(() => {
+      b.controller.store.set({ bySession: {
+        missing: undefined,
+        [SID]: { order: 0, open: true, status: 'error', error: '', progress: SESSION_EXPORT_PROGRESS_START },
+      } })
+    })
+    expect(b.view.getByRole('dialog').textContent).toContain('Could not start the Session export.')
+    b.view.rerender(<SessionLogDownloadDialog {...b.props} t={makeTranslate(zh)} />)
+    expect(b.view.getByRole('dialog').textContent).toContain(`Session：${SID}`)
+    expect(b.view.getByRole('dialog').textContent).toContain(zh['dialog.commandFailed'])
   })
 })

@@ -103,8 +103,4 @@ These limits define where the package is not the right tool. They are current pa
 
 ### Dev Note
 
-The upload path and the screenshot restore path both need a file to appear at a
-known name with either its whole previous content or none of it. This package
-owns only that byte-level guarantee: containment checks against symlinks in the
-destination path, and a temporary file that is renamed into place. Callers that
-need text semantics or conflict policy own those decisions.
+The upload path and the screenshot restore path both need a file to appear at a known name with either its whole previous content or none of it. This package owns only that byte-level guarantee: containment checks against symlinks in the destination path, and a temporary file that is renamed into place. Callers that need text semantics or conflict policy own those decisions.

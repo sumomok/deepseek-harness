@@ -1,7 +1,7 @@
 /** Warm delivery and cold resume retain the child's durable model choices. */
 import { describe, expect, it } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { queueHostSubagentPrompt } from '../src/internal.ts'
+import type { SubagentPromptRequestId } from '@deepseek-ai/dsh-subagent'
 import { startTestActivation } from './local-activation.ts'
 import {
   childDefaultEffort, childSelection, completeParentTurn, laterSelection, modelSelectionFixture,
@@ -35,8 +35,12 @@ describe.each(['spawn', 'fork'])('%s child model continuation', (provider) => {
     await childAdapter.entered.promise
     const child = run.localAgent
     if (switchModel) child.model.select(laterSelection)
-    await queueHostSubagentPrompt(ctx.subagents, parent, child.id,
-      [{ type: 'text', text: 'continue while resident' }], { kind: 'user' }, new AbortController().signal)
+    await ctx.subagents.prompt({
+      requestId: 'continuation' as SubagentPromptRequestId,
+      childSessionId: child.id,
+      delivery: 'queue',
+      content: [{ type: 'text', text: 'continue while resident' }],
+    }, new AbortController().signal)
     expect(ctx.agents.get(child.id)).toBe(child)
     childAdapter.release.resolve(undefined)
     expect((await run.result).stopReason).toBe('completed')
@@ -67,8 +71,12 @@ describe.each(['spawn', 'fork'])('%s child model continuation', (provider) => {
       const child = run.localAgent
       if (selectionState !== 'initial') child.model.select(laterSelection)
       if (selectionState === 'last-used') {
-        await queueHostSubagentPrompt(first.ctx.subagents, first.parent, child.id,
-          [{ type: 'text', text: 'use the later selection' }], { kind: 'user' }, new AbortController().signal)
+        await first.ctx.subagents.prompt({
+          requestId: 'continuation' as SubagentPromptRequestId,
+          childSessionId: child.id,
+          delivery: 'queue',
+          content: [{ type: 'text', text: 'use the later selection' }],
+        }, new AbortController().signal)
       }
       first.childAdapter.release.resolve(undefined)
       expect((await run.result).stopReason).toBe('completed')
@@ -92,8 +100,12 @@ describe.each(['spawn', 'fork'])('%s child model continuation', (provider) => {
       resumed.ctx.on('subagent/end', (info) => {
         if (info.id === child.id) settled.resolve(undefined)
       })
-      await queueHostSubagentPrompt(resumed.ctx.subagents, resumed.parent, child.id,
-        [{ type: 'text', text: 'resume after restart' }], { kind: 'user' }, new AbortController().signal)
+      await resumed.ctx.subagents.prompt({
+        requestId: 'continuation' as SubagentPromptRequestId,
+        childSessionId: child.id,
+        delivery: 'queue',
+        content: [{ type: 'text', text: 'resume after restart' }],
+      }, new AbortController().signal)
       await settled.promise
       expect(resumed.ctx.agents.get(child.id)).toBeUndefined()
       const after = await loadStoredSession(resumed.ctx.sessionPersistence, child.id)

@@ -113,6 +113,7 @@ describe('SessionLogDownloadController', () => {
     expect(saved.type).toBe('application/zip')
     expect(filename).toBe('dsh-session-fixture.zip')
     expect(controller.store.getSnapshot().bySession[SID]).toEqual({
+      order: 0,
       open: true,
       status: 'success',
       error: null,
@@ -328,6 +329,7 @@ describe('SessionLogDownloadController', () => {
     failure.reject(new Error('failed after clear'))
     await failureRun
     expect(failing.store.getSnapshot().bySession[SID]).toEqual({
+      order: 0,
       open: true,
       status: 'error',
       error: 'failed after clear',

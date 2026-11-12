@@ -104,12 +104,17 @@ export function apply(ctx: Context, config: Config = {}): void {
       ? REQUESTED
       : { kind: 'error', text: 'The Web /export command does not accept a path.' }),
   }), 'session-log-download: command')
-  const respond = async (request: Request, query: SessionLogExportQuery | undefined): Promise<Response> => {
+  const respond = async (
+    request: Request,
+    query: SessionLogExportQuery | undefined,
+    authorization?: SessionLogExportAuthorization,
+  ): Promise<Response> => {
     const response = await sessionLogExportResponse(
       ctx,
       request,
       query,
       config.compressionLevel ?? DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
+      authorization,
     )
     if (request.method === 'GET') return response
     await response.body?.cancel()
@@ -122,7 +127,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     fetch: request => respond(request, sessionLogExportQuery(request)),
     serveNonOwner: async (request, peer) => {
       const query = sessionLogExportQuery(request)
-      return query !== undefined && await exportsAllowed(ctx, request, query, peer) ? respond(request, query) : forbidden()
+      const authorization = query === undefined ? undefined : await exportsAllowed(ctx, request, query, peer)
+      return authorization !== undefined ? respond(request, query, authorization) : forbidden()
     },
   })
   connectionOf(ctx).fetch.register({
@@ -130,15 +136,22 @@ export function apply(ctx: Context, config: Config = {}): void {
     methods: ['GET', 'HEAD'],
     requestBody: 'buffered',
     fetch: async (request) => {
-      const response = await sessionMarkdownResponse(ctx, request)
+      const query = sessionLogExportQuery(request)
+      if (query === undefined) return new Response('missing or invalid sessionId query parameter', { status: 400 })
+      const response = await sessionMarkdownResponse(ctx, request, query.sessionId)
       if (request.method === 'GET') return response
       await response.body?.cancel()
       return new Response(null, { status: response.status, headers: response.headers })
     },
     serveNonOwner: async (request, peer) => {
       const query = sessionLogExportQuery(request)
-      if (query === undefined || !await exportsAllowed(ctx, request, { ...query, includeDescendants: false }, peer)) return forbidden()
-      const response = await sessionMarkdownResponse(ctx, request)
+      // Markdown renders one Session, so a descendant flag in the URL cannot
+      // extend what this route needs a grant for.
+      const authorization = query === undefined ? undefined : await exportsAllowed(ctx, request, {
+        ...query, includeDescendants: false,
+      }, peer)
+      if (authorization === undefined) return forbidden()
+      const response = await sessionMarkdownResponse(ctx, request, authorization.sessionId)
       if (request.method === 'GET') return response
       await response.body?.cancel()
       return new Response(null, { status: response.status, headers: response.headers })
@@ -174,43 +187,81 @@ function sessionLogExportQuery(request: Request): SessionLogExportQuery | undefi
   return { sessionId: brandString<SessionId>(sessionIdValue), includeDescendants: descendantsValue === 'true' }
 }
 
+/** One non-owner export decision: the Session and the exact descendants the archive may contain. */
+interface SessionLogExportAuthorization {
+  readonly sessionId: SessionId
+  /** Every authorized descendant, in archive order; fixed before the archive is built. */
+  readonly descendantIds: readonly SessionId[]
+}
+
 /**
- * Whether remote access allows a non-owner Peer to export what the parsed
- * query names: the action `SESSION_LOG_EXPORT_PATH` on the requested Session
- * and, with `includeDescendants`, on every subagent descendant the archive
- * would include. The requested Session is decided before any lineage read.
- * @returns false for a Host without remote access or Session query, an
+ * Decide what a non-owner Peer may export: the action `SESSION_LOG_EXPORT_PATH`
+ * on the requested Session and, with `includeDescendants`, on every subagent
+ * descendant the archive would include. The lineage is read once and its ids
+ * become the archive's complete descendant set, so a descendant appearing after
+ * this decision is never exported without its own grant.
+ * @returns undefined for a Host without remote access or Session query, an
  * unreadable lineage, or any denial.
  */
-async function exportsAllowed(ctx: Context, request: Request, query: SessionLogExportQuery, peer: PeerScope): Promise<boolean> {
+async function exportsAllowed(
+  ctx: Context,
+  request: Request,
+  query: SessionLogExportQuery,
+  peer: PeerScope,
+): Promise<SessionLogExportAuthorization | undefined> {
   const remoteAccess = ctx.get('remoteAccess')
-  if (remoteAccess === undefined) return false
+  if (remoteAccess === undefined) return undefined
   const allowed = (ids: readonly SessionId[]): boolean => remoteAccess.decide({
     principal: peer.principal,
     action: SESSION_LOG_EXPORT_PATH,
     resources: ids.map(id => ({ kind: 'session', id })),
   }).kind === 'allow'
-  if (!allowed([query.sessionId])) return false
-  if (!query.includeDescendants) return true
+  if (!allowed([query.sessionId])) return undefined
+  if (!query.includeDescendants) return { sessionId: query.sessionId, descendantIds: [] }
   const sessionQuery = ctx.get('sessionQuery')
-  if (sessionQuery === undefined) return false
+  if (sessionQuery === undefined) return undefined
   let descendants: readonly SessionLineageNode[]
   try {
     descendants = (await sessionQuery.traceSession(query.sessionId, request.signal)).descendants
   } catch {
     // A lineage this route cannot read is not shown to be allowed; the owner's path reports such failures.
     request.signal.throwIfAborted()
-    return false
+    return undefined
   }
+  const ids = lineageIds(descendants)
+  return ids.length === 0 || allowed(ids) ? { sessionId: query.sessionId, descendantIds: ids } : undefined
+}
+
+/**
+ * Flatten one lineage tree into Session ids in pre-order.
+ * @param nodes - descendants of the requested root, in catalog order.
+ * @returns every descendant id, parent before its own descendants.
+ */
+function lineageIds(nodes: readonly SessionLineageNode[]): SessionId[] {
   const ids: SessionId[] = []
-  const collect = (nodes: readonly SessionLineageNode[]): void => {
-    for (const node of nodes) {
-      ids.push(node.session.header.id)
-      collect(node.descendants)
-    }
+  for (const node of nodes) {
+    ids.push(node.session.header.id)
+    ids.push(...lineageIds(node.descendants))
   }
-  collect(descendants)
-  return ids.length === 0 || allowed(ids)
+  return ids
+}
+
+/**
+ * Resolve every descendant Session id of an owner export once, in pre-order.
+ * @param deps - the mounted export services.
+ * @param sessionId - the root Session whose lineage is read.
+ * @param signal - request cancellation for the lineage read.
+ * @returns the descendant ids the archive may contain.
+ */
+async function sessionLineageIds(
+  deps: SessionLogExportReady,
+  sessionId: SessionId,
+  signal: AbortSignal | undefined,
+): Promise<SessionId[]> {
+  const sessionQuery = deps.sessionQuery
+  if (sessionQuery === undefined) throw new Error('session log export is unavailable: missing session-query service')
+  const lineage = await sessionQuery.traceSession(sessionId, signal)
+  return lineageIds(lineage.descendants)
 }
 
 function connectionOf(ctx: Context): SessionLogConnection {
@@ -225,19 +276,15 @@ function connectionOf(ctx: Context): SessionLogConnection {
  * the same event snapshot as the body. Abort is observed before and after the
  * read; the corpus read itself has no cancellation parameter.
  * @param ctx - host context carrying Connection and session-query.
- * @param request - authenticated Fetch request with a required `sessionId` query.
- * @returns the Markdown response, or a sanitized status for invalid, missing, or unavailable reads.
+ * @param request - authenticated Fetch request carrying the caller's cancellation.
+ * @param sessionId - the Session the request's parsed query decided; authorization and this read share it.
+ * @returns the Markdown response, or a sanitized status for unavailable reads.
  */
-async function sessionMarkdownResponse(ctx: Context, request: Request): Promise<Response> {
-  const sessionIdValue = new URL(request.url).searchParams.get('sessionId')
-  if (sessionIdValue === null || sessionIdValue.length === 0) {
-    return new Response('missing or invalid sessionId query parameter', { status: 400 })
-  }
+async function sessionMarkdownResponse(ctx: Context, request: Request, sessionId: SessionId): Promise<Response> {
   const sessionQuery = ctx.get('sessionQuery')
   if (sessionQuery === undefined) {
     return new Response('session markdown export is unavailable: missing session-query service', { status: 500 })
   }
-  const sessionId = brandString<SessionId>(sessionIdValue)
   try {
     request.signal.throwIfAborted()
     const snapshot = await sessionQuery.readSession(sessionId)
@@ -274,14 +321,14 @@ async function sessionLogExportResponse(
   request: Request,
   query: SessionLogExportQuery | undefined,
   compressionLevel: SessionLogCompressionLevel,
+  authorization?: SessionLogExportAuthorization,
 ): Promise<Response> {
   if (query === undefined) {
     return new Response('missing or invalid sessionId query parameter', { status: 400 })
   }
   const { sessionId, includeDescendants } = query
   const deps = sessionLogExportDeps(ctx)
-  if (deps.sessionQuery === undefined
-    || deps.sessionPersistence === undefined
+  if (deps.sessionPersistence === undefined
     || deps.attachments === undefined) {
     return new Response(
       'session log export is unavailable: missing session-query, session-persistence, or attachments service',
@@ -293,6 +340,15 @@ async function sessionLogExportResponse(
     sessionPersistence: deps.sessionPersistence,
     attachments: deps.attachments,
     sessions: deps.sessions,
+  }
+  let descendantIds: readonly SessionId[]
+  try {
+    descendantIds = authorization?.descendantIds ?? (includeDescendants
+      ? await sessionLineageIds(ready, sessionId, request.signal)
+      : [])
+  } catch {
+    request.signal.throwIfAborted()
+    return new Response('session log export failed to read the session lineage', { status: 500 })
   }
   let rootContent: string | undefined
   try {
@@ -312,7 +368,7 @@ async function sessionLogExportResponse(
   let extent: SessionLogExportExtent | undefined
   try {
     extent = await measureSessionLogZip(
-      ready, rootContent, sessionId, includeDescendants, compressionLevel, request.signal,
+      ready, rootContent, sessionId, descendantIds, compressionLevel, request.signal,
     )
   } catch {
     // Measuring walks the same lineage and the same persistence reads the
@@ -331,7 +387,7 @@ async function sessionLogExportResponse(
       ready,
       rootContent,
       sessionId,
-      includeDescendants,
+      descendantIds,
       compressionLevel,
       request.signal,
     ),

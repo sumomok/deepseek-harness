@@ -503,7 +503,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       this._warmupState = 'running'
       this._warmupTask = this._prepareWarmup()
     }, delay)
-    timer.unref?.()
+    timer.unref()
     this._warmupTimer = timer
   }
 
@@ -1422,6 +1422,7 @@ function selectedDocumentsParams(query: string, persistenceVisible: boolean): Ar
 }
 
 function observeLive(session: Session): ObservedSession {
+  // eslint-disable-next-line typescript/no-deprecated -- Existing synchronous history read; migration deferred for this pack.
   return observeSession(session.header, session.inheritedEventCount, session.snapshotEvents())
 }
 

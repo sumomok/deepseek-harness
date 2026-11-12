@@ -81,14 +81,30 @@ interface PendingHistory {
   beforeSeq: SessionLogOffset
   hasMore: boolean
   readonly pages: (readonly SessionEventLikeEntry[])[]
+  /** A direct read replaced the display window; the loop's remaining pages are dropped. */
+  discard: boolean
+}
+
+interface OlderHistoryRequest {
+  readonly generation: number
+  readonly beforeSeq: SessionLogOffset
+  page: { readonly entries: readonly SessionEventLikeEntry[]; readonly hasMore: boolean } | null
+  invalidated: boolean
+  /**
+   * A direct read replaced the display window. The request stays registered
+   * until its own prepend settles so the arriving page is swallowed instead
+   * of prepended to the replacement window.
+   */
+  discard: boolean
+  recovering: boolean
+  consuming: boolean
+  promise?: Promise<void>
 }
 
 /** Manager-owned observers of a Session object's local state edges. */
 export interface SessionOptions {
   /** Catalog-discovered address selecting non-activating subagent transport. */
   address?: SubagentAddress
-  /** Whether the exact direct parent Agent is available in Host summaries; absent until known. */
-  parentAvailable?: boolean
   /**
    * Publish each accepted prompt to the Manager, including after this Session
    * object is replaced. Acceptance converts display state, but does not
@@ -114,7 +130,12 @@ export class Session implements SessionFace {
   private baseSeq = SessionLogOffset(0)
   private hasMore = false
   private hasNewer = false
-  private loadingNewer = false
+  /**
+   * Forward-page read token. A display replacement or a newer forward read
+   * moves it, so a page that resolves late cannot append to another window.
+   */
+  private newerRead: symbol | null = null
+  private historyWasPartial = false
   private openState: OpenState = 'cold'
   /** True while the window was installed from a direct read at a historical position. */
   private liveHistory = false
@@ -123,7 +144,15 @@ export class Session implements SessionFace {
   /** Bumped by stream replacement to invalidate an in-flight doOpen. Stale
    *  passes drop all writes once the generation moves on. */
   private openGeneration = 0
-  private loadingOlder = false
+  private get loadingOlder(): boolean { return this.historyLoadStatus === 'loading' }
+  private historyLoadStatus: SessionSnapshot['historyLoadStatus'] = 'idle'
+  private olderRequest: OlderHistoryRequest | null = null
+  /**
+   * Display-window generation owned by direct history reads. A replacement
+   * read allocates one before it starts, so an older read that settles later
+   * cannot install its page over the newer window.
+   */
+  private displayGeneration = 0
   /** Shared low-water target of the running jump loop; null when no jump is paging. */
   private jumpTargetSeq: SessionSeq | null = null
   /** The running jump loop's completion, shared by retargeting callers. */
@@ -133,7 +162,6 @@ export class Session implements SessionFace {
   private readonly assistantStream = new ClientAssistantStream()
   private running = false
   private address: SubagentAddress | undefined
-  private parentAvailable: boolean | undefined
   /**
    * Sticky send marker, private input of the composerPhase derivation: set
    * when the Host accepts a prompt, never reset — the blank → engaging edge of
@@ -213,7 +241,6 @@ export class Session implements SessionFace {
   ) {
     this.projections = options.projections ?? new ProjectionValueStore()
     this.address = options.address
-    this.parentAvailable = options.parentAvailable
     this.notifier = new Notifier(() => {
       this.snapshotCache = this.buildSnapshot()
     })
@@ -321,9 +348,7 @@ export class Session implements SessionFace {
       const routedContent = content as Exclude<PromptContentPart, { readonly type: 'file' }>[]
       const routed = await this.remote.subagents.prompt({
         requestId: requestId ?? randomUUID() as SessionRequestId,
-        parentSessionId: this.address.parentSessionId,
         childSessionId: this.address.childSessionId,
-        mode: 'continuable',
         delivery: mode,
         content: routedContent,
         clientTimeZone: resolvedClientTimeZone(),
@@ -391,18 +416,14 @@ export class Session implements SessionFace {
   /**
    * Stop the active turn while the Host preserves pending inbox work; failures
    * land in promptError (same error-strip display slot). A subagent address
-   * routes through `subagents.interruptByParent`, whose durable parent-address
-   * authority works without a live parent Agent.
+   * routes through `subagents.interruptByUser`, authorized on the target Session
+   * without requiring a live parent Agent.
    * @returns the cancel result.
    */
   async cancel(): Promise<RemoteResult<{ accepted: true }>> {
     const address = this.address
     const result = address !== undefined
-      ? await this.remote.subagents.interruptByParent(
-        address.childSessionId,
-        address.parentSessionId,
-        'continuable',
-      )
+      ? await this.remote.subagents.interruptByUser(address.childSessionId)
       : await this.remote.session.cancel({ sessionId: this.sessionId })
     if (!result.ok) {
       this.promptError = { op: 'stop', error: result.error }
@@ -453,30 +474,115 @@ export class Session implements SessionFace {
     return promise
   }
 
-  /** Prepend one Turn-aligned page: at least 50 messages and two Turn starts, capped at 500 messages. */
-  async loadOlder(): Promise<void> {
-    if (this.openState !== 'open' || !this.hasMore || this.loadingOlder) return
+  /** @inheritdoc */
+  async loadOlder(options?: { deferConsumption?: boolean }): Promise<void> {
+    const request = this.prepareOlder()
+    await request?.promise
+    if (request !== null && this.olderRequest === request && !request.discard
+      && (!options?.deferConsumption || request.page?.entries.length === 0)) this.consumeOlder()
+  }
+
+  private prepareOlder(): OlderHistoryRequest | null {
+    if (this.olderRequest !== null) return this.olderRequest
     const events = this.events
-    if (events === undefined) return
-    this.loadingOlder = true
+    if (this.openState !== 'open' || !this.hasMore || this.loadingOlder || events === undefined) return null
+    const request: OlderHistoryRequest = {
+      generation: this.openGeneration,
+      beforeSeq: this.baseSeq,
+      page: null,
+      invalidated: false,
+      discard: false,
+      recovering: false,
+      consuming: false,
+    }
+    this.olderRequest = request
+    this.historyLoadStatus = 'loading'
     this.notifier.markDirty()
-    try {
-      await events.prepend({
-        beforeSeq: this.baseSeq,
-        ...HISTORY_PAGE_OPTIONS,
-      })
-    } catch (error) {
-      if (!isRemoteFailure(error)) {
-        console.error('[session-controller] loadOlder failed:', error)
+    request.promise = (async () => {
+      try {
+        if (this.liveHistory) {
+          // A direct window has no journal cursor below it, so its older page
+          // is read directly; paging the live journal would be rejected as
+          // discontinuous with the tail it was following.
+          const result = await this.remote.session.page({
+            address: this.sessionAddress(),
+            beforeSeq: request.beforeSeq,
+            ...HISTORY_PAGE_OPTIONS,
+          }, new AbortController().signal)
+          if (this.olderRequest !== request || request.discard) return
+          if (!result.ok) {
+            this.historyLoadStatus = 'error'
+            return
+          }
+          request.page = { entries: historyEntries(result.value.records), hasMore: result.value.hasMore }
+        } else {
+          await events.prepend({ beforeSeq: request.beforeSeq, ...HISTORY_PAGE_OPTIONS })
+          if (this.olderRequest !== request || request.discard) return
+          if (request.invalidated || request.generation !== this.openGeneration || request.beforeSeq !== this.baseSeq) return
+        }
+        const page = request.page
+        const first = page?.entries[0]
+        this.historyLoadStatus = page === null || (first === undefined ? page.hasMore : first.event.seq >= request.beforeSeq)
+          ? 'error' : 'pendingConsumption'
+      } catch (error) {
+        if (this.olderRequest !== request) return
+        request.page = null
+        if (!request.discard) this.historyLoadStatus = 'error'
+        if (!isRemoteFailure(error)) console.error('[session-controller] loadOlder failed:', error)
+      } finally {
+        if (this.olderRequest === request) {
+          if (request.discard) this.olderRequest = null
+          else if (request.invalidated && this.events === events) {
+            // A replacement restores the transport cursor before another page uses the visible window.
+            request.recovering = true
+            this.historyLoadStatus = 'loading'
+            events.restart()
+          } else if (this.historyLoadStatus === 'error') this.olderRequest = null
+          if (request.discard) this.historyLoadStatus = 'idle'
+          this.notifier.markDirty()
+        }
       }
+    })()
+    return request
+  }
+
+  /** @inheritdoc */
+  consumeOlder(): boolean {
+    const request = this.olderRequest
+    if (request === null || request.consuming || this.historyLoadStatus !== 'pendingConsumption' || request.page === null) return false
+    if (this.openState !== 'open' || request.invalidated || request.discard || request.generation !== this.openGeneration
+      || request.beforeSeq !== this.baseSeq) {
+      this.clearOlderHistory()
+      return false
+    }
+    const page = request.page
+    // Retain the request through synchronous feed notification so subscribers cannot reenter consumption.
+    request.consuming = true
+    try {
+      this.prependWindow(page.entries, page.hasMore)
+      return true
+    } catch (error) {
+      if (this.olderRequest === request) this.historyLoadStatus = 'error'
+      throw error
     } finally {
-      this.loadingOlder = false
+      if (this.olderRequest === request) {
+        this.olderRequest = null
+        if (this.historyLoadStatus !== 'error') this.historyLoadStatus = 'idle'
+      }
       this.notifier.markDirty()
     }
   }
 
+  private clearOlderHistory(): void {
+    this.olderRequest = null
+    this.historyLoadStatus = this.pendingHistory === null ? 'idle' : 'loading'
+    this.notifier.markDirty()
+  }
+
   /** Jump loader: page backwards until the window covers seq (see ISession.loadThrough). */
   loadThrough(seq: SessionSeq): Promise<void> {
+    this.consumeOlder()
+    if (this.olderRequest !== null) return Promise.resolve()
     if (this.openState !== 'open' || !this.hasMore || this.baseSeq <= seq) return Promise.resolve()
     if (this.jumpPromise !== null) {
       // Retarget the running loop to the lowest requested seq.
@@ -494,10 +600,11 @@ export class Session implements SessionFace {
       beforeSeq: this.baseSeq,
       hasMore: this.hasMore,
       pages: [],
+      discard: false,
     }
     this.pendingHistory = pending
     this.jumpTargetSeq = seq
-    this.loadingOlder = true
+    this.historyLoadStatus = 'loading'
     this.notifier.markDirty()
     // Stale-pass guard (the doOpen pattern): a resync mid-loop replaces the
     // stream generation; this pass then stops instead of paging the new
@@ -505,27 +612,52 @@ export class Session implements SessionFace {
     const generation = this.openGeneration
     this.jumpPromise = (async () => {
       try {
-        while (pending.hasMore && this.jumpTargetSeq !== null && pending.beforeSeq > this.jumpTargetSeq) {
+        while (this.jumpTargetSeq !== null && pending.beforeSeq > this.jumpTargetSeq) {
           if (generation !== this.openGeneration) return
           const before = pending.beforeSeq
-          await events.prepend({ beforeSeq: before, ...JUMP_PAGE_OPTIONS })
+          if (this.liveHistory) {
+            const result = await this.remote.session.page({
+              address: this.sessionAddress(),
+              beforeSeq: before,
+              ...JUMP_PAGE_OPTIONS,
+            }, new AbortController().signal)
+            if (generation !== this.openGeneration || this.pendingHistory !== pending || pending.discard) return
+            if (!result.ok) {
+              this.historyLoadStatus = 'error'
+              return
+            }
+            const entries = historyEntries(result.value.records)
+            pending.beforeSeq = entries[0] === undefined ? pending.beforeSeq : SessionLogOffset(entries[0].event.seq)
+            pending.hasMore = result.value.hasMore
+            pending.pages.push(entries)
+          } else {
+            await events.prepend({ beforeSeq: before, ...JUMP_PAGE_OPTIONS })
+            if (generation !== this.openGeneration || this.pendingHistory !== pending || pending.discard) return
+          }
           // No-progress guard: an empty or dropped page that still claims more
           // history must end the loop, not spin it.
-          if (pending.beforeSeq >= before) return
+          if (pending.beforeSeq >= before) {
+            if (pending.hasMore) this.historyLoadStatus = 'error'
+            return
+          }
+          if (!pending.hasMore) return
         }
       } catch (error) {
+        if (generation === this.openGeneration && this.pendingHistory === pending && !pending.discard) this.historyLoadStatus = 'error'
         if (!isRemoteFailure(error)) {
           console.error('[session-controller] loadThrough failed:', error)
         }
       } finally {
-        this.jumpTargetSeq = null
-        this.jumpPromise = null
-        this.pendingHistory = null
-        this.loadingOlder = false
-        if (generation === this.openGeneration && pending.pages.length > 0) {
-          this.prependWindow(pending.pages.reverse().flat(), pending.hasMore)
+        if (this.pendingHistory === pending) {
+          this.jumpTargetSeq = null
+          this.jumpPromise = null
+          this.pendingHistory = null
+          if (this.historyLoadStatus === 'loading') this.historyLoadStatus = 'idle'
+          if (generation === this.openGeneration && !pending.discard && pending.pages.length > 0) {
+            this.prependWindow(pending.pages.reverse().flat(), pending.hasMore)
+          }
+          this.notifier.markDirty()
         }
-        this.notifier.markDirty()
       }
     })()
     return this.jumpPromise
@@ -537,6 +669,9 @@ export class Session implements SessionFace {
   async resync(): Promise<void> {
     if (this.openState === 'cold') return // never opened: no window to rebuild (doOpen flips to 'loading' synchronously, so cold implies no in-flight open)
     this.openGeneration++
+    this.displayGeneration++
+    this.newerRead = null
+    this.clearOlderHistory()
     const events = this.events
     this.events = undefined
     await events?.dispose()
@@ -590,26 +725,14 @@ export class Session implements SessionFace {
    * Install or clear the catalog-discovered transport address. A changed
    * address rebuilds an already-open window through its new history route.
    * @param address - direct parent/child address, or undefined for ordinary transport.
-   * @param parentAvailable - latest exact-parent availability hint, or undefined before a catalog read.
    */
-  configureSubagent(address: SubagentAddress | undefined, parentAvailable?: boolean): void {
+  configureSubagent(address: SubagentAddress | undefined): void {
     const same = this.address?.parentSessionId === address?.parentSessionId
       && this.address?.childSessionId === address?.childSessionId
       && this.address?.mode === address?.mode
     this.address = address
-    this.parentAvailable = parentAvailable
     if (!same && this.openState !== 'cold') void this.resync()
     else this.notifier.markDirty()
-  }
-
-  /**
-   * Update only the parent availability hint from a catalog refresh.
-   * @param available - whether the exact direct parent is live.
-   */
-  handleSubagentParentAvailable(available: boolean): void {
-    if (this.parentAvailable === available) return
-    this.parentAvailable = available
-    this.notifier.markDirty()
   }
 
   /**
@@ -656,6 +779,9 @@ export class Session implements SessionFace {
       else this.retireFailedSubmission(requestId)
     }
     this.openGeneration++
+    this.displayGeneration++
+    this.newerRead = null
+    this.clearOlderHistory()
     const events = this.events
     this.events = undefined
     await events?.dispose()
@@ -680,6 +806,8 @@ export class Session implements SessionFace {
     const last = window.at(-1)
     if (this.baseSeq <= seq && (last === undefined || last.event.seq >= seq)) return true
     const generation = this.openGeneration
+    const stream = this.events
+    const display = ++this.displayGeneration
     // Land with context on both sides: the cut is normally a little past the
     // target, so the reader can keep scrolling toward the present. A cut past
     // the log end is refused by the Host, and the exact position is the fallback.
@@ -692,13 +820,15 @@ export class Session implements SessionFace {
           maxMessages: HISTORY_WINDOW_MESSAGES,
         }, signal ?? new AbortController().signal)
         if (!result.ok) continue
-        if (generation !== this.openGeneration || this.events === undefined) return false
+        if (generation !== this.openGeneration || display !== this.displayGeneration || this.events !== stream) return false
         const entries = historyEntries(result.value.records)
         if (entries.length === 0) continue
         this.liveHistory = true
-        this.loadingOlder = false
         this.hasNewer = result.value.hasNewer === true
-        this.installWindow(entries, result.value.hasMore)
+        // A direct window replacement owns the display. Reads started for the
+        // previous window stay registered until their own read settles so the
+        // arriving page is swallowed instead of written into this one.
+        this.installWindow(entries, result.value.hasMore, undefined, undefined, true)
         this.notifier.markDirty()
         return true
       } catch {
@@ -714,19 +844,21 @@ export class Session implements SessionFace {
    * @returns whether the window grew.
    */
   async loadNewer(signal?: AbortSignal): Promise<boolean> {
-    if (this.openState !== 'open' || this.events === undefined || !this.hasNewer || this.loadingNewer) return false
+    if (this.openState !== 'open' || this.events === undefined || !this.hasNewer || this.newerRead !== null) return false
     const window = this.eventSource.getSnapshot().entries
     const last = window.at(-1)
     if (last === undefined) return false
     const generation = this.openGeneration
-    this.loadingNewer = true
+    const stream = this.events
+    const read = Symbol('loadNewer')
+    this.newerRead = read
     try {
       const result = await this.remote.session.page({
         address: this.sessionAddress(),
         afterSeq: last.event.seq,
         maxMessages: HISTORY_WINDOW_MESSAGES,
       }, signal ?? new AbortController().signal)
-      if (!result.ok || generation !== this.openGeneration || this.events === undefined) return false
+      if (!result.ok || generation !== this.openGeneration || this.newerRead !== read || this.events !== stream) return false
       const entries = historyEntries(result.value.records)
       if (entries.length === 0) {
         this.hasNewer = false
@@ -739,7 +871,7 @@ export class Session implements SessionFace {
     } catch {
       return false
     } finally {
-      this.loadingNewer = false
+      if (this.newerRead === read) this.newerRead = null
     }
   }
 
@@ -758,6 +890,8 @@ export class Session implements SessionFace {
 
   /** @param generation - openGeneration at launch; stale passes cannot publish after replacement. */
   private async doOpen(generation: number): Promise<void> {
+    this.displayGeneration++
+    this.newerRead = null
     this.liveHistory = false
     this.openState = 'loading'
     this.openError = null
@@ -795,6 +929,8 @@ export class Session implements SessionFace {
     if (this.liveHistory && (change.type === 'append' || change.type === 'assistant-stream')) return
     switch (change.type) {
       case 'replace':
+        this.displayGeneration++
+        this.newerRead = null
         this.installWindow(
           change.entries,
           change.hasMore,
@@ -803,7 +939,9 @@ export class Session implements SessionFace {
         )
         return
       case 'prepend':
-        this.prependWindow(change.entries, change.hasMore)
+        if (this.olderRequest !== null) {
+          this.olderRequest.page = { entries: change.entries, hasMore: change.hasMore }
+        } else this.prependWindow(change.entries, change.hasMore)
         return
       case 'append':
         this.publishAssistantEntry(this.assistantStream.acceptDurable(change.entry))
@@ -819,13 +957,34 @@ export class Session implements SessionFace {
     hasMore: boolean,
     projections?: ProjectionsBaseline,
     assistantStream?: SessionAssistantStreamBaseline,
+    directReplace = false,
   ): void {
     // A durable gap-repair page has no assistant baseline. Clearing transient
     // attempts makes a held notification reopen follow once for an atomic
     // page/baseline pair instead of applying it to an unrelated repair cut.
     const visible = this.assistantStream.replace(entries, assistantStream)
+    if (directReplace) {
+      // Reads started for the previous window keep their registration until
+      // their own prepend settles: the page is then swallowed instead of
+      // landing beside the replacement window.
+      if (this.olderRequest !== null) {
+        this.olderRequest.discard = true
+        this.olderRequest.page = null
+      }
+      if (this.pendingHistory !== null) {
+        this.pendingHistory.discard = true
+        this.pendingHistory.pages.length = 0
+      }
+      this.jumpTargetSeq = null
+      this.newerRead = null
+      this.historyLoadStatus = 'idle'
+    } else if (this.olderRequest !== null && this.loadingOlder && !this.olderRequest.recovering) {
+      this.olderRequest.invalidated = true
+      this.olderRequest.page = null
+    } else this.clearOlderHistory()
     this.baseSeq = SessionLogOffset(entries[0]?.event.seq ?? 0)
     this.hasMore = hasMore
+    this.historyWasPartial ||= hasMore
     if (this.pendingHistory !== null) {
       this.pendingHistory.beforeSeq = this.baseSeq
       this.pendingHistory.hasMore = hasMore
@@ -893,6 +1052,7 @@ export class Session implements SessionFace {
     }
     this.baseSeq = entries[0] === undefined ? this.baseSeq : SessionLogOffset(entries[0].event.seq)
     this.hasMore = hasMore
+    this.historyWasPartial ||= hasMore
     this.eventSource.prepend(entries, hasMore)
   }
 
@@ -1040,6 +1200,7 @@ export class Session implements SessionFace {
     if (generation !== this.openGeneration || this.events !== events) return
     if (!isRemoteFailure(error)) throw error
     this.openGeneration++
+    this.clearOlderHistory()
     this.events = undefined
     this.openPromise = null
     this.openState = 'error'
@@ -1060,14 +1221,15 @@ export class Session implements SessionFace {
           address: this.address.mode === 'unknown' && identity != null
             ? { ...this.address, mode: identity.mode }
             : this.address,
-          ...(this.parentAvailable === undefined ? {} : { parentAvailable: this.parentAvailable }),
         },
       removed: this.removed,
       openState: this.openState,
       openError: this.openError,
       hasMore: this.hasMore,
       hasNewer: this.hasNewer,
+      historyWasPartial: this.historyWasPartial,
       loadingOlder: this.loadingOlder,
+      historyLoadStatus: this.historyLoadStatus,
       promptError: this.promptError,
       blank: this.blankBit,
       lastAgentError: this.lastAgentError,

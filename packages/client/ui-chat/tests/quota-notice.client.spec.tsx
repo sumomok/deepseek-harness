@@ -66,6 +66,8 @@ async function bench() {
   runtime.ctx.provide('uiWorkspace', {
     openWorkspace: async (_workspaceId: WorkspaceId, beforeOpen: (id: SessionId) => void) => { beforeOpen(SID) },
     openSession: () => {},
+    revealSource: () => ({ getSnapshot: () => null, subscribe: () => () => {} }),
+    settleReveal: () => {},
   } as never)
   runtime.remote.provideNamespaces({ session: { openWorkspacePath: async () => ({ ok: true, value: { opened: true } }) } })
   const locale = new LocaleRuntime(runtime.ctx)

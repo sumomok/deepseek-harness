@@ -48,13 +48,15 @@ function mountLanding(count = 10) {
   }
   vi.stubGlobal('ResizeObserver', Observer)
   const loadThrough = vi.fn<(seq: number) => Promise<void>>(async () => {})
-  const openAt = vi.fn<(seq: number) => Promise<boolean>>(async () => false)
+  const openAt = vi.fn<(seq: number) => Promise<boolean>>(async () => true)
   const settleReveal = vi.fn<(id: number) => void>()
   const notifyRevealFailure = vi.fn<() => void>()
   const setTurnProcessOpen = vi.fn<(turn: number, answerStep: number, open: boolean) => void>()
   let target: ChatRevealTarget | undefined
   let input: ChatScrollInput = {
-    ready: true,
+    isOpen: true,
+    historyLoadStatus: 'idle',
+    consumeOlder: vi.fn(() => false),
     order: [],
     firstSeq: null,
     lastKey: null,
@@ -142,6 +144,7 @@ function mountLanding(count = 10) {
       await act(async () => { await Promise.resolve() })
     },
     loadThrough,
+    openAt,
     settleReveal,
     notifyRevealFailure,
     setTurnProcessOpen,
@@ -159,7 +162,7 @@ describe('Chat reveal landing', () => {
 
     await h.raise(request(1, 42))
 
-    expect(h.loadThrough).toHaveBeenCalledWith(SessionSeq(42))
+    expect(h.openAt).toHaveBeenCalledWith(SessionSeq(42))
     expect(h.top()).toBe(5 * ROW_HEIGHT - 24)
     expect(h.row(5).dataset.chatLanded).toBe('')
     expect(h.settleReveal).toHaveBeenCalledWith(1)
@@ -200,7 +203,7 @@ describe('Chat reveal landing', () => {
 
     await h.raise(request(2, 42))
 
-    expect(h.loadThrough).toHaveBeenCalledTimes(2)
+    expect(h.openAt).toHaveBeenCalledTimes(2)
     expect(h.row(5).dataset.chatLanded).toBe('')
     expect(h.settleReveal).toHaveBeenLastCalledWith(2)
   })
@@ -210,6 +213,7 @@ describe('Chat reveal landing', () => {
     h.target(undefined)
 
     await h.raise(request(1, 42))
+    await h.settleFrame()
 
     expect(h.notifyRevealFailure).toHaveBeenCalledTimes(1)
     expect(h.settleReveal).toHaveBeenCalledWith(1)

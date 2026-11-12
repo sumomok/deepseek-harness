@@ -19,6 +19,7 @@ kind: "package-reference"
 
 -----
 
+<a id="use-this-package"></a>
 ## 使用本包
 
 要在不跟随可能越界的符号链接的前提下，把二进制内容写进某个目录边界内时，用 `writeBinarySafe`。
@@ -59,6 +60,7 @@ await writeBinarySafe(
 
 -----
 
+<a id="understand-the-implementation"></a>
 ## 理解实现
 
 <details>
@@ -91,6 +93,7 @@ await writeBinarySafe(
 
 -----
 
+<a id="known-limitations-and-deferred-work"></a>
 ## 已知限制与推迟的工作
 
 这些限制界定了本包不适用的范围。它们是本包当前的约束，不是待办清单。

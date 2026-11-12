@@ -27,8 +27,6 @@ export interface Config extends ContactConfig {
 export const Config = z.object({
   contactFormUrl: ContactConfigFields.contactFormUrl,
   contactSource: ContactConfigFields.contactSource,
-  bonusAckRetryDelayMs: ContactConfigFields.bonusAckRetryDelayMs,
-  bonusAckRetryMaxDelayMs: ContactConfigFields.bonusAckRetryMaxDelayMs,
   detailsRetryDelayMs: ContactConfigFields.detailsRetryDelayMs,
   detailsRetryMaxDelayMs: ContactConfigFields.detailsRetryMaxDelayMs,
   detailsRetryAttempts: ContactConfigFields.detailsRetryAttempts,
@@ -53,7 +51,6 @@ export function apply(ctx: Context, config: Config): void {
   ctx.on('webserver/index-inject', (table) => {
     table.push({ kind: 'global', name: CONTACT_CONFIG_GLOBAL, value: {
       contactFormUrl: config.contactFormUrl, contactSource: config.contactSource,
-      bonusAckRetryDelayMs: config.bonusAckRetryDelayMs, bonusAckRetryMaxDelayMs: config.bonusAckRetryMaxDelayMs,
       detailsRetryDelayMs: config.detailsRetryDelayMs, detailsRetryMaxDelayMs: config.detailsRetryMaxDelayMs,
       detailsRetryAttempts: config.detailsRetryAttempts,
     } satisfies ContactConfig })

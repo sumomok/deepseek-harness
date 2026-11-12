@@ -218,7 +218,7 @@ function directReady(): SessionLogExport.SessionLogExportReady {
 /** Consume one directly built zip stream into its unpacked files. */
 async function directZipFiles(rootContent: string): Promise<Record<string, Uint8Array>> {
   const stream = SessionLogExport.streamSessionLogZip(
-    directReady(), rootContent, sid('session-root'), false, 6, new AbortController().signal,
+    directReady(), rootContent, sid('session-root'), [], 6, new AbortController().signal,
   )
   return unzipSync(new Uint8Array(await new Response(stream).arrayBuffer()))
 }

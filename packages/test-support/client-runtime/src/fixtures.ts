@@ -75,7 +75,7 @@ export function sessionSnapshot(sessionId: SessionId): SessionSnapshot {
     openError: null,
     hasMore: false,
     hasNewer: false,
-    loadingOlder: false,
+    loadingOlder: false, historyLoadStatus: 'idle', historyWasPartial: false,
     promptError: null,
     blank: false,
     lastAgentError: null,
