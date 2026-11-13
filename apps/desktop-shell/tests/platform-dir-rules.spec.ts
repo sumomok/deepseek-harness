@@ -4,7 +4,7 @@
  * @module
  */
 
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, sep } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -73,8 +73,12 @@ function derive(root: string, rules: readonly PlatformDirRule[]): { payload: str
   return { payload, dropped }
 }
 
+const FRAME_FORWARDING_PLATFORMS = ['darwin-arm64', 'darwin-x64', 'win32-arm64', 'win32-x64']
+const FRAME_FORWARDING_PREBUILDS = join(OFFICE_KIT, 'frame-forwarding', 'prebuilds')
+
 /** The platform-split families a macOS arm64 host stages, with both platforms' members where the pipeline fetches them. */
 const MAC_HOST_STAGED = [
+  ...FRAME_FORWARDING_PLATFORMS.map(platform => join(FRAME_FORWARDING_PREBUILDS, platform)),
   'node-pty/prebuilds/darwin-arm64', 'node-pty/prebuilds/win32-x64',
   '@img/sharp-darwin-arm64', '@img/sharp-win32-x64',
   '@koromix/koffi-darwin-arm64', '@koromix/koffi-win32-x64',
@@ -137,6 +141,21 @@ describe('platformDirRules', () => {
     expect(top('win')?.keep('sherpa-onnx-win-ia32')).toBe(false)
     expect(top('win')?.keep('sherpa-onnx-darwin-arm64')).toBe(false)
     expect(top('win')?.keep('yaml')).toBe(true)
+  })
+
+  it.each([
+    ['darwin', 'arm64', 'darwin-arm64'],
+    ['darwin', 'x64', 'darwin-x64'],
+    ['win', 'arm64', 'win32-x64'],
+    ['win', 'x64', 'win32-x64'],
+  ] as const)('keeps the frame-forwarding helper for %s built on %s', async (target, arch, expected) => {
+    const root = staged(FRAME_FORWARDING_PLATFORMS.map(platform => join(FRAME_FORWARDING_PREBUILDS, platform)))
+    const { payload, dropped } = derive(root, platformDirRules(arch)[target])
+    await verifyPrunedPayload({
+      target, runsOn: runsOn(target, arch), staged: await snapshotPayload(root),
+      afterPlatformPrune: await snapshotPayload(payload), payload, droppedByRules: dropped,
+    })
+    expect(readdirSync(join(payload, 'node_modules', FRAME_FORWARDING_PREBUILDS))).toEqual([expected])
   })
 
   it('drops something with every rule on the tree a macOS host stages', async () => {

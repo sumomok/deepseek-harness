@@ -135,6 +135,7 @@ export function platformDirRules(arch: string): Record<PayloadTarget, PlatformDi
   return {
     win: [
       { parent: join('node-pty', 'prebuilds'), keep: name => name === 'win32-x64' },
+      { parent: join(OFFICE_KIT, 'frame-forwarding', 'prebuilds'), keep: name => name === 'win32-x64' },
       { parent: '@deepseek-ai', keep: name => shipsFromDeepseek(name) && !name.startsWith('node-addon-system-') },
       { parent: '@img', keep: name => !name.includes('darwin') && !name.includes('linux') },
       { parent: '@koromix', keep: name => !name.startsWith('koffi-') || name === 'koffi-win32-x64' },
@@ -143,6 +144,7 @@ export function platformDirRules(arch: string): Record<PayloadTarget, PlatformDi
     ],
     darwin: [
       { parent: join('node-pty', 'prebuilds'), keep: name => name === `darwin-${arch}` },
+      { parent: join(OFFICE_KIT, 'frame-forwarding', 'prebuilds'), keep: name => name === `darwin-${arch}` },
       { parent: '@deepseek-ai', keep: shipsFromDeepseek },
       { parent: '@img', keep: name => !name.includes('win32') && !name.includes('linux') },
       { parent: '@koromix', keep: name => !name.startsWith('koffi-') || name === `koffi-darwin-${arch}` },
