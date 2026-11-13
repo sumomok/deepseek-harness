@@ -1130,6 +1130,9 @@ importers:
       '@deepseek-ai/dsh-desktop-app':
         specifier: workspace:*
         version: link:../desktop-app
+      '@deepseek-ai/dsh-error':
+        specifier: workspace:*
+        version: link:../../packages/util/error
       '@deepseek-ai/dsh-experimental-worktree':
         specifier: workspace:*
         version: link:../../packages/experimental/worktree
