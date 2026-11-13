@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, 
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, type TestContext } from 'vitest'
+import { CORE_PATCHES_HISTORY_PATH } from './core-patches-history.ts'
 import { findRepositoryReferences, repositoryCommits, scanRepositoryReferences, uniquePrefixMatch } from './verify-repository-references.ts'
 
 const organizationUrl = `https://${['github.com', ['deepseek', 'harness'].join('-')].join('/')}`
@@ -69,6 +70,73 @@ describe('unique object-name prefix search', () => {
     [[], 'abc', undefined],
   ] as const)('finds in %j the one name starting with %s', (objects, prefix, expected) => {
     expect(uniquePrefixMatch(objects, prefix)).toBe(expected)
+  })
+})
+
+describe('historical manifest reference tokens', () => {
+  function manifest(hash: string, reason = 'Approved', subject = 'Historical subject'): string {
+    return JSON.stringify({ version: 1, cutoff: hash, entries: [{ commit: hash, subject, patch: 'alpha-seam', reason }] }, null, 2)
+  }
+
+  it.for(['compact', 'multiline', 'crlf', 'escaped', 'reordered'] as const)('exempts only identity value tokens in %s JSON', (mode, test) => {
+    const fixture = repository(test)
+    let source = manifest(fixture.commit)
+    if (mode === 'compact') source = JSON.stringify(JSON.parse(source))
+    if (mode === 'crlf') source = source.replaceAll('\n', '\r\n')
+    if (mode === 'escaped') source = source.replaceAll(fixture.commit, fixture.commit.split('').map(character => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`).join('')).replace('cutoff', String.raw`cut\u006fff`)
+    if (mode === 'reordered') source = JSON.stringify({ entries: [{ reason: 'Approved', patch: 'alpha-seam', subject: 'Historical subject', commit: fixture.commit }], cutoff: fixture.commit, version: 1 })
+    fixture.write(CORE_PATCHES_HISTORY_PATH, source)
+    expect(scanRepositoryReferences(fixture.root)).toEqual([])
+  })
+
+  it.for(['reason', 'subject'] as const)('checks identical hashes in %s even on the same line as exempt values', (field, test) => {
+    const fixture = repository(test)
+    const hash = fixture.commit
+    const source = manifest(hash, field === 'reason' ? hash : 'Approved', field === 'subject' ? hash : 'Historical subject')
+    fixture.write(CORE_PATCHES_HISTORY_PATH, JSON.stringify(JSON.parse(source)))
+    expect(scanRepositoryReferences(fixture.root)).toEqual([{ file: CORE_PATCHES_HISTORY_PATH, line: 1, kind: 'commit-hash' }])
+    fixture.write(CORE_PATCHES_HISTORY_PATH, source)
+    expect(scanRepositoryReferences(fixture.root)).toEqual([{ file: CORE_PATCHES_HISTORY_PATH, line: source.split('\n').findIndex(line => line.includes(`"${field}"`)) + 1, kind: 'commit-hash' }])
+  })
+
+  it('checks decoded prose hashes when every occurrence uses JSON Unicode escapes', (test) => {
+    const fixture = repository(test)
+    const source = manifest(fixture.commit, fixture.commit).replaceAll(fixture.commit, fixture.commit.split('').map(character => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`).join(''))
+    fixture.write(CORE_PATCHES_HISTORY_PATH, source)
+    expect(scanRepositoryReferences(fixture.root)).toEqual([{ file: CORE_PATCHES_HISTORY_PATH, line: 9, kind: 'commit-hash' }])
+  })
+
+  it.for(['other.json', 'nested/.claude/core-patches-history.json', '.claude/core-patches-history.json.bak'])('does not exempt the same manifest at %s', (file, test) => {
+    const fixture = repository(test)
+    fixture.write(file, JSON.stringify(JSON.parse(manifest(fixture.commit))))
+    expect(scanRepositoryReferences(fixture.root)).toEqual([{ file, line: 1, kind: 'commit-hash' }])
+  })
+
+  it.for(['invalid-json', 'unknown-field', 'wrong-version', 'wrong-type', 'empty-entries', 'duplicate-commit', 'duplicate-root-key', 'duplicate-entry-key', 'escaped-duplicate-key', 'uppercase', 'abbreviated'] as const)(
+    'grants no exemptions to %s', (kind, test) => {
+      const fixture = repository(test)
+      const hash = fixture.commit
+      let source = JSON.stringify(JSON.parse(manifest(hash)))
+      if (kind === 'invalid-json') source += ','
+      if (kind === 'unknown-field') source = source.replace('"version":1', `"extra":"${hash}","version":1`)
+      if (kind === 'wrong-version') source = source.replace('"version":1', '"version":2')
+      if (kind === 'wrong-type') source = source.replace('"version":1', '"version":"1"')
+      if (kind === 'empty-entries') source = JSON.stringify({ version: 1, cutoff: hash, entries: [] })
+      if (kind === 'duplicate-commit') source = JSON.stringify({ version: 1, cutoff: hash, entries: [1, 2].map(() => ({ commit: hash, subject: 'Historical subject', patch: 'alpha-seam', reason: 'Approved' })) })
+      if (kind === 'duplicate-root-key') source = source.replace('"version":1', '"version":1,"version":1')
+      if (kind === 'duplicate-entry-key') source = source.replace('"reason":', '"reason":"Approved","reason":')
+      if (kind === 'escaped-duplicate-key') source = source.replace('"reason":', String.raw`"r\u0065ason":"Approved","reason":`)
+      if (kind === 'uppercase') source = source.replaceAll(hash, hash.toUpperCase())
+      if (kind === 'abbreviated') source = source.replaceAll(hash, hash.slice(0, Math.max(10, hash.search(/[a-f]/) + 1)))
+      fixture.write(CORE_PATCHES_HISTORY_PATH, source)
+      expect(scanRepositoryReferences(fixture.root)).toEqual([{ file: CORE_PATCHES_HISTORY_PATH, line: 1, kind: 'commit-hash' }])
+    },
+  )
+
+  it('retains organization URL findings in an otherwise valid manifest', (test) => {
+    const fixture = repository(test)
+    fixture.write(CORE_PATCHES_HISTORY_PATH, manifest(fixture.commit, organizationUrl))
+    expect(scanRepositoryReferences(fixture.root)).toEqual([{ file: CORE_PATCHES_HISTORY_PATH, line: 9, kind: 'organization-url' }])
   })
 })
 

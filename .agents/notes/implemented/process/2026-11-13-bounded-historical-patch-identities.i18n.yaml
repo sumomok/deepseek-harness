@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-11-13-bounded-historical-patch-identities.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-11-13-bounded-historical-patch-identities.md
+/agent-note-bounded-historical-patch-identities-preserve-existing-commit-history:
+  en: d6718df3fb3df612
+  zh: f532751a4f3cdd68
+/agent-note-bounded-historical-patch-identities-preserve-existing-commit-history/problem:
+  en: 2d4092702f3c1345
+  zh: fd983215f462a6b5
+/agent-note-bounded-historical-patch-identities-preserve-existing-commit-history/decision:
+  en: 038edc6279958d56
+  zh: ebfc6ad7fe23e901
+/agent-note-bounded-historical-patch-identities-preserve-existing-commit-history/alternatives-considered:
+  en: 34dd0ce9c09355b0
+  zh: fcbe69d594bc7398
+/agent-note-bounded-historical-patch-identities-preserve-existing-commit-history/consequences:
+  en: 7c888a0af2d9cdda
+  zh: df9475570717cf03

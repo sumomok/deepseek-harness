@@ -24,7 +24,7 @@ fork 现在把这条线保留为长期分支 `feature/core-patches`，用 `git m
 
 因此退役就是该族的改动从差异里消失。它的旧提交可以留在线上，原来的 `retired-slug-in-use` 检查已删除。
 
-**提交沿 first-parent 链读取。** `git log --first-parent <base>..HEAD` 上的每个非合并提交恰有一条 `Patch:` trailer，值是登记过的 slug，任何状态都算（`trailer-count`、`malformed-trailer`、`unregistered-slug`）。被接入的历史和上游的提交挂在合并提交的第二父之下，不被枚举。
+**提交沿 first-parent 链读取。** `git log --first-parent <base>..HEAD` 上的每个非合并提交恰有一条 `Patch:` trailer，值是登记过的 slug，任何状态都算（`trailer-count`、`malformed-trailer`、`unregistered-slug`）。缺失 trailer 的补登记仅限[有界历史身份](2026-11-13-bounded-historical-patch-identities.zh.md)中逐项校验的集成前提交，其他提交仍遵守普通要求。被接入的历史和上游的提交挂在合并提交的第二父之下，不被枚举。
 
 **这条链上接受三种合并。** (a) 合并恰有两个父提交，且第二父恰好是某个 `refs/tags/dsh-v*` tag 指向的提交（附注 tag 取解引用后的提交）：并入上游发布。点名了发布的 octopus 合并仍会带进其余父提交，不算这一种。(b) 合并后的树等于第一父的树：`-s ours` 接续。(c) 登记声明了基座 commit，合并恰有两个父提交，且第二父精确等于该基准；基准的祖先和后代都不适用。其余合并一律报 `merge-commit`，因为话题分支的合并会把不带 trailer 的提交藏在第二父之下；本线上的改动以直接提交或 squash 提交落地。规则 (a) 不对声明的 tag 提任何要求：声明改成更新的 tag 之后，此前每一轮的发布合并仍留在 first-parent 链上，而新 tag 到达不了它们。
 
@@ -44,7 +44,7 @@ fork 现在把这条线保留为长期分支 `feature/core-patches`，用 `git m
 
 登记写明每一族相对上游占着哪些路径；一次同步如果让某族退役、或留下一处无主的改动，门禁会一直失败，直到登记写明为止。并入更新的发布之后、改 `基座 tag` 声明之前，整个上游跨度都读作未认领；声明与认领在合并之后的一条登记提交里一起改。
 
-仓库引用检查只豁免登记文件中代码围栏外基座 commit 声明的完整提交标识；散文、同一行的其他标识和其他文件中的声明仍受检查。更新基准不会授权此前未发布的合并：旧合并若仍在 first-parent 范围内，且没有真实发布 tag 指向其第二父，检查仍失败。没有基于祖先关系的例外，也没有 trailer 豁免。
+仓库引用检查豁免代码围栏外基座 commit 声明的完整提交标识，以及[有界历史身份](2026-11-13-bounded-historical-patch-identities.zh.md)规定的精确清单字段。散文、同一行的其他标识和其他文件中的声明仍受检查。更新基准不会授权此前未发布的合并：旧合并若仍在 first-parent 范围内，且没有真实发布 tag 指向其第二父，检查仍失败。历史身份补登记不放宽合并准入。
 
 生成物清单是门禁里的常量。某个生成器开始写一份原来由各族手工认领的文件（例如翻译后的目录）时，要在同一轮把它加进这份常量。
 

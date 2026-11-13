@@ -10,9 +10,11 @@
 
 ## 身份规则
 
-**补丁身份是 slug，不是提交哈希。** 每个补丁族有一个 kebab-case slug，全线唯一、稳定，由补丁标题派生。同一族的多个提交共用一个 slug。上游的 `verify-repository-references` 拒绝在维护中的散文里出现能解析成本仓提交的十六进制串，所以补丁身份只用 slug。唯一的提交哈希例外是代码围栏外 `基座 commit` 声明中的完整 SHA；这是门禁读取的基准，其他位置仍受引用检查约束。
+**补丁身份是 slug，不是提交哈希。** 每个补丁族有一个 kebab-case slug，全线唯一、稳定，由补丁标题派生。同一族的多个提交共用一个 slug。上游的 `verify-repository-references` 拒绝在维护中的散文里出现能解析成本仓提交的十六进制串，所以补丁身份只用 slug。提交哈希的操作字段例外限于代码围栏外 `基座 commit` 声明中的完整 SHA，以及有效[历史身份清单](core-patches-history.json)的 `cutoff` 与 `entries[].commit` 字符串；其他位置仍受引用检查约束。
 
-**first-parent 链上的每个非合并提交带一条 `Patch: <slug>` trailer。** 链从声明的基座数到 HEAD（`git log --first-parent <base>..HEAD`）。`core-patches-z` 带进来的旧线提交、上游发布里的提交都挂在合并提交的第二父之下，不在链上，不要求 trailer。
+**first-parent 链上的非合并提交通过 `Patch: <slug>` trailer 声明身份。** 每个提交恰有一条；仅下述固定历史补登记可补足没有任何 trailer 的既有提交。链从声明的基座数到 HEAD（`git log --first-parent <base>..HEAD`）。`core-patches-z` 带进来的旧线提交、上游发布里的提交都挂在合并提交的第二父之下，不在链上，不要求 trailer。
+
+**历史补登记**：[固定清单](core-patches-history.json)为三个集成前已存在的遗漏逐项提供 slug，不改写提交。版本 1 只允许一至三项，每项携带完整小写 SHA、实际标题、已登记 slug 和非空理由；未知字段、重复键或条目均失败。截止点必须位于 HEAD 第一父链上；条目必须指向其第一父链上严格更早的真实非合并提交，标题匹配，且 Git 读不到任何 `Patch:` trailer。已有空值、错误或重复 trailer 不可覆盖。清单外和截止点之后的提交照常要求普通 trailer；基准更新使条目离开当前差异范围时仍核对其历史关系。清单不自动追加或推进；维护理由与取舍见[有界历史身份决定](../.agents/notes/implemented/process/2026-11-13-bounded-historical-patch-identities.md)。
 
 **合并规则**：first-parent 链上的合并提交接受三种。(a) 恰有两个父提交，且第二父恰好是某个 `refs/tags/dsh-v*` tag 指向的提交（附注 tag 取解引用后的提交），即并入上游发布；不对声明的 tag 附加祖先条件，因为此前的发布合并仍留在链上。(b) 合并后的树等于第一父的树，即 `-s ours` 接续。(c) 声明了 `基座 commit`，合并恰有两个父提交，且第二父精确等于该基准提交；基准的祖先或后代都不等价，octopus 合并不适用 (a)(c)。其余合并一律违规：话题分支的合并会把不带 trailer 的提交藏在第二父之下。本线上的改动直接提交或 squash，不走 PR 的合并提交。commit 基准只授权本次精确合并：之后更新基准时，仍在 first-parent 范围内的旧未发布合并必须另有真实发布 tag 支持，否则继续报错；不把任意祖先自动视为上游发布。
 
@@ -20,9 +22,9 @@
 
 **退役就是差异消失。** 一族的改动全部回到与基座相同时，它的 pathspec 不再命中任何路径，门禁报 `unused-active-slug`，状态改为 `退役`、删掉 `路径` 行。它的旧提交可以留在线上，不要求从线上拿掉。
 
-**门禁**：`pnpm run verify-core-patches`（`scripts/verify-core-patches.ts`，已登记进 `doc-sync`）。违规类型：`unclaimed-path`（差异路径没有在役记录认领）、`unused-active-slug`（在役记录一个差异路径都没认领到）、`unused-pathspec`（某条 pathspec 一个差异路径都没命中）、`missing-paths`（在役记录缺 `路径` 行）、`retired-record-claims-paths`（`退役` 记录带了 `路径` 行）、`trailer-count`（链上提交的 `Patch:` trailer 不是恰好一条——按 git 自己的 `%(trailers:key=Patch)` 读，因此必须落在提交信息的最后一段）、`malformed-trailer`（trailer 的值不是 slug：git 的 trailer key 匹配大小写不敏感、值也来者不拒，slug 格式只能由本门禁把关）、`unregistered-slug`（trailer 点名的 slug 本文件未登记；任何状态都算登记）、`merge-commit`（不属于合并规则 (a)(b)(c) 的合并）、`duplicate-slug`、`missing-status`、`malformed-heading`（`## ` 标题既不是记录格式、也不是 `身份规则`／`历史轮次` 之一——标题解析失败会让整条记录连同它的检查一起蒸发，所以标题本身是违规）。
+**门禁**：`pnpm run verify-core-patches`（`scripts/verify-core-patches.ts`，已登记进 `doc-sync`）。违规类型：`unclaimed-path`（差异路径没有在役记录认领）、`unused-active-slug`（在役记录一个差异路径都没认领到）、`unused-pathspec`（某条 pathspec 一个差异路径都没命中）、`missing-paths`（在役记录缺 `路径` 行）、`retired-record-claims-paths`（`退役` 记录带了 `路径` 行）、`trailer-count`（链上提交没有有效历史补登记且 `Patch:` trailer 不是恰好一条——按 git 自己的 `%(trailers:key=Patch)` 读，因此必须落在提交信息的最后一段）、`malformed-trailer`（trailer 的值不是 slug：git 的 trailer key 匹配大小写不敏感、值也来者不拒，slug 格式只能由本门禁把关）、`unregistered-slug`（trailer 点名的 slug 本文件未登记；任何状态都算登记）、`merge-commit`（不属于合并规则 (a)(b)(c) 的合并）、`duplicate-slug`、`missing-status`、`malformed-heading`（`## ` 标题既不是记录格式、也不是 `身份规则`／`历史轮次` 之一——标题解析失败会让整条记录连同它的检查一起蒸发，所以标题本身是违规）。
 
-**门禁的执行面与后果**：**skip（退出 0）只有两种**——checkout 不在本文件声明的补丁线上（`develop`、`core-patches`、集成线、detached HEAD），或本检出是浅克隆（截断的历史够不到基座 tag）；分支这条判在前。**failed（退出 1）** 是其余一切，且不分分支：本文件读不到、代码围栏未闭合、`**当前补丁线**` 不是恰好一条、tag 与 commit 基座合计不是恰好一条（围栏代码块里的示例既不算记录也不算声明）、声明的 tag 不存在（`base-tag-missing`，先 `git fetch upstream --tags`）或未并入 HEAD（`base-tag-not-merged`）、commit 不是完整真实提交或未并入 HEAD、任何一条 git 命令失败（一行诊断，不抛栈），以及上面的违规本身。并入更新的上游 tag 之后、把声明改成它之前，整段上游跨度都会报 `unclaimed-path`；声明与认领在合并之后的登记提交里一起改。**后果**：`ci.yml` 只在 `pull_request` 上跑，`actions/checkout` 在该事件下检出的是这次 PR 的合并提交（detached HEAD），`ci-master.yml` 只在 `master` 上跑，两条都落在第一条 skip 上——漏 trailer、漏登记、漏认领，仍然只有在补丁线分支上跑 `doc-sync` 的人能抓到（那条静态 lane 用的是 `fetch-depth: 0`，所以浅克隆那条 skip 不是 CI 落点）。一个例外是手动触发：`ci-master.yml` 另有 `workflow_dispatch`，在补丁线分支上手动 dispatch 时 `actions/checkout` 按分支名检出，其 linux lane（同样 `fetch-depth: 0`，跑 `check:ci:linux-primary`）会真跑本门禁而不是 skip。决定与实测见 Agent Note [`merge-based-core-patch-line`](../.agents/notes/implemented/process/2026-09-24-merge-based-core-patch-line.md)。
+**门禁的执行面与后果**：**skip（退出 0）只有两种**——checkout 不在本文件声明的补丁线上（`develop`、`core-patches`、集成线、detached HEAD），或本检出是浅克隆（截断的历史够不到基座 tag）；分支这条判在前。**failed（退出 1）** 是其余一切，且不分分支：本文件读不到、历史身份清单存在但不可读或解析失败、代码围栏未闭合、`**当前补丁线**` 不是恰好一条、tag 与 commit 基座合计不是恰好一条（围栏代码块里的示例既不算记录也不算声明）、声明的 tag 不存在（`base-tag-missing`，先 `git fetch upstream --tags`）或未并入 HEAD（`base-tag-not-merged`）、commit 不是完整真实提交或未并入 HEAD、任何一条 git 命令失败（一行诊断，不抛栈），以及上面的违规本身。并入更新的上游 tag 之后、把声明改成它之前，整段上游跨度都会报 `unclaimed-path`；声明与认领在合并之后的登记提交里一起改。**后果**：`ci.yml` 只在 `pull_request` 上跑，`actions/checkout` 在该事件下检出的是这次 PR 的合并提交（detached HEAD），`ci-master.yml` 只在 `master` 上跑，两条都落在第一条 skip 上——漏 trailer、漏登记、漏认领，仍然只有在补丁线分支上跑 `doc-sync` 的人能抓到（那条静态 lane 用的是 `fetch-depth: 0`，所以浅克隆那条 skip 不是 CI 落点）。一个例外是手动触发：`ci-master.yml` 另有 `workflow_dispatch`，在补丁线分支上手动 dispatch 时 `actions/checkout` 按分支名检出，其 linux lane（同样 `fetch-depth: 0`，跑 `check:ci:linux-primary`）会真跑本门禁而不是 skip。决定与实测见 Agent Note [`merge-based-core-patch-line`](../.agents/notes/implemented/process/2026-09-24-merge-based-core-patch-line.md)。
 
 **指向历史的写法**：指向本 fork 的改动写 slug 或相对链接指向该补丁的 Agent Note；指向上游的改动写上游 PR 号（`Merge pull request #NNNN`，即合并提交标题里的那个号，不是分支名里的 issue 号）或发布 tag。
 
@@ -44,7 +46,7 @@
 - **为什么**：首次资料请求取消、超时或失败后，后续账号帧未必会再到达，侧栏不能永久停留在缺失资料的状态。
 - **要达到的效果**：沿上游 `AccountUpdate` 与 `view.status/attempt` 继续工作，资料重试有界且不会继承旧账号的结果。
 - **退役条件**：上游在相同账号生命周期上提供等价的资料重试语义和配置。
-- **状态**：局部退役（`feature/core-patches`）。客户端重试仍在役；旧 `deepseek-account-platform` 的共享资料读取随上游账号实现替换退役，不恢复 `bonusAck`。历史提交缺少 trailer 的问题仍由门禁报告，本条不豁免提交检查。
+- **状态**：局部退役（`feature/core-patches`）。客户端重试仍在役；旧 `deepseek-account-platform` 的共享资料读取随上游账号实现替换退役，不恢复 `bonusAck`。两条既有账号提交的缺失 trailer 由固定历史身份清单补登记，仍受实际提交、截止点及归属校验约束。
 - **路径**：`packages/client/ui-settings-account/README.*` `packages/client/ui-settings-account/src/client/index.ts` `packages/client/ui-settings-account/src/contact-config.ts` `packages/client/ui-settings-account/src/index.ts` `packages/client/ui-settings-account/tests/apply.client.spec.ts` `packages/client/ui-settings-account/tests/config.client.spec.ts` `packages/credentials/deepseek-account/tests/account.spec.ts`
 
 ## ansi-line-parser-export — ui-primitives 导出 ANSI 行解析器
@@ -231,7 +233,7 @@
 
 ## core-patches-registry-gate — 按 slug 登记补丁身份与其门禁
 
-- **改了什么**：新增 `scripts/verify-core-patches.ts` 与 `package.json` 的 `verify-core-patches` 脚本，登记进 `scripts/run-gates.ts` 的 `doc-sync` 叶子列表，附 `scripts/verify-core-patches.spec.ts`；全线提交加 `Patch: <slug>` trailer；本文件按 slug 重写；Agent Notes 与 `packages/preset/agent-presets/src/index.ts` 里指向提交的散文改写为 slug、上游 PR 号或描述。门禁按本文件开头互斥的 `**基座 tag**` 或 `**基座 commit**` 取基座，核对三件事：first-parent 链上每个非合并提交恰有一条登记过的 `Patch:` trailer；链上的合并必须满足开头的合并规则；与基座的每一处差异（生成物除外）都由某条在役记录的 `路径` 行认领，每条在役记录和它的每条 pathspec 都至少命中一处差异。
+- **改了什么**：新增 `scripts/verify-core-patches.ts` 与 `package.json` 的 `verify-core-patches` 脚本，登记进 `scripts/run-gates.ts` 的 `doc-sync` 叶子列表，附 `scripts/verify-core-patches.spec.ts`；全线提交加 `Patch: <slug>` trailer；本文件按 slug 重写；Agent Notes 与 `packages/preset/agent-presets/src/index.ts` 里指向提交的散文改写为 slug、上游 PR 号或描述。门禁按本文件开头互斥的 `**基座 tag**` 或 `**基座 commit**` 取基座，核对三件事：first-parent 链上每个非合并提交具有普通 `Patch:` trailer 或经过严格校验的固定历史补登记身份；链上的合并必须满足开头的合并规则；与基座的每一处差异（生成物除外）都由某条在役记录的 `路径` 行认领，每条在役记录和它的每条 pathspec 都至少命中一处差异。
 - **为什么**：登记曾用提交哈希做身份。哈希每轮变基全部作废——上一轮登记的 284 个哈希里只有 72 个还能在当时的线上解析——而上游新增的 `verify-repository-references`（上游 PR #4060）拒绝维护中的散文里出现能解析成本仓提交的十六进制串，两条一起使哈希不可用。
 - **要达到的效果**：补丁身份不依赖提交哈希且可机械核对；登记写明每族相对上游占着哪些路径，线上多出一处无主改动、或某族改动已消失而记录仍在役，门禁都会失败。
 - **退役条件**：上游为引用门禁提供排除或配置口且本 fork 改回哈希登记，或上游自己提供等价的补丁登记机制。
@@ -242,7 +244,7 @@
 - **`dsh-v0.1.7-rc.2` 那一轮适配**：`dsh-v0.1.7-rc.2` 起 `gen-config-catalog`、`gen-doc-graphs` 自己写 `docs/config-catalog.zh.md` 与 `docs/event-producer-consumer.zh.md` 的生成区块，两份进入 `GENERATED_PATHSPECS`；spec 加一例：两份与基座不同时无人认领也通过（豁免按整份文件生效，不是按生成区块），并加一例反证：人工维护的 `docs/capability-seams.zh.md` 无人认领时仍报 `unclaimed-path`。
 - **提交信息订正**：提交 `fix(scripts): close the four ways the patch-registry gate let real errors by` 的信息写「`upstream/master` was checked for existence, not for being this line's base. A stale ref silently widened the range, and the extra upstream commits surfaced as trailer violations pointing at upstream's own work. It is now compared against `git merge-base upstream/master HEAD`」。这条修法没有解决它声称解决的问题：`upstream/master` 落后真实基座时它仍是 HEAD 的合并基座，基座判据照样接受它，范围照样撑到上游的提交上，门禁随即把上游自己的提交报成 `trailer-count`／`merge-commit` 违规而失败——就是该信息描述的那个症状，只是落点从基座判据挪到了违规清单。反方向（`upstream/master` 前进，每次 `git fetch upstream` 之后的常态）则直接失败在基座判据上，而提示里的「fetch」只会让它更红。基座现由本文件的 `**基座 tag**` 声明给出，按 `refs/tags/<tag>` 解析并要求已并进 HEAD，门禁不读 `upstream/master`。本线只追加提交、不改写历史，以本条为准。
 - **Agent Note**：[`core-patch-identity-trailers`](../.agents/notes/implemented/process/2026-09-17-core-patch-identity-trailers.md)、[`merge-based-core-patch-line`](../.agents/notes/implemented/process/2026-09-24-merge-based-core-patch-line.md)
-- **路径**：`.agents/notes/implemented/process/2026-09-17-core-patch-identity-trailers.*` `.agents/notes/implemented/process/2026-09-24-merge-based-core-patch-line.*` `package.json` `scripts/run-gates.ts` `scripts/verify-core-patches.spec.ts` `scripts/verify-core-patches.ts` `scripts/verify-repository-references.ts` `scripts/verify-repository-references.spec.ts` `docs/AGENTS.md`
+- **路径**：`.claude/core-patches-history.json` `scripts/core-patches-history.ts` `scripts/core-patches-history.spec.ts` `.agents/notes/implemented/process/2026-11-13-bounded-historical-patch-identities.*` `.agents/notes/implemented/process/2026-09-17-core-patch-identity-trailers.*` `.agents/notes/implemented/process/2026-09-24-merge-based-core-patch-line.*` `package.json` `scripts/run-gates.ts` `scripts/verify-core-patches.spec.ts` `scripts/verify-core-patches.ts` `scripts/verify-repository-references.ts` `scripts/verify-repository-references.spec.ts` `docs/AGENTS.md`
 
 ## deployment-required-plugins — 部署方点名的必需插件由插件管理锁定
 

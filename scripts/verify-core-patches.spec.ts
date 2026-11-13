@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, type TestContext } from 'vitest'
+import { CORE_PATCHES_HISTORY_PATH, type CorePatchesHistory } from './core-patches-history.ts'
 import {
   changedPaths,
   findRegistryViolations,
@@ -90,7 +91,7 @@ afterAll(() => {
 })
 
 function commit(id: string, ...slugs: string[]): LineCommit {
-  return { id, subject: `subject ${id}`, slugs }
+  return { fullId: id.padEnd(40, '0'), id, subject: `subject ${id}`, slugs }
 }
 
 /**
@@ -624,6 +625,189 @@ describe('explicit base commits', () => {
     expect(result.report).toContain('Moving the base commit does not authorize earlier untagged merges')
     const merges = lineMerges(fixture.root, second, releaseCommits(fixture.root), second)
     expect(merges.map(merge => merge.mergesBaseCommit)).toEqual([false, true])
+  })
+})
+
+describe('historical patch approvals', () => {
+  function historyFixture(test: TestContext, message = 'historical subject') {
+    const fixture = repository(test)
+    const historical = fixture.record(message)
+    const cutoff = fixture.record('cutoff\n\nPatch: alpha-seam')
+    const history: CorePatchesHistory = {
+      version: 1,
+      cutoff,
+      entries: [{ commit: historical, subject: 'historical subject', patch: 'alpha-seam', reason: 'Explicit approval' }],
+    }
+    const save = () => { fixture.write(CORE_PATCHES_HISTORY_PATH, JSON.stringify(history)) }
+    save()
+    return { ...fixture, historical, history, save }
+  }
+
+  it.for(['alpha-seam', 'beta-seat'])('admits only the approved full identity, including registered retired family %s', (patch, test) => {
+    const fixture = historyFixture(test)
+    fixture.history.entries[0]!.patch = patch
+    fixture.save()
+    expect(lineCommits(fixture.root, fixture.base)[0]).toMatchObject({
+      fullId: fixture.historical, id: fixture.historical.slice(0, 10), slugs: [],
+    })
+    expect(runCheck(fixture.root).status).toBe('ok')
+    fixture.record('new missing trailer')
+    const result = runCheck(fixture.root)
+    expect(result.status).toBe('failed')
+    expect(result.report).toContain('(new missing trailer) carries 0 Patch trailers')
+    expect(result.report).not.toContain('(historical subject) carries 0 Patch trailers')
+  })
+
+  it('keeps unapproved older commits failing', (test) => {
+    const fixture = repository(test)
+    fixture.record('unapproved historical subject')
+    const historical = fixture.record('approved historical subject')
+    const cutoff = fixture.record('cutoff\n\nPatch: alpha-seam')
+    fixture.write(CORE_PATCHES_HISTORY_PATH, JSON.stringify({ version: 1, cutoff, entries: [{ commit: historical, subject: 'approved historical subject', patch: 'alpha-seam', reason: 'Approved' }] }))
+    const result = runCheck(fixture.root)
+    expect(result.status).toBe('failed')
+    expect(result.report).toContain('(unapproved historical subject) carries 0 Patch trailers')
+    expect(result.report).not.toContain('(approved historical subject) carries 0 Patch trailers')
+  })
+
+  it.for(['Patch: alpha-seam', 'Patch:', 'Patch: BAD VALUE', 'Patch: alpha-seam\nPatch: alpha-seam', 'Patch: alpha-seam\nPatch: beta-seat', 'Patch: \nPatch: alpha-seam', 'patch: alpha-seam'])(
+    'rejects approval over existing Git trailers %j', (trailers, test) => {
+      const fixture = historyFixture(test, `historical subject\n\n${trailers}`)
+      expect(runCheck(fixture.root)).toMatchObject({ status: 'failed', report: expect.stringContaining('already carries a Patch trailer') as string })
+    },
+  )
+
+  it.for(['subject', 'patch'] as const)('rejects a mismatched %s', (field, test) => {
+    const fixture = historyFixture(test)
+    fixture.history.entries[0]![field] = field === 'subject' ? 'historical subject ' : 'unknown-family'
+    fixture.save()
+    expect(runCheck(fixture.root)).toMatchObject({ status: 'failed', report: expect.stringContaining(field === 'subject' ? 'subject does not match' : 'unregistered patch') as string })
+  })
+
+  it.for(['cutoff', 'commit'] as const)('rejects a %s at an unmerged or second-parent commit', (field, test) => {
+    const fixture = historyFixture(test)
+    const side = upstreamCommit(fixture, fixture.base, 'side-history')
+    if (field === 'cutoff') fixture.history.cutoff = side
+    else fixture.history.entries[0]!.commit = side
+    fixture.save()
+    expect(runCheck(fixture.root).status).toBe('failed')
+    fixture.git(['merge', '--quiet', '--no-ff', '-s', 'ours', '-m', 'join side', side])
+    const result = runCheck(fixture.root)
+    expect(result.status).toBe('failed')
+    expect(result.report).toContain('first-parent chain')
+  })
+
+  it.for(['at-cutoff', 'after-cutoff'] as const)('rejects an approval %s', (kind, test) => {
+    const fixture = historyFixture(test)
+    fixture.history.entries[0]!.commit = kind === 'at-cutoff' ? fixture.history.cutoff : fixture.record('too new')
+    fixture.save()
+    expect(runCheck(fixture.root)).toMatchObject({ status: 'failed', report: expect.stringContaining('not strictly before cutoff') as string })
+  })
+
+  it('rejects a merge even when it preserves its first parent tree', (test) => {
+    const fixture = historyFixture(test)
+    const side = upstreamCommit(fixture, fixture.base, 'side-history')
+    fixture.git(['merge', '--quiet', '--no-ff', '-s', 'ours', '-m', 'join side', side])
+    fixture.history.entries[0]!.commit = fixture.git(['rev-parse', 'HEAD'])
+    fixture.history.entries[0]!.subject = 'join side'
+    fixture.history.cutoff = fixture.record('later cutoff\n\nPatch: alpha-seam')
+    fixture.save()
+    expect(runCheck(fixture.root)).toMatchObject({ status: 'failed', report: expect.stringContaining('is a merge commit') as string })
+  })
+
+  it.for(['cutoff', 'commit'] as const)('requires %s to identify a real commit object', (field, test) => {
+    const fixture = historyFixture(test)
+    fixture.git(['tag', '-a', 'history-tag', '-m', 'history tag'])
+    for (const value of [
+      '0'.repeat(40),
+      fixture.git(['rev-parse', 'HEAD:base.md']),
+      fixture.git(['rev-parse', 'HEAD^{tree}']),
+      fixture.git(['rev-parse', 'refs/tags/history-tag']),
+    ]) {
+      if (field === 'cutoff') fixture.history.cutoff = value
+      else fixture.history.entries[0]!.commit = value
+      fixture.save()
+      expect(runCheck(fixture.root).status).toBe('failed')
+    }
+  })
+
+  it('validates approvals outside a newer base range, including their subjects and trailers', (test) => {
+    const fixture = historyFixture(test)
+    fixture.write(REGISTRY_PATH, registryForCommit(fixture.history.cutoff))
+    fixture.write('alpha/a.md', 'new alpha\n')
+    fixture.record('advance base\n\nPatch: alpha-seam')
+    // The manifest is now committed and must have ordinary path ownership.
+    fixture.write(REGISTRY_PATH, registryForCommit(fixture.history.cutoff).replace('`alpha/**` ', '`alpha/**` `.claude/core-patches-history.json` '))
+    fixture.record('claim manifest\n\nPatch: alpha-seam')
+    expect(lineCommits(fixture.root, fixture.history.cutoff).map(item => item.fullId)).not.toContain(fixture.historical)
+    expect(runCheck(fixture.root).status).toBe('ok')
+    fixture.history.entries[0]!.subject = 'incorrect subject'
+    fixture.save()
+    expect(runCheck(fixture.root).report).toContain('subject does not match')
+    fixture.history.entries[0]!.commit = fixture.history.cutoff
+    fixture.history.entries[0]!.subject = 'cutoff'
+    fixture.history.cutoff = fixture.git(['rev-parse', 'HEAD'])
+    fixture.save()
+    expect(runCheck(fixture.root).report).toContain('already carries a Patch trailer')
+  })
+
+  it('validates every entry before applying any approvals', (test) => {
+    const fixture = repository(test)
+    const entries = ['first', 'second', 'third'].map(subject => ({
+      commit: fixture.record(subject), subject, patch: 'alpha-seam', reason: 'Explicit approval',
+    }))
+    const cutoff = fixture.record('cutoff\n\nPatch: alpha-seam')
+    const save = () => { fixture.write(CORE_PATCHES_HISTORY_PATH, JSON.stringify({ version: 1, cutoff, entries })) }
+    save()
+    expect(runCheck(fixture.root).status).toBe('ok')
+    entries[2]!.subject = 'wrong subject'
+    save()
+    expect(runCheck(fixture.root)).toMatchObject({ status: 'failed', report: expect.stringContaining('subject does not match') as string })
+  })
+
+  it('does not resolve an approval through a same-prefix hexadecimal branch alias', (test) => {
+    const fixture = historyFixture(test)
+    const alias = fixture.historical.slice(0, -1) + (fixture.historical.endsWith('0') ? '1' : '0')
+    fixture.git(['update-ref', `refs/heads/${alias}`, fixture.historical])
+    fixture.history.entries[0]!.commit = alias
+    fixture.save()
+    expect(runCheck(fixture.root).status).toBe('failed')
+  })
+
+  it('keeps manifest path ownership and topic merge checks', (test) => {
+    const fixture = historyFixture(test)
+    fixture.record('commit manifest\n\nPatch: alpha-seam')
+    expect(runCheck(fixture.root).report).toContain(`unclaimed-path: ${CORE_PATCHES_HISTORY_PATH}`)
+    fixture.write(REGISTRY_PATH, REGISTRY.replace('`alpha/**` ', '`alpha/**` `.claude/core-patches-history.json` '))
+    fixture.record('claim manifest\n\nPatch: alpha-seam')
+    expect(runCheck(fixture.root).status).toBe('ok')
+    fixture.git(['checkout', '--quiet', '-b', 'topic'])
+    fixture.write('alpha/topic.md', 'topic\n')
+    fixture.record('untrailed topic')
+    fixture.git(['checkout', '--quiet', LINE])
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', 'topic merge', 'topic'])
+    expect(runCheck(fixture.root).report).toContain('merge-commit:')
+  })
+
+  it.for(['line', 'other', 'detached', 'shallow'] as const)('rejects malformed manifests before branch skips: %s', (mode, test) => {
+    const fixture = historyFixture(test)
+    if (mode === 'other') fixture.git(['checkout', '--quiet', '-b', 'develop'])
+    if (mode === 'detached') fixture.git(['checkout', '--quiet', '--detach'])
+    let root = fixture.root
+    if (mode === 'shallow') {
+      root = join(fixture.root, 'shallow-clone')
+      fixture.git(['clone', '--quiet', '--depth', '1', `file://${fixture.root}`, root])
+    }
+    writeFileSync(join(root, CORE_PATCHES_HISTORY_PATH), '{"version":1}')
+    expect(runCheck(root)).toMatchObject({ status: 'failed', report: expect.stringContaining('history-invalid:') as string })
+  })
+
+  it('treats a non-file manifest as a read failure even off the patch line', (test) => {
+    const fixture = repository(test)
+    fixture.record('registry\n\nPatch: alpha-seam')
+    fixture.git(['checkout', '--quiet', '-b', 'develop'])
+    mkdirSync(join(fixture.root, CORE_PATCHES_HISTORY_PATH))
+    expect(runCheck(fixture.root)).toMatchObject({ status: 'failed', report: expect.stringContaining('is unreadable:') as string })
   })
 })
 

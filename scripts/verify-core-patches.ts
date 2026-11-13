@@ -8,8 +8,9 @@
  * Tags resolve through `refs/tags/<tag>^{commit}`. Explicit commits must be
  * full 40-character lowercase SHAs of commit objects, without tag peeling.
  * The base must be an ancestor of HEAD. Upstream changes enter through merges,
- * so the line is never rebased. `verify-repository-references` exempts only the
- * base commit declaration token; maintained prose still uses patch slugs.
+ * so the line is never rebased. `verify-repository-references` exempts the base
+ * commit declaration token and validated historical identity tokens; maintained
+ * prose still uses patch slugs.
  *
  * Paths. The change set is `git diff --no-renames --name-only <base> HEAD`
  * minus {@link GENERATED_PATHSPECS}. Every record whose status is `在役` or
@@ -29,7 +30,11 @@
  * (`unregistered-slug`). Trailers are read through git's own
  * `%(trailers:key=Patch)`. The first-parent walk keeps commits that arrived
  * under a merge's second parent — upstream's, and the history the line was
- * joined to — out of the enumeration.
+ * joined to — out of the enumeration. The optional `.claude/core-patches-history.json`
+ * grants at most three explicit historical identities, after schema and Git validation:
+ * exact full IDs and subjects, registered slugs, no existing Patch trailer, and non-merge
+ * first-parent ancestors strictly before a cutoff on HEAD's first-parent chain.
+ * Approvals remain validated when a newer base excludes them from the current range.
  *
  * Merges. A merge on the first-parent chain is accepted when it has exactly two
  * parents and the second is exactly the commit some `refs/tags/dsh-v*` tag
@@ -50,12 +55,14 @@
  * does not declare exactly one patch line and exactly one base, or gives a
  * malformed commit SHA, fails on
  * every branch, because a check that cannot read its own declarations cannot
- * tell which case it is in.
+ * tell which case it is in. The history manifest's syntax and schema are checked on
+ * every branch before a skip; only an absent manifest is treated as no approvals.
  */
 
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { CORE_PATCHES_HISTORY_PATH, parseCorePatchesHistory, type CorePatchesHistory } from './core-patches-history.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -145,6 +152,8 @@ export interface Registry {
 
 /** One non-merge commit on the first-parent chain above the base. */
 export interface LineCommit {
+  /** Full commit identifier used for historical approval matching. */
+  fullId: string
   /** Commit identifier, for diagnostics only. */
   id: string
   /** Subject line, for diagnostics only. */
@@ -544,6 +553,7 @@ export function lineCommits(repoRoot: string, base: string): LineCommit[] {
     .map((entry) => {
       const [id = '', subject = '', trailers = ''] = entry.split('\x1f')
       return {
+        fullId: id,
         id: id.slice(0, 10),
         subject,
         slugs: trailers.split('\x0c').map(slug => slug.trim()).filter(slug => slug !== ''),
@@ -631,11 +641,51 @@ export function readPatchLine(repoRoot: string, base: string, registry: Registry
 }
 
 /**
+ * Validate all approvals against real history, independently of the current base range.
+ * @param repoRoot - Repository root directory.
+ * @param history - Schema-validated approvals.
+ * @param registry - Registry containing every approved patch family.
+ * @returns The first invalid approval's diagnostic, or null when all approvals are valid.
+ */
+export function validateCorePatchesHistory(repoRoot: string, history: CorePatchesHistory, registry: Registry): string | null {
+  if (git(repoRoot, ['cat-file', '-t', history.cutoff]) !== 'commit') return 'cutoff is not a commit object'
+  const chain = git(repoRoot, ['rev-list', '--first-parent', 'HEAD']).split('\n')
+  const cutoffIndex = chain.indexOf(history.cutoff)
+  if (cutoffIndex < 0) return 'cutoff is not on HEAD\'s first-parent chain'
+  const ancestors = new Set(chain.slice(cutoffIndex + 1))
+  const registered = new Set(registry.records.map(record => record.slug))
+  for (const entry of history.entries) {
+    if (git(repoRoot, ['cat-file', '-t', entry.commit]) !== 'commit') return `${entry.commit} is not a commit object`
+    if (!ancestors.has(entry.commit)) return `${entry.commit} is not strictly before cutoff on its first-parent chain`
+    const parents = git(repoRoot, ['show', '-s', '--format=%P', entry.commit]).trim()
+    if (parents !== '' && parents.split(' ').length !== 1) return `${entry.commit} is a merge commit`
+    if (git(repoRoot, ['show', '-s', '--format=%s', entry.commit]) !== entry.subject) return `${entry.commit} subject does not match Git exactly`
+    if (!registered.has(entry.patch)) return `${entry.commit} names unregistered patch ${entry.patch}`
+    if (git(repoRoot, ['show', '-s', '--format=%(trailers:key=Patch)', entry.commit]) !== '') return `${entry.commit} already carries a Patch trailer; historical approvals require no Patch trailers`
+  }
+  return null
+}
+
+/**
  * Run the whole check against one repository.
  * @param repoRoot - repository root directory.
  * @returns what the run concluded and the report to print.
  */
 export function runCheck(repoRoot: string): CheckResult {
+  let history: CorePatchesHistory | null = null
+  let historySource: string | null = null
+  try {
+    historySource = readFileSync(resolve(repoRoot, CORE_PATCHES_HISTORY_PATH), 'utf8')
+  } catch (cause) {
+    if (!(typeof cause === 'object' && cause !== null && 'code' in cause && cause.code === 'ENOENT')) {
+      return { status: 'failed', report: `history-invalid: ${CORE_PATCHES_HISTORY_PATH} is unreadable: ${failureReason(cause)}` }
+    }
+  }
+  if (historySource !== null) {
+    const parsed = parseCorePatchesHistory(historySource)
+    if (parsed.error !== null) return { status: 'failed', report: `history-invalid: ${CORE_PATCHES_HISTORY_PATH}: ${parsed.error}` }
+    history = parsed.manifest
+  }
   let source: string
   try {
     source = readFileSync(resolve(repoRoot, REGISTRY_PATH), 'utf8')
@@ -691,8 +741,19 @@ export function runCheck(repoRoot: string): CheckResult {
     if (mergeBase !== base) {
       return { status: 'failed', report: `base-${baseKind}-not-merged: ${REGISTRY_PATH} declares base ${baseKind} ${declaredBase}, which HEAD has not merged; the declaration names the upstream history this line already contains.` }
     }
+    if (history !== null) {
+      const invalid = validateCorePatchesHistory(repoRoot, history, registry)
+      if (invalid !== null) return { status: 'failed', report: `history-invalid: ${CORE_PATCHES_HISTORY_PATH}: ${invalid}` }
+    }
     const line = readPatchLine(repoRoot, base, registry)
-    const violations = findRegistryViolations(line, registry)
+    const approvals = new Map(history?.entries.map(entry => [entry.commit, entry.patch]))
+    const violations = findRegistryViolations({
+      ...line,
+      commits: line.commits.map((commit) => {
+        const patch = approvals.get(commit.fullId)
+        return patch !== undefined && commit.slugs.length === 0 ? { ...commit, slugs: [patch] } : commit
+      }),
+    }, registry)
     if (violations.length > 0) {
       return {
         status: 'failed',
