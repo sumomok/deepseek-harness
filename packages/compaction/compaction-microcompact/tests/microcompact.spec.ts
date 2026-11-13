@@ -6,7 +6,8 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { Microcompact, resolveConfig } from '../src/index.ts'
+import { Microcompact } from '../src/index.ts'
+import { resolveConfig } from '../src/config.ts'
 import type { MicrocompactConfig } from '../src/index.ts'
 
 const MODEL = 'test-model'
@@ -301,7 +302,7 @@ describe('idle microcompact preview and apply', () => {
     const { compact, ctx } = context(BASE)
     const store = { get: (id: SessionId) => id === child.header.id ? child : undefined }
     ctx.provide('sessions', store)
-    ctx.provide('subagent', { listChildren: async () => [{ id: child.header.id }] })
+    ctx.provide('subagent', { listDescendants: async () => [{ kind: 'child', id: child.header.id, depth: 1 }] })
     expect((await compact.preview(session)).skipped).toEqual([{ reason: 'active-subagent' }])
   })
 
@@ -358,7 +359,7 @@ describe('idle microcompact preview and apply', () => {
   it('treats a not-loaded child as unknown, but a loaded closed child as inactive', async () => {
     const session = busySession(25)
     const unknown = context(BASE)
-    unknown.ctx.provide('subagent', { listChildren: async () => [{ id: SessionId('child-missing') }] })
+    unknown.ctx.provide('subagent', { listDescendants: async () => [{ kind: 'child', id: SessionId('child-missing'), depth: 1 }] })
     unknown.ctx.provide('sessions', { get: () => undefined })
     expect((await unknown.compact.preview(session)).skipped).toEqual([{ reason: 'active-subagent' }])
 
@@ -366,7 +367,7 @@ describe('idle microcompact preview and apply', () => {
     child.append('turn/start', { turn: 1 })
     child.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     const control = context(BASE)
-    control.ctx.provide('subagent', { listChildren: async () => [{ id: child.header.id }] })
+    control.ctx.provide('subagent', { listDescendants: async () => [{ kind: 'child', id: child.header.id, depth: 1 }] })
     control.ctx.provide('sessions', { get: () => child })
     expect((await control.compact.preview(session)).entries).toHaveLength(20)
   })

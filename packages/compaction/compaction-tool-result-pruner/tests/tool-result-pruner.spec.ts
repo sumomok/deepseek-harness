@@ -14,7 +14,6 @@ import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import ToolResultPruner, {
   codePointLength,
   DEFAULTS,
-  originalToolResultSeq,
   PRUNE_MARKER,
   resolveConfig,
 } from '@deepseek-ai/dsh-compaction-tool-result-pruner'
@@ -23,6 +22,7 @@ import type {
   RecoverySpillStore,
   ToolResultPruneConfig,
 } from '@deepseek-ai/dsh-compaction-tool-result-pruner'
+import { originalToolResultSeq } from '../src/recovery.ts'
 import { SpillLocator } from '@deepseek-ai/dsh-spill'
 import { formatSpillNotice, hasSpillNotice } from '@deepseek-ai/dsh-spill-policy/notice'
 

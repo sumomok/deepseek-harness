@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-11-13-context-source-metadata.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-11-13-context-source-metadata.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-11-13-context-source-metadata:
+  en: 624fda9c028448e0
+  zh: ef06fa95db322c7f
+/2026-11-13-context-source-metadata/summary:
+  en: c8f4516f0c8f7235
+  zh: 342a3e3a2edf7dab
+/2026-11-13-context-source-metadata/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-11-13-context-source-metadata/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-11-13-context-source-metadata/compatibility:
+  en: 857cf69020e24c72
+  zh: e00f3ddb33be3edd
+/2026-11-13-context-source-metadata/verification:
+  en: 53514a690d894fdf
+  zh: 6d348bd3a67234af
+/2026-11-13-context-source-metadata/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

@@ -43,6 +43,7 @@ import { registerChatNodeRenderers } from './chat/register-node-renderers.ts'
 import { UserContent } from './chat/UserContent.tsx'
 import { ActivityPill, UsagePill } from './chat/StatsPills.tsx'
 import { registerConversationNodes } from './conversation-nodes/register.ts'
+import { registerFenceLayers } from './fence/register.ts'
 import { QuotaNoticeHost } from './chat/QuotaNoticeHost.tsx'
 import { en, ja, es, fr, de, ru, pt, NS, zh } from './locale.ts'
 import { TranscriptViewRow, type TranscriptViewRowInjected } from './settings/TranscriptViewRow.tsx'
@@ -139,7 +140,8 @@ function buildProseReferents(
   // `this`-bound instance methods; extracting them here is what lets
   // TypeScript narrow "defined" through the conditional spreads below and
   // into their closures.
-  const { resolveLink: providerResolveLink, subscribe: providerSubscribe } = provider
+  const providerResolveLink = provider.resolveLink?.bind(provider)
+  const providerSubscribe = provider.subscribe?.bind(provider)
   return {
     scan: (text, inlineCode) => provider.scan(text, {
       cwd: currentDirectoryOf(sessions, sessionId),
@@ -404,6 +406,7 @@ export function apply(ctx: Context): void {
       children: {
         'conversation.chat.flow': { kind: 'single', scope: 'session', inject: CHAT_FLOW_INJECT },
         'conversation.chat.text-interaction': { kind: 'keyed', scope: 'session' },
+        'conversation.chat.markdown.fence': { kind: 'hoc', scope: 'session' },
       },
       store: chatStore,
       inject: (sessionId: SessionId): ChatViewInjected => {
@@ -498,7 +501,8 @@ export function apply(ctx: Context): void {
               window.open(url, '_blank', 'noopener,noreferrer')
             }
           },
-          loadOlder: () => { void session.loadOlder() },
+          loadOlder: () => { void session.loadOlder({ deferConsumption: true }) },
+          consumeOlder: () => session.consumeOlder(),
           loadThrough: seq => session.loadThrough(seq),
           openAt: seq => session.openAt(seq),
           openTail: () => session.openTail(),
@@ -530,6 +534,7 @@ export function apply(ctx: Context): void {
     }, ChatView)
     return disposeView
   })
+  registerFenceLayers(ctx)
 
   // The quota notice host lives in the frame-wide layer so a notice outlives
   // the Chat panel that reported it. Its chain child lets a package with a
@@ -571,6 +576,7 @@ export function apply(ctx: Context): void {
   ctx.slots.inject('conversation.approval.detail', function* () {
     yield ctx.slots.register({ name: 'conversation.approval.detail', key: 'bash' }, ApprovalCommand)
     yield ctx.slots.register({ name: 'conversation.approval.detail', key: 'pwsh' }, ApprovalCommand)
+    yield ctx.slots.register({ name: 'conversation.approval.detail', key: 'terminal_send' }, ApprovalCommand)
   })
 
 }

@@ -39,7 +39,7 @@
 | `tool-schemas.expected.json` | 五个 `session_*` 工具的完整定义，按模型请求携带的样子。归 `session-query-turn` 所有 |
 | `system-prompt.expected.md` | 组装好的提示词，含 session-query 的历史会话段落。归 `session-query-turn` 所有 |
 
-`session-query-turn` 是 `authored` 而不是 `live`：它的模型脚本就是提交在库的 `replay.override.json`，换成真实模型只会改个措辞。它读的是每个会话的第一个事件，不带任何 id 或路径；结果文本里的事件时间由快照规范化器替换。
+`session-query-turn` 是 `authored` 而不是 `live`：它的模型脚本就是提交在库的 `replay.override.json`，换成真实模型只会改个措辞。它读的是每个会话的第一个事件，不带任何 id 或路径。两份泳道补丁都挂载场景的 [`clock.ts`](session-query-turn/clock.ts)，在隔离的 CLI 进程中把 `Date.now` 固定为 `2026-01-01T00:00:00.000Z`，并在卸载时恢复；原生定时器保持运行。工具读回真实事件的时间，stdout 和 Session 期望保留该数值与历史内容不可信的安全提示，不改写结果文本。
 
 ## 运行
 

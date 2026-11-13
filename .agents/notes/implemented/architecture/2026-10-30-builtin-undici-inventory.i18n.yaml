@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-10-30-builtin-undici-inventory.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-30-builtin-undici-inventory.md
+/agent-note-builtin-undici-inventory-npm-overrides-do-not-patch-node-or-electron-runtimes:
+  en: 29f3885d0e1a849f
+  zh: f7b768320f1e0a32
+/agent-note-builtin-undici-inventory-npm-overrides-do-not-patch-node-or-electron-runtimes/problem:
+  en: 44d743672236cffc
+  zh: e7c0289978b03694
+/agent-note-builtin-undici-inventory-npm-overrides-do-not-patch-node-or-electron-runtimes/decision:
+  en: 81710f970c1e6a17
+  zh: 8191acf83c69c872
+/agent-note-builtin-undici-inventory-npm-overrides-do-not-patch-node-or-electron-runtimes/verification:
+  en: 8dddd0eb057bab6a
+  zh: 3dc85416ef58e07e
+/agent-note-builtin-undici-inventory-npm-overrides-do-not-patch-node-or-electron-runtimes/consequences:
+  en: 378a4c38ed9cab96
+  zh: b0cf4a9326882b7c
+/agent-note-builtin-undici-inventory-npm-overrides-do-not-patch-node-or-electron-runtimes/alternatives-considered:
+  en: cf380229501fdf54
+  zh: b2b222d45304876d

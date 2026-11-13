@@ -381,6 +381,10 @@ describe('translation scope discovery', () => {
     'SAFETY.zh.md',
     'SAFETY.i18n.yaml',
     'apps/cli/README.md',
+    'apps/cli/docs-source/README.md',
+    'apps/desktop-shell/README.md',
+    'apps/desktop-shell/staging-source/README.md',
+    'apps/desktop-shell/dist-app-source/README.md',
     'future/subtree/readme.md',
     'packages/example/README.zh.md',
     'native/example/README.i18n.yaml',
@@ -409,7 +413,9 @@ describe('translation scope discovery', () => {
     'python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/README.md',
     'apps/desktop-shell/staging/pnpm/README.md',
     'apps/desktop-shell/dist-app/mac-arm64/DSH Desktop.app/Contents/Resources/runtime/pnpm/README.md',
-    'python/sdk-runtime/src/deepseek_harness_runtime/runtime/macos-arm64/office-skills/office-docx/SKILL.md',
+    'apps/cli/docs/upgrade-guide/README.md',
+    'apps/cli/docs/upgrade-guide/README.zh.md',
+    'apps/cli/docs/upgrade-guide/README.i18n.yaml',
   ])('excludes non-source or non-README path %s', (file) => {
     expect(isTranslationScopeFile(file)).toBe(false)
   })

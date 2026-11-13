@@ -309,6 +309,8 @@ describe('ui-search browser half', () => {
   })
 
   it('leaves the node half inert', () => {
+    // The node half is intentionally inert; asserting the void call is the behavior under test.
+    // eslint-disable-next-line typescript/no-confusing-void-expression
     expect(applyNode()).toBeUndefined()
   })
 })

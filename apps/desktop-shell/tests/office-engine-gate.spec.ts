@@ -60,7 +60,7 @@ function kitManifest(version: string): Record<string, unknown> {
  */
 function stagedClosure(version: string): string {
   const modules = join(scratch(), 'node_modules')
-  for (const name of ['@deepseek-ai/dsh', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-office-to-pdf']) {
+  for (const name of ['@deepseek-ai/dsh', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-office-kit']) {
     writeManifest(join(modules, name), { name, version: '0.0.0' })
   }
   writeManifest(join(modules, KIT), kitManifest(version))
@@ -86,23 +86,42 @@ function refusal(modules: string, hosts: readonly DesktopEngineHost[] = DESKTOP_
 const HEADER = 'package: the staged server\'s LibreOffice kit does not declare the Office engines this package ships:'
 
 describe('verifyStagedOfficeEngines', () => {
-  it('ships engine 0.1.5 on both desktop hosts', () => {
+  it('ships engine 0.2.3 on both desktop hosts', () => {
     expect(DESKTOP_ENGINE_HOSTS).toEqual([
-      { platform: 'darwin', arch: 'arm64', engineVersion: '0.1.5' },
-      { platform: 'win32', arch: 'x64', engineVersion: '0.1.5' },
+      { platform: 'darwin', arch: 'arm64', engineVersion: '0.2.3' },
+      { platform: 'win32', arch: 'x64', engineVersion: '0.2.3' },
     ])
   })
 
   it('passes a kit that declares the version each desktop host ships, registered', () => {
-    expect(verifyStagedOfficeEngines(stagedClosure('0.1.5'))).toEqual([`${KIT}-darwin-arm64@0.1.5`, `${KIT}-win32-x64@0.1.5`])
+    expect(verifyStagedOfficeEngines(stagedClosure('0.2.3'))).toEqual([`${KIT}-darwin-arm64@0.2.3`, `${KIT}-win32-x64@0.2.3`])
+  })
+
+  it('rejects a staged kit that still declares the previous engine version', () => {
+    expect(refusal(stagedClosure('0.1.5'))).toBe([
+      HEADER,
+      '  darwin-arm64: the kit declares 0.1.5, and this package ships 0.2.3 (DESKTOP_ENGINE_HOSTS in scripts/office-engine-gate.ts)',
+      `  darwin-arm64: the kit declares 0.1.5, and ENGINE_DOWNLOADS has no ${KIT}-darwin-arm64@0.1.5`,
+      '  win32-x64: the kit declares 0.1.5, and this package ships 0.2.3 (DESKTOP_ENGINE_HOSTS in scripts/office-engine-gate.ts)',
+      `  win32-x64: the kit declares 0.1.5, and ENGINE_DOWNLOADS has no ${KIT}-win32-x64@0.1.5`,
+    ].join('\n'))
+  })
+
+  it('rejects ranges and missing engine declarations', () => {
+    for (const version of ['^0.2.3', 'latest']) {
+      expect(refusal(stagedClosure(version))).toContain(`the LibreOffice kit declares no exact version of ${KIT}-darwin-arm64`)
+    }
+    const modules = stagedClosure('0.2.3')
+    writeManifest(join(modules, KIT), { name: KIT, version: '0.2.3', optionalDependencies: { [`${KIT}-darwin-arm64`]: '0.2.3' } })
+    expect(refusal(modules)).toBe(`${HEADER}\n  win32-x64: the LibreOffice kit declares no exact version of ${KIT}-win32-x64`)
   })
 
   it('stops the run when the kit declares another registered version, naming the declared version, the shipped one, and where it is set', () => {
     const hosts = [{ platform: 'darwin', arch: 'arm64', engineVersion: '0.2.0' }, { platform: 'win32', arch: 'x64', engineVersion: '0.2.0' }] as const
-    expect(refusal(stagedClosure('0.1.5'), hosts)).toBe([
+    expect(refusal(stagedClosure('0.2.3'), hosts)).toBe([
       HEADER,
-      '  darwin-arm64: the kit declares 0.1.5, and this package ships 0.2.0 (DESKTOP_ENGINE_HOSTS in scripts/office-engine-gate.ts)',
-      '  win32-x64: the kit declares 0.1.5, and this package ships 0.2.0 (DESKTOP_ENGINE_HOSTS in scripts/office-engine-gate.ts)',
+      '  darwin-arm64: the kit declares 0.2.3, and this package ships 0.2.0 (DESKTOP_ENGINE_HOSTS in scripts/office-engine-gate.ts)',
+      '  win32-x64: the kit declares 0.2.3, and this package ships 0.2.0 (DESKTOP_ENGINE_HOSTS in scripts/office-engine-gate.ts)',
     ].join('\n'))
   })
 
@@ -117,13 +136,13 @@ describe('verifyStagedOfficeEngines', () => {
 
   it('names both problems when the kit declares a version that is neither shipped nor registered', () => {
     expect(refusal(stagedClosure('0.2.0'))?.split('\n').slice(1, 3)).toEqual([
-      '  darwin-arm64: the kit declares 0.2.0, and this package ships 0.1.5 (DESKTOP_ENGINE_HOSTS in scripts/office-engine-gate.ts)',
+      '  darwin-arm64: the kit declares 0.2.0, and this package ships 0.2.3 (DESKTOP_ENGINE_HOSTS in scripts/office-engine-gate.ts)',
       `  darwin-arm64: the kit declares 0.2.0, and ENGINE_DOWNLOADS has no ${KIT}-darwin-arm64@0.2.0`,
     ])
   })
 
   it('stops the run when the kit manifest cannot be read', () => {
-    const modules = stagedClosure('0.1.5')
+    const modules = stagedClosure('0.2.3')
     writeFileSync(join(modules, KIT, 'package.json'), '{ not json')
     const lines = refusal(modules)?.split('\n').slice(1) ?? []
     expect(lines).toHaveLength(2)
@@ -132,9 +151,9 @@ describe('verifyStagedOfficeEngines', () => {
   })
 
   it('stops the run when the kit resolves from outside the staged tree, even at the shipped version', () => {
-    const modules = stagedClosure('0.1.5')
+    const modules = stagedClosure('0.2.3')
     const elsewhere = join(scratch(), KIT)
-    writeManifest(elsewhere, kitManifest('0.1.5'))
+    writeManifest(elsewhere, kitManifest('0.2.3'))
     rmSync(join(modules, KIT), { recursive: true, force: true })
     // A junction on Windows, which needs no symlink privilege; ignored elsewhere.
     symlinkSync(elsewhere, join(modules, KIT), 'junction')

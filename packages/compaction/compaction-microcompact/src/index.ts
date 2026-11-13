@@ -18,7 +18,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import { originalToolResultSeq, recoveryNotice } from '@deepseek-ai/dsh-compaction'
 import { SessionSeq } from '@deepseek-ai/dsh-session'
-import type { Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { Session } from '@deepseek-ai/dsh-session'
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 // Type-only privileges for optional sibling services.
 import type {} from '@deepseek-ai/dsh-jobs'
@@ -28,7 +28,6 @@ import type {} from '@deepseek-ai/dsh-tools'
 import { DEFAULTS, resolveConfig } from './config.ts'
 import type { MicrocompactConfig, ResolvedMicrocompactConfig } from './config.ts'
 
-export { DEFAULTS, resolveConfig } from './config.ts'
 export type { MicrocompactConfig, ResolvedMicrocompactConfig } from './config.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -367,12 +366,16 @@ export class Microcompact extends Service {
     const subagents = this.ctx.get('subagent') as SubagentRuntime | undefined
     const sessions = this.ctx.get('sessions')
     if (subagents !== undefined) {
-      let children: ReadonlyArray<{ readonly id: SessionId }>
+      let rows: Awaited<ReturnType<SubagentRuntime['listDescendants']>>
       try {
-        children = await subagents.listChildren(session.header.id)
+        rows = await subagents.listDescendants(session.header.id)
       } catch {
         return true
       }
+      // A diagnostic branch is unreadable catalog state, so its children
+      // cannot be proven inactive; direct children are the depth-one rows.
+      if (rows.some(row => row.kind === 'diagnostic')) return true
+      const children = rows.filter(row => row.kind === 'child' && row.depth === 1)
       if (children.length === 0) return false
       if (sessions === undefined) return true
       try {

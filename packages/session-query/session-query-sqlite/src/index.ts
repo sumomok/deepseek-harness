@@ -69,7 +69,6 @@ import {
 
 export {
   SESSION_QUERY_SQLITE_APPLICATION_ID,
-  SESSION_QUERY_SQLITE_INDEX_IDENTITY,
   SESSION_QUERY_SQLITE_SCHEMA_VERSION,
   type JournalMode,
 } from './schema.ts'
@@ -91,7 +90,7 @@ export const SESSION_QUERY_SQLITE_MAX_LIMIT = 100
 /** Default maximum snippet length in Unicode code points. */
 export const SESSION_QUERY_SQLITE_SNIPPET_CHARS = 240
 /** Default number of stored Sessions one reconciliation decides between event-loop yields. */
-export const SESSION_QUERY_SQLITE_DEFAULT_RECONCILE_BATCH_SIZE = 16
+const SESSION_QUERY_SQLITE_DEFAULT_RECONCILE_BATCH_SIZE = 16
 
 // One transient source change gets a retry; repeated churn fails rather than monopolizing the queue.
 const STABLE_OBSERVATION_ATTEMPTS = 2
@@ -503,7 +502,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       this._warmupState = 'running'
       this._warmupTask = this._prepareWarmup()
     }, delay)
-    timer.unref?.()
+    timer.unref()
     this._warmupTimer = timer
   }
 
@@ -1422,6 +1421,7 @@ function selectedDocumentsParams(query: string, persistenceVisible: boolean): Ar
 }
 
 function observeLive(session: Session): ObservedSession {
+  // eslint-disable-next-line typescript/no-deprecated -- Existing synchronous history read; migration deferred for this pack.
   return observeSession(session.header, session.inheritedEventCount, session.snapshotEvents())
 }
 

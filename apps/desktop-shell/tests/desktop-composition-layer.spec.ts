@@ -18,7 +18,7 @@
  * points upstream's plugin installer at the pnpm launcher the payload ships,
  * and `desktop-product-telemetry` and `product-analytics` are switched off
  * outright rather than by dsh-web-app's profile-name expression.
- * `office-to-pdf` is left as the layers below ship it: the shell downloads
+ * `office-kit` is left as the layers below ship it: the shell downloads
  * its engine on request, and so is `ui-chat`, whose work details take the
  * form's own default. The rows it
  * inserts are `desktop-brand`, this package itself, whose browser half names
@@ -87,6 +87,7 @@ const SHELL_DIRECTORY_ENV = {
 /** The composed-entry fields these cases read. */
 interface Entry {
   id?: string
+  name?: string
   disabled?: unknown
   config?: Record<string, unknown>
 }
@@ -550,17 +551,17 @@ describe('the composed plugin-manager rows', () => {
   })
 })
 
-describe('the composed office-to-pdf row', () => {
-  it('starts LibreOffice converters through the layers below', () => {
-    expect(entry(below, 'office-to-pdf').disabled).toBeUndefined()
+describe('the composed office-kit row', () => {
+  it('enables the Office service through the layers below', () => {
+    expect(entry(below, 'office-kit').disabled).toBeUndefined()
   })
 
   // The payload carries no engine; the shell downloads one into the data
   // directory on request and the converter the next preview creates finds it,
   // so the row stays on from launch.
   it('stays on once the desktop layer applies', () => {
-    expect(entry(desktop, 'office-to-pdf')).toEqual(entry(below, 'office-to-pdf'))
-    expect(entry(desktop, 'office-to-pdf').disabled).toBeUndefined()
+    expect(entry(desktop, 'office-kit')).toEqual(entry(below, 'office-kit'))
+    expect(entry(desktop, 'office-kit').disabled).toBeUndefined()
   })
 })
 
@@ -719,10 +720,13 @@ describe('the composed telemetry rows', () => {
     }
   })
 
-  it('keeps the shared account menu, feedback, and sign-in rows mounted', () => {
-    for (const id of ['ui-settings-account', 'account-controller']) {
+  it('keeps the shared account UI and remote service mounted', () => {
+    for (const id of ['ui-settings-account', 'ui-account-notifications']) {
       expect(entry(desktop, id)).toEqual(entry(below, id))
+      expect(entry(desktop, id).disabled).not.toBe(true)
     }
+    expect(entry(desktop, 'deepseek-account').name).toBe('@deepseek-ai/dsh-deepseek-account')
+    expect(entry(desktop, 'deepseek-account').disabled).not.toBe(true)
   })
 
   it('reports this independently named profile as a native Desktop account client', () => {

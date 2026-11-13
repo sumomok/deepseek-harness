@@ -85,10 +85,6 @@
   name: '@deepseek-ai/dsh-tool-subagent-control'
   disabled: true
 
-- id: tool-subagent-list-agents
-  name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
-  disabled: true
-
 - id: plan-mode
   name: '@deepseek-ai/dsh-plan-mode'
   disabled: true
@@ -104,6 +100,10 @@
 
 - id: desktop-server-log
   disabled: true
+
+- insert:
+    - id: desktop-session-query-clock
+      name: './session-query-turn/clock.ts'
 
 - insert:
     - id: llm-replay

@@ -16,7 +16,7 @@ import z from '@deepseek-ai/schemastery'
 import { boundContextSummary, createUserMessage, type ContentBlock, type UserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed, MessageId } from '@deepseek-ai/dsh-llm'
 import { TextRetainer } from '@deepseek-ai/dsh-output-retention'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineTool, ToolArgsError } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, ToolDefinition, ToolExecution } from '@deepseek-ai/dsh-tools'
 import { JobId } from '@deepseek-ai/dsh-jobs'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -204,7 +204,7 @@ function visibleOutputLimit(ctx: Context, exec: ToolExecution): number | undefin
 /** Validate the non-empty constraint that ParameterSchemaSpec cannot express. */
 function validateJobId(value: string): JobId {
   if (value.length === 0) {
-    throw new Error(`invalid job_id: expected a non-empty string, got ${JSON.stringify(value)}`)
+    throw new ToolArgsError([`invalid job_id: expected a non-empty string, got ${JSON.stringify(value)}`])
   }
   return JobId(value)
 }
@@ -420,8 +420,6 @@ export function apply(ctx: Context, config: Config): void {
   ctx.tools.register(defineTool({
     name: 'job_output',
     description: 'Read a background job without waiting: output since the previous read for stream jobs, or the result of a finished final-output job. A running job answers with its output so far; its completion arrives as a notice on its own. A settled job answers with its captured output and its `[exit code: N]` marker, so re-running it to read them spends the wait twice.',
-    // A timed-out wait returns job state rather than a TOOL_TIMEOUT error, so
-    // this tool owns its deadline instead of using ToolDefinition.timeoutMs.
     parameters: {
       job_id: { type: 'string', required: true, description: 'Job id returned by the tool that started the background work.' },
     },
@@ -464,6 +462,8 @@ export function apply(ctx: Context, config: Config): void {
     name: 'job_list',
     description: 'List your background jobs (running and finished) with their ids, kinds, and statuses.',
     parameters: {},
+    // Listing reads a status snapshot and consumes no output cursor or completion notice.
+    isConcurrencySafe: () => true,
     output: {
       schema: { type: 'array', items: PUBLIC_JOB_SCHEMA },
       render: (_args, jobs) => [{

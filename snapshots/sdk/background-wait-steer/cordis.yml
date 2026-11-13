@@ -1,7 +1,6 @@
-# SDK composition for the steered background wait: the shipped profile plus the
-# scenario-owned barrier. Quiet completion delivery keeps the settlement in the
-# next-step inbox, where the fixture checks the single notice the released read
-# withheld; no provider title or durable session-log mirror may add records.
+# SDK composition for a non-blocking background read and concurrent steering.
+# Quiet completion delivery leaves one settlement notice in the next-step inbox;
+# no provider title or durable session-log mirror may add records.
 - id: skill-filesystem
   name: '@deepseek-ai/dsh-skill-filesystem'
   config:

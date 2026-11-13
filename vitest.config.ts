@@ -170,6 +170,7 @@ const localWorkerBudget = process.env.CI === 'true' ? {} : { maxWorkers: default
 // that worker threads cannot isolate reliably under aggregate gate contention.
 // Keep the narrow exception in forks while the rest of the inventory avoids per-file processes.
 const processBoundTests = [
+  'apps/desktop-shell/tests/snapshot-clock.spec.ts',
   'packages/session/session-persistence-jsonl/tests/jsonl.spec.ts',
   'packages/subagent/subagent-acp/tests/subagent-acp.spec.ts',
   'packages/subprocess/subprocess-local/tests/process-exit.spec.ts',
@@ -178,6 +179,7 @@ const processBoundTests = [
   'packages/llm/llm-pi-ai/tests/adapter.spec.ts',
   'packages/boot/app-boot/tests/app-boot.spec.ts',
   'packages/workflow/workflow-ptc/tests/workflow-ptc.spec.ts',
+  'packages/ptc-runtime/ptc-runtime-node/tests/imports.spec.ts',
 ]
 
 // Claude Code's test-kit module names, served by the mods bridge's test support so the example mods' tests import them unchanged.
@@ -236,7 +238,8 @@ export default defineConfig({
         resolve: { alias: testingAliases },
         test: {
           name: 'process-bound',
-          execArgv: vitestExecArgv,
+          // Runner import tests require VM modules; the missing-flag test stays in thread-safe.
+          execArgv: [...vitestExecArgv, '--experimental-vm-modules'],
           pool: 'forks',
           ...laneTestBudget,
           setupFiles: [
@@ -351,7 +354,7 @@ export default defineConfig({
         'packages/api/remotes/src/client/index.ts',
         // The Team browser entry binds its source-covered mount lifecycle to
         // the generated Team Remote contribution, which likewise exists only in lib.
-        'packages/experimental/client-ui-agent-team/src/client/index.ts',
+        'packages/client/ui-agent-team/src/client/index.ts',
         // The speech entry also imports generated Remote definitions; voice-input.e2e.ts
         // exercises the built entry, while source tests cover mountVoiceInput.
         'packages/experimental/client-ui-voice-input/src/client/index.ts',

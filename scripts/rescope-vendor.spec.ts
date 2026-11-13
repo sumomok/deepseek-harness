@@ -87,13 +87,21 @@ describe('product identifiers', () => {
   it.each([
     'apps/cli/tests/optional-bundle-transitions.e2e.ts',
     'apps/web/tests/agent-preset-selection.e2e.ts',
+    'apps/web/tests/creator-persona.e2e.ts',
+    'packages/experimental/cua/tests/agent-scopes.spec.ts',
     'apps/web/tests/developer-tools-settings.e2e.ts',
     'docs/subsystems/extensions.md',
     'docs/subsystems/extensions.zh.md',
+    'docs/tool-catalog.md',
+    'docs/tool-catalog.zh.md',
     'docs/upgrade-guide/v0.2.0-rc.2/schedule-bundle-retired/guide.md',
     'docs/upgrade-guide/v0.2.0-rc.2/schedule-bundle-retired/guide.zh.md',
     'docs/upgrade-guide/v0.2.1-alpha.1/subagent-preset-composition/guide.md',
     'docs/upgrade-guide/v0.2.1-alpha.1/subagent-preset-composition/guide.zh.md',
+    'docs/upgrade-guide/v0.2.2-rc.1/subagent-interrupt-default/guide.md',
+    'docs/upgrade-guide/v0.2.2-rc.1/subagent-interrupt-default/guide.zh.md',
+    'docs/upgrade-guide/v0.2.2-alpha.2/fs-observation-policy-default-off/guide.md',
+    'docs/upgrade-guide/v0.2.2-alpha.2/fs-observation-policy-default-off/guide.zh.md',
     'docs/user/guide/schedule.md',
     'docs/user/guide/schedule.zh.md',
     'packages/bundle/web-app/cordis.patch.yml',
@@ -109,6 +117,7 @@ describe('product identifiers', () => {
     'packages/client/ui-entry-customization/tests/menu.client.spec.tsx',
     'packages/client/ui-workspace/tests/workspaces-service.client.spec.ts',
     'packages/extensions/cordis-host-runner/tests/inspect-registry.spec.ts',
+    'scripts/gen-tool-catalog.ts',
     'snapshots/session/cordis-inspect-liveness/client-fixture.mjs',
     'snapshots/session/cordis-inspect-timeout/client-fixture.mjs',
   ])('preserves the product values in %s', (file) => {
@@ -116,6 +125,18 @@ describe('product identifiers', () => {
     expect(text).toMatch(/(['"`])cordis(?:\/inspect-query(?:-resolved)?)?\1/)
     expect(isRescopeExcluded(file)).toBe(false)
     expect(rescopeText(text, file)).toEqual({ text, lines: 0 })
+  })
+
+  it.for([
+    'apps/web/tests/creator-persona.e2e.ts',
+    'packages/experimental/cua/tests/agent-scopes.spec.ts',
+    'docs/upgrade-guide/v0.2.2-rc.1/subagent-interrupt-default/guide.md',
+    'docs/upgrade-guide/v0.2.2-rc.1/subagent-interrupt-default/guide.zh.md',
+  ])('still rescopes imports while retaining the preset id in %s', (file) => {
+    const body = "const preset = 'cordis'\nimport { Context } from 'cordis'\n"
+    const text = file.endsWith('.md') ? `The \`cordis\` preset.\n\`\`\`ts\n${body}\`\`\`\n` : body
+    const scoped = text.replace("from 'cordis'", "from '@deepseek-ai/cordis'")
+    expect(rescopeText(text, file).text).toBe(scoped)
   })
 
   it('still renames other libraries in a preset consumer and reverses them', () => {
@@ -166,6 +187,7 @@ describe('product identifiers', () => {
     ['packages/client/ui-entry-customization/tests/menu.client.spec.tsx', 1],
     ['packages/client/ui-workspace/tests/workspaces-service.client.spec.ts', 1],
     ['packages/extensions/cordis-host-runner/tests/inspect-registry.spec.ts', 2],
+    ['scripts/gen-tool-catalog.ts', 1],
     ['snapshots/session/cordis-inspect-liveness/client-fixture.mjs', 1],
     ['snapshots/session/cordis-inspect-timeout/client-fixture.mjs', 2],
   ] as const)('reverses real package references in %s and restores them', (file, lines) => {

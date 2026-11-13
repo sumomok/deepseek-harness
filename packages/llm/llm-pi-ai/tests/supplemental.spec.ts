@@ -173,7 +173,7 @@ describe('explicit provider profiles over supplemental defaults', () => {
       map: Record<string, string | null> | undefined
     } => {
       const model = models.find(entry => entry.id === id)
-      return { reasoning: model?.reasoning, map: model?.thinkingLevelMap as Record<string, string | null> | undefined }
+      return { reasoning: model?.reasoning, map: model?.thinkingLevelMap }
     }
 
     // `false` in `values` is "no thinking", which becomes `off` and sends no

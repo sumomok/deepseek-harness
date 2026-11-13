@@ -4,6 +4,8 @@ import { execFileSync } from 'node:child_process'
 import { lstatSync, readFileSync, readlinkSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { CORE_PATCHES_HISTORY_PATH, parseCorePatchesHistory } from './core-patches-history.ts'
+import { FULL_COMMIT_SHA, parseRegistry, REGISTRY_PATH } from './verify-core-patches.ts'
 import { canonicalReferenceText } from './verify-public-repository-links.ts'
 
 const root = resolve(import.meta.dirname, '..')
@@ -40,7 +42,11 @@ function isMaintained(file: string): boolean {
  * @param source - File text or a symlink's stored target.
  * @param commits - Lowercase, unambiguous full or abbreviated commit identifiers.
  * @returns One finding per line and reference kind; digests and other Git object types are accepted.
- * Decimal-only tokens are ignored, including actual commit identifiers.
+ * Decimal-only tokens are ignored, including actual commit identifiers. Only the single
+ * full lowercase base commit declaration token in the unfenced registry is exempt;
+ * a competing base tag, duplicate declaration, or unclosed fence disables the exception.
+ * The exact historical manifest path also exempts cutoff and entries[].commit string
+ * values after strict schema validation; all other raw and decoded strings remain checked.
  */
 export function findRepositoryReferences(
   file: string,
@@ -48,16 +54,36 @@ export function findRepositoryReferences(
   commits: ReadonlySet<string>,
 ): RepositoryReference[] {
   if (!isMaintained(file)) return []
+  const registry = file === REGISTRY_PATH ? parseRegistry(source) : null
+  const declaration = registry?.declaredBaseCommits[0]
+  const exempt = registry?.unclosedFence === null && registry.declaredBaseTags.length === 0
+    && registry.declaredBaseCommits.length === 1 && declaration !== undefined && FULL_COMMIT_SHA.test(declaration.value)
+    ? declaration : undefined
+  const history = file === CORE_PATCHES_HISTORY_PATH ? parseCorePatchesHistory(source) : null
   const references: RepositoryReference[] = []
-  for (const [index, line] of source.split('\n').entries()) {
+  let text = registry === null ? source : source.replace(/\r\n?/gu, '\n')
+  for (const token of [...history?.referenceTokens ?? []].sort((left, right) => right.start - left.start)) {
+    text = text.slice(0, token.start) + text.slice(token.start, token.end).replace(/[^\r\n]/gu, ' ') + text.slice(token.end)
+  }
+  for (const [index, line] of text.split('\n').entries()) {
     if (organizationUrl.test(canonicalReferenceText(line).replace(kitRepositoryUrl, ''))) {
       references.push({ file, line: index + 1, kind: 'organization-url' })
     }
-    if ([...line.matchAll(commitCandidate)].some(match => commits.has(match[0].toLowerCase()))) {
+    if ([...line.matchAll(commitCandidate)].some(match =>
+      commits.has(match[0].toLowerCase())
+      && !(exempt?.line === index + 1 && exempt.column === match.index && exempt.value === match[0]))) {
       references.push({ file, line: index + 1, kind: 'commit-hash' })
     }
   }
-  return references
+  for (const token of history?.stringTokens ?? []) {
+    if (history?.referenceTokens.some(reference => reference.start === token.start)) continue
+    const line = source.slice(0, token.start).split('\n').length
+    if ([...token.value.matchAll(commitCandidate)].some(match => commits.has(match[0].toLowerCase()))
+      && !references.some(reference => reference.line === line && reference.kind === 'commit-hash')) {
+      references.push({ file, line, kind: 'commit-hash' })
+    }
+  }
+  return references.sort((left, right) => left.line - right.line)
 }
 
 function readMaintainedFiles(repoRoot: string): Map<string, string> {
@@ -142,7 +168,10 @@ export function repositoryCommits(repoRoot: string, sources: Iterable<string>): 
  */
 export function scanRepositoryReferences(repoRoot: string): RepositoryReference[] {
   const sources = readMaintainedFiles(repoRoot)
-  const commits = repositoryCommits(repoRoot, sources.values())
+  const historySource = sources.get(CORE_PATCHES_HISTORY_PATH)
+  const decodedHistoryStrings = historySource === undefined
+    ? [] : parseCorePatchesHistory(historySource).stringTokens.map(token => token.value)
+  const commits = repositoryCommits(repoRoot, [...sources.values(), ...decodedHistoryStrings])
   return [...sources].flatMap(([file, source]) => findRepositoryReferences(file, source, commits))
 }
 

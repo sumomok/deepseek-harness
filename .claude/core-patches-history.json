@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "cutoff": "f5e9e50b8a72a49d93ca4698017aba480508b479",
+  "entries": [
+    {
+      "commit": "92c17c4949d7f9e1f40819fb3aac6dbc3f76c476",
+      "subject": "fix(account): re-read the account details a first frame left missing",
+      "patch": "account-details-retry",
+      "reason": "Existing bounded account-detail retry retained through the upstream AccountUpdate migration; the original commit has no Patch trailer."
+    },
+    {
+      "commit": "a4249a6eb7762522e48c41084f09e8daf406796f",
+      "subject": "chore(docs): regenerate the config catalog",
+      "patch": "rolling-sync-settle",
+      "reason": "Existing generated config-catalog reconciliation; generated path exclusions do not supply the missing commit identity."
+    },
+    {
+      "commit": "7ef002e04d3e8d36e20e8ba78c4c524084bc1e4e",
+      "subject": "fix(account): share one profile read per captured grant",
+      "patch": "account-details-retry",
+      "reason": "Existing account-platform read sharing retired with the upstream implementation replacement; the historical commit still belongs to this patch family."
+    }
+  ]
+}

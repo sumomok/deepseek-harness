@@ -39,14 +39,27 @@ function authorizationUrl(value: string): string {
 }
 
 /**
- * Validate the account frame and return the waiting attempt it carries.
- * Other phases need no native action. Unknown or malformed values fail closed.
+ * Read the opener fields from an AccountUpdate wire item (`type`, `state`).
+ * Only snapshot and credentials-changed updates carry account state; malformed
+ * opener fields fail closed. Other attempt phases need no native action.
  */
 function waitingAttempt(value: unknown): WaitingAttempt | undefined {
-  if (typeof value !== 'object' || value === null || !('attempt' in value)) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)
+    || !('type' in value) || !('state' in value)) {
+    throw new Error('desktop account: invalid update')
+  }
+  switch (value.type) {
+    case 'snapshot':
+    case 'credentials-changed':
+      break
+    default:
+      throw new Error('desktop account: unknown update type')
+  }
+  const state: unknown = value.state
+  if (typeof state !== 'object' || state === null || Array.isArray(state) || !('attempt' in state)) {
     throw new Error('desktop account: invalid state')
   }
-  const attempt: unknown = value.attempt
+  const attempt: unknown = state.attempt
   if (attempt === null) return undefined
   if (typeof attempt !== 'object' || !('id' in attempt) || typeof attempt.id !== 'string'
     || !('phase' in attempt) || typeof attempt.phase !== 'string') {
@@ -61,7 +74,9 @@ function waitingAttempt(value: unknown): WaitingAttempt | undefined {
 
 /**
  * Watch one running Host and open each waiting authorization attempt once.
+ * Snapshot and credential-change updates read the attempt from their state.
  * Reconnects continue the same attempt without reopening its browser page.
+ * Invalid wire updates close the stream and log a safe diagnostic before retry.
  * @param origin - loopback Web origin of the running Host.
  * @param host - authenticated cookie reader, external opener, and safe logger.
  * @returns disposer ending the stream and every pending reconnect.
@@ -104,6 +119,7 @@ export function watchAccountLogin(origin: string, host: AccountLoginHost): () =>
             host.log('[desktop] could not open the DeepSeek authorization page\n')
           })
         } catch {
+          host.log('[desktop] invalid DeepSeek account stream update; closing and retrying\n')
           socket?.close()
         }
       })

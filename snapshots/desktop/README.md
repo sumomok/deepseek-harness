@@ -39,7 +39,7 @@ Each scenario owns these fixtures:
 | `tool-schemas.expected.json` | The five `session_*` tools whole, as the model request carries them. Owned by `session-query-turn` |
 | `system-prompt.expected.md` | The assembled prompt, including the session-query prior-history section. Owned by `session-query-turn` |
 
-`session-query-turn` is `authored`, not `live`: its model script is the committed `replay.override.json`, which a live model would only reword. The event it reads is the first event of every session, which carries no id or path, and the snapshot normalizer replaces the event time in the result text.
+`session-query-turn` is `authored`, not `live`: its model script is the committed `replay.override.json`, which a live model would only reword. The event it reads is the first event of every session, which carries no id or path. Both lane patches mount the scenario's [`clock.ts`](session-query-turn/clock.ts), which fixes `Date.now` to `2026-01-01T00:00:00.000Z` in the isolated CLI process and restores it on disposal; native timers remain live. The tool reads the real event's time, and stdout and Session expectations retain that numeric value and the untrusted-history warning without rewriting result text.
 
 ## Running
 

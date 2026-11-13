@@ -97,7 +97,7 @@ async function fakeAgent(ctx: Context, sessionId: string, delivery: FakeDelivery
   const nextStep: ReturnType<typeof createUserMessage>[] = []
   Object.assign(agent, { inbox: { nextStep, nextTurn: [], remove: delivery.remove ?? (() => true) } })
   fakeInboxes.set(agent, nextStep)
-  agentRegistryDisposers.set(agent, await ctx.agents.register(agent))
+  agentRegistryDisposers.set(agent, await ctx.get('agents')!.register(agent))
   agentScopeFibers.set(agent, scopeFiber)
   return agent
 }
@@ -706,13 +706,7 @@ describe('completion notices across scoped mounts', () => {
     bindScopeParent(agentKey, scopeOf(standingA.ctx) as object)
 
     const inject = vi.fn()
-    const owner = {
-      id: SessionId('sess-scoped'),
-      ctx: agentScope.ctx,
-      inject,
-      session: { id: SessionId('sess-scoped'), header: { version: 0, id: SessionId('sess-scoped'), createdAt: 0 } },
-    } as unknown as Agent
-    const dispose = await ctx.agents.register(owner)
+    const owner = await fakeAgent(agentScope.ctx, 'sess-scoped', { inject })
 
     try {
       const p = producer({ owner: owner.id, label: 'pnpm test' })
@@ -722,7 +716,8 @@ describe('completion notices across scoped mounts', () => {
 
       expect(inject).toHaveBeenCalledTimes(1)
     } finally {
-      await dispose()
+      await detachAgent(owner)
+      await disposeAgentScope(owner)
     }
   })
 })

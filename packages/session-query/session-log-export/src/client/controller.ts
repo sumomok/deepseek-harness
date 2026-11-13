@@ -1,4 +1,4 @@
-/** Browser download state shared by the Session Header button and `/export`. */
+/** Browser download operations and FIFO modal state shared by menu actions and `/export`. */
 
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -10,18 +10,20 @@ import {
 } from './progress.ts'
 import { SESSION_LOG_EXPORT_ROUTE } from '../routes.ts'
 
-/** Download phases presented by the shared panel. */
+/** Download phases presented by the shared modal. */
 export type SessionLogDownloadStatus = 'downloading' | 'success' | 'error'
 
-/** One Session's current download-panel state. */
+/** One Session's current download-modal state. */
 export interface SessionLogDownloadEntry {
+  /** Initiation order of this operation; repeated in-flight requests keep it. */
+  readonly order: number
   readonly open: boolean
   readonly status: SessionLogDownloadStatus
   readonly error: string | null
   readonly progress: SessionExportProgress
 }
 
-/** Download states keyed by the Session whose Header owns the panel. */
+/** Authoritative download states; open entries display in initiation order across Sessions. */
 export interface SessionLogDownloadState {
   bySession: Record<string, SessionLogDownloadEntry | undefined>
 }
@@ -113,18 +115,18 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** Owns one in-flight browser download per Session and publishes panel state. */
+/** Owns one in-flight browser download per Session and publishes modal state. */
 export class SessionLogDownloadController {
   /**
-   * uSES-safe state source shared by every Session-scoped panel contribution.
-   * Frame-batched: an archive arrives in many chunks and each one republishes
-   * progress, so subscribers are notified once per animation frame instead of
-   * once per chunk.
+   * State source shared by the root modal and the menu availability. Each read
+   * chunk republishes progress, so the modal follows the transfer without a
+   * frame of delay.
    */
-  readonly store: SnapshotStore<SessionLogDownloadState> = createSnapshotStore(INITIAL, { flush: 'raf' })
+  readonly store: SnapshotStore<SessionLogDownloadState> = createSnapshotStore(INITIAL)
 
   private readonly active = new Map<SessionId, { readonly abort: AbortController; readonly done: Promise<void> }>()
   private disposed = false
+  private nextOrder = 0
 
   /**
    * @param fetcher - HTTP carrier used to read the host-streamed ZIP.
@@ -137,6 +139,7 @@ export class SessionLogDownloadController {
 
   /**
    * Download one Session tree; concurrent gestures for the same Session share one operation.
+   * Different Sessions run concurrently; each new operation joins the modal FIFO.
    * @param sessionId - root Session whose ZIP includes descendants and attachments.
    * @returns after the browser save starts, an error state is published, the
    * download is cancelled, or a late post-disposal request is ignored.
@@ -146,7 +149,7 @@ export class SessionLogDownloadController {
     if (existing !== undefined) return existing.done
     if (this.disposed) return Promise.resolve()
     const abort = new AbortController()
-    const done = this.run(sessionId, abort.signal).finally(() => {
+    const done = this.run(sessionId, abort.signal, this.nextOrder++).finally(() => {
       this.active.delete(sessionId)
     })
     this.active.set(sessionId, { abort, done })
@@ -154,9 +157,9 @@ export class SessionLogDownloadController {
   }
 
   /**
-   * Close one Session's panel without cancelling its download; the archive
+   * Close one Session's modal without cancelling its download; the archive
    * still arrives and is still saved.
-   * @param sessionId - Session whose panel closes.
+   * @param sessionId - Session whose modal closes.
    */
   dismiss(sessionId: SessionId): void {
     const current = this.store.getSnapshot().bySession[String(sessionId)]
@@ -185,9 +188,9 @@ export class SessionLogDownloadController {
     await Promise.allSettled(active.map(operation => operation.done))
   }
 
-  private async run(sessionId: SessionId, signal: AbortSignal): Promise<void> {
+  private async run(sessionId: SessionId, signal: AbortSignal, order: number): Promise<void> {
     this.publish(sessionId, {
-      open: true, status: 'downloading', error: null, progress: SESSION_EXPORT_PROGRESS_START,
+      order, open: true, status: 'downloading', error: null, progress: SESSION_EXPORT_PROGRESS_START,
     })
     try {
       const query = new URLSearchParams({ sessionId, includeDescendants: 'true' })
@@ -217,7 +220,7 @@ export class SessionLogDownloadController {
           ?? sessionLogZipFilename(sessionId),
       )
       const open = this.store.getSnapshot().bySession[String(sessionId)]?.open ?? true
-      this.publish(sessionId, { open, status: 'success', error: null, progress: tracker.complete() })
+      this.publish(sessionId, { order, open, status: 'success', error: null, progress: tracker.complete() })
     } catch (error: unknown) {
       if (signal.aborted) {
         this.clear(sessionId)
@@ -225,6 +228,7 @@ export class SessionLogDownloadController {
       }
       const current = this.store.getSnapshot().bySession[String(sessionId)]
       this.publish(sessionId, {
+        order,
         open: current?.open ?? true,
         status: 'error',
         error: messageOf(error),

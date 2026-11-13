@@ -33,9 +33,9 @@ kind: "package-reference"
 
 格式化器读取已提交的原始日志，因此压缩产生的表层替换不会移除较早消息，fork 继承的历史只出现一次。标题与正文来自同一个 `readSession` 快照。持久化元数据报告选中的已物化产物时，记录会在标题后添加一个 `Session file:` 围栏文本块，包含该精确路径；没有时省略该块。只复制选中的 Session 及其继承前缀；子会话日志仍只由 ZIP 导出。推理块、system 与 developer 消息、source kind 不是 `user` 的注入用户角色上下文、请求头与上下文以及运行时记录都会被省略。图片与文件变成可读标签；附件字节与认证链接不会进入记录。`Assistant`、`Tool` 和附件占位符等结构性标签有意使用英文；原始消息文本保持不变。文本以恰好一个换行结尾。
 
-剪贴板是浏览器范围的唯一目标，因此本插件实例一次只运行一项复制。在支持 `ClipboardItem` 与 `navigator.clipboard.write` 的宿主上，控制器会在点击时请求延迟的 `ClipboardItem` 写入，同时加载文档相对的 `api/session.markdown?sessionId=<id>` 路由；其他宿主在准备完成后回退到共享剪贴板助手。复制进行中到达的请求会加入该操作，并保留第一次点击的 Session。所有 Session Header 通过 `aria-busy` 反映复制状态，并在操作结束前禁用各自的复制行。成功、准备失败或剪贴板失败通过根 overlay 浮层反馈。释放会中止读取，并阻止后续文本进入由 Promise 提供的 Blob；操作系统已经接受的剪贴板写入无法回滚。
+剪贴板是浏览器范围的唯一目标，因此本插件实例一次只运行一项复制。在支持 `ClipboardItem` 与 `navigator.clipboard.write` 的宿主上，控制器会在点击时请求延迟的 `ClipboardItem` 写入，同时加载文档相对的 `api/session.markdown?sessionId=<id>` 路由；其他宿主在准备完成后回退到共享剪贴板助手。复制进行中到达的请求会加入该操作，并保留第一次点击的 Session。所有 Session Header 菜单在复制操作结束前禁用各自的复制行；无关操作保持可用。成功、准备失败或剪贴板失败通过根 overlay 浮层反馈。释放会中止读取，并阻止后续文本进入由 Promise 提供的 Blob；操作系统已经接受的剪贴板写入无法回滚。
 
-挂载 `ui-message-feedback` 时，同一菜单还提供“反馈”，打开已有的 Session 反馈弹窗。打开或关闭该弹窗不会导出 Session 或提交反馈。反馈入口随反馈插件的可用状态显示；两个导出操作保持独立可用。
+挂载 `ui-message-feedback` 时，同一菜单还提供“反馈”，打开已有的 Session 反馈弹窗。打开或关闭该弹窗不会导出 Session 或提交反馈。反馈入口随反馈插件的可用状态显示；两个导出操作保持独立可用。[`ui-open-in-app`](../../client/ui-open-in-app/README.zh.md) 在下载之后、反馈之前的独立分隔组中贡献应用子菜单。
 
 ### 何时选择
 
@@ -61,7 +61,7 @@ export function convertTranscript(events: readonly SessionEvent[], sourcePath?: 
   name: '@deepseek-ai/dsh-session-log-export'
 ```
 
-Web bundle 将本包与 Connection、`dsh-commands`、`dsh-client-ui-commands`、`dsh-client-ui-conversation` 和 `dsh-client-ui-layout` 一起挂载。layout 包声明复制反馈使用的 `shell.overlay` 座位；其他客户端包提供 Header 座位、locale 与命令界面。
+Web bundle 将本包与 Connection、`dsh-commands`、`dsh-client-ui-commands`、`dsh-client-ui-conversation`、`dsh-client-ui-context-menu` 和 `dsh-client-ui-layout` 一起挂载。conversation 包拥有 Header 入口，右键菜单服务渲染其共享菜单，layout 声明下载弹窗与复制反馈浮层使用的 `shell.overlay` 插槽。locale 与命令服务提供翻译文案和命令确认。
 
 ### 配置
 
@@ -91,7 +91,7 @@ Web bundle 将本包与 Connection、`dsh-commands`、`dsh-client-ui-commands`�
 
 ### 预期行为
 
-面板报告三个阶段：导出中、完成或失败。导出期间它展示一条进度条，下方是已接收的字节数。只要路由给出了归档规模，进度条就是确定的——包括没有子会话也没有附件的会话所导出的单条目归档；只有路由未给出规模时才是不确定进度。`取消` 放弃传输且不保存任何内容；关闭面板不会中断传输，归档仍会被保存，该操作随后完成时面板也不会重新打开。每个会话同时只允许一项下载，重复操作共用该任务。导出包含实时会话的最新事件：Host 端点在读取前会 flush 活动的根会话，因此斜杠命令触发的 ZIP 会包含启动下载的 `command/run` 与 `command/done` 事件对；冷持久化会话不需要 flush。每份逻辑日志在归档中使用当前 generation 的规范文件名（v0 为 `session.jsonl`，其他版本为 `session.vN.jsonl`），每个子会话目录下也遵循同一规则。图片使用 `media/<attachmentId>.<ext>`，通用文件使用 `files/<digest-prefix>/<digest>/<name>`。通用文件以有界分块读取并压缩，因此导出大文件时不会把它完整缓冲进内存。
+面板报告三个阶段：导出中、完成或失败。导出期间它展示一条进度条，下方是已接收的字节数。只要路由给出了归档规模，进度条就是确定的——包括没有子会话也没有附件的会话所导出的单条目归档；只有路由未给出规模时才是不确定进度。`取消` 放弃传输且不保存任何内容；关闭面板不会中断传输，归档仍会被保存，该操作随后完成时面板也不会重新打开。每个会话同时只允许一项下载，重复操作共用该任务。不同 Session 可以并行下载，弹窗按发起顺序一次显示一个；关闭一个后显示下一个未关闭的弹窗。导出包含实时会话的最新事件：Host 端点在读取前会 flush 活动的根会话，因此斜杠命令触发的 ZIP 会包含启动下载的 `command/run` 与 `command/done` 事件对；冷持久化会话不需要 flush。每份逻辑日志在归档中使用当前 generation 的规范文件名（v0 为 `session.jsonl`，其他版本为 `session.vN.jsonl`），每个子会话目录下也遵循同一规则。图片使用 `media/<attachmentId>.<ext>`，通用文件使用 `files/<digest-prefix>/<digest>/<name>`。通用文件以有界分块读取并压缩，因此导出大文件时不会把它完整缓冲进内存。
 
 附件收集读取内置 Session 事件声明的内容字段与已完成的 assistant 流块，包括扁平的 V4 tool 角色消息。未知事件载荷与无关字段在导出日志中保持不变，但不会触发附件读取。
 
@@ -116,6 +116,10 @@ Web bundle 将本包与 Connection、`dsh-commands`、`dsh-client-ui-commands`�
 该路由通过它自己的 [Connection](../../client/connection/README.zh.md) 访问规则服务非 owner Peer（例如控制台成员）：[remote access](../../api/remote-access/README.zh.md) 必须在被请求的会话上放行 action `/api/session.export`，并在 `includeDescendants=true` 时在归档将包含的每个 subagent 后代会话上放行。先判定被请求的会话，放行后才读取谱系。规则判定的就是导出随后使用的查询，只解析一次；参数重复时与 owner 一样取最后一个值。缺 `sessionId` 或 `includeDescendants` 取值非法、Host 没有 remote access 或 Session query、谱系读不出或任一判定被拒时，在读取任何日志之前返回 403。owner 的导出不变。
 
 Header 的更多操作入口使用公共紧凑 Button，点击区域为 28px 正方形，与右侧栏展开控件共用圆角和 hover 底色。
+
+该判定得到的后代清单就是归档的完整后代集合：判定之后出现的子会话不会被导出。
+
+共享右键菜单包声明被捕获的 `sessionHeader` 目标，独立于会话行及标题右键操作；conversation 包拥有其 Header 入口。本包贡献导出及可选反馈行，观察控制器、可用性与语言源。下载弹窗和复制反馈浮层挂载在根 overlay 中，独立于 Header 生命周期。
 
 ### 下载流程
 

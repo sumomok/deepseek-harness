@@ -41,7 +41,6 @@ export type {
   ResolvedConfig,
   ToolResultPruneConfig,
 } from './types.ts'
-export { originalToolResultSeq, recoveryNotice, splitSpillNotice } from './recovery.ts'
 export type {
   PruneApplyResult,
   PrunePreview,

@@ -30,8 +30,10 @@ const CHILDREN: Readonly<Record<string, readonly string[]>> = { s1: ['s1a'], s2:
 /** The Session whose lineage the fixture's Session query cannot read. */
 const UNTRACEABLE = 's-untraceable'
 
-function lineage(id: string): { readonly session: { readonly header: SessionHeader }; readonly descendants: readonly unknown[] } {
-  return { session: { header: header(id) }, descendants: (CHILDREN[id] ?? []).map(lineage) }
+/** One fixture lineage node returned by the Session query. */
+interface FixtureLineage {
+  readonly session: { readonly header: SessionHeader }
+  readonly descendants: readonly FixtureLineage[]
 }
 
 const roots: Context[] = []
@@ -41,22 +43,39 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(ctx => ctx.fiber.dispose()))
 })
 
-async function mount(options: { readonly remoteAccess?: boolean; readonly sessionQuery?: boolean } = {}): Promise<{
+async function mount(options: {
+  readonly remoteAccess?: boolean
+  readonly sessionQuery?: boolean
+  /** Children of one Session on the given lineage read; absent uses the fixed corpus. */
+  readonly children?: (id: string, read: number) => readonly string[] | undefined
+} = {}): Promise<{
   readonly ctx: Context
   readonly connection: HostConnectionService
   readonly opened: string[]
+  readonly read: string[]
+  readonly traceReads: () => number
 }> {
   const ctx = new Context()
   roots.push(ctx)
   const opened: string[] = []
+  const read: string[] = []
+  let traceReads = 0
   ctx.provide('commands', { register: () => () => {} } as never)
   if (options.sessionQuery !== false) {
     ctx.provide('sessionQuery', {
       traceSession: async (id: SessionId) => {
+        traceReads++
         if (id === UNTRACEABLE) throw new Error('fixture lineage is unreadable')
-        return lineage(String(id))
+        const tree = (current: string): FixtureLineage => ({
+          session: { header: header(current) },
+          descendants: (options.children?.(current, traceReads) ?? CHILDREN[current] ?? []).map(tree),
+        })
+        return tree(String(id))
       },
-      readSession: async (id: SessionId) => ({ session: { header: header(String(id)) }, events: [] }),
+      readSession: async (id: SessionId) => {
+        read.push(String(id))
+        return { session: { header: header(String(id)) }, events: [] }
+      },
     } as never)
   }
   ctx.provide('sessionPersistence', {
@@ -78,7 +97,7 @@ async function mount(options: { readonly remoteAccess?: boolean; readonly sessio
   }
   const connection = new HostConnectionService(ctx, [], {} as BrowserAuth)
   await ctx.plugin({ inject: [...inject], apply })
-  return { ctx, connection, opened }
+  return { ctx, connection, opened, read, traceReads: () => traceReads }
 }
 
 function member(connection: HostConnectionService, ...sessions: string[]): PeerScope {
@@ -180,6 +199,51 @@ describe('Session-log export route for non-owner Peers', () => {
     expect(await exportAs(connection, member(connection, 's1'), '?sessionId=s2&sessionId=s1&includeDescendants=true&includeDescendants=false'))
       .toEqual({ status: 200, entries: [SESSION_LOG_FILENAME] })
     expect(opened).toEqual(['s1'])
+  })
+
+  it('reads the Markdown Session its repeated query values were decided on', async () => {
+    const { connection, read } = await mount()
+    const onlySecond = member(connection, 's2')
+    const response = await connection.createSharedFetchHandler('/api').fetch(
+      new Request(`http://host${SESSION_MARKDOWN_EXPORT_PATH}?sessionId=s1&sessionId=s2`),
+      onlySecond,
+    )
+    // The parser takes the last value for both the access decision and the read;
+    // reading the first value here would return a Session the member was denied.
+    expect(response.status).toBe(200)
+    expect(read).toEqual(['s2'])
+  })
+
+  it('refuses Markdown when the decided Session is denied, without reading either naming', async () => {
+    const { connection, read } = await mount()
+    const response = await connection.createSharedFetchHandler('/api').fetch(
+      new Request(`http://host${SESSION_MARKDOWN_EXPORT_PATH}?sessionId=s1&sessionId=s2`),
+      member(connection, 's1'),
+    )
+    expect(response.status).toBe(403)
+    expect(read).toEqual([])
+  })
+
+  it('decides and reads the same Session on a Markdown HEAD', async () => {
+    const { connection, read } = await mount()
+    const response = await connection.createSharedFetchHandler('/api').fetch(
+      new Request(`http://host${SESSION_MARKDOWN_EXPORT_PATH}?sessionId=s1&sessionId=s2`, { method: 'HEAD' }),
+      member(connection, 's2'),
+    )
+    expect(response.status).toBe(200)
+    expect(read).toEqual(['s2'])
+  })
+
+  it('exports only the descendants the access decision read, never one appearing afterwards', async () => {
+    const { connection, opened, traceReads } = await mount({
+      children: (id, read) => id === 's1' ? (read === 1 ? ['s1a'] : ['s1a', 's1b']) : undefined,
+    })
+    // s1b is granted to nobody; it appears in a later lineage read only.
+    const result = await exportAs(connection, member(connection, 's1', 's1a'), '?sessionId=s1&includeDescendants=true')
+    expect(result).toEqual({ status: 200, entries: [SESSION_LOG_FILENAME, `subagents/s1a/${SESSION_LOG_FILENAME}`] })
+    expect(opened).not.toContain('s1b')
+    expect(opened).toContain('s1a')
+    expect(traceReads()).toBe(1)
   })
 
   it('exports any Session with its descendants to the owner without asking remote access', async () => {

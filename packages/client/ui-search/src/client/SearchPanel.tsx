@@ -82,7 +82,7 @@ export function SearchPanel({
     const active = listRef.current?.querySelector<HTMLElement>('[data-active="true"]')
     // jsdom has no layout engine and no scrollIntoView; the guard keeps the
     // component spec from failing on a browser API that has nothing to scroll.
-    active?.scrollIntoView?.({ block: 'nearest' })
+    active?.scrollIntoView({ block: 'nearest' })
   }, [state.active, state.rows.length])
 
   if (!state.open) return null

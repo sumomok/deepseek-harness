@@ -3,13 +3,9 @@
  * each desktop target, the engine version this package ships, and that
  * `ENGINE_DOWNLOADS` registers it.
  *
- * The staged kit is the one the packaged app reads, and the legacy hoisted
- * deploy that stages it does not take the workspace lockfile's pin: it
- * resolves the kit's range by publish age, to the newest release at least
- * pnpm's `minimumReleaseAge` old when the deploy runs. So it can be newer than
- * the kit the workspace installs and `tests/office-engine.spec.ts` reads, and
- * newer than the kit the previous package carried. A package whose kit
- * declares an unregistered version offers no Office preview download, and one
+ * The staged kit is the one the packaged app reads, pinned exactly by
+ * `@deepseek-ai/dsh-office-kit`. A package whose kit declares an unregistered
+ * version offers no Office preview download, and one
  * whose kit declares another registered version makes every person who
  * downloaded the engine download it again. The check lives apart from
  * `package.ts` because `package.ts` runs the build when it is imported.
@@ -34,25 +30,22 @@ export interface DesktopEngineHost {
  * The hosts a desktop package offers the engine on — the macOS arm64 build and
  * the Windows x64 build — each with the engine version its package ships.
  *
- * A package run stops when the staged kit declares another version, so a kit
- * release never reaches the desktop through the time a deploy happens to run.
- * Raise a version here only to ship that engine: register its tarball in
- * `ENGINE_DOWNLOADS` (published size, `dist.integrity`, and a conversion
- * checked with that version), then run a fresh deploy once that kit is a day
- * old. Every person who downloaded the engine then downloads the new version
- * once, without being asked, on the first launch of that build.
+ * A package run stops when the staged kit declares another version.
+ * Raise a version here only with the core's exact kit dependency: register
+ * its tarball in `ENGINE_DOWNLOADS` (compressed size and `dist.integrity`),
+ * check a conversion with that version, and run a fresh deploy subject to
+ * pnpm's `minimumReleaseAge`. Every person who downloaded the engine then
+ * downloads the new version once, without being asked, on the first launch
+ * of that build.
  *
  * `--skip-deploy` over a staging this check accepts keeps the current
  * version, but that staging also carries everything else its deploy staged:
  * the workspace packages with their client bundles, and the vendored plugins.
  * It therefore fits only a repackage that changes nothing outside this shell.
- * Once a newer kit is a day old, any other release has to register that kit's
- * engines and raise the version here, or pin the kit through `overrides` in
- * `pnpm-workspace.yaml`, which is a core patch.
  */
 export const DESKTOP_ENGINE_HOSTS: readonly DesktopEngineHost[] = [
-  { platform: 'darwin', arch: 'arm64', engineVersion: '0.1.5' },
-  { platform: 'win32', arch: 'x64', engineVersion: '0.1.5' },
+  { platform: 'darwin', arch: 'arm64', engineVersion: '0.2.3' },
+  { platform: 'win32', arch: 'x64', engineVersion: '0.2.3' },
 ]
 
 /**

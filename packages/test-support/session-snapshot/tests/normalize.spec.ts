@@ -462,6 +462,88 @@ describe('normalizeSessionLog', () => {
     expect(out).toContain('{{sessionId}}')
   })
 
+  it('preserves file versions in read metadata and canonical PTC output', () => {
+    const version = '16777231:178163997:14:1794469577700859573:1794469577700896448'
+    const digest = 'a'.repeat(64)
+    const read = JSON.stringify({
+      type: 'tool/result', seq: 2, time: 5,
+      data: { meta: { path: `${ctx.cwd}/task.txt`, read: 'full', digest, version } },
+    })
+    const rendered = JSON.stringify({
+      type: 'tool/result', seq: 4, time: 7,
+      data: { message: { content: [{ type: 'text',
+        text: `{\n  path: '${ctx.cwd}/task.txt',\n  totalLines: 1,\n  version: '${version}',\n  size: 14,\n  read: 'full',\n  digest: '${digest}'\n}\n`,
+      }] } },
+    })
+    const out = normalizeSessionLog(`${header({})}\n${read}\n${rendered}\n`, ctx)
+    expect(out.match(new RegExp(version, 'g'))).toHaveLength(2)
+    expect(out).not.toContain('{{fileVersion}}')
+  })
+
+  it('preserves stat-like text in user messages, unrelated tools, and version fields', () => {
+    const version = '16777231:178163997:14:1794469577700859573:1794469577700896448'
+    const events = [
+      { type: 'plugin/change', data: { version } },
+      { type: 'tool/result', data: { meta: { version }, message: { content: [{ type: 'text', text: version }] } } },
+      { type: 'user/message', data: { content: [{ type: 'text', text: version }] } },
+    ]
+    const out = normalizeSessionLog(events.map(event => JSON.stringify(event)).join('\n'), ctx)
+    expect(out.match(new RegExp(version, 'g'))).toHaveLength(4)
+    expect(out).not.toContain('{{fileVersion}}')
+  })
+
+  it.each([
+    ['Session logs', normalizeSessionLog],
+    ['SDK notifications', normalizeStdout],
+  ] as const)('distinguishes repeated file versions from changed versions in %s', (_label, normalize) => {
+    const first = '1:2:14:4:5'
+    const second = '1:2:14:6:7'
+    const digest = 'a'.repeat(64)
+    const log = (version: string): string => [
+      { type: 'tool/call', data: { callId: 'code', name: 'run_code', arguments: '{}' } },
+      { type: 'tool/ptc-dispatch', data: {
+        rootCallId: 'code', parentCallId: 'code', subCallId: 'read', name: 'read',
+        arguments: { file_path: 'task.txt' }, isError: false,
+        content: [{ type: 'text', text: 'file content' }],
+        meta: { path: 'task.txt', read: 'full', digest, version: first },
+      } },
+      { type: 'tool/result', data: { message: {
+        role: 'tool', toolCallId: 'code', source: { kind: 'tool', callId: 'code' },
+        content: [{ type: 'text', text: `{\n  path: 'task.txt',\n  totalLines: 1,\n  version: '${version}',\n  size: 14,\n  read: 'full',\n  digest: '${digest}'\n}\n` }],
+      } } },
+    ].map(event => JSON.stringify(normalize === normalizeStdout
+      ? { jsonrpc: '2.0', method: 'session.event', params: { event } }
+      : event)).join('\n')
+    const same = normalize(log(first), ctx)
+    const different = normalize(log(second), ctx)
+    expect(same).not.toBe(different)
+    expect(normalize(same, ctx)).toBe(same)
+    expect(normalize(different, ctx)).toBe(different)
+  })
+
+  it.each(['bash', 'custom', 'run_code'])('preserves file-read lookalikes returned by %s', (name) => {
+    const version = '1:2:14:4:5'
+    const digest = 'a'.repeat(64)
+    const text = `{\n  path: 'task.txt',\n  totalLines: 1,\n  version: '${version}',\n  size: 14,\n  read: 'full',\n  digest: '${digest}'\n}\n`
+    const meta = { path: 'task.txt', read: 'full', digest, version }
+    const events = [
+      { type: 'tool/call', data: { callId: 'custom-call', name, arguments: '{}' } },
+      { type: 'tool/result', data: { meta, message: {
+        role: 'tool', toolCallId: 'custom-call', source: { kind: 'tool', callId: 'custom-call' },
+        content: [{ type: 'text', text }],
+      } } },
+      { type: 'tool/ptc-dispatch', data: {
+        rootCallId: 'code', parentCallId: 'code', subCallId: 'custom-dispatch', name,
+        arguments: {}, isError: false, meta, content: [{ type: 'text', text }],
+      } },
+    ]
+    const raw = events.map(event => JSON.stringify(event)).join('\n') + '\n'
+    expect(normalizeSessionLog(raw, ctx)).toBe(raw)
+    expect(normalizeStdout(events.map(event => JSON.stringify({
+      jsonrpc: '2.0', method: 'session.event', params: { event },
+    })).join('\n'), ctx)).toContain(JSON.stringify(text))
+  })
+
   it('zeroes a hook/result durationMs (run-to-run noise) but keeps its decision', () => {
     const ev = JSON.stringify({
       type: 'hook/result', seq: 2, time: 5,

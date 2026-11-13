@@ -21,6 +21,11 @@ import type { SessionAccess, SessionHandle } from '@deepseek-ai/dsh-session-pers
 import { HostConnectionService } from '@deepseek-ai/dsh-client-connection'
 import type { BrowserAuth } from '@deepseek-ai/dsh-client-connection/src/browser-auth.ts'
 import * as SessionLogExport from '../src/index.ts'
+import {
+  SESSION_EXPORT_BYTES_HEADER,
+  SESSION_EXPORT_ENTRIES_HEADER,
+  SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER,
+} from '../src/export-extent.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface ContentBlockMap {
@@ -218,7 +223,7 @@ function directReady(): SessionLogExport.SessionLogExportReady {
 /** Consume one directly built zip stream into its unpacked files. */
 async function directZipFiles(rootContent: string): Promise<Record<string, Uint8Array>> {
   const stream = SessionLogExport.streamSessionLogZip(
-    directReady(), rootContent, sid('session-root'), false, 6, new AbortController().signal,
+    directReady(), rootContent, sid('session-root'), [], 6, new AbortController().signal,
   )
   return unzipSync(new Uint8Array(await new Response(stream).arrayBuffer()))
 }
@@ -869,8 +874,8 @@ describe('session.export download endpoint', () => {
     // The record occupies one entry, exactly like the file it stands in for,
     // and the announced size still counts that entry at the reference's
     // recorded byte length, which measuring never re-reads.
-    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_ENTRIES_HEADER)).toBe('3')
-    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_BYTES_HEADER)).toBe(
+    expect(response.headers.get(SESSION_EXPORT_ENTRIES_HEADER)).toBe('3')
+    expect(response.headers.get(SESSION_EXPORT_BYTES_HEADER)).toBe(
       String(new TextEncoder().encode(logText(stored)).byteLength + 5 + 3),
     )
   })
@@ -1125,8 +1130,8 @@ describe('session.export download endpoint', () => {
     // The record occupies one entry, exactly like the image it stands in for,
     // and the announced size still counts that entry at the reference's
     // recorded byte length, which measuring never re-reads.
-    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_ENTRIES_HEADER)).toBe('3')
-    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_BYTES_HEADER)).toBe(
+    expect(response.headers.get(SESSION_EXPORT_ENTRIES_HEADER)).toBe('3')
+    expect(response.headers.get(SESSION_EXPORT_BYTES_HEADER)).toBe(
       String(new TextEncoder().encode(logText(stored)).byteLength + 425977 + 4),
     )
   })
@@ -1246,14 +1251,14 @@ describe('session export extent headers', () => {
       subagentLogName('child-a'),
     ])
     const uncompressed = Object.values(files).reduce((total, file) => total + file.byteLength, 0)
-    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_ENTRIES_HEADER))
+    expect(response.headers.get(SESSION_EXPORT_ENTRIES_HEADER))
       .toBe(String(Object.keys(files).length))
-    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_BYTES_HEADER))
+    expect(response.headers.get(SESSION_EXPORT_BYTES_HEADER))
       .toBe(String(uncompressed))
     // Logs are scaled by the calibrated ratio; media is already-compressed
     // raster data that deflate leaves at its stored size.
     const mediaBytes = storedImage('img-1').ref.bytes + storedImage('img-2', 'image/jpeg').ref.bytes
-    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER))
+    expect(response.headers.get(SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER))
       .toBe(String(Math.round(fixtureLogBytes() * TEXT_DEFLATE_RATIO + mediaBytes)))
   })
 
@@ -1265,8 +1270,8 @@ describe('session export extent headers', () => {
 
     // At level 0 every entry reaches the wire at its uncompressed size, so the
     // estimate stops being an estimate.
-    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER))
-      .toBe(response.headers.get(SessionLogExport.SESSION_EXPORT_BYTES_HEADER))
+    expect(response.headers.get(SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER))
+      .toBe(response.headers.get(SESSION_EXPORT_BYTES_HEADER))
     await response.body?.cancel()
   })
 
@@ -1280,8 +1285,8 @@ describe('session export extent headers', () => {
 
     expect(head.status).toBe(200)
     expect(head.body).toBeNull()
-    expect(head.headers.get(SessionLogExport.SESSION_EXPORT_ENTRIES_HEADER)).toBe('4')
-    expect(head.headers.get(SessionLogExport.SESSION_EXPORT_BYTES_HEADER)).toBe(
+    expect(head.headers.get(SESSION_EXPORT_ENTRIES_HEADER)).toBe('4')
+    expect(head.headers.get(SESSION_EXPORT_BYTES_HEADER)).toBe(
       String(new TextEncoder().encode(logText(log('session-root', undefined, [imageEvent('img-1')]))).byteLength
         + new TextEncoder().encode(
           logText(log('child-a', sid('session-root'), [imageEvent('img-2', 'image/jpeg')])),
@@ -1299,7 +1304,7 @@ describe('session export extent headers', () => {
 
     // The root log and the one image it references; the child and its image
     // are outside this archive.
-    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_ENTRIES_HEADER)).toBe('2')
+    expect(response.headers.get(SESSION_EXPORT_ENTRIES_HEADER)).toBe('2')
     const files = unzipSync(await responseBytes(response))
     expect(Object.keys(files).sort()).toEqual(['media/img-1.png', exportLogName])
   })
@@ -1311,9 +1316,9 @@ describe('session export extent headers', () => {
     )
 
     expect(response.status).toBe(200)
-    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_ENTRIES_HEADER)).toBeNull()
-    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_BYTES_HEADER)).toBeNull()
-    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER)).toBeNull()
+    expect(response.headers.get(SESSION_EXPORT_ENTRIES_HEADER)).toBeNull()
+    expect(response.headers.get(SESSION_EXPORT_BYTES_HEADER)).toBeNull()
+    expect(response.headers.get(SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER)).toBeNull()
     await expect(response.arrayBuffer()).rejects.toThrow()
   })
 

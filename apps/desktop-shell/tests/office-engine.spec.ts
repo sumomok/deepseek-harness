@@ -11,14 +11,15 @@
  * @module
  */
 
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   ENGINE_DOWNLOADS, ENGINE_MODULES_ENV, engineInstalled, engineModulesDir, engineServerEnv, installEngine,
-  officeEngineRoot, officeEngineTarget, pruneEngineRoot, readEngineRequirement, readProgressLine, supersededEngine, versionsToKeep,
+  kitManifestPath, officeEngineRoot, officeEngineTarget, pruneEngineRoot, readEngineRequirement, readProgressLine,
+  supersededEngine, versionsToKeep,
   type EngineRequirement, type InstallProgress,
 } from '../src/office-engine.ts'
 import { LAUNCH_ENV } from './launch-env.ts'
@@ -54,7 +55,7 @@ function temp(prefix: string): string {
  */
 function serverTree(optionalDependencies: Record<string, string>): string {
   const modules = join(temp('dsh-engine-tree-'), 'node_modules')
-  for (const name of ['@deepseek-ai/dsh', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-office-to-pdf']) {
+  for (const name of ['@deepseek-ai/dsh', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-office-kit']) {
     mkdirSync(join(modules, name), { recursive: true })
     writeFileSync(join(modules, name, 'package.json'), JSON.stringify({ name, version: '0.0.0' }))
   }
@@ -77,21 +78,46 @@ describe('officeEngineTarget', () => {
 })
 
 describe('readEngineRequirement', () => {
+  it('resolves the kit through each package’s own dependencies without a hoisted kit or office-to-pdf', () => {
+    const modules = join(temp('dsh-engine-nested-'), 'node_modules')
+    let ownerModules = modules
+    for (const name of ['@deepseek-ai/dsh', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-office-kit']) {
+      const dir = join(ownerModules, name)
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, version: '0.0.0' }))
+      ownerModules = join(dir, 'node_modules')
+    }
+    const kit = join(ownerModules, '@deepseek-ai/libreoffice-kit')
+    mkdirSync(kit, { recursive: true })
+    writeFileSync(join(kit, 'package.json'), JSON.stringify({
+      name: '@deepseek-ai/libreoffice-kit', version: '0.2.3',
+      optionalDependencies: { '@deepseek-ai/libreoffice-kit-darwin-arm64': '0.2.3', '@deepseek-ai/libreoffice-kit-win32-x64': '0.2.3' },
+    }))
+    expect(kitManifestPath(modules)).toBe(realpathSync(join(kit, 'package.json')))
+    for (const [platform, arch] of [['darwin', 'arm64'], ['win32', 'x64']] as const) {
+      expect(readEngineRequirement(modules, platform, arch)).toMatchObject({ ok: true, requirement: { version: '0.2.3', target: `${platform}-${arch}` } })
+    }
+  })
+
   it('reads the engine name and exact version from the kit, and the size and integrity the table records', () => {
-    const modules = serverTree({ '@deepseek-ai/libreoffice-kit-darwin-arm64': '0.1.5', '@deepseek-ai/libreoffice-kit-wasm': '0.1.5' })
+    const modules = serverTree({ '@deepseek-ai/libreoffice-kit-darwin-arm64': '0.2.3', '@deepseek-ai/libreoffice-kit-wasm': '0.2.3' })
     expect(readEngineRequirement(modules, 'darwin', 'arm64')).toEqual({ ok: true, requirement: {
       target: 'darwin-arm64',
       name: '@deepseek-ai/libreoffice-kit-darwin-arm64',
-      version: '0.1.5',
-      downloadBytes: 67_261_855,
-      integrity: 'sha512-SjeXmyaTevEq2TxK7reb1rhCrQZ4QOXmXt/qEwfQD5Fx3odU0ILx2uiXN+nphSCQ95LFCzrElHGgv2c7a824yg==',
+      version: '0.2.3',
+      downloadBytes: 69_748_594,
+      integrity: 'sha512-0dfiEQR6SqAQjh9hxyY8x77Sj3r+AGC+Xn2A/zF+bag9g40leYPL/c2UirSqYR6xUwE9a/5YgWFIHjw1eOh+3A==',
     } })
   })
 
   it('offers no version only an earlier kit declared', () => {
-    for (const version of ['0.1.1', '0.1.3']) {
+    for (const version of ['0.1.1', '0.1.3', '0.1.5']) {
       const found = readEngineRequirement(serverTree({ '@deepseek-ai/libreoffice-kit-darwin-arm64': version }), 'darwin', 'arm64')
-      expect(found.ok, version).toBe(false)
+      expect(found, version).toEqual({
+        ok: false,
+        reason: `this version of the preview component is not registered yet (@deepseek-ai/libreoffice-kit-darwin-arm64@${version})`,
+        declared: { name: '@deepseek-ai/libreoffice-kit-darwin-arm64', version },
+      })
     }
   })
 
@@ -130,16 +156,18 @@ describe('readEngineRequirement', () => {
   // `dist.integrity` and the tarball's `content-range` length.
   it('records both desktop engines at the workspace kit\'s and each packaged kit\'s version, with their published size and integrity', () => {
     for (const [platform, arch] of [['darwin', 'arm64'], ['win32', 'x64']] as const) {
-      expect(readEngineRequirement(SERVER_MODULES, platform, arch).ok).toBe(true)
+      expect(readEngineRequirement(SERVER_MODULES, platform, arch)).toMatchObject({
+        ok: true, requirement: { name: `@deepseek-ai/libreoffice-kit-${platform}-${arch}`, version: '0.2.3' },
+      })
     }
     expect(ENGINE_DOWNLOADS).toEqual({
-      '@deepseek-ai/libreoffice-kit-darwin-arm64@0.1.5': {
-        bytes: 67_261_855,
-        integrity: 'sha512-SjeXmyaTevEq2TxK7reb1rhCrQZ4QOXmXt/qEwfQD5Fx3odU0ILx2uiXN+nphSCQ95LFCzrElHGgv2c7a824yg==',
+      '@deepseek-ai/libreoffice-kit-darwin-arm64@0.2.3': {
+        bytes: 69_748_594,
+        integrity: 'sha512-0dfiEQR6SqAQjh9hxyY8x77Sj3r+AGC+Xn2A/zF+bag9g40leYPL/c2UirSqYR6xUwE9a/5YgWFIHjw1eOh+3A==',
       },
-      '@deepseek-ai/libreoffice-kit-win32-x64@0.1.5': {
-        bytes: 71_367_942,
-        integrity: 'sha512-uKuDGZdofxuW4iRmUh8b3+XWU28JeOCYMTAONzo7tEHIq00DV2cARcgUYiTP7gUH49tH4A/RyPMOVEBzK7qjjw==',
+      '@deepseek-ai/libreoffice-kit-win32-x64@0.2.3': {
+        bytes: 74_312_660,
+        integrity: 'sha512-GMW+m/09Ts0m4gRUjIckeRN48OVYgJI7aLG1uoUHcG3LRPDsKnsyeRo+BSQn8rh4CmWtJg5c6qtl0uSW7b9zEg==',
       },
     })
   })
@@ -384,7 +412,9 @@ describe('the office engine in main.ts', () => {
     expect(cleanup).toBeGreaterThan(shown)
     expect(source).toContain('\n      void moveCleanup.idle().then(() => { officeEngine?.runUpgrade() })\n')
     expect(source.indexOf('void moveCleanup.idle().then(', shown)).toBeGreaterThan(cleanup)
-    expect([...source.matchAll(/\.runUpgrade\(\)/g)]).toHaveLength(1)
+    const startup = source.indexOf('void app.whenReady()')
+    expect(startup).toBeGreaterThan(-1)
+    expect([...source.slice(startup).matchAll(/\.runUpgrade\(\)/g)]).toHaveLength(1)
   })
 
   // Nothing else stops a running download at a quit when the listener is missing.
@@ -418,11 +448,13 @@ describe('the office engine in main.ts', () => {
     expect(source).toContain(LAUNCH_ENV)
   })
 
-  // Every rebind and the restart after a failed install or a withdrawn data
-  // move start from the recorded spec, so the launch environment is the only
-  // one composed. The other `env:` keys hand `process.env` to the data move's checks.
-  it('composes one server environment and records specs in one place', () => {
-    expect([...source.matchAll(/\benv: \{/g)]).toHaveLength(1)
+  // Recovery refreshes the Office service credentials before reusing the
+  // recorded spec; the initial launch composes its complete environment once.
+  it('composes one initial server environment and records specs in one place', () => {
+    const startup = source.indexOf('void app.whenReady()')
+    expect(startup).toBeGreaterThan(-1)
+    expect([...source.slice(startup).matchAll(/\benv: \{/g)]).toHaveLength(1)
+    expect(source).toContain('spec.env = await restoreOfficeEnvironment(spec.env,')
     expect([...source.matchAll(/\bactiveServerSpec = /g)]).toHaveLength(1)
     expect(source).toContain('function rememberServerPort(spec: ServerSpec): void {\n  activeServerSpec = spec\n')
   })

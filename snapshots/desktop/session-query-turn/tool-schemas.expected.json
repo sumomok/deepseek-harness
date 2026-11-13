@@ -2,7 +2,7 @@
   "initial": [
     {
       "name": "session_event_read",
-      "description": "Read one full unabridged event and optional neighboring raw-event summaries from an authorized session.",
+      "description": "Read a bounded excerpt of one event, or the complete event with full: true.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -21,6 +21,18 @@
           "after": {
             "type": "integer",
             "description": "Number of following raw events to summarize. Omit for none."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Zero-based character offset into the formatted event JSON; use nextOffset from the previous page."
+          },
+          "maxChars": {
+            "type": "integer",
+            "description": "Characters per page (2–100000). Defaults to 16000."
+          },
+          "full": {
+            "type": "boolean",
+            "description": "Return the complete unabridged event. Cannot be combined with offset or maxChars."
           }
         },
         "required": [
@@ -30,7 +42,7 @@
     },
     {
       "name": "session_event_search",
-      "description": "Search prior events in one authorized session; the current session excludes the step performing this call.",
+      "description": "Search prior events in one authorized session, by default this one; a call for the current session excludes the step performing it.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -105,7 +117,7 @@
     },
     {
       "name": "session_search",
-      "description": "Search prior sessions in the caller workspace and return the strongest matching event from each session.",
+      "description": "Search prior sessions other than this one in the caller workspace and return the strongest matching event from each session.",
       "parameters": {
         "type": "object",
         "properties": {

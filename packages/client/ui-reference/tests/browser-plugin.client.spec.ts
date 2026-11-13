@@ -837,8 +837,8 @@ describe('reference preview', () => {
     const entry = ctx.slots.entries('conversation.user.text.node').find(candidate => candidate.options.key === 'file')!
     const factory = entry.inject as NonNullable<typeof entry.inject> & ((id: SessionId) => FileReferenceInjected)
     const openResource = vi.spyOn(ctx.sidebarRight, 'openResource')
-    factory(session.sessionId).openFile('docs/a b.md')
-    factory(sid('other')).openFile('notes.md')
+    void factory(session.sessionId).openFile('docs/a b.md')
+    void factory(sid('other')).openFile('notes.md')
     const file = factory(session.sessionId)
     await sessions.updateSummary(session.sessionId, { cwd: '/workspace' })
     await sessions.setProjection(session.sessionId, 'workingDirectory', '/workspace/elsewhere')

@@ -1,4 +1,4 @@
-# Agent Note: The core patch line merges upstream releases and claims its diff against the base tag
+# Agent Note: The core patch line merges upstream and claims its diff against an explicit base
 
 Status: implemented
 
@@ -12,9 +12,9 @@ The fork now keeps the line as a long-lived branch, `feature/core-patches`, and 
 
 ## Decision
 
-**The line is merged, never rebased.** Upstream release tags enter `feature/core-patches` through `git merge`; `core-patches` is only fast-forwarded to it, and `develop` takes core changes only by merging `core-patches`. The registry, `.claude/core-patches.md`, declares `**当前补丁线**：\`feature/core-patches\`` and `**基座 tag**：\`<tag>\`` in place of the base-merge number.
+**The line is merged, never rebased.** Upstream releases or an explicitly selected upstream commit enter `feature/core-patches` through `git merge`; `core-patches` is only fast-forwarded to it, and `develop` takes core changes only by merging `core-patches`. The registry, `.claude/core-patches.md`, declares `**当前补丁线**：\`feature/core-patches\`` and exactly one of `**基座 tag**：\`<tag>\`` or `**基座 commit**：\`<full SHA>\``. The commit form supports an unreleased upstream integration without inventing a release tag or rewriting patch history.
 
-**The gate compares the line's diff, not its commit list, with the registry.** The base is `refs/tags/<tag>^{commit}`, and `git merge-base HEAD <tag>` must equal it (`base-tag-missing` names `git fetch upstream --tags`; `base-tag-not-merged` otherwise). The change set is `git diff --no-renames --name-only <base> HEAD` minus a fixed list of generator outputs. Every `在役` or `局部退役` record carries a `- **路径**：` line of backquoted pathspecs, matched with `:(glob)` magic:
+**The gate compares the line's diff, not its commit list, with the registry.** The base is `refs/tags/<tag>^{commit}`, and `git merge-base HEAD <tag>` must equal it (`base-tag-missing` names `git fetch upstream --tags`; `base-tag-not-merged` otherwise). A commit declaration instead requires a full 40-character lowercase SHA naming an actual commit, with the same merged-base requirement; abbreviated IDs, revision expressions and tag objects fail. The change set is `git diff --no-renames --name-only <base> HEAD` minus a fixed list of generator outputs. Every `在役` or `局部退役` record carries a `- **路径**：` line of backquoted pathspecs, matched with `:(glob)` magic:
 
 - `unclaimed-path`: a changed path no standing record claims.
 - `unused-active-slug`: a standing record that claims no changed path; its change is gone, so it is retired.
@@ -24,9 +24,9 @@ The fork now keeps the line as a long-lived branch, `feature/core-patches`, and 
 
 Retirement is therefore the family's change leaving the diff. Its old commits may stay on the line, and the former `retired-slug-in-use` check is gone.
 
-**Commits are read along the first-parent chain.** Every non-merge commit on `git log --first-parent <base>..HEAD` carries exactly one `Patch:` trailer whose value is a slug registered under any status (`trailer-count`, `malformed-trailer`, `unregistered-slug`). The joined history and upstream's commits sit under merges' second parents and are not enumerated.
+**Commits are read along the first-parent chain.** Every non-merge commit on `git log --first-parent <base>..HEAD` carries exactly one `Patch:` trailer whose value is a slug registered under any status (`trailer-count`, `malformed-trailer`, `unregistered-slug`). The only missing-trailer assignments are the individually validated pre-integration commits in [bounded historical identities](2026-11-13-bounded-historical-patch-identities.md); other commits retain the ordinary requirement. The joined history and upstream's commits sit under merges' second parents and are not enumerated.
 
-**Two kinds of merge are accepted on that chain.** (a) The merge has exactly two parents and the second is exactly the commit a `refs/tags/dsh-v*` tag points at, annotated tags dereferenced: an upstream release merge. An octopus merge that names a release still brings its further parents in, so it does not qualify. (b) The merge's tree equals its first parent's tree: an `-s ours` join. Any other merge is `merge-commit`, because a topic merge hides untrailed commits under its second parent; changes to the line land as direct or squashed commits. Rule (a) asks nothing about the declared tag, since every earlier round's release merge stays on the first-parent chain after the declaration moves to a newer tag that cannot reach it.
+**Three kinds of merge are accepted on that chain.** (a) The merge has exactly two parents and the second is exactly the commit a `refs/tags/dsh-v*` tag points at, annotated tags dereferenced: an upstream release merge. An octopus merge that names a release still brings its further parents in, so it does not qualify. (b) The merge's tree equals its first parent's tree: an `-s ours` join. (c) The registry declares a base commit and the merge has exactly two parents with that exact commit as its second parent. Its ancestors and descendants do not qualify. Any other merge is `merge-commit`, because a topic merge hides untrailed commits under its second parent; changes to the line land as direct or squashed commits. Rule (a) asks nothing about the declared tag, since every earlier round's release merge stays on the first-parent chain after the declaration moves to a newer tag that cannot reach it.
 
 The gate's scope is unchanged: another branch, a detached HEAD and a shallow clone report `skipped` and exit 0. `develop`, `core-patches` and CI's pull-request checkout therefore skip, even though they carry fork-owned paths and untrailed commits.
 
@@ -43,6 +43,8 @@ The gate's scope is unchanged: another branch, a detached HEAD and a shallow clo
 ## Consequences
 
 The registry names the exact paths each family holds against upstream, and a sync that retires a family or leaves a stray change fails the gate until the registry says so. Between merging a newer release and moving the `基座 tag` declaration, the whole upstream span reads as unclaimed; the declaration and the claims move in one registry commit after the merge.
+
+The repository-reference check exempts the full commit token in an unfenced base-commit declaration and the precise manifest fields owned by [bounded historical identities](2026-11-13-bounded-historical-patch-identities.md). Prose, surrounding tokens and declarations in other files remain checked. Changing the declared base does not authorize earlier unreleased merges: if one remains in the first-parent range without a real release tag at its second parent, the check fails. Historical identity assignments do not relax merge acceptance.
 
 The generated set is a constant in the gate. A generator that starts writing a file the families used to claim by hand, such as a translated catalog, needs that file added to the constant in the same round.
 

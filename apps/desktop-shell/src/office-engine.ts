@@ -2,12 +2,12 @@
  * The LibreOffice engine the desktop downloads on request instead of shipping.
  *
  * The payload carries `@deepseek-ai/libreoffice-kit`, the entry package
- * `@deepseek-ai/dsh-office-to-pdf` imports, and none of its engine packages
+ * `@deepseek-ai/dsh-office-kit` imports, and none of its engine packages
  * (`@deepseek-ai/libreoffice-kit-<platform>-<arch>`): each is a whole
- * LibreOffice build of 145 MB or more once unpacked. The kit resolves its
- * engine with `createRequire(import.meta.url)` from its own directory and takes
- * no path from configuration, so an engine installed anywhere else reaches it
- * through `NODE_PATH` alone. On macOS and Windows a missing engine is an error
+ * LibreOffice build of 145 MB or more once unpacked. The Office provider gives
+ * the kit a resolver anchored at the kit's entry module. The shell exposes its
+ * separately installed engine through the server's startup `NODE_PATH`.
+ * On macOS and Windows a missing engine is an error
  * the converter reports; the kit falls back to its WASM build on Linux only.
  *
  * This module owns the facts that follow from that:
@@ -63,7 +63,7 @@ export const OFFICE_KIT = '@deepseek-ai/libreoffice-kit'
  * name is a top-level directory, and in a development checkout, where each is
  * a workspace link.
  */
-const KIT_RESOLUTION_CHAIN = ['@deepseek-ai/dsh', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-office-to-pdf', OFFICE_KIT] as const
+const KIT_RESOLUTION_CHAIN = ['@deepseek-ai/dsh', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-office-kit', OFFICE_KIT] as const
 
 /**
  * Environment variable naming the engine directory this shell appended to the
@@ -90,7 +90,7 @@ const STAGING_STORE = '.pnpm-store'
 
 /** One published engine tarball. */
 export interface EngineDownload {
-  /** Its size in bytes, as the registry reports it (`content-range` of the tarball URL). */
+  /** Its compressed tarball size in bytes, from the registry's `Content-Length` or `Content-Range`. */
   bytes: number
   /** Its `dist.integrity`, as `npm view <package>@<version> dist.integrity` reports it. */
   integrity: string
@@ -103,29 +103,23 @@ export interface EngineDownload {
  * registry sends no length, and an install whose lockfile records another
  * integrity than `integrity` is refused.
  *
- * Each target is registered at every kit version a desktop build carries.
- * The workspace installs the kit at the version `pnpm-lock.yaml` pins
- * (0.1.5), which a development launch and `tests/office-engine.spec.ts`
- * read. The packaged server closure, which the packaged app reads, comes from
- * the legacy hoisted `pnpm deploy`. It does not take the lockfile's pin: it
- * resolves the kit's `^0.1.5` range to the highest release that is at least
- * pnpm's `minimumReleaseAge` (one day unless configured) old when the deploy
- * runs, so a later deploy can stage a newer kit. {@link readEngineRequirement}
- * reads only the entry of the version the shipped kit declares, and an engine
- * an earlier kit declared is kept or pruned by its directory alone
- * ({@link versionsToKeep}), so a version no kit in that range declares has no
- * entry. The spec fails when the workspace kit declares an engine for either desktop target
- * that this table does not carry, and `scripts/office-engine-gate.ts` fails a
- * package run whose staged kit does.
+ * `@deepseek-ai/dsh-office-kit` pins the kit to 0.2.3 in both the workspace
+ * and the deployed closure. {@link readEngineRequirement} reads only the
+ * entry of the version the shipped kit declares. Engines an earlier kit
+ * declared are kept or pruned by their directories alone
+ * ({@link versionsToKeep}); they need no download entry here.
+ * `tests/office-engine.spec.ts` checks both workspace targets, and
+ * `scripts/office-engine-gate.ts` rejects a staged kit whose engines are
+ * unregistered or differ from the versions the desktop package ships.
  */
 export const ENGINE_DOWNLOADS: Readonly<Record<string, EngineDownload>> = {
-  '@deepseek-ai/libreoffice-kit-darwin-arm64@0.1.5': {
-    bytes: 67_261_855,
-    integrity: 'sha512-SjeXmyaTevEq2TxK7reb1rhCrQZ4QOXmXt/qEwfQD5Fx3odU0ILx2uiXN+nphSCQ95LFCzrElHGgv2c7a824yg==',
+  '@deepseek-ai/libreoffice-kit-darwin-arm64@0.2.3': {
+    bytes: 69_748_594,
+    integrity: 'sha512-0dfiEQR6SqAQjh9hxyY8x77Sj3r+AGC+Xn2A/zF+bag9g40leYPL/c2UirSqYR6xUwE9a/5YgWFIHjw1eOh+3A==',
   },
-  '@deepseek-ai/libreoffice-kit-win32-x64@0.1.5': {
-    bytes: 71_367_942,
-    integrity: 'sha512-uKuDGZdofxuW4iRmUh8b3+XWU28JeOCYMTAONzo7tEHIq00DV2cARcgUYiTP7gUH49tH4A/RyPMOVEBzK7qjjw==',
+  '@deepseek-ai/libreoffice-kit-win32-x64@0.2.3': {
+    bytes: 74_312_660,
+    integrity: 'sha512-GMW+m/09Ts0m4gRUjIckeRN48OVYgJI7aLG1uoUHcG3LRPDsKnsyeRo+BSQn8rh4CmWtJg5c6qtl0uSW7b9zEg==',
   },
 }
 
