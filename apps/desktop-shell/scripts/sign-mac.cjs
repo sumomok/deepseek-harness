@@ -28,9 +28,10 @@
  * identity to sign with — but a missing identity is a hard failure rather than
  * a quiet unsigned build, because an unsigned build published to the feed
  * cannot replace the signed one already installed. `DSH_MAC_SIGN=0` is the
- * explicit way to ask for the unsigned build (a fork with no certificate, or a
- * throwaway local package); src/updater.ts detects that build at runtime and
- * falls back to the download-page update path.
+ * explicit way to ask for a build without a release certificate (a fork with
+ * no certificate, or a throwaway local package). It is sealed ad-hoc so modified
+ * Electron resources pass strict verification; src/updater.ts still selects
+ * the download-page update path because no certificate signs that build.
  */
 
 'use strict'
@@ -142,8 +143,8 @@ function openSigningKeychain(material, log) {
 }
 
 /**
- * Sign the packed app in place and prove the signature is the one Squirrel.Mac
- * will accept.
+ * Seal the packed app in place with its release identity or a local ad-hoc
+ * signature, then verify the complete resource seal.
  * @param {object} options - what to sign.
  * @param {string} options.appPath - the packed `.app` bundle.
  * @param {(line: string) => void} options.log - build log sink.
@@ -152,7 +153,13 @@ function openSigningKeychain(material, log) {
 function signMacApp({ appPath, log }) {
   const material = resolveSigningMaterial()
   if (material === undefined) {
-    log('sign-mac: DSH_MAC_SIGN=0 — leaving the app unsigned; it will detect updates but hand the download to the browser')
+    capture('codesign', [
+      '--force', '--deep', '--timestamp=none',
+      '--options', 'runtime', '--entitlements', ENTITLEMENTS,
+      '--sign', '-', appPath,
+    ])
+    capture('codesign', ['--verify', '--deep', '--strict', appPath])
+    log('sign-mac: DSH_MAC_SIGN=0 — ad-hoc sealed without a release certificate; updates open in the browser')
     return
   }
   const session = openSigningKeychain(material, log)

@@ -48,6 +48,9 @@ const fixture = vi.hoisted(() => ({
   info: null as Record<string, unknown> | null,
 }))
 
+/** These pending-cache checks run from a certificate-backed installation. */
+vi.mock('../src/mac-signature.ts', () => ({ macAppHasCertificateSignature: (): boolean => true }))
+
 vi.mock('node:os', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:os')>()
   return { ...actual, homedir: (): string => fixture.home }

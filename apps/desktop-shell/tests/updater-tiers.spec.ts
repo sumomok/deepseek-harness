@@ -19,12 +19,20 @@
 import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { dump } from 'js-yaml'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReleaseIdentity } from '../src/release-identity.ts'
 import type { UpdateHost } from '../src/updater.ts'
+
+/** The platform display result; the signature classifier itself stays real. */
+const signatureProbe = vi.hoisted(() => vi.fn<() => { status: number | null; stdout: string; stderr: string }>())
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>()
+  return { ...actual, spawnSync: signatureProbe }
+})
 
 /** The running build every case reports as installed. */
 const CURRENT = '0.1.0-rc.32'
@@ -289,6 +297,7 @@ afterAll(() => {
 
 beforeEach(() => {
   vi.resetModules()
+  signatureProbe.mockReset()
   shell.packaged = true
   shell.dialogs.length = 0
   shell.opened.length = 0
@@ -310,10 +319,13 @@ afterEach(() => {
 /**
  * Build an app bundle and its embedded package manifest for one case, and point
  * the stand-in `app` at it.
- * @param signed - whether to seal it the way a certificate does, which is what
- * [[macAppIsSigned]] probes for.
+ * @param signed - whether the platform display reports a certificate; a sealed
+ * bundle still needs that positive result to enable in-place updates.
  */
 function bundle(signed: boolean): void {
+  signatureProbe.mockReturnValue({
+    status: 0, stdout: '', stderr: signed ? 'Authority=DSH Desktop Signing\nTeamIdentifier=not set\n' : 'Signature=adhoc\n',
+  })
   const root = mkdtempSync(join(tmpdir(), 'dsh-bundle-'))
   directories.push(root)
   const contents = join(root, 'DSH Desktop.app', 'Contents')
@@ -739,6 +751,46 @@ describe('the candidate a transfer froze', () => {
 })
 
 describe('a build that cannot install where it stands', () => {
+  it.each(['ad-hoc', 'no authority', 'failed display', 'thrown probe'] as const)(
+    'keeps a sealed bundle on the download-page tier after %s', async (signature) => {
+      bundle(true)
+      if (signature === 'thrown probe') {
+        signatureProbe.mockImplementation(() => { throw new Error('codesign could not start') })
+      } else {
+        signatureProbe.mockReturnValue({
+          status: signature === 'failed display' ? 1 : 0,
+          stdout: '',
+          stderr: signature === 'ad-hoc'
+            ? 'Authority=DSH Desktop Signing\nSignature=adhoc\nSealed Resources version=2\n'
+            : signature === 'no authority' ? 'TeamIdentifier=EXAMPLE\nSealed Resources version=2\n' : 'Authority=DSH Desktop Signing\n',
+        })
+      }
+      serveFeed()
+      const { host, waitFor } = sink()
+      const prepareQuit = vi.spyOn(host, 'prepareQuit')
+      const { updateActions } = await import('../src/updater.ts')
+      const actions = updateActions(host)
+
+      actions.check()
+      await waitFor(FOUND_LINE)
+      actions.install()
+
+      expect(readFileSync(join(dirname(dirname(shell.exePath)), '_CodeSignature', 'CodeResources'), 'utf8')).toBe('<plist/>\n')
+      expect(actions.state()).toMatchObject({
+        phase: 'failed',
+        reason: 'this build installs an update by replacing it by hand',
+        latestVersion: NEXT,
+        latestBuild: NEXT_BUILD,
+      })
+      expect(shell.instances).toHaveLength(0)
+      expect(prepareQuit).not.toHaveBeenCalled()
+      expect(signatureProbe).toHaveBeenCalledOnce()
+      expect(signatureProbe).toHaveBeenCalledWith(
+        '/usr/bin/codesign', ['--display', '--verbose=4', dirname(dirname(dirname(shell.exePath)))], { encoding: 'utf8' },
+      )
+    },
+  )
+
   it('reports the one failure nothing this run moves', async () => {
     bundle(false)
     serveFeed()

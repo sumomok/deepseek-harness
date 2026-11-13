@@ -75,12 +75,13 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { app, BrowserWindow, dialog, Menu, shell, type MenuItemConstructorOptions, type MessageBoxOptions } from 'electron'
 import { load } from 'js-yaml'
 import { MacUpdater, NsisUpdater, type AppUpdater, type UpdateCheckResult } from 'electron-updater'
 import { mainWindow } from './main-window.ts'
+import { macAppHasCertificateSignature } from './mac-signature.ts'
 import { menuText } from './menu-text.ts'
 import { closeInstalling, showInstalling } from './progress-window.ts'
 import {
@@ -508,20 +509,15 @@ function updateState(host: UpdateHost): UpdateState {
 }
 
 /**
- * Whether this macOS bundle is code signed, which is what decides between the
- * first two tiers.
- *
- * The probe is the presence of `Contents/_CodeSignature/CodeResources`: signing
- * a bundle seals its resources and writes that file, while the ad-hoc linker
- * signature an unsigned Electron build carries seals nothing and writes
- * nothing (`Sealed Resources=none`). A `codesign` subprocess would answer the
- * same question, and this runs on every launch's first check — an `existsSync`
- * is the version of the question that costs nothing.
+ * Whether this macOS bundle has a certificate-backed signature, cached for this
+ * run. Ad-hoc bundles may also have CodeResources, so only a successful codesign
+ * display naming an authority enables the in-place tier. Probe failures select
+ * the download-page tier.
  * @returns true when the bundle was signed with a certificate.
  */
 function macAppIsSigned(): boolean {
-  // getPath('exe') is <App>.app/Contents/MacOS/<exe>; two levels up is Contents.
-  macSigned ??= existsSync(join(dirname(dirname(app.getPath('exe'))), '_CodeSignature', 'CodeResources'))
+  // getPath('exe') is <App>.app/Contents/MacOS/<exe>; three levels up is the app.
+  macSigned ??= macAppHasCertificateSignature(dirname(dirname(dirname(app.getPath('exe')))))
   return macSigned
 }
 
