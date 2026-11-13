@@ -1,6 +1,6 @@
 ---
 description: "带符号链接围栏与 TOCTOU 缓解的安全二进制写入，供截图恢复与产物输出使用。"
-kind: "package-reference"
+kind: "package-library"
 ---
 
 # @deepseek-ai/dsh-safe-binary-write
@@ -22,7 +22,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-要在不跟随可能越界的符号链接的前提下，把二进制内容写进某个目录边界内时，用 `writeBinarySafe`。
+本库遵循[实验包政策](../README.zh.md#status)，目前没有生产消费者，也不属于默认运行时。可使用 `writeBinarySafe` 评估带符号链接围栏检查的指定目录内二进制写入。
 
 ### 安全写入二进制数据
 
@@ -106,4 +106,4 @@ await writeBinarySafe(
 
 ### 开发备注
 
-上传路径与截图恢复路径都需要让文件以已知名字出现，且要么带着它此前的完整内容，要么一个字节都没有。本包只拥有这一层字节级保证：对目标路径中符号链接的围栏检查，以及一个改名到位的临时文件。需要文本语义或冲突策略的调用方自己拥有那些决定。
+无。

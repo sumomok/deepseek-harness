@@ -25,10 +25,9 @@ import type {
 } from '@deepseek-ai/dsh-session-persistence'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SqliteSessionQueryEngine, {
-  SESSION_QUERY_SQLITE_DEFAULT_RECONCILE_BATCH_SIZE,
-  SESSION_QUERY_SQLITE_INDEX_IDENTITY,
   SESSION_QUERY_SQLITE_SCHEMA_VERSION,
 } from '@deepseek-ai/dsh-session-query-sqlite'
+import { SESSION_QUERY_SQLITE_INDEX_IDENTITY } from '../src/schema.ts'
 import {
   SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY,
   SessionQueryError,
@@ -225,7 +224,7 @@ describe('SQLite session search', () => {
     expect((defaultCtx.sessionQuery as SqliteSessionQueryEngine).config.persistedReadConcurrency)
       .toBe(SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY)
     expect((defaultCtx.sessionQuery as SqliteSessionQueryEngine).config.reconcileBatchSize)
-      .toBe(SESSION_QUERY_SQLITE_DEFAULT_RECONCILE_BATCH_SIZE)
+      .toBe(16)
 
     const configuredValue = 2
     const configured = new SqliteSessionQueryEngine.Config({

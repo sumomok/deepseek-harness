@@ -1,6 +1,6 @@
 ---
 description: "Safe binary file write with symlink containment and TOCTOU mitigation for screenshot restore and artifact output."
-kind: "package-reference"
+kind: "package-library"
 ---
 
 # @deepseek-ai/dsh-safe-binary-write
@@ -21,7 +21,7 @@ Use `dsh-safe-binary-write` when writing binary data (screenshots, images, artif
 
 ## Use this package
 
-Use `writeBinarySafe` when binary content must be written inside a specific directory boundary without following symlinks that could escape it.
+This library follows the [experimental package policy](../README.md#status). It has no production consumers and is not part of the default runtime. Use `writeBinarySafe` to evaluate binary writes inside a specified directory with symlink containment checks.
 
 ### Writing binary data safely
 
@@ -103,4 +103,4 @@ These limits define where the package is not the right tool. They are current pa
 
 ### Dev Note
 
-The upload path and the screenshot restore path both need a file to appear at a known name with either its whole previous content or none of it. This package owns only that byte-level guarantee: containment checks against symlinks in the destination path, and a temporary file that is renamed into place. Callers that need text semantics or conflict policy own those decisions.
+None.

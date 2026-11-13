@@ -36,6 +36,7 @@ kind: "package-group"
 
 | 包 | 职责 | ctx 键 |
 |---|---|---|
+| [`safe-binary-write`](safe-binary-write/README.zh.md) | 实验性二进制文件写入，提供符号链接围栏检查与原子替换 | 库，不使用 ctx key |
 | [`action-cards`](action-cards/README.zh.md) | 回答下方的可选操作卡片：提议工具、卡片状态、用户操作与状态通知 | `ctx.actionCards` |
 | [`client-ui-action-cards`](client-ui-action-cards/README.zh.md) | 已完成回答下方的卡片框架、种类正文与提议过程行 | — |
 | [`creation-recommendations`](creation-recommendations/README.zh.md) | 针对明确需求创建持续可用、可移除的界面插件 | — |

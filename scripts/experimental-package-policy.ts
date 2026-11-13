@@ -6,6 +6,7 @@
  * experimental name only through this map.
  */
 export const EXPERIMENTAL_PACKAGE_NAME_EXCEPTIONS: Readonly<Record<string, string>> = {
+  'packages/experimental/safe-binary-write': '@deepseek-ai/dsh-safe-binary-write',
   'packages/experimental/cua': '@deepseek-ai/dsh-cua',
   'packages/experimental/cua-bundle': '@deepseek-ai/dsh-cua-bundle',
   'packages/experimental/cua-windows': '@deepseek-ai/dsh-cua-windows',

@@ -25,7 +25,6 @@ flowchart TD
     pkg_package_manifest["package-manifest"]
     pkg_plugin_detail["plugin-detail"]
     pkg_plugin_market_index["plugin-market-index"]
-    pkg_safe_binary_write["safe-binary-write"]
     pkg_timeout["timeout"]
     pkg_util_code_language["util-code-language"]
     pkg_util_crypto["util-crypto"]
@@ -319,6 +318,7 @@ flowchart TD
     pkg_hooks_codex["hooks-codex"]
     pkg_personalized_recommendations["personalized-recommendations"]
     pkg_plugin_recommendations["plugin-recommendations"]
+    pkg_safe_binary_write["safe-binary-write"]
     pkg_session_title_all_prompts_llm["session-title-all-prompts-llm"]
     pkg_skill_badge["skill-badge"]
     pkg_terminal_panel["terminal-panel"]
@@ -1601,7 +1601,6 @@ flowchart TD
 | [`package-manifest`](../packages/util/package-manifest) | `util` | — |
 | [`plugin-detail`](../packages/util/plugin-detail) | `util` | — |
 | [`plugin-market-index`](../packages/util/plugin-market-index) | `util` | — |
-| [`safe-binary-write`](../packages/util/safe-binary-write) | `util` | — |
 | [`timeout`](../packages/util/timeout) | `util` | — |
 | [`util-code-language`](../packages/util/code-language) | `util` | — |
 | [`util-crypto`](../packages/util/crypto) | `util` | — |
@@ -1717,6 +1716,7 @@ flowchart TD
 | [`experimental-voice-input-bundle`](../packages/experimental/voice-input-bundle) | `experimental` | — |
 | [`experimental-webworker-packer`](../packages/experimental/webworker-packer) | `experimental` | — |
 | [`personalized-recommendations`](../packages/experimental/personalized-recommendations) | `experimental` | — |
+| [`safe-binary-write`](../packages/experimental/safe-binary-write) | `experimental` | — |
 | [`client-ui-cordis`](../packages/extensions/ui-cordis) | `extensions` | — |
 | [`cordis-client-runner`](../packages/extensions/cordis-client-runner) | `extensions` | — |
 | [`host-directory-picker`](../packages/host/directory-picker) | `host` | — |

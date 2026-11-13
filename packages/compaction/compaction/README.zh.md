@@ -95,7 +95,7 @@ kind: "package-reference"
 <a id="surface-recovery-addresses"></a>
 ### 表层恢复地址
 
-该 Service Definition 导出 `originalToolResultSeq(session, seq)`、`RecoveryAddress` 与 `recoveryNotice(address)`，供遮蔽工具结果但保留其原文可读性的消费方使用。地址要么是原事件的 `{ sessionId, seq }`，要么是已记录的 spill notice，要么是显式的 `unavailable` 结果。seq 追踪沿 `surfaceOp: replace` 的引用跨连续替换与无关事件前进，并带 visited 集合与深度上限。这个叶子有意保持通用：不解析 spill notice，也不导入 spill 后端；notice 识别仍留在 pruner/spill policy。pruner 重导出同一组 helper，现有消费方保持单一导入路径。
+该 Service Definition 导出 `originalToolResultSeq(session, seq)`、`RecoveryAddress` 与 `recoveryNotice(address)`，供遮蔽工具结果但保留其原文可读性的消费方使用。地址要么是原事件的 `{ sessionId, seq }`，要么是已记录的 spill notice，要么是显式的 `unavailable` 结果。seq 追踪沿 `surfaceOp: replace` 的引用跨连续替换与无关事件前进，并带 visited 集合与深度上限。这个叶子有意保持通用：不解析 spill notice，也不导入 spill 后端；notice 识别仍留在 pruner/spill policy。
 
 ### 表层约定
 

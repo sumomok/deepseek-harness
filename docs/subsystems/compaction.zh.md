@@ -108,7 +108,7 @@ type ManualCompactionErrorCode =
 
 ## 表层恢复 helper
 
-该 Service Definition 还导出通用的表层恢复词汇，供遮蔽工具结果但保留原文可读性的消费方使用：`originalToolResultSeq(session, seq)`、`RecoveryAddress`/`RecoverySpillRef` 与 `recoveryNotice(address)`。默认地址是原事件的 `{ sessionId, seq }`；已有 spill notice 原样复用；spill ref 是可选的泛型类型，因此本包不导入 spill 后端、不解析 notice。seq 追踪沿 `surfaceOp: replace` 的引用跨连续替换与无关事件前进，并带 visited 集合与深度上限。工具结果修剪器重导出同一组 helper。见[包约定](../../packages/compaction/compaction/README.zh.md#surface-recovery-addresses)。
+该 Service Definition 还导出通用的表层恢复词汇，供遮蔽工具结果但保留原文可读性的消费方使用：`originalToolResultSeq(session, seq)`、`RecoveryAddress`/`RecoverySpillRef` 与 `recoveryNotice(address)`。默认地址是原事件的 `{ sessionId, seq }`；已有 spill notice 原样复用；spill ref 是可选的泛型类型，因此本包不导入 spill 后端、不解析 notice。seq 追踪沿 `surfaceOp: replace` 的引用跨连续替换与无关事件前进，并带 visited 集合与深度上限。见[包约定](../../packages/compaction/compaction/README.zh.md#surface-recovery-addresses)。
 
 ## 工具结果剪枝产出
 

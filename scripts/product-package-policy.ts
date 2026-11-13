@@ -35,7 +35,6 @@ export const PRODUCT_PACKAGE_POLICY: Readonly<Record<string, ProductPackagePolic
   'packages/context/tmux-context': { category: 'optional', reason: 'Context contribution requiring a tmux pane.' },
   'packages/context/compaction-rehydration': { category: 'optional', reason: 'Compaction state rebuilding is enabled only by an explicit composition.' },
   'packages/context/session-memory-recall': { category: 'optional', reason: 'Same-workspace recall requires explicit enablement and a SessionQuery backend.' },
-  'packages/compaction/compaction-microcompact': { category: 'optional', reason: 'Idle tool-result clearing requires explicit enablement and transcript readback.' },
   'packages/fs/tool-str-replace-editor': { category: 'optional', reason: 'Explicit alternative to the default filesystem editing tools.' },
   'packages/fs/fs-observation-policy': { category: 'optional', reason: 'Read-before-mutation guard that a deployment enables on the disabled dsh-base row.' },
   'packages/llm/plugin-package-inventory-deepseek': { category: 'optional', reason: 'This product ships its base and sdk-minimal rows off; a profile patch turns the inventory report to DeepSeek back on.' },

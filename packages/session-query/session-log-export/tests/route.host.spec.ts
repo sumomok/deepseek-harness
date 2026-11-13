@@ -8,14 +8,16 @@ import { strFromU8, unzipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
 import {
   Config,
-  SESSION_EXPORT_BYTES_HEADER,
-  SESSION_EXPORT_ENTRIES_HEADER,
-  SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER,
   SESSION_LOG_FILENAME,
   SESSION_LOG_EXPORT_PATH,
   apply,
   inject,
 } from '../src/index.ts'
+import {
+  SESSION_EXPORT_BYTES_HEADER,
+  SESSION_EXPORT_ENTRIES_HEADER,
+  SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER,
+} from '../src/export-extent.ts'
 
 const sid = (value: string): SessionId => value as SessionId
 

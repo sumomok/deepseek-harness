@@ -94,7 +94,7 @@ The Service Definition exports `toolPairingBalancedBefore(session, seq)` and `to
 
 ### Surface recovery addresses
 
-The Service Definition exports `originalToolResultSeq(session, seq)`, `RecoveryAddress`, and `recoveryNotice(address)` for consumers that shadow a tool result but keep its original readable. The address is either the original event's `{ sessionId, seq }`, an already-recorded spill notice, or an explicit `unavailable` result. Sequence tracing follows `surfaceOp: replace` citations across consecutive replacements and unrelated events, with a visited set and depth cap. This leaf is deliberately generic: it parses no spill notice and imports no spill backend; notice recognition stays with the pruner/spill policy. The pruner re-exports the same helpers so existing consumers keep one import path.
+The Service Definition exports `originalToolResultSeq(session, seq)`, `RecoveryAddress`, and `recoveryNotice(address)` for consumers that shadow a tool result but keep its original readable. The address is either the original event's `{ sessionId, seq }`, an already-recorded spill notice, or an explicit `unavailable` result. Sequence tracing follows `surfaceOp: replace` citations across consecutive replacements and unrelated events, with a visited set and depth cap. This leaf is deliberately generic: it parses no spill notice and imports no spill backend; notice recognition stays with the pruner/spill policy.
 
 ### The surface contract
 

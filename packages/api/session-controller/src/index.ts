@@ -784,5 +784,4 @@ async function probeTargetsBatch(paths: readonly string[]): Promise<ProbeResult[
   return results
 }
 
-export { buildModelCatalog }
 export default SessionController

@@ -634,7 +634,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-client-ui-chat`
 
 - `refs`: [`ManualCompactionWhileBusy`](subsystems/compaction.md) · `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/client/ui-chat/src/index.ts:22`](../packages/client/ui-chat/src/index.ts)
+- `source`: [`packages/client/ui-chat/src/index.ts:21`](../packages/client/ui-chat/src/index.ts)
 
 ```ts config-catalog
 /** Runtime preferences projected to the browser. */
@@ -3346,7 +3346,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-session-log-export`
 
 - `inject`: `commands` · `connection`
-- `source`: [`packages/session-query/session-log-export/src/index.ts:65`](../packages/session-query/session-log-export/src/index.ts)
+- `source`: [`packages/session-query/session-log-export/src/index.ts:59`](../packages/session-query/session-log-export/src/index.ts)
 
 ```ts config-catalog
 /** Session-log archive policy. */
@@ -3455,7 +3455,7 @@ export interface Config {
 
 - `inject`: `sessions`
 - `refs`: [`SessionQueryConfig`](../packages/session-query/session-query/src/index.ts)
-- `source`: [`packages/session-query/session-query-sqlite/src/index.ts:103`](../packages/session-query/session-query-sqlite/src/index.ts)
+- `source`: [`packages/session-query/session-query-sqlite/src/index.ts:102`](../packages/session-query/session-query-sqlite/src/index.ts)
 
 ```ts config-catalog
 /** Combined session-query configuration backed by SQLite full-text search. */
@@ -4788,7 +4788,7 @@ export interface Config extends PresetSelectionConfig {
   /**
    * Agent options applied to every child; omitted fields use child-loop defaults.
    */
-  agentOptions?: AgentOptions
+  agentOptions?: AgentOptions | undefined
   /**
    * Maximum child depth: a non-negative safe integer (`0` forbids delegation),
    * or `'provider-managed'` to send no cap. A numeric cap
@@ -5470,7 +5470,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 | `@deepseek-ai/dsh-plugin-detail` | — | [`packages/util/plugin-detail/src/index.ts`](../packages/util/plugin-detail/src/index.ts) |
 | `@deepseek-ai/dsh-plugin-market-index` | — | [`packages/util/plugin-market-index/src/index.ts`](../packages/util/plugin-market-index/src/index.ts) |
 | `@deepseek-ai/dsh-remote-mock` | — | [`packages/test-support/remote-mock/src/index.ts`](../packages/test-support/remote-mock/src/index.ts) |
-| `@deepseek-ai/dsh-safe-binary-write` | — | [`packages/util/safe-binary-write/src/index.ts`](../packages/util/safe-binary-write/src/index.ts) |
+| `@deepseek-ai/dsh-safe-binary-write` | — | [`packages/experimental/safe-binary-write/src/index.ts`](../packages/experimental/safe-binary-write/src/index.ts) |
 | `@deepseek-ai/dsh-sandbox-windows-acl` | — | [`packages/sandbox/sandbox-windows-acl/src/index.ts`](../packages/sandbox/sandbox-windows-acl/src/index.ts) |
 | `@deepseek-ai/dsh-scope` | — | [`packages/core/scope/src/index.ts`](../packages/core/scope/src/index.ts) |
 | `@deepseek-ai/dsh-sdk-client` | — | [`packages/sdk/client/src/index.ts`](../packages/sdk/client/src/index.ts) |

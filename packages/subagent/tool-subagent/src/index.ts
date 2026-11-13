@@ -65,7 +65,7 @@ export interface Config extends PresetSelectionConfig {
   /**
    * Agent options applied to every child; omitted fields use child-loop defaults.
    */
-  agentOptions?: AgentOptions
+  agentOptions?: AgentOptions | undefined
   /**
    * Maximum child depth: a non-negative safe integer (`0` forbids delegation),
    * or `'provider-managed'` to send no cap. A numeric cap
@@ -85,17 +85,12 @@ export const Config: z<Config> = z.object({
   modelSelection: z.boolean().default(false),
   modelDiscovery: z.boolean().default(false),
   // Prevent Schemastery from materializing omitted agentOptions as `{}`.
-  agentOptions: z.object({
+  agentOptions: (z.object({
     provider: z.string(),
     model: z.string(),
     reasoningEffort: z.string().min(1) as z<ReturnType<typeof ReasoningEffortId> | undefined>,
     maxTokens: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER),
-  }).default(undefined as unknown as {
-    provider: string
-    model: string
-    reasoningEffort: ReturnType<typeof ReasoningEffortId>
-    maxTokens: number
-  }),
+  }) as z<Config['agentOptions']>).default(undefined),
   agentPreset: z.string().min(1),
   allowedAgentPresets: (z.array(z.string().min(1)).min(1) as z<string[] | undefined>).default(undefined),
   maxDepth: z.union([z.natural().max(Number.MAX_SAFE_INTEGER), z.const('provider-managed' as const)]),

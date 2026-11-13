@@ -108,7 +108,7 @@ Before a summary commits, a backend dispatches the synchronous `compaction/summa
 
 ## Surface recovery helpers
 
-The Service Definition also exports the generic surface-recovery vocabulary used by consumers that shadow a tool result but keep the original readable: `originalToolResultSeq(session, seq)`, `RecoveryAddress`/`RecoverySpillRef`, and `recoveryNotice(address)`. The default address is the original event's `{ sessionId, seq }`; an existing spill notice is reused verbatim; a spill reference is optional and typed generically, so this package imports no spill backend and parses no notice. Sequence tracing follows `surfaceOp: replace` citations across consecutive replacements and unrelated events with a visited set and depth cap. The tool-result pruner re-exports the same helpers. See the [package contract](../../packages/compaction/compaction/README.md#surface-recovery-addresses).
+The Service Definition also exports the generic surface-recovery vocabulary used by consumers that shadow a tool result but keep the original readable: `originalToolResultSeq(session, seq)`, `RecoveryAddress`/`RecoverySpillRef`, and `recoveryNotice(address)`. The default address is the original event's `{ sessionId, seq }`; an existing spill notice is reused verbatim; a spill reference is optional and typed generically, so this package imports no spill backend and parses no notice. Sequence tracing follows `surfaceOp: replace` citations across consecutive replacements and unrelated events with a visited set and depth cap. See the [package contract](../../packages/compaction/compaction/README.md#surface-recovery-addresses).
 
 ## Tool-result pruning outcomes
 

@@ -33,7 +33,6 @@ import { SESSION_LOG_EXPORT_PATH, SESSION_MARKDOWN_EXPORT_PATH } from './routes.
 export {
   DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
   flushLiveSessionLog,
-  measureSessionLogZip,
   readSessionLogText,
   serializeSessionLog,
   SESSION_LOG_FILENAME,
@@ -48,11 +47,6 @@ export type {
   SessionLogExportReady,
   SessionLogZipEntry,
 } from './archive.ts'
-export {
-  SESSION_EXPORT_BYTES_HEADER,
-  SESSION_EXPORT_ENTRIES_HEADER,
-  SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER,
-} from './export-extent.ts'
 export type { SessionLogExportExtent } from './export-extent.ts'
 export { formatSessionMarkdown } from './markdown.ts'
 

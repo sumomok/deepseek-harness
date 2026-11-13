@@ -11264,6 +11264,18 @@ importers:
         specifier: workspace:~
         version: link:../../../vendor/cordis
 
+  packages/experimental/safe-binary-write:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
+      fast-check:
+        specifier: ^4.9.0
+        version: 4.9.0
+
   packages/experimental/session-inspector:
     devDependencies:
       '@deepseek-ai/cordis':
@@ -18295,18 +18307,6 @@ importers:
       '@deepseek-ai/dsh-subprocess':
         specifier: workspace:*
         version: link:../../subprocess/subprocess
-
-  packages/util/safe-binary-write:
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: workspace:~
-        version: link:../../../vendor/cordis
-      '@types/node':
-        specifier: ^22.20.1
-        version: 22.20.1
-      fast-check:
-        specifier: ^4.9.0
-        version: 4.9.0
 
   packages/util/time:
     dependencies:

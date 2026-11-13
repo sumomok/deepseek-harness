@@ -28,7 +28,6 @@ import type {} from '@deepseek-ai/dsh-tools'
 import { DEFAULTS, resolveConfig } from './config.ts'
 import type { MicrocompactConfig, ResolvedMicrocompactConfig } from './config.ts'
 
-export { DEFAULTS, resolveConfig } from './config.ts'
 export type { MicrocompactConfig, ResolvedMicrocompactConfig } from './config.ts'
 
 declare module '@deepseek-ai/cordis' {
