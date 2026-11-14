@@ -120,7 +120,7 @@ import {
   ENDPOINT_ENV as UPDATE_ENDPOINT_ENV, startUpdateService,
   TOKEN_ENV as UPDATE_TOKEN_ENV, type UpdateServiceHandle,
 } from './update-service.ts'
-import { launchGate, readInstalledIdentity, setupUpdates, updateActions, updaterCacheDir, type UpdateHost } from './updater.ts'
+import { deferQuitForInstall, launchGate, readInstalledIdentity, setupUpdates, updateActions, updaterCacheDir, type UpdateHost } from './updater.ts'
 import { superviseAppLoad, type AppLoader } from './window-load.ts'
 import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
 
@@ -1451,6 +1451,8 @@ if (!locked) {
   // it, or the handler intercepts the close, calls `app.quit()` again, and the
   // two hold each other in a loop the user cannot get out of.
   app.on('before-quit', (event) => {
+    // Neither a tray quit nor closing the last window may abandon a UAC decision.
+    if (deferQuitForInstall(event)) return
     // Before the `quitting` check, because the relaunch after repeated crashes
     // and the update install raise `quitting` before they call `app.quit()`:
     // closing the engine service is what stops a running Office engine

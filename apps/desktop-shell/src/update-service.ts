@@ -21,7 +21,7 @@
  * | `GET /state` | `200` — the {@link UpdateSnapshot} as its own JSON object |
  * | `POST /check` | `202` — `{ "ok": true }`; a check runs in the background and downloads what it finds |
  * | `POST /download` | `202` — `{ "ok": true }`; the transfer of the version already found is (re)started |
- * | `POST /install` | `202` — `{ "ok": true }`, written before anything stops. `409` when the phase is not `ready` |
+ * | `POST /install` | `202` — `{ "ok": true }`; request accepted before native confirmation. `409` unless `ready` |
  *
  * `/check` and `/download` have no refusal of their own: each calls its action
  * and, once the action returns, answers `{ "ok": true }`. That answer means the request
@@ -37,16 +37,18 @@
  * page. There is no CORS handling, because no browser origin is meant to reach
  * this listener.
  *
- * **`POST /install` opens no dialog.** The click in the Settings window is the
- * consent, and asking again would only repeat the question that click answered.
- * The route therefore refuses everything but the one phase in which an update
- * is downloaded and verified.
+ * **`POST /install` accepts a request, not consent or an installation result.**
+ * The shell's install action asks for native confirmation before teardown,
+ * warning that all work stops, including queued work and work begun before
+ * shutdown. Ordinary installation defaults to Cancel; cancellation leaves the
+ * app and its work running. Every server plugin can read this service's token,
+ * so authentication cannot attest a user click or bypass native confirmation.
+ * Only the frozen, verified update can be installed; callers cannot name a file.
  *
- * It also answers before it acts. The install stops the embedded server and
- * hands the machine to an installer that replaces this process, so a caller
- * still waiting on the response would read the dropped socket as a failed
- * install. `{ "ok": true }` is written first and the install is scheduled for
- * the next tick, after the answer is on the wire.
+ * `{ "ok": true }` is written first and the install action is scheduled for the
+ * next tick. Its `202` proves neither consent nor a started or successful
+ * installation. The response precedes teardown because a caller still waiting
+ * would otherwise read the server's dropped socket as a failed HTTP request.
  * @module @deepseek-ai/dsh-desktop-shell/update-service
  */
 
@@ -69,7 +71,7 @@ export const CHECK_PATH = '/check'
 /** The route starting or restarting the transfer of the version already found. */
 export const DOWNLOAD_PATH = '/download'
 
-/** The route that quits the app and installs the downloaded update. */
+/** The route requesting native confirmation to install the verified update. */
 export const INSTALL_PATH = '/install'
 
 /** What the shell gives this service to read and to drive. */
@@ -92,10 +94,10 @@ export interface UpdateServiceSpec {
    */
   download: () => void
   /**
-   * Stop the embedded server and hand the downloaded update to the installer.
-   * Called only when [[state]] reports `ready`, only after the user clicked the
-   * button that says so, and only once the answer to that request has been
-   * written.
+   * Request native confirmation, then stop the embedded server and install
+   * only if the user accepts. Called on the next tick after a `202` response,
+   * only when [[state]] reported `ready`; the request itself supplies no user
+   * consent. The action owns confirmation, verification, teardown and recovery.
    */
   install: () => void
 }

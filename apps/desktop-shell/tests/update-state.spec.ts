@@ -125,6 +125,32 @@ describe('a check', () => {
 })
 
 describe('a downloaded update', () => {
+  it('withdraws bytes that fail reverification and permits a fresh transfer', () => {
+    const state = machine()
+    state.downloadStarted(NEXT)
+    state.downloadReady(NEXT)
+    state.downloadFailed('a late transfer error')
+    expect(state.snapshot().phase).toBe('ready')
+    state.downloadInvalidated('the accepted file changed')
+    expect(state.snapshot()).toMatchObject({ phase: 'failed', reason: 'the accepted file changed' })
+    expect(state.isReady()).toBe(false)
+    state.downloadStarted(NEXT)
+    expect(state.snapshot()).toMatchObject({ phase: 'downloading', latestVersion: NEXT })
+    expect(state.snapshot().reason).toBeUndefined()
+  })
+
+  it('does not invalidate a different phase or an unavailable channel', () => {
+    const state = machine()
+    state.downloadInvalidated('no accepted file')
+    expect(state.snapshot().phase).toBe('idle')
+    state.downloadStarted(NEXT)
+    state.downloadInvalidated('no accepted file')
+    expect(state.snapshot().phase).toBe('downloading')
+    state.markUnavailable('the channel is unavailable')
+    state.downloadInvalidated('no accepted file')
+    expect(state.snapshot()).toMatchObject({ phase: 'failed', reason: 'the channel is unavailable' })
+  })
+
   it('survives a later check that finds nothing', () => {
     const state = machine()
     state.downloadStarted(NEXT)

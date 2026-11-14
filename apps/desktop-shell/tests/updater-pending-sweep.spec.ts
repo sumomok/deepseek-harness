@@ -66,13 +66,13 @@ vi.mock('electron', () => ({
       ? join(fixture.home, 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop')
       : join(fixture.home, name),
     getLocale: (): string => 'zh-CN',
-    once: (event: string, listener: () => void): void => {
-      if (event === 'before-quit') fixture.beforeQuit.push(listener)
+    on: (event: string, listener: (event: { defaultPrevented: boolean }) => void): void => {
+      if (event === 'before-quit') fixture.beforeQuit.push(() => { listener({ defaultPrevented: false }) })
     },
     dock: undefined,
   },
   BrowserWindow: { getAllWindows: (): unknown[] => [], getFocusedWindow: (): unknown => null },
-  dialog: { showMessageBox: async (): Promise<{ response: number }> => ({ response: 0 }) },
+  dialog: { showMessageBox: async (): Promise<{ response: number }> => ({ response: 1 }) },
   Menu: { setApplicationMenu: (): void => undefined, buildFromTemplate: (template: unknown): unknown => template },
   nativeTheme: { shouldUseDarkColors: false },
   shell: { openExternal: async (): Promise<void> => undefined },

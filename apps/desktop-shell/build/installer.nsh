@@ -218,7 +218,43 @@
 # names. And at `.onInit` the value comes from `initMultiUser` reading
 # `InstallLocation` out of the registry: the old install's own recorded
 # location, which is the most accurate input this sweep ever gets.
+# An observed-elevation update keeps its shell alive until ShellExecuteEx has
+# returned. Wait for that exact owner before any sweep can kill the launcher or
+# its parent. A timeout is a refusal, never permission to force the owner shut.
+# Old clients omit this option and keep their existing installer path.
+!macro dshWaitUpdateOwner
+  !insertmacro dshDeclareVars
+  ${GetParameters} $dshProbe
+  ClearErrors
+  ${GetOptions} $dshProbe "--dsh-update-owner-pid=" $dshLen
+  ${ifNot} ${Errors}
+    ${if} $dshLen <= 0
+      Abort "Invalid update owner process"
+    ${endif}
+    Push $0
+    System::Call 'kernel32::OpenProcess(i 0x00100000, i 0, i $dshLen)p.r0 ?e'
+    Pop $dshResult
+    StrCpy $dshProbe $0
+    Pop $0
+    ${if} $dshProbe != 0
+      System::Call 'kernel32::WaitForSingleObject(p $dshProbe, i 30000)i.s'
+      Pop $dshResult
+      System::Call 'kernel32::CloseHandle(p $dshProbe)'
+      ${if} $dshResult != 0
+        Abort "The application did not finish the update hand-off; no files were replaced"
+      ${endif}
+    ${else}
+      # ?e captured GetLastError in the OpenProcess call, before any NSIS effect.
+      # ERROR_INVALID_PARAMETER means this nonzero PID has already exited.
+      ${if} $dshResult != 87
+        Abort "The update owner could not be verified; no files were replaced"
+      ${endif}
+    ${endif}
+  ${endif}
+!macroend
+
 !macro customInit
+  !insertmacro dshWaitUpdateOwner
   # A directory that is any process's current directory can be neither renamed
   # nor deleted, and `.onInit` opens with `SetOutPath $INSTDIR`
   # (`installer.nsi`), which makes this process one of them. It can be one

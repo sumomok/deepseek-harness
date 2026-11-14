@@ -131,8 +131,8 @@ vi.mock('electron', () => ({
     getPath: (): string => shell.exePath,
     getAppPath: (): string => shell.appPath,
     getLocale: (): string => 'zh-CN',
-    once: (event: string, listener: () => void): void => {
-      if (event === 'before-quit') shell.beforeQuit.push(listener)
+    on: (event: string, listener: (event: { defaultPrevented: boolean }) => void): void => {
+      if (event === 'before-quit') shell.beforeQuit.push(() => { listener({ defaultPrevented: false }) })
     },
     quit: (): void => undefined,
     dock: undefined,

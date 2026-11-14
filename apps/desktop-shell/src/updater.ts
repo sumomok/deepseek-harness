@@ -36,8 +36,8 @@
  * downloaded and verified, reported through [[startUpdateService]] and shown by
  * the Settings entry the embedded server draws. **No install happens without
  * the user deciding it**, on quit or anywhere else: the app replaces itself only
- * in the seconds after someone clicks the button that says so, and that click is
- * the consent — [[installStaged]] asks nothing further. What follows it is
+ * after explicit consent to stop all work. Ordinary installs ask with Cancel
+ * selected; the mandatory launch dialog carries the same warning. What follows is
  * neither silent nor a wizard — one progress window, no question to answer, and
  * the app comes back by itself — because an install with no surface at all
  * cannot report what it is doing, and the wizard would only ask again what the
@@ -74,6 +74,7 @@
  * @module @deepseek-ai/dsh-desktop-shell/updater
  */
 
+import { onPermittedQuit, setInstallDecisionPending } from './quit-effects.ts'
 import { execFileSync } from 'node:child_process'
 import { readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
@@ -100,6 +101,7 @@ import {
 } from './differential-cache.ts'
 import { discardPart, resumeDownload } from './resumable-download.ts'
 import type { UpdateServiceSpec } from './update-service.ts'
+import { launchWindowsInstaller, type WindowsInstallResult } from './windows-install.ts'
 import {
   decideUpdate, identityIfPresent, isBelowRedLine, isSameBuild, parseReleaseIdentity, parseUpdateOffer,
   ReleaseIdentityError, type ReleaseArch, type ReleaseIdentity, type ReleasePlatform, type UpdateOffer,
@@ -250,6 +252,9 @@ let frozenOffer: UpdateOffer | undefined
  */
 let downloadedOffer: UpdateOffer | undefined
 
+/** Exact verified path retained for the Windows OS launcher; never rediscovered by filename. */
+let downloadedInstallerFile: string | undefined
+
 /**
  * The candidate whose downloaded bytes are being verified right now.
  *
@@ -273,6 +278,8 @@ let verifyingOffer: UpdateOffer | undefined
  * the one being cleaned up.
  */
 let installing: UpdateOffer | undefined
+
+export { deferQuitForInstall } from './quit-effects.ts'
 
 /**
  * What the library accepted inside the check that is running right now.
@@ -716,7 +723,7 @@ export function setupUpdates(host: UpdateHost): () => void {
   sweepAfterInstall(host)
   const first = setTimeout(() => { check('startup') }, FIRST_CHECK_DELAY_MS)
   const recurring = setInterval(() => { check('scheduled') }, CHECK_INTERVAL_MS)
-  app.once('before-quit', () => {
+  onPermittedQuit(app, () => {
     clearTimeout(first)
     clearInterval(recurring)
   })
@@ -1602,6 +1609,7 @@ async function acceptDownloaded(host: UpdateHost, info: DownloadedUpdate): Promi
     return
   }
   downloadedOffer = offer
+  downloadedInstallerFile = typeof info.downloadedFile === 'string' ? info.downloadedFile : undefined
   const { version, dshRelease } = offer.identity
   updateState(host).downloadReady(version, offer.releaseNotes, dshRelease.buildSequence)
   host.log(`[updater] downloaded ${buildLabel(offer.identity)}; waiting for an explicit install\n`)
@@ -1782,6 +1790,9 @@ const INSTALL_PROMISE = process.platform === 'darwin'
   ? '点击后应用会关闭,安装通常要 15 秒上下(机器忙时更久),期间屏幕可能一直没有反应;完成后会自动重新打开,你的会话记录都在。'
   : '点击后应用会关闭并显示安装进度,完成后自动重新打开;你的会话记录都在。'
 
+/** Consent covers every admitted work source, without promising an atomic idle snapshot. */
+const INSTALL_WORK_WARNING = '本次重启会停止所有对话、后台作业和终端，包括排队及关闭前新开始的工作。未完成的进度可能丢失；需要继续工作时请取消安装。'
+
 /**
  * The mandatory launch block's last dialog: the update is on disk, the app is
  * shut until it is installed, and the one button says so. Nothing else opens
@@ -1800,13 +1811,14 @@ async function offerInstall(host: UpdateHost, offer: UpdateOffer): Promise<void>
     type: 'info',
     title: '新版本已下载完毕',
     message: `v${version} 已下载完毕。重启安装后即可继续使用。`,
-    detail,
-    buttons: ['重启安装'],
-    defaultId: 0,
-    cancelId: 0,
+    detail: `${detail}\n\n${INSTALL_WORK_WARNING}`,
+    buttons: ['停止任务并安装', '退出应用'],
+    defaultId: 1,
+    cancelId: 1,
   })
   if (answer !== 0) {
-    host.log(`[updater] ${version} stays downloaded; it installs when the user says so\n`)
+    host.log(`[updater] ${version} stays downloaded; leaving without installing\n`)
+    app.quit()
     return
   }
   await installStaged(host, offer)
@@ -1926,8 +1938,9 @@ function forgetInstall(host: UpdateHost): void {
  * @param offer - the candidate the install was about.
  * @param why - what stopped the hand-off, in one line.
  * @param stopped - whether [[UpdateHost.prepareQuit]] had already run.
+ * @param detail - a known OS rejection, when launch rather than teardown failed.
  */
-async function installNotStarted(host: UpdateHost, offer: UpdateOffer, why: string, stopped: boolean): Promise<void> {
+async function installNotStarted(host: UpdateHost, offer: UpdateOffer, why: string, stopped: boolean, detail?: string): Promise<void> {
   const version = offer.identity.version
   host.log(`[updater] not handing ${version} to the installer: ${why}; the downloaded update is kept for a retry\n`)
   if (stopped) {
@@ -1949,9 +1962,9 @@ async function installNotStarted(host: UpdateHost, offer: UpdateOffer, why: stri
     type: 'error',
     title: '更新安装未开始',
     message: `v${version} 没有开始安装`,
-    detail: stopped
+    detail: detail ?? (stopped
       ? '重启安装前没能确认后台服务已经停止,应用会继续运行。已下载的更新还在,稍后可以重试。'
-      : '安装前的记录没有写成,应用会继续运行。已下载的更新还在,稍后可以重试。',
+      : '安装前的记录没有写成,应用会继续运行。已下载的更新还在,稍后可以重试。'),
     buttons: blocking ? ['重试', '退出应用'] : ['好'],
     defaultId: 0,
     cancelId: blocking ? 1 : 0,
@@ -1967,11 +1980,10 @@ async function installNotStarted(host: UpdateHost, offer: UpdateOffer, why: stri
 /**
  * Replace the application with the update already on disk.
  *
- * **No dialog stands between this and the click that reached it.** The button in
- * the Settings window is the decision, and the seconds that follow are the
- * install itself: the server goes down, macOS puts up the standing notice
- * because Squirrel takes the screen for around fifteen seconds, and Windows
- * hands over to an NSIS installer that paints its own progress within a second.
+ * Ordinary installs first ask for consent to stop all work, with Cancel selected.
+ * The mandatory launch dialog already carries that warning. Consent precedes
+ * the receipt and teardown; Windows keeps the shell alive until the OS reports
+ * the elevation result, and macOS displays its standing Squirrel notice.
  *
  * The receipt goes to disk first: it is the only record the launch after the
  * install can recognize it by, so an install it cannot be written for does not
@@ -1988,6 +2000,45 @@ async function installStaged(host: UpdateHost, offer: UpdateOffer): Promise<void
   }
   installing = offer
   const version = offer.identity.version
+  // Consent covers the complete shutdown, including queued or newly arriving
+  // work. An advisory inventory cannot promise an atomic idle→stop boundary.
+  // The mandatory launch dialog already carries the same all-work warning.
+  if (!blocking) {
+    let answer: number
+    try {
+      answer = await ask({
+        type: 'warning',
+        title: '重启安装更新',
+        message: '安装更新会停止应用中的全部任务',
+        detail: INSTALL_WORK_WARNING,
+        buttons: ['取消', '停止任务并安装'],
+        defaultId: 0,
+        cancelId: 0,
+      })
+    } catch (error) {
+      host.log(`[updater] install confirmation unavailable (${messageOf(error)}); leaving the application running\n`)
+      installing = undefined
+      return
+    }
+    if (answer !== 1) {
+      host.log('[updater] install cancelled before teardown; the application and its work keep running\n')
+      installing = undefined
+      return
+    }
+  }
+  if (process.platform === 'win32') {
+    const problem = await downloadedArtifactProblem(offer, downloadedInstallerFile)
+    if (problem !== undefined) {
+      downloadedOffer = undefined
+      downloadedInstallerFile = undefined
+      installing = undefined
+      updateState(host).downloadInvalidated(problem)
+      host.log(`[updater] installer changed before launch: ${problem}; download it again\n`)
+      if (blocking) await retryMandatoryDownload(host, offer, problem)
+      else await ask({ type: 'error', title: '更新文件无法验证', message: '已下载的更新无法验证，请重新下载。', buttons: ['好'] })
+      return
+    }
+  }
   if (!rememberInstall(host, offer)) {
     await installNotStarted(host, offer, 'the install receipt could not be recorded', false)
     return
@@ -2002,9 +2053,11 @@ async function installStaged(host: UpdateHost, offer: UpdateOffer): Promise<void
     showInstalling(version)
   }
   host.log(`[updater] stopping the server before installing ${version}\n`)
+  setInstallDecisionPending(process.platform === 'win32')
   try {
     await host.prepareQuit()
   } catch (error) {
+    setInstallDecisionPending(false)
     // The teardown did not confirm that the server tree is gone, so an installer
     // that replaces the app directory must not start: the refusal from the main
     // process is the whole answer, and the install-failure path restores what
@@ -2025,33 +2078,37 @@ async function installStaged(host: UpdateHost, offer: UpdateOffer): Promise<void
     updater?.quitAndInstall()
     return
   }
-  // (isSilent, isForceRunAfter) → the installer's `/S` and `--force-run`.
-  //
-  // isSilent is false on purpose: an install that shows nothing is
-  // indistinguishable from one that failed, and the one surface a silent NSIS
-  // run does still put on screen is its error box — `handleUninstallResult`'s
-  // MessageBox carries no `/SD`, so 「Failed to uninstall old application
-  // files…」 appears even under `/S`, arriving out of nowhere with no window
-  // that could explain it. Visible does not mean a wizard here: the directory
-  // page skips itself for an `--updated` run (`skipPageIfUpdated`, the
-  // template's own macro), `build/installer.nsh` skips the finish page the same
-  // way, and MUI's own `SetAutoClose true` closes the progress window when the
-  // section ends — what is left is one progress bar that needs no click.
-  //
-  // isForceRunAfter is passed for the shape of the call rather than its effect:
-  // `quitAndInstall` forwards it only when isSilent is true and substitutes
-  // `autoRunAppAfterInstall` (default true) otherwise (`BaseUpdater.js`), and
-  // the template's own relaunch is `${if} ${isForceRun} ${andIf} ${Silent}`
-  // (`installSection.nsh`), which a visible run never satisfies whatever is
-  // passed. The relaunch is therefore done by `customFinishPage`, which starts
-  // the app through `ExecShellAsUser` so it drops the installer's elevated
-  // token.
-  //
-  // `$INSTDIR` comes from the registry's InstallLocation, read in `.onInit`
-  // before any page exists, so neither mode can land anywhere but the directory
-  // the app already occupies.
+  // BaseUpdater.quitAndInstall schedules app.quit when it has only spawned an
+  // elevation helper. The OS result must arrive before this process may quit.
+  // NSIS stays visible and customFinishPage relaunches through ExecShellAsUser.
+  let result: WindowsInstallResult
+  try {
+    result = await launchWindowsInstaller({ file: downloadedInstallerFile ?? '', ownerPid: process.pid, env: process.env })
+  } catch (error) {
+    result = { kind: 'unconfirmed', detail: messageOf(error) }
+  }
+  setInstallDecisionPending(false)
+  if (result.kind === 'not-started') {
+    await installNotStarted(host, offer, `Windows installer did not start: ${result.detail}`, true,
+      result.code === 1223
+        ? '已取消系统授权，更新没有开始安装。应用已恢复，已下载的更新仍可重试。被停止的任务不会自动恢复。'
+        : '安装器未能启动，应用已恢复。已下载的更新仍可重试。被停止的任务不会自动恢复。')
+    return
+  }
+  if (result.kind === 'unconfirmed') {
+    // Lost acknowledgement is not rejection. Keep the receipt and ownership so
+    // another click cannot start a second installer or race an uncertain launch.
+    host.log(`[updater] Windows install hand-off unconfirmed: ${result.detail}; retaining install ownership\n`)
+    await ask({
+      type: 'error', title: '更新安装状态无法确认', message: '无法确认系统安装器是否已经启动',
+      detail: '请检查系统授权或安装器窗口。为避免同时启动两个安装器，本次不自动重试。可关闭应用后重新打开并检查版本。',
+      buttons: ['好'],
+    })
+    return
+  }
+  host.log(`[updater] Windows accepted the installer for ${buildLabel(offer.identity)}; quitting for replacement\n`)
   handedOff = offer
-  updater?.quitAndInstall(false, true)
+  app.quit()
 }
 
 /**

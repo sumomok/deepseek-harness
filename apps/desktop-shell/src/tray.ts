@@ -20,6 +20,7 @@
  * @module @deepseek-ai/dsh-desktop-shell/tray
  */
 
+import { onPermittedQuit } from './quit-effects.ts'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, dialog, Menu, nativeImage, Tray, type BrowserWindow } from 'electron'
@@ -119,7 +120,7 @@ export function setupTray(trayHost: TrayHost): void {
   tray.setToolTip(app.getName())
   tray.on('click', () => { trayHost.reveal() })
   refreshMenu()
-  app.once('before-quit', () => {
+  onPermittedQuit(app, () => {
     // The icon belongs to a process that is leaving. Windows removes it when
     // the process dies, but only once something touches the notification area.
     tray?.destroy()

@@ -270,6 +270,18 @@ export class UpdateState {
   }
 
   /**
+   * Reverification proved the ready artifact is no longer the accepted bytes.
+   * Unlike a late transfer error, this explicitly withdraws an installable file.
+   * @param reason - the failed file verification, in one line.
+   */
+  downloadInvalidated(reason: string): void {
+    if (this.final || this.phase !== 'ready') return
+    this.phase = 'failed'
+    this.reason = reason
+    this.sample = undefined
+  }
+
+  /**
    * This build cannot install an update where it stands, for the rest of the
    * run: a source-tree launch, or a macOS bundle whose in-place path failed.
    *

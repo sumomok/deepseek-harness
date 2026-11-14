@@ -18,6 +18,8 @@ import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UpdateServiceSpec } from '../src/update-service.ts'
 import type { UpdateHost } from '../src/updater.ts'
+import type { MessageBoxOptions } from 'electron'
+import type { WindowsInstallResult } from '../src/windows-install.ts'
 
 /** The running build these cases install from. */
 const FROM_VERSION = '0.1.0-rc.34'
@@ -51,12 +53,18 @@ const fixture = vi.hoisted(() => ({
   stopFails: false,
   /** Whether `quitAndInstall` fails. */
   installFails: true,
-  quitAndInstalls: 0,
+  installerStarts: 0,
   closedNotices: 0,
   quits: 0,
   /** Button indexes the next dialogs answer with, in order; 0 once empty. */
   answers: [] as number[],
-  /** Every dialog message, in order. */
+  confirmations: [] as MessageBoxOptions[],
+  confirmAnswer: 1,
+  confirmGate: undefined as Promise<number> | undefined,
+  confirmFails: false,
+  onDialog: undefined as ((message: string) => void) | undefined,
+  launchGate: undefined as Promise<WindowsInstallResult> | undefined,
+  /** Every failure/mandatory dialog message, in order. */
   dialogs: [] as string[],
   /** The manifest the check reports. */
   info: null as Record<string, unknown> | null,
@@ -95,16 +103,22 @@ vi.mock('electron', () => ({
       ? join(fixture.home, 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop')
       : name === 'userData' ? fixture.userData : join(fixture.home, name),
     getLocale: (): string => 'zh-CN',
-    once: (event: string, listener: () => void): void => {
-      if (event === 'before-quit') fixture.beforeQuit.push(listener)
+    on: (event: string, listener: (event: { defaultPrevented: boolean }) => void): void => {
+      if (event === 'before-quit') fixture.beforeQuit.push(() => { listener({ defaultPrevented: false }) })
     },
     quit: (): void => { fixture.quits += 1 },
     dock: undefined,
   },
   BrowserWindow: { getAllWindows: (): unknown[] => [], getFocusedWindow: (): unknown => null },
   dialog: {
-    showMessageBox: async (options: { message?: string }): Promise<{ response: number }> => {
-      fixture.dialogs.push(options.message ?? '')
+    showMessageBox: async (options: MessageBoxOptions): Promise<{ response: number }> => {
+      if (options.message === '安装更新会停止应用中的全部任务') {
+        fixture.confirmations.push(options)
+        if (fixture.confirmFails) throw new Error('native confirmation could not open')
+        return { response: await (fixture.confirmGate ?? Promise.resolve(fixture.confirmAnswer)) }
+      }
+      fixture.onDialog?.(options.message)
+      fixture.dialogs.push(options.message)
       return { response: fixture.answers.shift() ?? 0 }
     },
   },
@@ -148,7 +162,8 @@ vi.mock('electron-updater', () => {
     }
 
     quitAndInstall(): void {
-      fixture.quitAndInstalls += 1
+      if (process.platform === 'win32') throw new Error('Windows must await the OS hand-off instead of queuing library quit')
+      fixture.installerStarts += 1
       // What the installer's launch would read: the receipt must be on disk at
       // the moment of the hand-off, not cleared by a rival attempt.
       fixture.receiptAtInstaller = receipt()
@@ -157,6 +172,17 @@ vi.mock('electron-updater', () => {
   }
   return { MacUpdater: FakeUpdater, NsisUpdater: FakeUpdater }
 })
+
+vi.mock('../src/windows-install.ts', () => ({
+  launchWindowsInstaller: async (): Promise<WindowsInstallResult> => {
+    fixture.installerStarts += 1
+    fixture.receiptAtInstaller = receipt()
+    if (fixture.launchGate !== undefined) return fixture.launchGate
+    return fixture.installFails
+      ? { kind: 'not-started', code: 1223, detail: 'The operation was canceled by the user' }
+      : { kind: 'started' }
+  },
+}))
 
 vi.mock('../src/progress-window.ts', () => ({
   showInstalling: (): void => undefined,
@@ -204,7 +230,13 @@ beforeEach(() => {
   fixture.beforeQuit.length = 0
   fixture.stopFails = false
   fixture.installFails = true
-  fixture.quitAndInstalls = 0
+  fixture.installerStarts = 0
+  fixture.confirmations = []
+  fixture.confirmAnswer = 1
+  fixture.confirmGate = undefined
+  fixture.confirmFails = false
+  fixture.onDialog = undefined
+  fixture.launchGate = undefined
   fixture.closedNotices = 0
   fixture.quits = 0
   fixture.answers = []
@@ -351,13 +383,19 @@ describe('an install click whose installer fails', () => {
 
       expect(steps).toEqual(['prepareQuit', 'resume(false)'])
       expect(fixture.closedNotices).toBe(1)
-      expect(updateActions(host).state().phase).toBe('failed')
-      expect(lines.join('')).toContain('failed (Code signature at URL did not pass validation); bringing the app back')
-      expect(fixture.dialogs).toEqual([])
       expect(fixture.quits).toBe(0)
-      // The installer may have run part of the way, so the receipt is kept:
-      // only the next launch may say what landed.
-      expect(receipt()).toBeDefined()
+      if (platform === 'darwin') {
+        expect(updateActions(host).state().phase).toBe('failed')
+        expect(lines.join('')).toContain('failed (Code signature at URL did not pass validation); bringing the app back')
+        expect(fixture.dialogs).toEqual([])
+        // Squirrel may have run partway; only the next launch can clear this.
+        expect(receipt()).toBeDefined()
+      } else {
+        expect(updateActions(host).state().phase).toBe('ready')
+        expect(lines.join('')).toContain('Windows installer did not start: The operation was canceled by the user')
+        expect(fixture.dialogs).toEqual([`v${TO_VERSION} 没有开始安装`])
+        expect(receipt()).toBeUndefined()
+      }
     })
   }
 
@@ -370,7 +408,7 @@ describe('an install click whose installer fails', () => {
     await reachReady(host, updateActions)
 
     updateActions(host).install()
-    await vi.waitFor(() => { expect(fixture.quitAndInstalls).toBe(1) })
+    await vi.waitFor(() => { expect(fixture.installerStarts).toBe(1) })
 
     expect(steps).toEqual(['prepareQuit'])
     expect(fixture.closedNotices).toBe(0)
@@ -409,11 +447,11 @@ describe('a mandatory update whose installer fails', () => {
     await vi.waitFor(() => { expect(fixture.quits).toBe(1) })
 
     expect(steps).toEqual(['prepareQuit', 'resume(true)', 'prepareQuit', 'resume(true)'])
-    expect(fixture.quitAndInstalls).toBe(2)
+    expect(fixture.installerStarts).toBe(2)
     expect(fixture.dialogs).toEqual([
       `v${TO_VERSION} 已下载完毕。重启安装后即可继续使用。`,
-      `v${TO_VERSION} 没有安装成功`,
-      `v${TO_VERSION} 没有安装成功`,
+      `v${TO_VERSION} 没有开始安装`,
+      `v${TO_VERSION} 没有开始安装`,
     ])
   })
 })
@@ -432,7 +470,7 @@ describe('a hand-off refused before an installer starts', () => {
 
     expect(steps).toEqual(['prepareQuit', 'resume(false)'])
     // The one guarantee the refusal exists for: no installer ran.
-    expect(fixture.quitAndInstalls).toBe(0)
+    expect(fixture.installerStarts).toBe(0)
     expect(fixture.closedNotices).toBe(1)
     expect(fixture.dialogs).toEqual([`v${TO_VERSION} 没有开始安装`])
     expect(lines.join('')).toContain('teardown not confirmed, the installer was not started (UPDATE_STOP_INCOMPLETE)')
@@ -457,7 +495,7 @@ describe('a hand-off refused before an installer starts', () => {
     await vi.waitFor(() => { expect(fixture.dialogs).toHaveLength(1) })
 
     expect(steps).toEqual([])
-    expect(fixture.quitAndInstalls).toBe(0)
+    expect(fixture.installerStarts).toBe(0)
     expect(fixture.dialogs).toEqual([`v${TO_VERSION} 没有开始安装`])
     expect(lines.join('')).toContain(`not handing ${TO_VERSION} to the installer: the install receipt could not be recorded`)
     // The downloaded update is still what a retry would take: the channel did
@@ -484,13 +522,13 @@ describe('a hand-off refused before an installer starts', () => {
 
     updateActions(host).install()
     await vi.waitFor(() => { expect(fixture.dialogs).toHaveLength(1) })
-    expect(fixture.quitAndInstalls).toBe(0)
+    expect(fixture.installerStarts).toBe(0)
 
     // The cause is gone, and the click installs the candidate already on disk.
     fixture.installFails = false
     mkdirSync(fixture.userData, { recursive: true })
     updateActions(host).install()
-    await vi.waitFor(() => { expect(fixture.quitAndInstalls).toBe(1) })
+    await vi.waitFor(() => { expect(fixture.installerStarts).toBe(1) })
     expect(receipt()).toMatchObject({ fileName: INSTALLER, sha512: SHA512 })
     expect(fixture.dialogs).toEqual([`v${TO_VERSION} 没有开始安装`])
   })
@@ -525,7 +563,7 @@ describe('the bytes a downloaded update must be', () => {
     expect(actions.state().reason).toContain('instead of')
     expect(lines.join('')).toContain('not offering it for install')
     actions.install()
-    expect(fixture.quitAndInstalls).toBe(0)
+    expect(fixture.installerStarts).toBe(0)
   })
 
   it('does not install bytes whose digest is not the accepted one', async () => {
@@ -541,7 +579,7 @@ describe('the bytes a downloaded update must be', () => {
     await vi.waitFor(() => { expect(actions.state().phase).toBe('failed') })
     expect(actions.state().reason).toContain('SHA-512')
     actions.install()
-    expect(fixture.quitAndInstalls).toBe(0)
+    expect(fixture.installerStarts).toBe(0)
   })
 
   it('cannot be installed while its digest is still being read', async () => {
@@ -551,11 +589,11 @@ describe('the bytes a downloaded update must be', () => {
     // The read is still in flight, so nothing is installable yet — not even
     // for a caller that skips the service's own phase check.
     actions.install()
-    expect(fixture.quitAndInstalls).toBe(0)
+    expect(fixture.installerStarts).toBe(0)
     expect(actions.state().phase).not.toBe('ready')
     await vi.waitFor(() => { expect(actions.state().phase).toBe('ready') })
     actions.install()
-    await vi.waitFor(() => { expect(fixture.quitAndInstalls).toBe(1) })
+    await vi.waitFor(() => { expect(fixture.installerStarts).toBe(1) })
   })
 
   it('keeps an unreadable file from becoming an installable update', async () => {
@@ -572,7 +610,7 @@ describe('the bytes a downloaded update must be', () => {
     await vi.waitFor(() => { expect(actions.state().phase).toBe('failed') })
     expect(actions.state().reason).toContain('cannot be read')
     actions.install()
-    expect(fixture.quitAndInstalls).toBe(0)
+    expect(fixture.installerStarts).toBe(0)
   })
 })
 
@@ -595,7 +633,7 @@ describe('one install at a time', () => {
     actions.install()
     actions.install()
     release()
-    await vi.waitFor(() => { expect(fixture.quitAndInstalls).toBe(1) })
+    await vi.waitFor(() => { expect(fixture.installerStarts).toBe(1) })
 
     expect(steps).toEqual(['prepareQuit'])
     expect(fixture.receiptAtInstaller).toMatchObject({ fileName: INSTALLER, sha512: SHA512 })
@@ -619,13 +657,13 @@ describe('one install at a time', () => {
     releaseRecovery()
     await vi.waitFor(() => { expect(fixture.dialogs).toHaveLength(1) })
     expect(steps).toEqual(['prepareQuit', 'resume(false)'])
-    expect(fixture.quitAndInstalls).toBe(0)
+    expect(fixture.installerStarts).toBe(0)
 
     // The lock ended with the recovery, so the retry installs for real.
     fixture.stopFails = false
     fixture.installFails = false
     actions.install()
-    await vi.waitFor(() => { expect(fixture.quitAndInstalls).toBe(1) })
+    await vi.waitFor(() => { expect(fixture.installerStarts).toBe(1) })
     expect(steps).toEqual(['prepareQuit', 'resume(false)', 'prepareQuit'])
     expect(fixture.receiptAtInstaller).toMatchObject({ fileName: INSTALLER })
   })
@@ -653,7 +691,7 @@ describe('the mandatory block when the download cannot be accepted', () => {
     expect(await launchGate(host, () => undefined)).toBe(true)
     await vi.waitFor(() => { expect(fixture.quits).toBe(1) })
 
-    expect(fixture.quitAndInstalls).toBe(0)
+    expect(fixture.installerStarts).toBe(0)
     expect(fixture.dialogs).toEqual(['必须安装的更新没有下载成功'])
     expect(updateActions(host).state().phase).toBe('failed')
     return { host, lines }
@@ -678,6 +716,29 @@ describe('the mandatory block when the download cannot be accepted', () => {
     await blockAndQuit(payload)
   })
 
+  it('offers retry or quit if the ready file changes during mandatory consent', async () => {
+    onPlatform('win32')
+    fixture.info = { ...fixture.info, minimumBuildSequence: 35 }
+    fixture.installFails = false
+    fixture.answers = [0, 1]
+    fixture.onDialog = (message) => {
+      if (message.includes('已下载完毕')) {
+        writeFileSync(join(fixture.home, 'staged', INSTALLER), Buffer.alloc(ARTIFACT_SIZE, 0))
+      }
+    }
+    const { host, steps } = recordingHost()
+    const { launchGate } = await import('../src/updater.ts')
+    expect(await launchGate(host, () => undefined)).toBe(true)
+    await vi.waitFor(() => { expect(fixture.quits).toBe(1) })
+    expect(fixture.dialogs).toEqual([
+      `v${TO_VERSION} 已下载完毕。重启安装后即可继续使用。`,
+      '必须安装的更新没有下载成功',
+    ])
+    expect(steps).toEqual([])
+    expect(fixture.installerStarts).toBe(0)
+    expect(receipt()).toBeUndefined()
+  })
+
   it('downloads again and installs when the retry succeeds', async () => {
     onPlatform('win32')
     fixture.info = {
@@ -694,13 +755,144 @@ describe('the mandatory block when the download cannot be accepted', () => {
     const { launchGate } = await import('../src/updater.ts')
 
     expect(await launchGate(host, () => undefined)).toBe(true)
-    await vi.waitFor(() => { expect(fixture.quitAndInstalls).toBe(1) })
+    await vi.waitFor(() => { expect(fixture.installerStarts).toBe(1) })
 
-    expect(fixture.quits).toBe(0)
+    expect(fixture.quits).toBe(1)
     expect(fixture.dialogs).toEqual([
       '必须安装的更新没有下载成功',
       `v${TO_VERSION} 已下载完毕。重启安装后即可继续使用。`,
     ])
     expect(fixture.receiptAtInstaller).toMatchObject({ fileName: INSTALLER })
+  })
+})
+
+
+describe('ordinary install consent and Windows OS decisions', () => {
+  async function ready(): Promise<ReturnType<typeof recordingHost> & { updater: typeof import('../src/updater.ts') }> {
+    onPlatform('win32')
+    fixture.info = { ...manifestFor(TO_VERSION, 35, 'b'.repeat(40)), files: [{ url: INSTALLER, sha512: SHA512, size: ARTIFACT_SIZE }] }
+    fixture.installFails = false
+    const recording = recordingHost()
+    const updater = await import('../src/updater.ts')
+    updater.setupUpdates(recording.host)
+    updater.updateActions(recording.host).check()
+    await vi.waitFor(() => { expect(updater.updateActions(recording.host).state().phase).toBe('ready') })
+    return { ...recording, updater }
+  }
+
+  it('keeps the app and work intact on cancellation, with Cancel the default', async () => {
+    const { updater, host, steps, lines } = await ready()
+    fixture.confirmAnswer = 0
+    updater.updateActions(host).install()
+    await vi.waitFor(() => { expect(lines.join('')).toContain('install cancelled before teardown') })
+    expect(fixture.confirmations[0]).toMatchObject({ defaultId: 0, cancelId: 0, buttons: ['取消', '停止任务并安装'] })
+    expect(fixture.confirmations[0]?.detail).toContain('排队及关闭前新开始的工作')
+    expect(steps).toEqual([])
+    expect(fixture.installerStarts).toBe(0)
+    expect(fixture.quits).toBe(0)
+    expect(receipt()).toBeUndefined()
+    expect(updater.updateActions(host).state().phase).toBe('ready')
+    expect(existsSync(join(fixture.home, 'staged', INSTALLER))).toBe(true)
+  })
+
+  it('owns the attempt while confirmation is open and allows retry after cancellation', async () => {
+    const { updater, host, steps, lines } = await ready()
+    const consent = Promise.withResolvers<number>()
+    fixture.confirmGate = consent.promise
+    const actions = updater.updateActions(host)
+    actions.install()
+    actions.install()
+    expect(fixture.confirmations).toHaveLength(1)
+    expect(steps).toEqual([])
+    expect(receipt()).toBeUndefined()
+    consent.resolve(0)
+    await vi.waitFor(() => { expect(lines.join('')).toContain('install cancelled before teardown') })
+    fixture.confirmGate = undefined
+    actions.install()
+    await vi.waitFor(() => { expect(fixture.quits).toBe(1) })
+    expect(fixture.confirmations).toHaveLength(2)
+    expect(fixture.installerStarts).toBe(1)
+  })
+
+  it('does not stop work if native confirmation cannot open', async () => {
+    const { updater, host, steps, lines } = await ready()
+    fixture.confirmFails = true
+    updater.updateActions(host).install()
+    await vi.waitFor(() => { expect(lines.join('')).toContain('install confirmation unavailable') })
+    expect(steps).toEqual([])
+    expect(fixture.installerStarts).toBe(0)
+    expect(receipt()).toBeUndefined()
+    expect(updater.updateActions(host).state().phase).toBe('ready')
+  })
+
+  it('holds ordinary quit until the OS result, recovers rejection and retries the same candidate', async () => {
+    const { updater, host, steps } = await ready()
+    const launch = Promise.withResolvers<WindowsInstallResult>()
+    fixture.launchGate = launch.promise
+    updater.updateActions(host).install()
+    await vi.waitFor(() => { expect(fixture.installerStarts).toBe(1) })
+    const event = { preventDefault: vi.fn() }
+    expect(updater.deferQuitForInstall(event)).toBe(true)
+    expect(event.preventDefault).toHaveBeenCalledOnce()
+    expect(fixture.quits).toBe(0)
+    expect(steps).toEqual(['prepareQuit'])
+    expect(receipt()).toBeDefined()
+    launch.resolve({ kind: 'not-started', code: 1223, detail: 'UAC declined' })
+    await vi.waitFor(() => { expect(fixture.dialogs).toEqual([`v${TO_VERSION} 没有开始安装`]) })
+    expect(updater.deferQuitForInstall(event)).toBe(false)
+    expect(receipt()).toBeUndefined()
+    expect(steps).toEqual(['prepareQuit', 'resume(false)'])
+    expect(fixture.quits).toBe(0)
+    expect(updater.updateActions(host).state().phase).toBe('ready')
+    fixture.launchGate = undefined
+    updater.updateActions(host).install()
+    await vi.waitFor(() => { expect(fixture.quits).toBe(1) })
+    expect(fixture.installerStarts).toBe(2)
+    expect(fixture.receiptAtInstaller).toMatchObject({ fileName: INSTALLER, sha512: SHA512 })
+  })
+
+  it('keeps an uncertain launch owned without false recovery, success or automatic retry', async () => {
+    const { updater, host, steps } = await ready()
+    fixture.launchGate = Promise.resolve({ kind: 'unconfirmed', detail: 'transport lost after launch' })
+    const actions = updater.updateActions(host)
+    actions.install()
+    await vi.waitFor(() => { expect(fixture.dialogs).toEqual(['无法确认系统安装器是否已经启动']) })
+    expect(steps).toEqual(['prepareQuit'])
+    expect(receipt()).toBeDefined()
+    expect(fixture.quits).toBe(0)
+    expect(updater.deferQuitForInstall({ preventDefault: vi.fn() })).toBe(false)
+    actions.install()
+    expect(fixture.installerStarts).toBe(1)
+  })
+
+  it('retains ownership while a rejected install is still recovering', async () => {
+    const { updater, host, steps } = await ready()
+    fixture.installFails = true
+    const recovery = Promise.withResolvers<undefined>()
+    fixture.resumeGate = recovery.promise
+    const actions = updater.updateActions(host)
+    actions.install()
+    await vi.waitFor(() => { expect(steps).toEqual(['prepareQuit', 'resume(false)']) })
+    actions.install()
+    expect(fixture.installerStarts).toBe(1)
+    recovery.resolve(undefined)
+    await vi.waitFor(() => { expect(fixture.dialogs).toHaveLength(1) })
+    fixture.resumeGate = undefined
+    fixture.installFails = false
+    actions.install()
+    await vi.waitFor(() => { expect(fixture.quits).toBe(1) })
+    expect(fixture.installerStarts).toBe(2)
+  })
+
+  it('rejects a file changed after acceptance before teardown or elevation', async () => {
+    const { updater, host, steps } = await ready()
+    const tampered = Buffer.from(ARTIFACT_BYTES)
+    tampered[0] = (tampered[0] ?? 0) + 1
+    writeFileSync(join(fixture.home, 'staged', INSTALLER), tampered)
+    updater.updateActions(host).install()
+    await vi.waitFor(() => { expect(updater.updateActions(host).state().phase).toBe('failed') })
+    expect(steps).toEqual([])
+    expect(fixture.installerStarts).toBe(0)
+    expect(receipt()).toBeUndefined()
   })
 })

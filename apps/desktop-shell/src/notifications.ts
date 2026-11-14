@@ -98,6 +98,7 @@
  * @module @deepseek-ai/dsh-desktop-shell/notifications
  */
 
+import { onPermittedQuit } from './quit-effects.ts'
 import { randomUUID } from 'node:crypto'
 import { app, Notification, type NotificationAction } from 'electron'
 import { mainWindow } from './main-window.ts'
@@ -1301,7 +1302,7 @@ export function setupNotifications(host: NotifyHost, authenticatedUrl: string): 
     appHooksBound = true
     app.on('browser-window-focus', () => { clearBadge() })
     app.on('browser-window-created', () => { onWindowCreated() })
-    app.once('before-quit', () => { stopCurrentGeneration() })
+    onPermittedQuit(app, () => { stopCurrentGeneration() })
   }
 }
 

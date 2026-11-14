@@ -120,8 +120,8 @@ vi.mock('electron', () => ({
       ? join(fixture.home, 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop')
       : join(fixture.home, name),
     getLocale: (): string => 'zh-CN',
-    once: (event: string, listener: () => void): void => {
-      if (event === 'before-quit') fixture.beforeQuit.push(listener)
+    on: (event: string, listener: (event: { defaultPrevented: boolean }) => void): void => {
+      if (event === 'before-quit') fixture.beforeQuit.push(() => { listener({ defaultPrevented: false }) })
     },
     quit: (): void => undefined,
     dock: undefined,
