@@ -7,9 +7,9 @@ import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  artifactSha512, buildRelease, collectReleaseArtifacts, recordBuildStaging, releaseBuilderArguments,
-  verifyBuildSource, verifyBuildStaging, verifyExtractedRelease, verifyPackagedRelease, verifyRuntimeVersion,
-  type ReleaseBuildOperations,
+  artifactSha512, buildRelease, collectReleaseArtifacts, missingAsarDependencies, recordBuildStaging,
+  releaseBuilderArguments, verifyBuildSource, verifyBuildStaging, verifyExtractedRelease, verifyPackagedRelease,
+  verifyRuntimeVersion, type ReleaseBuildOperations,
 } from '../scripts/build-release.ts'
 import { expectedArtifacts } from '../scripts/artifact-names.ts'
 import { parseReleaseManifest, type ReleaseManifest } from '../scripts/release-manifest.ts'
@@ -228,6 +228,24 @@ describe('extracted package checks', () => {
     const artifacts = await collectReleaseArtifacts(root, standard, 'darwin', 0)
     await put(join(root, artifacts[0]!.fileName), 'tampered')
     await expect(verifyPackagedRelease({ distDir: root, identity: standard, platform: 'darwin', artifacts })).rejects.toMatchObject({ code: 'BUILD_ARTIFACT_INVALID' })
+  })
+
+  it('rejects an app.asar missing a transitive required peer dependency and accepts a closed one', () => {
+    const files: Record<string, string> = {
+      'package.json': JSON.stringify({
+        name: '@deepseek-ai/dsh-desktop',
+        dependencies: { '@deepseek-ai/dsh-atomic-write': '0.2.2-rc.5' },
+      }),
+      'node_modules/@deepseek-ai/dsh-atomic-write/package.json': JSON.stringify({
+        name: '@deepseek-ai/dsh-atomic-write',
+        peerDependencies: { '@deepseek-ai/dsh-error': '0.2.2-rc.5', 'electron': '^43.0.0', 'optional-peer': '*' },
+        peerDependenciesMeta: { 'optional-peer': { optional: true } },
+      }),
+    }
+    expect(missingAsarDependencies(Object.keys(files).map(k => `/${k}`), k => files[k]!))
+      .toEqual(['@deepseek-ai/dsh-atomic-write -> @deepseek-ai/dsh-error (peer)'])
+    files['node_modules/@deepseek-ai/dsh-error/package.json'] = JSON.stringify({ name: '@deepseek-ai/dsh-error' })
+    expect(missingAsarDependencies(Object.keys(files).map(k => `/${k}`), k => files[k]!)).toEqual([])
   })
 })
 

@@ -304,6 +304,65 @@ export async function verifyExtractedRelease(resources: string, shellManifest: u
   }
 }
 
+const ASAR_RUNTIME_PROVIDED_PEERS = new Set(['electron'])
+
+function asarDependencyDir(entries: ReadonlySet<string>, fromDir: string, name: string): string | undefined {
+  let dir = fromDir
+  for (;;) {
+    const candidate = dir === '' ? `node_modules/${name}` : `${dir}/node_modules/${name}`
+    if (entries.has(`${candidate}/package.json`)) return candidate
+    if (dir === '') return undefined
+    const parent = dir.lastIndexOf('/')
+    dir = parent < 0 ? '' : dir.slice(0, parent)
+  }
+}
+
+/**
+ * Walk every production dependency and non-optional peer dependency reachable
+ * from the packed application manifest inside `app.asar`.
+ * @param entries - Entry paths listed inside `app.asar` (leading slashes allowed).
+ * @param readEntry - Reads one archive-relative file (without leading slash) as UTF-8.
+ * @returns Sorted `<dependent> -> <dependency>` diagnostics for every unsatisfied edge.
+ */
+export function missingAsarDependencies(
+  entries: readonly string[],
+  readEntry: (entry: string) => string,
+): string[] {
+  const present = new Set(entries.map(entry => entry.replace(/^\/+/, '')))
+  if (!present.has('package.json')) return ['(asar) -> package.json']
+  const missing = new Set<string>()
+  const visited = new Set<string>()
+  const queue: { name: string; dir: string }[] = [{ name: '(app)', dir: '' }]
+  for (let current = queue.shift(); current !== undefined; current = queue.shift()) {
+    if (visited.has(current.dir)) continue
+    visited.add(current.dir)
+    const manifestPath = current.dir === '' ? 'package.json' : `${current.dir}/package.json`
+    const parsed: unknown = JSON.parse(readEntry(manifestPath))
+    const owner = typeof field(parsed, 'name') === 'string' ? String(field(parsed, 'name')) : current.name
+    const deps = field(parsed, 'dependencies')
+    const peers = field(parsed, 'peerDependencies')
+    const peerMeta = field(parsed, 'peerDependenciesMeta')
+    const depNames = typeof deps === 'object' && deps !== null ? Object.keys(deps) : []
+    const peerNames = typeof peers === 'object' && peers !== null
+      ? Object.keys(peers).filter((peer) => {
+        if (ASAR_RUNTIME_PROVIDED_PEERS.has(peer)) return false
+        const meta = typeof peerMeta === 'object' && peerMeta !== null ? field(peerMeta, peer) : undefined
+        return field(meta, 'optional') !== true
+      })
+      : []
+    const required = [
+      ...depNames.map(name => ({ name, label: name })),
+      ...peerNames.map(name => ({ name, label: `${name} (peer)` })),
+    ]
+    for (const { name, label } of required) {
+      const target = asarDependencyDir(present, current.dir, name)
+      if (target === undefined) missing.add(`${owner} -> ${label}`)
+      else queue.push({ name, dir: target })
+    }
+  }
+  return [...missing].sort()
+}
+
 /**
  * Re-extract each final ZIP, DMG, or NSIS package and verify its installed identity.
  * This is shared by packaging and publishing; a manifest alone cannot attest bytes.
@@ -319,7 +378,10 @@ export async function verifyPackagedRelease(request: PackagedReleaseRequest): Pr
   const require = createRequire(import.meta.url)
   const builderRequire = createRequire(require.resolve('electron-builder'))
   const appBuilderRequire = createRequire(builderRequire.resolve('app-builder-lib'))
-  const asar: { extractFile(path: string, name: string): Buffer } = appBuilderRequire('@electron/asar')
+  const asar: {
+    extractFile(path: string, name: string): Buffer
+    listPackage(path: string): string[]
+  } = appBuilderRequire('@electron/asar')
   const sevenZip = process.env.DSH_RELEASE_7ZIP ?? (process.platform === 'win32' ? '7z.exe' : '7zz')
   if (platform === 'win32') {
     try {
@@ -358,6 +420,16 @@ export async function verifyPackagedRelease(request: PackagedReleaseRequest): Pr
       const archive = only(await descendants(search, name => name === 'app.asar'), 'application asar')
       const resources = resolve(archive, '..')
       await verifyExtractedRelease(resources, JSON.parse(asar.extractFile(archive, 'package.json').toString('utf8')), request)
+      const missingDeps = missingAsarDependencies(
+        asar.listPackage(archive),
+        entry => asar.extractFile(archive, entry).toString('utf8'),
+      )
+      if (missingDeps.length > 0) {
+        throw new BuildReleaseError(
+          'BUILD_PACKAGE_INVALID',
+          `package: ${artifact.fileName} app.asar is missing required runtime dependencies:\n  ${missingDeps.join('\n  ')}`,
+        )
+      }
     } finally {
       if (mounted !== undefined) await execute('hdiutil', ['detach', mounted])
       // Only the private directory allocated above is removed; artifacts remain intact.

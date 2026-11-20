@@ -1529,6 +1529,9 @@ importers:
       '@deepseek-ai/dsh-client-shortcuts':
         specifier: workspace:*
         version: link:../../packages/client/shortcuts
+      '@deepseek-ai/dsh-error':
+        specifier: workspace:*
+        version: link:../../packages/util/error
       electron-updater:
         specifier: 6.8.9
         version: 6.8.9(patch_hash=190d3dfab231be01ba0f682d2e9f3047806de20dcd209f6e8b65c2e76a4b1fb5)(supports-color@9.4.0)
