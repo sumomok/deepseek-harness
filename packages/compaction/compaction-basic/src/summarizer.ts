@@ -12,13 +12,15 @@ import type {
 } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { TokenMeter } from '@deepseek-ai/dsh-token-meter'
-import { summarizationTarget } from './route.ts'
 
 interface SummaryConfig {
   readonly summarizationProvider: string
   readonly summarizationModel: string
   readonly maxTokens: number
 }
+
+/** Exact provider/model pair that receives one summarization request. */
+export type SummaryRoute = Pick<GenerateOptions, 'provider' | 'model'>
 
 /** Tags wrapping the structured summary inside the landed checkpoint node. */
 const SUMMARY_OPEN_TAG = '<compacted-summary>'
@@ -121,7 +123,8 @@ export type SummaryResult = {
  * @param ctx - context providing the LLM service.
  * @param config - resolved backend configuration.
  * @param input - replayed conversation prefix (system, tools, and leading messages) to condense.
- * @param agent - supplies routed-model history, fallback model, and session id.
+ * @param agent - supplies tool history and session id.
+ * @param conversation - route used when `config` names no summary target; `undefined` when the conversation has none.
  * @param signal - optional cancellation forwarded to the adapter.
  * @returns safe text-only summary blocks and the exact call envelope and output.
  */
@@ -130,12 +133,13 @@ export async function summarizeWithLlm(
   config: SummaryConfig,
   input: SummarizationInput,
   agent: Agent,
+  conversation?: SummaryRoute,
   signal?: AbortSignal,
 ): Promise<SummaryResult> {
-  // Explicit summarizer configuration wins; otherwise the shared conversation
-  // route keeps the summary on the same pending selection the next real request
-  // will use.
-  const target = summarizationTarget(config, agent)
+  const configured = config.summarizationProvider.length === 0
+    ? undefined
+    : { provider: config.summarizationProvider, model: config.summarizationModel }
+  const target = configured ?? conversation
   if (target === undefined) {
     throw new Error(
       'no provider/model available for summarization: set both BasicCompactionConfig summarization fields, route one request, or set both AgentOptions fields',

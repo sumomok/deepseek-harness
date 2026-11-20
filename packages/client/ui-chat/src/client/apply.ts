@@ -8,6 +8,7 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {
   ISessions, ReferentRef, SessionBinding,
 } from '@deepseek-ai/dsh-api-session-controller/client'
+import { sessionDirectory } from '@deepseek-ai/dsh-api-session-controller/client/directories'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type { GroupKey } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { createSnapshotStore, type ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
@@ -92,24 +93,10 @@ export const inject = [
 ]
 
 /**
- * The directory a Session's relative paths resolve against at this moment: its
- * current working directory when the Client holds that projection, the same
- * directory the Session's file tools resolve relative paths against,
- * otherwise its header directory.
- * @param sessions - the Client Session registry.
- * @param sessionId - the Session the path belongs to.
- * @returns an absolute directory, or undefined when neither is known.
- */
-function currentDirectoryOf(sessions: ISessions, sessionId: SessionId): string | undefined {
-  const current = sessions.binding(sessionId)?.session.projections.faceOf('workingDirectory').getSnapshot()
-  return typeof current === 'string' ? current : sessions.list.getSnapshot().byId[sessionId]?.cwd
-}
-
-/**
  * Build the render-facing prose-referent scanner/opener for one session, or
  * undefined when no {@link ProseReferents} provider is composed in.
  * `scan` and `resolveLink` read the session's current directory
- * ({@link currentDirectoryOf}) and Host account home fresh on every call (the
+ * (`sessionDirectory`) and Host account home fresh on every call (the
  * same lazy-read technique `openFile` below uses), so composing the provider
  * in or out, a workspace change, or a working-directory change takes effect on
  * the very next render with no re-registration.
@@ -144,7 +131,7 @@ function buildProseReferents(
   const providerSubscribe = provider.subscribe?.bind(provider)
   return {
     scan: (text, inlineCode) => provider.scan(text, {
-      cwd: currentDirectoryOf(sessions, sessionId),
+      cwd: sessionDirectory(sessions, sessionId),
       home: connection.generation.getSnapshot()?.host.home,
       inlineCode,
     }),
@@ -153,7 +140,7 @@ function buildProseReferents(
     // conditional spreads below are what that distinction requires.
     ...(providerResolveLink === undefined ? {} : {
       resolveLink: (destination: string, displayText: string) => providerResolveLink(destination, displayText, {
-        cwd: currentDirectoryOf(sessions, sessionId),
+        cwd: sessionDirectory(sessions, sessionId),
         home: connection.generation.getSnapshot()?.host.home,
       }),
     }),
@@ -233,18 +220,35 @@ export function apply(ctx: Context): void {
       // replacement or paging never does, because an old failure scrolling
       // back into view is not news.
       const dispose = binding.ctx.effect(() => {
-        const stop = binding.eventSource.subscribe(() => {
-          const { change } = binding.eventSource.getSnapshot()
-          if (change.kind !== 'append') return
-          for (const { event } of change.entries) {
-            if (event.type !== 'turn/end' || event.data.reason.kind !== 'error') continue
-            const { code } = event.data.reason.error
-            if (quotaNoticeHolds.size > 0 || (code !== 'QUOTA' && code !== 'ACCOUNT_QUOTA')) continue
-            quotaNotice.set({ code, seq: ++quotaNoticeSeq })
+        // Live quota failures are reported only while a rendering reference retains the Session's Conversation.
+        const retainInfo = ctx.sessions.retainInfo(binding.sessionId)
+        const retained = (): boolean => ctx.sessions.binding(binding.sessionId) === binding
+          && (retainInfo.getSnapshot().retainedFacets?.conversation ?? 0) > 0
+        let stopEvents: (() => void) | undefined
+        const follow = (): void => {
+          if (!retained()) {
+            stopEvents?.()
+            stopEvents = undefined
+            return
           }
-        })
+          stopEvents ??= binding.eventSource.subscribe(() => {
+            // A dispatch in progress keeps calling copied listeners after unsubscription.
+            if (!retained()) return
+            const { change } = binding.eventSource.getSnapshot()
+            if (change.kind !== 'append') return
+            for (const { event } of change.entries) {
+              if (event.type !== 'turn/end' || event.data.reason.kind !== 'error') continue
+              const { code } = event.data.reason.error
+              if (quotaNoticeHolds.size > 0 || (code !== 'QUOTA' && code !== 'ACCOUNT_QUOTA')) continue
+              quotaNotice.set({ code, seq: ++quotaNoticeSeq })
+            }
+          })
+        }
+        const stopRetained = retainInfo.subscribe(follow)
+        follow()
         return () => {
-          stop()
+          stopRetained()
+          stopEvents?.()
           chatSources.delete(binding)
           quotaSubscriptions.delete(dispose)
         }
@@ -407,6 +411,7 @@ export function apply(ctx: Context): void {
         'conversation.chat.flow': { kind: 'single', scope: 'session', inject: CHAT_FLOW_INJECT },
         'conversation.chat.text-interaction': { kind: 'keyed', scope: 'session' },
         'conversation.chat.markdown.fence': { kind: 'hoc', scope: 'session' },
+        'conversation.chat.aside': { kind: 'single', scope: 'session' },
       },
       store: chatStore,
       inject: (sessionId: SessionId): ChatViewInjected => {
@@ -472,7 +477,8 @@ export function apply(ctx: Context): void {
           // its top or at line 400, so the same tab is revealed and told where
           // to land.
           openFile: async (path, options) => {
-            const target = resolveWorkspacePath(currentDirectoryOf(ctx.sessions, sessionId), path)
+            const directory = sessionDirectory(ctx.sessions, sessionId)
+            const target = resolveWorkspacePath(directory, path)
             const ref: ReferentRef = {
               // '.' names the current directory itself; every other path
               // this closure ever receives names a file (no richer file/dir
@@ -485,9 +491,8 @@ export function apply(ctx: Context): void {
               enteredAs: 'structured',
             }
             await ctx.referent.open(ref, async () => {
-              const cwd = ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd
-              const current = session.projections.faceOf('workingDirectory').getSnapshot() as string | null | undefined
-              const url = fileAddressFor(sessionId, cwd, resolveWorkspacePath(current ?? undefined, path))
+              const liveDirectory = sessionDirectory(ctx.sessions, sessionId)
+              const url = fileAddressFor(sessionId, liveDirectory, resolveWorkspacePath(liveDirectory, path))
               if (options?.line === undefined) ctx.sidebarRight.openResource(url)
               else ctx.sidebarRight.openResource(url, { params: { line: options.line } })
               await Promise.resolve()

@@ -35,6 +35,12 @@ A Workspace root pick settles as the same atomic folder reference: the hidden `r
 
 A session pick inserts an atomic inline reference whose hidden `ref` and clipboard representation is the canonical `@[label](dsh-session:…)` mention returned by the Host; its visible form is a chat-bubble glyph plus the session title. Sending carries the mention through `session.prompt`, and the session-reference service validates it and captures model context at `agent/pre-step`.
 
+The shared file context menu ends with **Add to chat**. It inserts the clicked file as the same kind of reference into that Session’s draft, preserves existing text and selection, and returns focus without sending. The reference captures the resolved absolute path; line numbers are not included. The action is disabled when the Session cannot be edited at the moment the menu opens or the path cannot use the mention grammar; a draft that becomes uneditable while the menu stays open makes the action report failure instead of inserting. An open menu updates its label and failure feedback when the interface language changes.
+
+### Sent file and folder mentions
+
+In sent messages, queued rows, and local echoes, an `@path` or `@"path"` token renders as a file or folder reference only after the Session's filesystem confirms the path exists. Until then, and for a path that does not exist, such as a hand-typed `@notes`, the original text stays verbatim; email addresses never match. A candidate picked and sent in the same Session during one page load counts as confirmed, so its echo shows the reference immediately.
+
 ### Failure behavior
 
 One unavailable or failed candidate domain yields no rows for that domain while the other still lists. A session-reference preparation failure occurs after prompt acceptance and terminates that agent turn.
@@ -63,9 +69,9 @@ Candidate requests require an existing retained Client Session and share one tem
 
 File picks preserve the natural text defined by the shared `@path` grammar as the hidden serialized and clipboard form. Session picks use the canonical `@[label](dsh-session:…)` mention; serialization never reconstructs identity from the visible title.
 
-The plugin also registers file and folder matchers with [UserText](../ui-conversation/README.md#sent-user-text) and owns their `conversation.user.text.node` renderers. Each query returns the next complete reference at an original-text offset without file discovery; the shared evaluator resolves overlaps by source position. Interactive file nodes receive a Session-bound `openFile` injection that dispatches [`referent/open`](../../api/session-controller/README.md) (`source: 'user-text.file-reference'`, `enteredAs: 'user-text'`) before the right Sidebar opens the file, so a listener can claim the click; navigation failures, synchronous or rejected, keep the reference visible and offer a local retry/close dialog. Folder nodes remain labels.
+The plugin also registers file and folder matchers with [UserText](../ui-conversation/README.md#sent-user-text) and owns their `conversation.user.text.node` renderers. Each query returns the next complete candidate reference at an original-text offset without file discovery; the shared evaluator resolves overlaps by source position. Both node renderers subscribe to a Session-bound `pathPresence` keyed Hook backed by `workspaceFiles/stat`: a stat result or a `workspace-file/not-regular-file` failure (a directory, a symbolic link whatever it points to, or another non-regular entry) confirms the path, `workspace-file/not-found` rejects it, and any other failure leaves it unconfirmed for the next subscriber to retry. The plugin owns these answers, keeps one per Session and path, and aborts outstanding stats on disposal; a settling pick records its path as confirmed. Presence does not read the [`file` resource](../../api/workspace-files/README.md) through `useResource`: that provider keeps one Host change subscription open per Session and path while a reader is mounted, and a mention needs a single answer. Interactive file nodes also receive a Session-bound `openFile` injection that dispatches [`referent/open`](../../api/session-controller/README.md) (`source: 'user-text.file-reference'`, `enteredAs: 'user-text'`) before the right Sidebar opens the file, so a listener can claim the click; navigation failures, synchronous or rejected, keep the reference visible and offer a local retry/close dialog. Folder nodes remain labels.
 
-The composer chip and the sent-message file node resolve a relative path when clicked, against the Session's `workingDirectory` projection, which the Host updates when the agent changes directory; without a recorded working directory they use the Session's header directory. The Sidebar address keeps the header directory as its root, so a file inside the workspace receives a Session-relative address and a file elsewhere keeps its absolute path.
+The composer chip and the sent-message file node resolve paths against the Session's current directory (`sessionDirectory`: `workingDirectory` projection when recorded, else the Session's header directory) at the moment of the click, and address the right Sidebar against that same root.
 
 </details>
 
@@ -101,6 +107,7 @@ These limits define when the reference source cannot help; they are current pack
 
 - **Candidate failure is intentionally quiet** — one unavailable or failed Remote discovery call yields no rows for that domain. A session-reference preparation failure occurs after prompt acceptance and terminates that agent turn.
 - **No browser-side file scan** — Web completion requires a mounted Host `ctx.fileReferences` provider; the browser cannot fall back to its own filesystem.
+- **Sent references do not follow file changes** — a path's confirmed or missing answer lasts for the page load; creating or removing the path later changes how its mentions render only after reload.
 - **Session search remains metadata-only** — discovery filters session id, cwd, and the latest log-backed title through `ctx.sessionReferenceResolver`; message bodies and full transcripts are not searched.
 - **Relative file references bind when clicked** — a relative path resolves against the Session's current working directory at the click, so after the agent changes directory again, an earlier relative reference in a sent message resolves against the new directory.
 - **Workspace rows are the registered projection** — a directory that is not a registered Workspace stays reachable only through `@` path completion, never as a Workspace row.

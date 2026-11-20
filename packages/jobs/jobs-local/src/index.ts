@@ -17,16 +17,16 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { ScopedLayers, scopeOf } from '@deepseek-ai/dsh-scope'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
-import { JobError, JobRegistry, JobId } from '@deepseek-ai/dsh-jobs'
-import type { JobNotify } from '@deepseek-ai/dsh-jobs'
+import { JobError, JobRegistry, type JobId } from '@deepseek-ai/dsh-jobs'
 import type {
-  JobAppendOptions, JobEvent, JobEvents, JobHandle, JobKind, JobOutcome, JobOutputRead, JobOutputSource,
+  JobAppendOptions, JobEvent, JobEvents, JobHandle, JobKind, JobNotify, JobOutcome, JobOutputRead, JobOutputSource,
   JobRead, JobRegisteredData, JobSettleCause, JobSettledData, JobSpec, JobStatus, JobToolCall, JobView,
 } from '@deepseek-ai/dsh-jobs'
 import { JobEventHub, JobLayer } from './events.ts'
 import { startPump } from './pump.ts'
 import type { PumpHandle } from './pump.ts'
 import { OutputRing } from './ring.ts'
+import { brandString } from '@deepseek-ai/dsh-brand'
 
 /** Timeout code that distinguishes a bounded wait from caller cancellation. */
 export const TASK_WAIT_TIMEOUT = 'TASK_WAIT_TIMEOUT'
@@ -95,6 +95,8 @@ interface TrackedJob {
   state: ProducerState
   /** Terminal reason; a recorded kill reason is merged in at settlement. */
   detail: string | undefined
+  /** Exit code the producer reported at settlement. */
+  exitCode: number | undefined
   result: string | undefined
   startedAt: number
   finishedAt: number | undefined
@@ -241,7 +243,7 @@ export class LocalJobRegistry extends JobRegistry {
     // Retry a collision while this registry still holds an earlier id.
     let id: JobId
     do {
-      id = JobId(`${spec.kind}-${randomUUID().replaceAll('-', '').slice(0, 16)}`)
+      id = brandString<JobId>(`${spec.kind}-${randomUUID().replaceAll('-', '').slice(0, 16)}`)
     } while (this.store.has(id))
     const toolCall = spec.toolCall === undefined ? undefined : { ...spec.toolCall }
     const ring = new OutputRing()
@@ -270,6 +272,7 @@ export class LocalJobRegistry extends JobRegistry {
       resultDelivered: false,
       state,
       detail: undefined,
+      exitCode: undefined,
       result: undefined,
       startedAt: Date.now(),
       finishedAt: undefined,
@@ -441,6 +444,7 @@ export class LocalJobRegistry extends JobRegistry {
       status: job.status,
       ...job.state.progress !== undefined ? { progress: job.state.progress } : {},
       ...job.detail !== undefined ? { detail: job.detail } : {},
+      ...job.exitCode !== undefined ? { exitCode: job.exitCode } : {},
       startedAt: job.startedAt,
       ...job.finishedAt !== undefined ? { finishedAt: job.finishedAt } : {},
       output: {
@@ -630,6 +634,7 @@ export class LocalJobRegistry extends JobRegistry {
       job.detail = outcome.detail
     }
     job.state.progress = undefined
+    job.exitCode = outcome.exitCode
     job.result = outcome.result
     job.finishedAt = Date.now()
     this.recordSessionEvent(job, {

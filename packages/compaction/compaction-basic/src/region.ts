@@ -7,15 +7,16 @@
 
 import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type { CompactionId } from '@deepseek-ai/dsh-compaction/types'
 import {
-  CompactionId,
   ManualCompactionError,
   compactCheckpointSource,
   toolPairingBalancedAfter,
   toolPairingBalancedBefore,
 } from '@deepseek-ai/dsh-compaction'
 import type { CompactionResult, SummaryReview } from '@deepseek-ai/dsh-compaction'
-import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
+import type { CommandId } from '@deepseek-ai/dsh-commands/types'
 import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
 import type { Message, ToolSchema, UserMessage } from '@deepseek-ai/dsh-llm'
 import type { TokenMeasurement, TokenMeter } from '@deepseek-ai/dsh-token-meter'
@@ -376,7 +377,7 @@ export async function compactSurfaceRegion(
     owner = entryState.openTurn
   }
 
-  const compactionId = CompactionId(randomUUID())
+  const compactionId = brandString<CompactionId>(randomUUID())
   const lifecycle = {
     compactionId,
     ...options.sourceCommandId === undefined ? {} : { sourceCommandId: options.sourceCommandId },

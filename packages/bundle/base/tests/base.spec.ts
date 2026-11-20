@@ -7,8 +7,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import * as yaml from 'js-yaml'
-import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
+import { parseEntryYaml } from '@deepseek-ai/cordis-plugin-include'
 import { evaluate } from '@deepseek-ai/cordis-plugin-loader'
 import {
   Config as TelemetryConfig,
@@ -30,10 +29,7 @@ interface PatchRow {
  */
 function patchRows(): PatchRow[] {
   const root = fileURLToPath(new URL('..', import.meta.url))
-  const parsed = yaml.load(
-    readFileSync(resolve(root, 'cordis.patch.yml'), 'utf8'),
-    { schema: entryListSchema },
-  )
+  const parsed = parseEntryYaml(readFileSync(resolve(root, 'cordis.patch.yml'), 'utf8'))
   // A patch file that parses to anything but a list fails by name here rather
   // than as a TypeError thrown out of the walk below.
   expect(Array.isArray(parsed)).toBe(true)
@@ -82,7 +78,7 @@ describe('dsh-base bundle', () => {
     })
     expect(rows.filter(row => row.id === 'subagent-codex')).toHaveLength(0)
     expect(rows.filter(row => row.id === 'subagent-claude-code')).toHaveLength(0)
-    expect(rows.find(row => row.id === 'web')?.config).toEqual({ searchProvider: 'deepseek-search-api', fetchProvider: 'http' })
+    expect(rows.find(row => row.id === 'web')?.config).toEqual({ fetchProvider: 'http' })
     expect(rows.find(row => row.id === 'web-deepseek-api')).toEqual({ id: 'web-deepseek-api', name: '@deepseek-ai/dsh-web-deepseek-api' })
     expect(rows.find(row => row.id === 'web-fetch-http')).toBeDefined()
     expect(rows.find(row => row.id === 'web-search-deepseek')).toMatchObject({
@@ -98,10 +94,7 @@ describe('dsh-base bundle', () => {
 
   it('gates each shell stack by platform with a symmetric disabled expression', () => {
     const root = fileURLToPath(new URL('..', import.meta.url))
-    const parsed = yaml.load(
-      readFileSync(resolve(root, 'cordis.patch.yml'), 'utf8'),
-      { schema: entryListSchema },
-    )
+    const parsed = parseEntryYaml(readFileSync(resolve(root, 'cordis.patch.yml'), 'utf8'))
     if (!Array.isArray(parsed)) throw new TypeError('base patch must parse to a patch list')
     const rows = parsed.flatMap((patch): Record<string, unknown>[] =>
       typeof patch === 'object' && patch !== null

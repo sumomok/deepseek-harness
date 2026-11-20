@@ -393,7 +393,7 @@ describe('gate graph validation', () => {
       'rescope-vendor', 'publint', 'constraints', 'default-product-isolation', 'product-use', 'official-bundle-catalog', 'provider-data', 'package-dependencies', 'application-entrypoints',
       'dsh-package-licenses', 'node-next-types',
       'optional-dependency-imports', 'client-packages', 'installer-locales', 'locale-metadata', 'client-ui-i18n', 'client-route-resolution', 'no-bare-dispatcher',
-      'plugin-record-callers', 'no-unknown-casts', 'no-top-level-await', 'plugin-entry-exports',
+      'plugin-record-callers', 'no-unknown-casts', 'empty-catch', 'cordis-root', 'no-top-level-await', 'plugin-entry-exports',
       'cordis-config', 'runtime-closure',
     ])
   })
@@ -455,6 +455,26 @@ describe('gate graph validation', () => {
       const gate = withPnpmEntrypoint(() => gatesForMode(mode).find(subject => subject.id === 'no-unknown-casts'))
 
       expect(gate?.args).toContain('verify-no-unknown-casts')
+      expect(gate?.allowFailure).not.toBe(true)
+    },
+  )
+
+  it.each(['ci-primary', 'ci-static', 'check-all', 'hygiene'] as const)(
+    'rejects silent empty catches in %s',
+    (mode) => {
+      const gate = withPnpmEntrypoint(() => gatesForMode(mode).find(subject => subject.id === 'empty-catch'))
+
+      expect(gate?.args).toContain('verify-empty-catch')
+      expect(gate?.allowFailure).not.toBe(true)
+    },
+  )
+
+  it.each(['ci-primary', 'ci-static', 'check-all', 'hygiene'] as const)(
+    'rejects new Cordis root reads in %s',
+    (mode) => {
+      const gate = withPnpmEntrypoint(() => gatesForMode(mode).find(subject => subject.id === 'cordis-root'))
+
+      expect(gate?.args).toContain('verify-cordis-root')
       expect(gate?.allowFailure).not.toBe(true)
     },
   )
@@ -1024,6 +1044,7 @@ describe('Node 24 lane ownership', () => {
         'packages/subagent/subagent-codex/tests/loader-composition.e2e.ts',
         'packages/subagent/subagent-claude-code/tests/loader-composition.e2e.ts',
         'packages/team/agent-team/tests/built-lib.e2e.ts',
+        'packages/experimental/browser-use-stagehand-native/tests/built-attachment.e2e.ts',
       ]),
     )
     expect(subject.find(item => item.id === 'web-snapshot')).toMatchObject({

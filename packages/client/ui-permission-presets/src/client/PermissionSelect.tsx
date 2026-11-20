@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import clsx from 'clsx'
 import {
-  IconChevronDownOutlineRegular, IconShieldOutlineRegular, Menu, PermissionIconAutoReviewRegular,
-  PermissionIconFullAccessRegular,
-  PermissionIconReadOnlyRegular, PermissionIconWorkspaceWriteRegular, RiskConfirmation,
+  IconChevronDownOutlineRegular, IconShieldOutlineMedium, IconShieldOutlineRegular, Menu,
+  PermissionIconAutoReviewMedium, PermissionIconAutoReviewRegular, PermissionIconFullAccessMedium,
+  PermissionIconFullAccessRegular, PermissionIconReadOnlyMedium, PermissionIconReadOnlyRegular,
+  PermissionIconWorkspaceWriteMedium, PermissionIconWorkspaceWriteRegular, RiskConfirmation,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
@@ -28,22 +29,23 @@ import css from './PermissionSelect.module.css'
    by key; every other key draws the bare shield outline, so each row keeps an
    icon of the same size. */
 
-const permissionGlyphs = new Map<string, ReactNode>([
-  ['read-only', <PermissionIconReadOnlyRegular />],
-  ['workspace-write', <PermissionIconWorkspaceWriteRegular />],
-  [FULL_ACCESS, <PermissionIconFullAccessRegular />],
-  [AUTO_REVIEW, <PermissionIconAutoReviewRegular />],
+const permissionGlyphs = new Map<string, { menu: ReactNode; trigger: ReactNode }>([
+  ['read-only', { menu: <PermissionIconReadOnlyRegular />, trigger: <PermissionIconReadOnlyMedium /> }],
+  ['workspace-write', { menu: <PermissionIconWorkspaceWriteRegular />, trigger: <PermissionIconWorkspaceWriteMedium /> }],
+  [FULL_ACCESS, { menu: <PermissionIconFullAccessRegular />, trigger: <PermissionIconFullAccessMedium /> }],
+  [AUTO_REVIEW, { menu: <PermissionIconAutoReviewRegular />, trigger: <PermissionIconAutoReviewMedium /> }],
 ])
 
-const bareShield = <IconShieldOutlineRegular />
+const bareShield = { menu: <IconShieldOutlineRegular />, trigger: <IconShieldOutlineMedium /> }
 
 /**
- * Resolve one design-set glyph.
+ * Resolve one design-set glyph for the requested surface.
  * @param key - an option's own `glyph`, or its value when it names none.
+ * @param surface - whether the glyph renders in a menu row or the composer trigger.
  * @returns the named glyph, or the bare shield outline for any other key.
  */
-function permissionGlyph(key: string): ReactNode {
-  return permissionGlyphs.get(key) ?? bareShield
+function permissionGlyph(key: string, surface: 'menu' | 'trigger'): ReactNode {
+  return (permissionGlyphs.get(key) ?? bareShield)[surface]
 }
 
 function permissionLabel(
@@ -124,7 +126,7 @@ export function PermissionSelect({
             <span className={css.badge}>{badge}</span>
           </span>
         ),
-      icon: permissionGlyph(option.glyph ?? option.value),
+      icon: permissionGlyph(option.glyph ?? option.value, 'menu'),
       // The tone set is closed at one member.
       ...option.tone === 'danger' ? { danger: true } : {},
     }
@@ -190,7 +192,7 @@ export function PermissionSelect({
             disabled={locked || busy}
             onClick={() => { setOpen(!open) }}
           >
-            <span className={css.triggerIcon} aria-hidden>{permissionGlyph(current?.glyph ?? currentValue)}</span>
+            <span className={css.triggerIcon} aria-hidden>{permissionGlyph(current?.glyph ?? currentValue, 'trigger')}</span>
             <span className={css.triggerLabel}>{currentLabel}</span>
             <span className={clsx(css.chevron, open && css.chevronOpen)} aria-hidden>
               <IconChevronDownOutlineRegular />

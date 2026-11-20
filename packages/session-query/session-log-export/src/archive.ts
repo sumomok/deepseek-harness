@@ -311,18 +311,30 @@ function unreadableFileEntry(ref: FileAttachmentRef, error: unknown): SessionLog
 
 /**
  * Resume one file's chunks after its first has been pulled, so the entry the
- * ZIP writer receives streams exactly the bytes the store produces.
+ * ZIP writer receives streams exactly the bytes the store produces, and close
+ * its iterator when drained or abandoned.
  * @param first - the already-pulled first result.
  * @param rest - the store's iterator, positioned after `first`.
+ * @param close - idempotent cleanup that deregisters and closes `rest`.
  * @returns the complete chunk sequence in order.
  */
 async function* resumedFileChunks(
   first: IteratorResult<Uint8Array>,
   rest: AsyncIterator<Uint8Array>,
-): AsyncIterable<Uint8Array> {
-  if (first.done === true) return
-  yield first.value
-  yield* { [Symbol.asyncIterator]: () => rest }
+  close: () => Promise<void>,
+): AsyncGenerator<Uint8Array> {
+  try {
+    if (first.done !== true) {
+      yield first.value
+      for (;;) {
+        const next = await rest.next()
+        if (next.done === true) return
+        yield next.value
+      }
+    }
+  } finally {
+    await close()
+  }
 }
 
 /**
@@ -333,26 +345,36 @@ async function* resumedFileChunks(
  * invalid reference — becomes a record instead of a torn response. A failure
  * the store raises after that first chunk still tears the response, because
  * those bytes have already reached the ZIP writer. Cancellation is not an
- * unreadable attachment and is rethrown.
+ * unreadable attachment and is rethrown. `openStreams` receives the iterator's
+ * close callback so the entry's owner can release a stream no consumer started.
  * @param attachments - the mounted attachment store.
  * @param ref - the durable reference from a session log.
+ * @param openStreams - close callbacks of the streams currently open.
  * @param signal - optional cancellation forwarded to the store read.
  * @returns the file entry, or the record that stands in for it.
  */
 async function fileEntry(
   attachments: AttachmentStore,
   ref: FileAttachmentRef,
+  openStreams: Set<() => Promise<void>>,
   signal?: AbortSignal,
 ): Promise<SessionLogZipEntry> {
   const rest = attachments.readFileStream(ref, signal)[Symbol.asyncIterator]()
+  // Cancelling a stream twice is harmless: the second return reports it done.
+  const close = async (): Promise<void> => {
+    openStreams.delete(close)
+    await rest.return?.()
+  }
+  openStreams.add(close)
   let first: IteratorResult<Uint8Array>
   try {
     first = await rest.next()
   } catch (error) {
+    await close()
     signal?.throwIfAborted()
     return unreadableFileEntry(ref, error)
   }
-  return { path: fileEntryPath(ref), chunks: resumedFileChunks(first, rest) }
+  return { path: fileEntryPath(ref), chunks: resumedFileChunks(first, rest, close) }
 }
 
 /**
@@ -600,17 +622,24 @@ export async function* sessionLogZipEntries(
   const media = new Map<string, ImageAttachmentRef>()
   const files = new Map<string, FileAttachmentRef>()
   yield* sessionLogTextEntries(deps, rootContent, sessionId, descendantIds, media, files, signal)
-  for (const ref of media.values()) {
-    signal?.throwIfAborted()
-    const entry = await mediaEntry(deps.attachments, ref, signal)
-    signal?.throwIfAborted()
-    yield entry
-  }
-  for (const ref of files.values()) {
-    signal?.throwIfAborted()
-    const entry = await fileEntry(deps.attachments, ref, signal)
-    signal?.throwIfAborted()
-    yield entry
+  const openStreams = new Set<() => Promise<void>>()
+  try {
+    for (const ref of media.values()) {
+      signal?.throwIfAborted()
+      const entry = await mediaEntry(deps.attachments, ref, signal)
+      signal?.throwIfAborted()
+      yield entry
+    }
+    for (const ref of files.values()) {
+      signal?.throwIfAborted()
+      const entry = await fileEntry(deps.attachments, ref, openStreams, signal)
+      signal?.throwIfAborted()
+      yield entry
+    }
+  } finally {
+    // A consumer that stops early leaves its entry's stream open. One close
+    // failing must not keep the others open or replace the failure in flight.
+    await Promise.allSettled([...openStreams].map(close => close()))
   }
 }
 

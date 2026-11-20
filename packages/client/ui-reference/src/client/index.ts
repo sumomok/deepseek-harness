@@ -13,6 +13,11 @@
  * workspace is not the current one. A session is dated from the Host session
  * list, so the `@` menu and the session list never disagree about its age.
  *
+ * A file or folder mention in sent text renders as a chip only after the
+ * Session's filesystem confirms the path exists; picking a listed candidate
+ * confirms it, and any other mention stays original text until a Host stat
+ * answers.
+ *
  * @module @deepseek-ai/dsh-client-ui-reference/client
  */
 // Type-only: pulls the generated Remote API and ctx.remote merge through the Client assembly boundary.
@@ -23,13 +28,17 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ISessions, ReferentRef } from '@deepseek-ai/dsh-api-session-controller/client'
+import { sessionDirectory } from '@deepseek-ai/dsh-api-session-controller/client/directories'
 import type { IWorkspaces, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import { workspaceDisplayTitle } from '@deepseek-ai/dsh-api-workspace-controller/default-workspace'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { relativeTime } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { UserTextNodeProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { FileReference, FolderReference, type FileReferenceInjected } from './FileReference.tsx'
-import { fileReferenceRule, folderReferenceRule } from './user-text-rules.ts'
+import {
+  FileReference, FolderReference, type FileReferenceInjected, type PathPresenceInjected,
+} from './FileReference.tsx'
+import { createPathPresence, type MentionSessionId } from './path-presence.ts'
+import { fileReferenceRule, folderReferenceRule, mentionPath } from './user-text-rules.ts'
 export type {} from './user-text-rules.ts'
 import type {
   ClientSessionContext, InputTriggerCandidate, InputTriggerCrumb, InputTriggerServiceContract, InputTriggerSource,
@@ -41,6 +50,7 @@ import {
   abbreviateHomePath, fileAddressFor, resolveWorkspacePath, workspaceTitleOf,
 } from '@deepseek-ai/dsh-util-workspace-path'
 import { en, ja, es, fr, de, ru, pt, NS, zh } from './locales.ts'
+import { registerReferenceMenu } from './context-menu.ts'
 
 declare module '@deepseek-ai/dsh-api-session-controller/client' {
   interface SessionReferenceSourceMap {
@@ -52,7 +62,7 @@ declare module '@deepseek-ai/dsh-api-session-controller/client' {
 /** Required services: the trigger registry, the Remote namespaces, the copy, the Workspace projection, and the reference-open seam. */
 export const inject = [
   'inputTriggers', 'locale', 'sessions', 'workspaces', 'referent', 'remote', 'remote.fileReferences',
-  'remote.sessionReferenceResolver', 'sidebarRight', 'slots', 'uiConversation',
+  'remote.sessionReferenceResolver', 'remote.workspaceFiles', 'sidebarRight', 'slots', 'uiConversation',
 ]
 
 /**
@@ -62,31 +72,40 @@ export const inject = [
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'ui-reference: dictionaries')
   const t = ctx.locale.bind(NS)
+  ctx.inject(['contextMenus', 'conversation'], (menuCtx) => { registerReferenceMenu(menuCtx, t) })
   const sessions = ctx.get('sessions') as ISessions
   const workspaces = ctx.get('workspaces') as IWorkspaces
+  const presence = createPathPresence((sessionId, path, signal) => ctx.remote.workspaceFiles.stat(sessionId, path, signal))
+  ctx.effect(() => () => { presence.dispose() }, 'ui-reference: mention path stats')
+  const presenceFor = (sessionId: MentionSessionId): PathPresenceInjected => ({
+    keyedHooks: { pathPresence: path => presence.source(sessionId, path) },
+  })
   ctx.uiConversation.userText.register(fileReferenceRule)
   ctx.uiConversation.userText.register(folderReferenceRule)
   ctx.slots.inject('conversation.user.text.node', function* () {
     yield ctx.slots.register({
       name: 'conversation.user.text.node', key: 'file', priority: 100, locale: NS,
       inject: (sessionId: UserTextNodeProps<'file'>['sessionId']): FileReferenceInjected => ({
+        ...presenceFor(sessionId),
         // referent/open first: a listener may claim the click before the Sidebar opens the file.
-        resolveFilePath: path => resolveWorkspacePath(sessions.list.getSnapshot().byId[sessionId]?.cwd, path),
+        resolveFilePath: path => resolveWorkspacePath(sessionDirectory(sessions, sessionId), path),
         openFile: (path) => {
-          const file = locateFile(sessions, sessionId, path)
+          const cwd = sessionDirectory(sessions, sessionId)
           const ref: ReferentRef = {
             kind: 'file',
-            target: file.target,
+            target: resolveWorkspacePath(cwd, path),
             raw: path,
             sessionId,
             source: 'user-text.file-reference',
             enteredAs: 'user-text',
           }
-          return ctx.referent.open(ref, () => { ctx.sidebarRight.openResource(file.address) })
+          return ctx.referent.open(ref, () => { ctx.sidebarRight.openResource(fileAddressFor(sessionId, cwd, path)) })
         },
       }),
     }, FileReference)
-    yield ctx.slots.register({ name: 'conversation.user.text.node', key: 'folder', priority: 100 }, FolderReference)
+    yield ctx.slots.register({
+      name: 'conversation.user.text.node', key: 'folder', priority: 100, inject: presenceFor,
+    }, FolderReference)
   })
   const source: InputTriggerSource = {
     trigger: '@',
@@ -152,7 +171,7 @@ export function apply(ctx: ClientContext): void {
     header(_session: ClientSessionContext, req) {
       return crumbsFor(req.query, req.quoted === true, req.drilled, t)
     },
-    onPick({ candidate, action }) {
+    onPick({ candidate, session, action }) {
       const value = parseCandidate(candidate.value)
       if (value?.kind === 'file') {
         // A directory row carries two verbs: the settling pick resolves the
@@ -162,6 +181,8 @@ export function apply(ctx: ClientContext): void {
         if (value.fileKind === 'directory' && action === 'drill') {
           return { text: value.mention, continue: true }
         }
+        // The Host has just listed this path, so its sent echo renders as a chip without a stat.
+        presence.confirm(session.sessionId, mentionPath(value.mention))
         return {
           insert: {
             source: 'reference',
@@ -187,8 +208,8 @@ export function apply(ctx: ClientContext): void {
     },
     openReference(session, { ref, appearance }) {
       if (appearance !== 'file') return false
-      const path = ref.startsWith('@"') ? ref.slice(2, -1) : ref.slice(1)
-      ctx.sidebarRight.openResource(locateFile(sessions, session.sessionId, path).address)
+      const path = mentionPath(ref)
+      ctx.sidebarRight.openResource(fileAddressFor(session.sessionId, sessionDirectory(sessions, session.sessionId), path))
       return true
     },
     codec: {
@@ -202,39 +223,6 @@ export function apply(ctx: ClientContext): void {
 
 /** Bound `reference` dictionary; the locale service appends the shared common vocabulary. */
 type Translate = TranslateNS<typeof NS>
-
-/**
- * The directory a Session's relative paths resolve against at this moment: its
- * current working directory when the Client holds that projection, which is
- * also the directory `@` candidates are listed relative to, otherwise its
- * header directory.
- * @param sessions - the Client Session registry.
- * @param sessionId - the Session the path belongs to.
- * @returns an absolute directory, or undefined when neither is known.
- */
-function currentDirectoryOf(sessions: ISessions, sessionId: ClientSessionContext['sessionId']): string | undefined {
-  const current = sessions.binding(sessionId)?.session.projections.faceOf('workingDirectory').getSnapshot()
-  return typeof current === 'string' ? current : sessions.list.getSnapshot().byId[sessionId]?.cwd
-}
-
-/**
- * Locate a file reference when it is opened: the path resolves against the
- * Session's current directory at that moment, and the address keeps the
- * header directory as its root, so a file inside the header workspace gets a
- * Session-relative address and a file elsewhere keeps its absolute path.
- * @param sessions - the Client Session registry.
- * @param sessionId - the Session the reference belongs to.
- * @param path - absolute or relative path as written in the reference.
- * @returns the resolved path and its right-Sidebar address.
- */
-function locateFile(
-  sessions: ISessions,
-  sessionId: ClientSessionContext['sessionId'],
-  path: string,
-): { readonly target: string; readonly address: string } {
-  const target = resolveWorkspacePath(currentDirectoryOf(sessions, sessionId), path)
-  return { target, address: fileAddressFor(sessionId, sessions.list.getSnapshot().byId[sessionId]?.cwd, target) }
-}
 
 type ReferenceCandidateValue =
   | { kind: 'file'; fileKind: FileReferenceCandidate['kind']; label: string; mention: string }
