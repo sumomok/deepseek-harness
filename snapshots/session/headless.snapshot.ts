@@ -67,8 +67,8 @@ const fileVersionScenarios = new Set([
   'apply-patch-rejected', 'apply-patch-update', 'deepseek-messages-system-prompt', 'deepseek-protocol-system-prompt',
   'dsh-doc-load', 'dynamic-tool-prompt-updates', 'dynamic-tool-updates', 'fs-delete-recreate', 'fs-edit', 'fs-read',
   'fs-read-window', 'fs-same-mode-empty-justification', 'fs-write-overwrite', 'fs-write-overwrite-bounded',
-  'in-history-series-start', 'parallel-tool-calls', 'pi-ai-conversation-updates', 'ptc-workspace-context',
-  'subagent-archive-lineage', 'system-prompt-in-history', 'working-directory', 'working-directory-consumers', 'worktree',
+  'in-history-series-start', 'parallel-tool-calls', 'pi-ai-conversation-updates', 'ptc-node-workspace',
+  'ptc-workspace-context', 'subagent-archive-lineage', 'system-prompt-in-history', 'worktree',
 ])
 
 type SnapshotMode = 'replay' | 'record' | 'refresh'
