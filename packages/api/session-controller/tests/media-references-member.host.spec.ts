@@ -4,8 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import RemoteAccessService from '@deepseek-ai/dsh-api-remote-access'
-import { HostConnectionService, type PeerScope } from '@deepseek-ai/dsh-client-connection'
-import type { BrowserAuth } from '@deepseek-ai/dsh-client-connection/src/browser-auth.ts'
+import { ConnectionAuthentication, HostConnectionService, type PeerScope } from '@deepseek-ai/dsh-client-connection'
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { PrincipalMap } from '@deepseek-ai/dsh-typert-protocol'
@@ -63,7 +62,8 @@ async function mount(options: { readonly remoteAccess?: boolean } = {}): Promise
       })),
     })
   }
-  const connection = new HostConnectionService(ctx, [], {} as BrowserAuth)
+  new ConnectionAuthentication(ctx)
+  const connection = new HostConnectionService(ctx, [])
   await ctx.plugin(LocalFileSystem, { cwd: base }).await()
   await ctx.plugin(SessionMediaReferences).await()
   return { ctx, connection }

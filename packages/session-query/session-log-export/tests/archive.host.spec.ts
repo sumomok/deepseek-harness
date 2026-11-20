@@ -18,8 +18,7 @@ import type { SessionEvent, SessionHeader, SessionId, ToolResultMessage, UserMes
 import type { SessionLineageNode } from '@deepseek-ai/dsh-session-query'
 import { SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionAccess, SessionHandle } from '@deepseek-ai/dsh-session-persistence'
-import { HostConnectionService } from '@deepseek-ai/dsh-client-connection'
-import type { BrowserAuth } from '@deepseek-ai/dsh-client-connection/src/browser-auth.ts'
+import { ConnectionAuthentication, HostConnectionService } from '@deepseek-ai/dsh-client-connection'
 import * as SessionLogExport from '../src/index.ts'
 import {
   SESSION_EXPORT_BYTES_HEADER,
@@ -178,7 +177,8 @@ async function buildApi(
     } as never)
   }
   if (services.sessions !== undefined) ctx.provide('sessions', services.sessions as never)
-  const connection = new HostConnectionService(ctx, [], {} as BrowserAuth)
+  new ConnectionAuthentication(ctx)
+  const connection = new HostConnectionService(ctx, [])
   const fiber = ctx.plugin(SessionLogExport, {
     ...services.compressionLevel === undefined
       ? {}
@@ -929,6 +929,35 @@ describe('session.export download endpoint', () => {
     // Cancellation is not an unreadable attachment: it tears the archive
     // rather than becoming a record inside it.
     await expect(body).rejects.toBe(cancellation)
+  })
+
+  it('closes the file stream when the consumer stops before its last chunk', async () => {
+    const digest = '8'.repeat(64)
+    const id = `sha256:${digest}`
+    const root = log('session-root', undefined, [fileEvent(id)])
+    let closed = false
+    const deps = {
+      sessionPersistence: { open: async () => readHandle(root) },
+      attachments: {
+        readFileStream: () => ({
+          [Symbol.asyncIterator]: () => ({
+            next: () => Promise.resolve({ done: false as const, value: new Uint8Array([1, 2, 3]) }),
+            return: () => { closed = true; return Promise.resolve({ done: true as const, value: undefined }) },
+          }),
+        }),
+      },
+      sessions: undefined,
+    } as never
+    const entries = SessionLogExport.sessionLogZipEntries(
+      deps, logText(root), header('session-root').id, [],
+    )
+    const first = await entries.next()
+    expect(first.done).toBe(false)
+    const second = await entries.next()
+    expect(second.done).toBe(false)
+    expect(closed).toBe(false)
+    await entries.return(undefined)
+    expect(closed).toBe(true)
   })
 
   it.each([

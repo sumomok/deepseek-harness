@@ -8,7 +8,7 @@
 
 import { ManualCompactionError } from '@deepseek-ai/dsh-compaction'
 import type { CompactionResult, ManualCompactionWhileBusy } from '@deepseek-ai/dsh-compaction'
-import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
+import type { CommandId } from '@deepseek-ai/dsh-commands/types'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session } from '@deepseek-ai/dsh-session'
 

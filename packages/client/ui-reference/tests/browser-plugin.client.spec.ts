@@ -13,7 +13,10 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import { UiConversation } from '@deepseek-ai/dsh-client-ui-conversation/src/client/conversation/assembly.ts'
 import { ClientReferent, type ReferentRef } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
-import { FileReference, FolderReference, type FileReferenceInjected } from '../src/client/FileReference.tsx'
+import {
+  FileReference, FolderReference, type FileReferenceInjected, type PathPresenceInjected,
+} from '../src/client/FileReference.tsx'
+import type { PathStat } from '../src/client/path-presence.ts'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { RemoteError, TestSessions, TestWorkspaces } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionFixture } from '@deepseek-ai/dsh-client-test-runtime'
@@ -103,6 +106,7 @@ async function bench(
     projectionValues?: { title?: string | null }
   }> = {},
   opening: Pick<SessionFixture, 'initialOpen' | 'snapshot'> = {},
+  stat: PathStat = vi.fn<PathStat>(() => new Promise(() => {})),
 ) {
   const ctx = new Context()
   ctx.provide('sidebarRight', { openResource: vi.fn() })
@@ -124,6 +128,7 @@ async function bench(
   new RemoteService(ctx)
   ctx.provide('remote.fileReferences', { list: files })
   ctx.provide('remote.sessionReferenceResolver', { candidates: sessions })
+  ctx.provide('remote.workspaceFiles', { stat })
   const locale = new LocaleRuntime(ctx)
   ctx.provide('locale', locale)
   // The shipped locale plugin owns the common namespace; the reference source
@@ -161,11 +166,17 @@ function workspaceView(id: string, path: string, title: string): WorkspaceView {
   }
 }
 
+/** The Session-bound presence face a file or folder text node entry injects. */
+function injectedPresence(ctx: Context, key: 'file' | 'folder'): (id: SessionId) => PathPresenceInjected {
+  const entry = ctx.slots.entries('conversation.user.text.node').find(candidate => candidate.options.key === key)!
+  return entry.inject as NonNullable<typeof entry.inject> & ((id: SessionId) => PathPresenceInjected)
+}
+
 describe('apply', () => {
   it('declares its services and releases the @ reference registration on disposal', async () => {
     expect(inject).toEqual([
       'inputTriggers', 'locale', 'sessions', 'workspaces', 'referent', 'remote', 'remote.fileReferences',
-      'remote.sessionReferenceResolver', 'sidebarRight', 'slots', 'uiConversation',
+      'remote.sessionReferenceResolver', 'remote.workspaceFiles', 'sidebarRight', 'slots', 'uiConversation',
     ])
     const { fiber } = await bench()
     let registered: InputTriggerSource | undefined
@@ -189,6 +200,7 @@ describe('apply', () => {
     new RemoteService(ctx)
     ctx.provide('remote.fileReferences', { list: () => Promise.resolve({ ok: true, value: [] }) })
     ctx.provide('remote.sessionReferenceResolver', { candidates: () => Promise.resolve({ ok: true, value: [] }) })
+    ctx.provide('remote.workspaceFiles', { stat: vi.fn() })
     ctx.provide('locale', new LocaleRuntime(ctx))
     ctx.provide('workspaces', new TestWorkspaces(async (action) => { await action() }))
     const sessions = new TestSessions(async (action) => { await action() }, ctx)
@@ -825,6 +837,23 @@ describe('pick and codec', () => {
     await expect(source.codec?.serialize(mention, new AbortController().signal)).resolves.toBe(mention)
   })
 
+  it('confirms settled file and folder picks for the picking Session; a drill confirms nothing', async () => {
+    const stat = vi.fn<PathStat>(() => new Promise(() => {}))
+    const { ctx, source } = await bench(undefined, undefined, {}, {}, stat)
+    const [directory, file] = await source.candidates(session, request(''))
+    const folderFace = injectedPresence(ctx, 'folder')
+    const fileFace = injectedPresence(ctx, 'file')
+    drill(source, directory!)
+    expect(folderFace(session.sessionId).keyedHooks.pathPresence('src/').getSnapshot()).toBeUndefined()
+    pick(source, directory!)
+    pick(source, file!)
+    expect(folderFace(session.sessionId).keyedHooks.pathPresence('src/').getSnapshot()).toBe('present')
+    expect(fileFace(session.sessionId).keyedHooks.pathPresence('docs/a b.md').getSnapshot()).toBe('present')
+    expect(folderFace(sid('other')).keyedHooks.pathPresence('src/').getSnapshot()).toBeUndefined()
+    folderFace(session.sessionId).keyedHooks.pathPresence('src/').subscribe(vi.fn())
+    expect(stat).not.toHaveBeenCalled()
+  })
+
   it('ignores candidates that do not carry a source-owned value', async () => {
     const { source } = await bench()
     expect(pick(source, { name: 'foreign candidate' })).toBeUndefined()
@@ -832,6 +861,17 @@ describe('pick and codec', () => {
 })
 
 describe('reference preview', () => {
+  it('stats each mention through its rendering Session and aborts outstanding stats on disposal', async () => {
+    const stat = vi.fn<PathStat>(() => new Promise(() => {}))
+    const { ctx, fiber } = await bench(undefined, undefined, {}, {}, stat)
+    injectedPresence(ctx, 'file')(session.sessionId).keyedHooks.pathPresence('LICENSE').subscribe(vi.fn())
+    injectedPresence(ctx, 'folder')(sid('other')).keyedHooks.pathPresence('docs/').subscribe(vi.fn())
+    expect(stat.mock.calls.map(([id, path]) => [id, path])).toEqual([['target', 'LICENSE'], ['other', 'docs/']])
+    expect(stat.mock.calls.some(([, , signal]) => signal.aborted)).toBe(false)
+    await fiber.dispose()
+    expect(stat.mock.calls.every(([, , signal]) => signal.aborted)).toBe(true)
+  })
+
   it('binds each inline file action to its originating Session', async () => {
     const { ctx, sessions } = await bench()
     const entry = ctx.slots.entries('conversation.user.text.node').find(candidate => candidate.options.key === 'file')!
@@ -842,7 +882,7 @@ describe('reference preview', () => {
     const file = factory(session.sessionId)
     await sessions.updateSummary(session.sessionId, { cwd: '/workspace' })
     await sessions.setProjection(session.sessionId, 'workingDirectory', '/workspace/elsewhere')
-    expect(file.resolveFilePath('docs/a b.md')).toBe('/workspace/docs/a b.md')
+    expect(file.resolveFilePath('docs/a b.md')).toBe('/workspace/elsewhere/docs/a b.md')
     expect(factory(sid('other')).resolveFilePath('/absolute.md')).toBe('/absolute.md')
     expect(openResource.mock.calls).toEqual([
       ['dsh-resource://file/session/target/docs/a%20b.md'],
@@ -903,22 +943,24 @@ describe('reference preview', () => {
     await open('notes.md')
     await sessions.setProjection('in-project', 'workingDirectory', '/proj/child')
     await open('notes.md')
-    // An absolute path keeps its own spelling whatever the current directory.
+    // An absolute path keeps its own spelling; outside the active directory the address keeps the absolute path.
     await open('/proj/top.md')
-    // Outside the header workspace the address keeps the absolute path.
+    // A path inside the active working directory relativizes against that directory.
+    await open('/proj/child/nested.md')
     await sessions.setProjection('in-project', 'workingDirectory', '/tmp/wt')
     await open('docs/a b.md')
     // A null projection means no recorded directory: back to the header.
     await sessions.setProjection('in-project', 'workingDirectory', null)
     await open('notes.md')
     expect(seen).toEqual([
-      '/proj/notes.md', '/proj/child/notes.md', '/proj/top.md', '/tmp/wt/docs/a b.md', '/proj/notes.md',
+      '/proj/notes.md', '/proj/child/notes.md', '/proj/top.md', '/proj/child/nested.md', '/tmp/wt/docs/a b.md', '/proj/notes.md',
     ])
     expect(openResource.mock.calls).toEqual([
       ['dsh-resource://file/session/in-project/notes.md'],
-      ['dsh-resource://file/session/in-project/child/notes.md'],
-      ['dsh-resource://file/session/in-project/top.md'],
-      ['dsh-resource://file/session/in-project//tmp/wt/docs/a%20b.md'],
+      ['dsh-resource://file/session/in-project/notes.md'],
+      ['dsh-resource://file/session/in-project//proj/top.md'],
+      ['dsh-resource://file/session/in-project/nested.md'],
+      ['dsh-resource://file/session/in-project/docs/a%20b.md'],
       ['dsh-resource://file/session/in-project/notes.md'],
     ])
   })
@@ -937,14 +979,14 @@ describe('reference preview', () => {
     })
     await sessions.setProjection('win', 'workingDirectory', 'C:\\proj\\child')
     await factory(sid('win')).openFile('notes\\a.md')
-    expect(source.openReference?.({ sessionId: sid('win') }, { ref: '@notes/b.md', appearance: 'file' })).toBe(true)
+    expect(source.openReference?.({ sessionId: sid('win') }, { ref: '@C:/proj/child/notes/b.md', appearance: 'file' })).toBe(true)
     await sessions.setProjection('win', 'workingDirectory', 'D:\\wt')
-    await factory(sid('win')).openFile('a.md')
-    expect(seen).toEqual(['C:\\proj\\child\\notes\\a.md', 'D:\\wt\\a.md'])
+    await factory(sid('win')).openFile('C:\\proj\\a.md')
+    expect(seen).toEqual(['C:\\proj\\child\\notes\\a.md', 'C:\\proj\\a.md'])
     expect(openResource.mock.calls).toEqual([
-      ['dsh-resource://file/session/win/child/notes/a.md'],
-      ['dsh-resource://file/session/win/child/notes/b.md'],
-      ['dsh-resource://file/session/win/D:/wt/a.md'],
+      ['dsh-resource://file/session/win/notes/a.md'],
+      ['dsh-resource://file/session/win/notes/b.md'],
+      ['dsh-resource://file/session/win/C:/proj/a.md'],
     ])
   })
 
@@ -954,15 +996,15 @@ describe('reference preview', () => {
     using _reference = sessions.retain(sid('in-project'))
     const composer = { sessionId: sid('in-project') }
     const openResource = vi.spyOn(ctx.sidebarRight, 'openResource')
-    expect(source.openReference?.(composer, { ref: '@notes.md', appearance: 'file' })).toBe(true)
+    expect(source.openReference?.(composer, { ref: '@/proj/notes.md', appearance: 'file' })).toBe(true)
     await sessions.setProjection('in-project', 'workingDirectory', '/proj/child')
-    expect(source.openReference?.(composer, { ref: '@"a b.md"', appearance: 'file' })).toBe(true)
+    expect(source.openReference?.(composer, { ref: '@"/proj/child/a b.md"', appearance: 'file' })).toBe(true)
     await sessions.setProjection('in-project', 'workingDirectory', '/elsewhere')
-    expect(source.openReference?.(composer, { ref: '@notes.md', appearance: 'file' })).toBe(true)
+    expect(source.openReference?.(composer, { ref: '@/proj/notes.md', appearance: 'file' })).toBe(true)
     expect(openResource.mock.calls).toEqual([
       ['dsh-resource://file/session/in-project/notes.md'],
-      ['dsh-resource://file/session/in-project/child/a%20b.md'],
-      ['dsh-resource://file/session/in-project//elsewhere/notes.md'],
+      ['dsh-resource://file/session/in-project/a%20b.md'],
+      ['dsh-resource://file/session/in-project//proj/notes.md'],
     ])
   })
 

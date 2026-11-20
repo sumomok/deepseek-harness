@@ -4,25 +4,26 @@
  * @module @deepseek-ai/dsh-compaction-basic
  */
 
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { CompactionEngine, ManualCompactionError } from '@deepseek-ai/dsh-compaction'
 import { isCompactCheckpointSource } from '@deepseek-ai/dsh-compaction'
 import type { CompactionResult, CompactionTrigger, ManualCompactionWhileBusy } from '@deepseek-ai/dsh-compaction'
 import type { TokenMeasurement } from '@deepseek-ai/dsh-token-meter'
 import type { EpochHeader, Session, SessionSeq } from '@deepseek-ai/dsh-session'
-// Type-only: the `ctx.sessionProjections` Context merge behind the declared injection.
-import type {} from '@deepseek-ai/dsh-session-projection'
+import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError } from '@deepseek-ai/dsh-llm'
 import type { LlmCallConfig, Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 // Type-only: the `ctx.systemPrompt` Context merge behind the declared injection.
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
+import type { CommandId } from '@deepseek-ai/dsh-commands/types'
 // Type-only: makes the optional sibling service available to `ctx.get()`.
 import type ToolResultPruner from '@deepseek-ai/dsh-compaction-tool-result-pruner'
 import type { PrunePreview } from '@deepseek-ai/dsh-compaction-tool-result-pruner'
+import { answeredRouteProjectionDefinition } from './answered-route.ts'
+import type { AnsweredRoute } from './answered-route.ts'
 import {
   resolveCompactSpec,
   resolveConfig,
@@ -36,12 +37,12 @@ import {
   selectCompactableRangeAtTurnBoundary,
   SummaryRejectedError,
 } from './region.ts'
-import { conversationTarget, pressureTarget } from './route.ts'
+import { pendingSelection, pressureTarget } from './route.ts'
 import { classifyCompactionError, scanCompactionSession } from './scan.ts'
 import { minimumSummaryTokens, summarizeWithLlm } from './summarizer.ts'
 import { WaitingCompactions } from './waiting.ts'
 import type { WaitingCompaction } from './waiting.ts'
-import type { SummarizationInput, SummaryResult } from './summarizer.ts'
+import type { SummarizationInput, SummaryResult, SummaryRoute } from './summarizer.ts'
 import type {
   BasicCompactionConfig,
   CompactionPolicy,
@@ -68,13 +69,16 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
+/** Detach a route that names both provider and model; any other value is no route. */
+function completeRoute(route: { provider?: string; model?: string } | undefined): SummaryRoute | undefined {
+  if (route?.provider === undefined || route.provider.length === 0
+    || route.model === undefined || route.model.length === 0) return undefined
+  return { provider: route.provider, model: route.model }
+}
+
 /** Resolve the exact provider/model durably routed for the latest request. */
-function routedTarget(
-  session: Session,
-): Pick<LlmCallConfig, 'provider' | 'model'> | undefined {
-  const config = session.requestHeader()?.config
-  if (config === undefined || config.provider.length === 0 || config.model.length === 0) return undefined
-  return { provider: config.provider, model: config.model }
+function routedTarget(session: Session): SummaryRoute | undefined {
+  return completeRoute(session.requestHeader()?.config)
 }
 
 /** Reserve output tokens from a proposed header, including its explicit cap. */
@@ -98,6 +102,26 @@ function reservedCompletionTokens(
     ? header.maxTokens
     : undefined
   return current ?? agent.options.maxTokens ?? defaultMaxTokens ?? 0
+}
+
+/**
+ * Resolve the route that summarizes the conversation and selects its policy
+ * override. The route that last answered already accepted this history; the
+ * latest header may name a route whose only request overflowed. Before any
+ * assistant message answers, a newer pending selection outranks the stale
+ * header, falling back to the latest header and then the agent options.
+ * @param agent - supplies the latest header and the live fallback options.
+ * @param answered - route recorded on the latest assistant message; `null` before the first one.
+ * @returns the first complete route among `answered`, a pending selection, the latest header, and the agent options.
+ */
+function conversationTarget(
+  agent: Agent,
+  answered: AnsweredRoute,
+): SummaryRoute | undefined {
+  return completeRoute(answered ?? undefined)
+    ?? pendingSelection(agent.session)
+    ?? routedTarget(agent.session)
+    ?? completeRoute(agent.options)
 }
 const thresholdRatioSchema = z.number()
 const headroomTokensSchema = z.number().step(1).min(0)
@@ -179,7 +203,9 @@ export class BasicCompactionEngine extends CompactionEngine {
   private readonly overflowAgents = new WeakMap<Session, Agent>()
   private readonly waiting = new WaitingCompactions()
   private readonly summaryFailures = new Map<string, { count: number; errorClass: string }>()
-
+  /** Registered at construction; `summarize()` awaits it, so no read precedes readiness. */
+  private readonly answeredRoute: Promise<ProjectionHandle<AnsweredRoute>>
+  private answeredRouteHandle: ProjectionHandle<AnsweredRoute> | undefined
 
   constructor(ctx: Context, config: BasicCompactionConfig = {}) {
     super(ctx)
@@ -193,8 +219,18 @@ export class BasicCompactionEngine extends CompactionEngine {
         text: CHECKPOINT_REFERENCE_TEXT,
       }), 'compaction-basic: checkpoint reference guidance')
     }
+    this.answeredRoute = this.ctx.sessionProjections.register(answeredRouteProjectionDefinition)
+      .then((handle) => {
+        this.answeredRouteHandle = handle
+        return handle
+      })
     this._registerWaitingCompaction()
     if (this.config.auto) this._registerAutomaticCompaction()
+  }
+
+  /** Fail plugin activation when the answered-route projection cannot register. */
+  protected async [Service.init](): Promise<void> {
+    await this.answeredRoute
   }
 
   /**
@@ -508,9 +544,12 @@ export class BasicCompactionEngine extends CompactionEngine {
    * Summarize the replayed conversation region through a direct one-shot
    * `ctx.llm.stream()` call whose prefix reuses the conversation's own system
    * prompt, tools, and messages so the provider's KV cache is not invalidated.
+   * Without a configured summary target the call goes to the route recorded
+   * on the latest assistant message, then the latest request header, then the
+   * agent options. A model selected for a later request is not used.
    * Override this sole hook for a template or remote summarizer.
    * @param input - replayed conversation prefix (system, tools, and leading messages) to condense.
-   * @param agent - supplies routed-model history, fallback model, and session id.
+   * @param agent - supplies the session history, fallback model, and session id.
    * @param signal - optional cancellation forwarded to the adapter.
    * @returns safe text summary blocks and the exact auxiliary call envelope and output.
    */
@@ -519,11 +558,11 @@ export class BasicCompactionEngine extends CompactionEngine {
     agent: Agent,
     signal?: AbortSignal,
   ): Promise<SummaryResult> {
-    const target = conversationTarget(agent)
+    const target = conversationTarget(agent, (await this.answeredRoute).stateOf(agent.session))
     const config = target === undefined
       ? this.config
       : resolveTargetPolicy(this.config, target)
-    return summarizeWithLlm(this.ctx, config, input, agent, signal)
+    return summarizeWithLlm(this.ctx, config, input, agent, target, signal)
   }
 
   /**
@@ -581,7 +620,6 @@ export class BasicCompactionEngine extends CompactionEngine {
     const prune = this.ctx.get('toolResultPruner')
 
     if (trigger === 'context-overflow') {
-      const policy = resolveTargetPolicy(this.config, target)
       let preview: PrunePreview | undefined
       let previewData: ReturnType<BasicCompactionEngine['previewMeasurement']> | undefined
       let legacyPrune = false
@@ -600,10 +638,7 @@ export class BasicCompactionEngine extends CompactionEngine {
         else if (legacyPrune && prune !== undefined) await this.applyToolResultPruning(agent, prune)
         return null
       }
-      const summaryTarget = policy.summarizationProvider.length === 0
-        ? target
-        : { provider: policy.summarizationProvider, model: policy.summarizationModel }
-      const tools = this.summaryTools(agent, summaryTarget)
+      const tools = this.summaryToolsForAgent(agent)
       // Forced overflow recovery uses its retry budget, not the step-pressure
       // summary-size guard, to decide whether another attempt is useful.
       const result = await this.compactPressureRegion(range.start, range.end, agent, signal,
@@ -683,10 +718,7 @@ export class BasicCompactionEngine extends CompactionEngine {
       return null
     }
 
-    const summaryTarget = policy.summarizationProvider.length === 0
-      ? target
-      : { provider: policy.summarizationProvider, model: policy.summarizationModel }
-    const summaryTools = this.summaryTools(agent, summaryTarget)
+    const summaryTools = this.summaryToolsForAgent(agent)
     let previewApplied = false
     let result: CompactionResult | null = null
     let stoppedForFloor = false
@@ -986,15 +1018,14 @@ export class BasicCompactionEngine extends CompactionEngine {
    * @returns the successful durable compaction result.
    */
   /**
-   * Tools for a manual summary: the explicit summarizer or the conversation
-   * route (pending selection, header, AgentOptions). Kept separate from the
-   * pressure target because manual compaction may run without a durable
-   * route and still resolves AgentOptions.
+   * Tools for a summary request: resolved against the exact route `summarize()`
+   * uses (explicit summarizer, else the route that last answered, then a
+   * pending selection, then the latest header, then AgentOptions).
    * @param agent - agent owning the session.
    * @returns header tools for a matching route, null to omit, undefined to inherit.
    */
-  private manualSummaryTools(agent: Agent): readonly ToolSchema[] | null | undefined {
-    const conversation = conversationTarget(agent)
+  private summaryToolsForAgent(agent: Agent): readonly ToolSchema[] | null | undefined {
+    const conversation = conversationTarget(agent, this.answeredRouteHandle?.stateOf(agent.session) ?? null)
     if (conversation === undefined) return undefined
     const policy = resolveTargetPolicy(this.config, conversation)
     const summaryTarget = policy.summarizationProvider.length === 0
@@ -1009,7 +1040,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     agent: Agent,
     signal?: AbortSignal,
   ): Promise<CompactionResult> {
-    const manualTools = this.manualSummaryTools(agent)
+    const manualTools = this.summaryToolsForAgent(agent)
     return compactSurfaceRegion(
       this.regionDependencies(),
       agent.session,
@@ -1127,7 +1158,7 @@ export class BasicCompactionEngine extends CompactionEngine {
       // Model switching likewise terminates on its retry budget rather than
       // rejecting a summary before that budget has a chance to recover.
       result = await this.compactPressureRegion(range.start, range.end, agent, signal,
-        Number.POSITIVE_INFINITY, undefined, this.manualSummaryTools(agent))
+        Number.POSITIVE_INFINITY, undefined, this.summaryToolsForAgent(agent))
       measurement = meter.measure(agent.session, header)
       occupancy = this.occupancyTokens(agent.session, measurement)
       if (occupancy < spec.thresholdTokens) return result
@@ -1230,7 +1261,7 @@ export class BasicCompactionEngine extends CompactionEngine {
       0,
     )
     if (range === null) return null
-    const manualTools = this.manualSummaryTools(agent)
+    const manualTools = this.summaryToolsForAgent(agent)
     const result = await compactSurfaceRegion(
       this.regionDependencies(),
       agent.session,

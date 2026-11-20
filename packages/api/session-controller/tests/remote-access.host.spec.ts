@@ -8,13 +8,14 @@
  */
 
 import { Context } from '@deepseek-ai/cordis'
-import { AttachmentId } from '@deepseek-ai/dsh-attachment'
+import type { AttachmentId } from '@deepseek-ai/dsh-attachment/types'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import TypertGatewayService from '@deepseek-ai/dsh-api-gateway'
 import type { RemoteAccessBinding, RemoteAccessRole } from '@deepseek-ai/dsh-api-remote-access'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
+import { SessionSeq, type SessionId } from '@deepseek-ai/dsh-session'
 import { remoteMethods, type PeerId, type PeerScope, type Principal, type RemoteInvocation } from '@deepseek-ai/dsh-typert-protocol'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -34,8 +35,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 
 const OWNER: Principal = { kind: 'owner' }
 const GUEST: Principal = { kind: 'test-guest', guest: 'session-controller' }
-const SHARED = SessionId('shared-session')
-const PRIVATE = SessionId('private-session')
+const SHARED = brandString<SessionId>('shared-session')
+const PRIVATE = brandString<SessionId>('private-session')
 
 /** Calls the Session list and control methods; each item still needs a Session role. */
 const LISTER: RemoteAccessRole<'global'> = { name: 'test:session-lister', resource: 'global', actions: ['session/list', 'session/control'] }
@@ -305,7 +306,7 @@ describe('Session Controller access', () => {
     const { ctx, as } = await harness()
     const adapter = new MockAdapter([textResponse('guest reply'), textResponse('owner reply')])
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = await ctx.agentLoop.create(SessionId('referenced-session'), { provider: 'mock', model: 'mock' })
+    const agent = await ctx.agentLoop.create(brandString<SessionId>('referenced-session'), { provider: 'mock', model: 'mock' })
     const references = [{ source: 'owner.rows', label: 'Row 2', data: { row: 'row-data-2' } }]
     const prompt = async (principal: Principal, requestId: string) => {
       await expect(as(principal, 'prompt').sessionController.prompt({
@@ -334,7 +335,7 @@ describe('Session Controller access', () => {
     await ctx.plugin(TypertGatewayService)
     const bindings = guestPolicy(ctx)
     const ref = {
-      attachmentId: AttachmentId(`sha256:${'ab'.repeat(32)}`),
+      attachmentId: brandString<AttachmentId>(`sha256:${'ab'.repeat(32)}`),
       mediaType: 'image/png' as const, bytes: 2, width: 1, height: 1,
     }
     hidden.session.append('user/message', createUserMessage({

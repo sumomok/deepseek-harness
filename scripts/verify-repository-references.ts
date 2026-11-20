@@ -5,6 +5,10 @@ import { lstatSync, readFileSync, readlinkSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { CORE_PATCHES_HISTORY_PATH, parseCorePatchesHistory } from './core-patches-history.ts'
+import {
+  CORE_PATCHES_UPSTREAM_MERGES_PATH,
+  parseCorePatchesUpstreamMerges,
+} from './core-patches-upstream-merges.ts'
 import { FULL_COMMIT_SHA, parseRegistry, REGISTRY_PATH } from './verify-core-patches.ts'
 import { canonicalReferenceText } from './verify-public-repository-links.ts'
 
@@ -45,8 +49,8 @@ function isMaintained(file: string): boolean {
  * Decimal-only tokens are ignored, including actual commit identifiers. Only the single
  * full lowercase base commit declaration token in the unfenced registry is exempt;
  * a competing base tag, duplicate declaration, or unclosed fence disables the exception.
- * The exact historical manifest path also exempts cutoff and entries[].commit string
- * values after strict schema validation; all other raw and decoded strings remain checked.
+ * Both exact historical manifest paths also exempt their schema-defined commit identity
+ * string values after strict schema validation; all other raw and decoded strings remain checked.
  */
 export function findRepositoryReferences(
   file: string,
@@ -60,9 +64,12 @@ export function findRepositoryReferences(
     && registry.declaredBaseCommits.length === 1 && declaration !== undefined && FULL_COMMIT_SHA.test(declaration.value)
     ? declaration : undefined
   const history = file === CORE_PATCHES_HISTORY_PATH ? parseCorePatchesHistory(source) : null
+  const upstreamMerges = file === CORE_PATCHES_UPSTREAM_MERGES_PATH ? parseCorePatchesUpstreamMerges(source) : null
+  const referenceTokens = [...history?.referenceTokens ?? [], ...upstreamMerges?.referenceTokens ?? []]
+  const stringTokens = [...history?.stringTokens ?? [], ...upstreamMerges?.stringTokens ?? []]
   const references: RepositoryReference[] = []
   let text = registry === null ? source : source.replace(/\r\n?/gu, '\n')
-  for (const token of [...history?.referenceTokens ?? []].sort((left, right) => right.start - left.start)) {
+  for (const token of [...referenceTokens].sort((left, right) => right.start - left.start)) {
     text = text.slice(0, token.start) + text.slice(token.start, token.end).replace(/[^\r\n]/gu, ' ') + text.slice(token.end)
   }
   for (const [index, line] of text.split('\n').entries()) {
@@ -75,8 +82,8 @@ export function findRepositoryReferences(
       references.push({ file, line: index + 1, kind: 'commit-hash' })
     }
   }
-  for (const token of history?.stringTokens ?? []) {
-    if (history?.referenceTokens.some(reference => reference.start === token.start)) continue
+  for (const token of stringTokens) {
+    if (referenceTokens.some(reference => reference.start === token.start)) continue
     const line = source.slice(0, token.start).split('\n').length
     if ([...token.value.matchAll(commitCandidate)].some(match => commits.has(match[0].toLowerCase()))
       && !references.some(reference => reference.line === line && reference.kind === 'commit-hash')) {
@@ -171,7 +178,10 @@ export function scanRepositoryReferences(repoRoot: string): RepositoryReference[
   const historySource = sources.get(CORE_PATCHES_HISTORY_PATH)
   const decodedHistoryStrings = historySource === undefined
     ? [] : parseCorePatchesHistory(historySource).stringTokens.map(token => token.value)
-  const commits = repositoryCommits(repoRoot, [...sources.values(), ...decodedHistoryStrings])
+  const upstreamMergesSource = sources.get(CORE_PATCHES_UPSTREAM_MERGES_PATH)
+  const decodedUpstreamMergeStrings = upstreamMergesSource === undefined
+    ? [] : parseCorePatchesUpstreamMerges(upstreamMergesSource).stringTokens.map(token => token.value)
+  const commits = repositoryCommits(repoRoot, [...sources.values(), ...decodedHistoryStrings, ...decodedUpstreamMergeStrings])
   return [...sources].flatMap(([file, source]) => findRepositoryReferences(file, source, commits))
 }
 

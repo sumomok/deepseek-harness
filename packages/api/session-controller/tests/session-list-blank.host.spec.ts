@@ -25,11 +25,11 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionSeq } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
-import { CommandId } from '@deepseek-ai/dsh-commands/brand'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type { CommandId } from '@deepseek-ai/dsh-commands/types'
 // Side-effect type imports: the configuration-event SessionEventMap merges.
 import type {} from '@deepseek-ai/dsh-permission-presets'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
-import { applySessionListMetadata } from '../src/list.ts'
 import type { SessionSummary } from '../src/types.ts'
 import { createSessionTestRemote, type TestSessionRemote } from './test-remote.ts'
 
@@ -70,17 +70,17 @@ function appendConfiguration(session: Session): void {
 /** Append one complete lifecycle of a command that contributes to the conversation. */
 function appendEngagingCommand(session: Session): void {
   session.append('command/run', {
-    commandId: CommandId('blank-cmd-1'), name: 'btw', args: ' 天气', source: { kind: 'user' },
+    commandId: brandString<CommandId>('blank-cmd-1'), name: 'btw', args: ' 天气', source: { kind: 'user' },
   })
-  session.append('command/done', { commandId: CommandId('blank-cmd-1'), kind: 'success', text: 'Sunny.' })
+  session.append('command/done', { commandId: brandString<CommandId>('blank-cmd-1'), kind: 'success', text: 'Sunny.' })
 }
 
 /** Append one complete lifecycle of a command that declared it configures the session. */
 function appendConfigurationCommand(session: Session): void {
   session.append('command/run', {
-    commandId: CommandId('blank-cmd-0'), name: 'plan', args: '', source: { kind: 'user' }, engages: false,
+    commandId: brandString<CommandId>('blank-cmd-0'), name: 'plan', args: '', source: { kind: 'user' }, engages: false,
   })
-  session.append('command/done', { commandId: CommandId('blank-cmd-0'), kind: 'success', text: 'Plan mode on.' })
+  session.append('command/done', { commandId: brandString<CommandId>('blank-cmd-0'), kind: 'success', text: 'Plan mode on.' })
 }
 
 async function listBlank(remote: TestSessionRemote, id: string): Promise<boolean | undefined> {
@@ -130,25 +130,40 @@ describe('summary blank = nothing to show', () => {
 })
 
 describe('the blank fold itself', () => {
-  const state = { blank: true, lastPromptAt: null }
-  const fold = (type: string, data: Record<string, unknown> = {}): boolean =>
-    applySessionListMetadata(state, { type, seq: 1, time: 10, data } as never).blank
+  it('reads the declaration: engages false keeps blank, absent or true clears it', async () => {
+    const { ctx } = await harness()
+    const configured = ctx.sessions.create()
+    configured.append('command/run', {
+      commandId: brandString<CommandId>('fold-cmd-0'), name: 'plan', args: '', source: { kind: 'user' }, engages: false,
+    })
+    expect(ctx.sessionQuery.getListMetadata(configured).blank).toBe(true)
 
-  it('reads the declaration: engages false keeps blank, absent or true clears it', () => {
-    expect(fold('command/run', { engages: false })).toBe(true)
-    expect(fold('command/run')).toBe(false)
-    expect(fold('command/run', { engages: true })).toBe(false)
+    const omitted = ctx.sessions.create()
+    omitted.append('command/run', {
+      commandId: brandString<CommandId>('fold-cmd-1'), name: 'btw', args: '', source: { kind: 'user' },
+    })
+    expect(ctx.sessionQuery.getListMetadata(omitted).blank).toBe(false)
+
+    const explicit = ctx.sessions.create()
+    explicit.append('command/run', {
+      commandId: brandString<CommandId>('fold-cmd-2'), name: 'btw', args: '', source: { kind: 'user' }, engages: true,
+    })
+    expect(ctx.sessionQuery.getListMetadata(explicit).blank).toBe(false)
   })
 
-  it('clears on the run, not on the command result', () => {
-    expect(fold('command/done')).toBe(true)
+  it('clears on the run, not on the command result', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create()
+    session.append('command/done', { commandId: brandString<CommandId>('fold-cmd-3'), kind: 'success', text: 'Done.' })
+    expect(ctx.sessionQuery.getListMetadata(session).blank).toBe(true)
   })
 
-  it('leaves an already-cleared bit down', () => {
-    expect(applySessionListMetadata(
-      { blank: false, lastPromptAt: null },
-      { type: 'plan/mode', seq: 1, time: 10, data: {} } as never,
-    )).toEqual({ blank: false, lastPromptAt: null })
+  it('leaves an already-cleared bit down', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 0 })
+    session.append('plan/mode', { active: true })
+    expect(ctx.sessionQuery.getListMetadata(session)).toEqual({ blank: false, lastPromptAt: null })
   })
 })
 

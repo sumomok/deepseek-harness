@@ -5,11 +5,8 @@ import { scheduler } from 'node:timers/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type { ImageAttachmentLimits } from '@deepseek-ai/dsh-attachment'
-// Type-only: merges the command lifecycle events into SessionEventMap so the
-// blank fold can name `command/run`.
-import type {} from '@deepseek-ai/dsh-commands/types'
-import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
-import type { ProjectionHandle, ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
+import type { Session, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import type { ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
 import type SessionQueryEngine from '@deepseek-ai/dsh-session-query'
 import {
@@ -117,11 +114,6 @@ interface AdmittedHit<TItem> {
 const SESSION_SEARCH_QUERY_MAX_CHARS = 500
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
 
-const sessionListMetadataSchema: z.ZodType<SessionListMetadata> = z.object({
-  blank: z.boolean(),
-  lastPromptAt: z.number().nullable(),
-})
-
 const imageLimitsSchema = z.object({
   maxImageBytes: z.number().int().positive(),
   maxImagesPerMessage: z.number().int().positive(),
@@ -130,37 +122,6 @@ const imageLimitsSchema = z.object({
   maxImageDimension: z.number().int().positive(),
   mediaTypes: z.array(z.string()),
 }) as unknown as z.ZodType<ImageAttachmentLimits>
-
-/**
- * Advance the Session-list metadata projection by one committed event.
- *
- * `blank` means the Session has nothing to show and nothing to address: it
- * falls on the first `turn/start` and on the first engaging `command/run`,
- * and never rises again. A command run counts unless it recorded
- * `engages: false`, the declaration a command makes when it configures the
- * session instead of contributing to the conversation; the member is absent
- * on every ordinary run and on every log written before the declaration
- * existed. The remaining standalone events (`plan/mode`, `session/title`,
- * permission and sandbox configuration) never clear it: they record a
- * setting, not content.
- * @param state - metadata before the event.
- * @param event - next committed Session event.
- * @returns the original or advanced metadata value.
- */
-export function applySessionListMetadata(
-  state: SessionListMetadata,
-  event: SessionEvent,
-): SessionListMetadata {
-  const blank = state.blank
-    && event.type !== 'turn/start'
-    && !(event.type === 'command/run' && event.data.engages !== false)
-  const lastPromptAt = event.type === 'user/message' && event.data.source.kind === 'user'
-    ? event.time
-    : state.lastPromptAt
-  return blank === state.blank && lastPromptAt === state.lastPromptAt
-    ? state
-    : { blank, lastPromptAt }
-}
 
 /**
  * Return the longest prefix containing at most `maximum` Unicode code points.
@@ -181,8 +142,6 @@ export function truncateUnicodeCodePoints(value: string, maximum: number): strin
 
 /** Owns list projection registration, bounded cold summaries, and authorized search. */
 export class ApiSessionList {
-  private listMetadata!: ProjectionHandle<SessionListMetadata>
-
   /**
    * @param ctx - Host context carrying Session, query, persistence, and projection services.
    * @param workSliceMs - Resolved positive integral list-work budget in milliseconds.
@@ -194,21 +153,6 @@ export class ApiSessionList {
    * @returns when all required registrations are ready.
    */
   async initialize(): Promise<void> {
-    this.listMetadata = await this.ctx.sessionProjections.register<'sessionListMetadata', SessionListMetadata>({
-      key: 'sessionListMetadata',
-      stateSchema: sessionListMetadataSchema,
-      init: () => ({ blank: true, lastPromptAt: null }),
-      apply: applySessionListMetadata,
-      wire: { viewSchema: sessionListMetadataSchema, view: state => state },
-      // Held at 1 although the fold changed. The unit carries `blank` and
-      // `lastPromptAt` under one row version, and a discarded row is refolded
-      // only for a Session that is opened again — `summarizeCold` serves the
-      // list from cached rows alone. Bumping it would drop `lastPromptAt` for
-      // every never-reopened Session, ordering and labelling the whole
-      // sidebar by creation time, to correct a `blank` verdict on the
-      // Sessions that ran a command before this build.
-      stateVersion: 1,
-    })
     await this.ctx.sessionProjections.register<'imageLimits', null>({
       key: 'imageLimits',
       stateSchema: z.null(),
@@ -225,17 +169,17 @@ export class ApiSessionList {
 
   /**
    * Build one current attached-Session summary.
-   * Blankness and recency come from the `sessionListMetadata` handle; projection
+   * Blankness and recency come from `sessionQuery.getListMetadata`; projection
    * hints carry every summary key computed through `snapshot`. The first call
    * for a Session computes these projections over its whole in-memory log, and
-   * later calls advance them incrementally. The handle read and the hint with
-   * the same key come from one cell; the handle read does not depend on any
+   * later calls advance them incrementally. The metadata read and the hint with
+   * the same key come from one cell; the metadata read does not depend on any
    * other unit's view.
    * @param session - attached Session to summarize.
    * @returns current list metadata and available projections.
    */
   summaryFor(session: Session): SessionSummary {
-    const metadata = this.listMetadata.stateOf(session)
+    const metadata = this.ctx.sessionQuery.getListMetadata(session)
     const projections = this.projectionsFor(session.header, session)
     return {
       sessionId: session.id,

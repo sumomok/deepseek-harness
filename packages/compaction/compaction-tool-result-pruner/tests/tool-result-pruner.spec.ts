@@ -1,11 +1,12 @@
 import { imageOffloadProjection } from '@deepseek-ai/dsh-compaction-image-offload/projection'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { ToolCallId , createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import { type ToolCallId, createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, ToolResultMessage } from '@deepseek-ai/dsh-llm'
 import {
   Session,
-  SessionId,
+  type SessionId,
   SessionSeq,
 } from '@deepseek-ai/dsh-session'
 import type { SurfaceEvent } from '@deepseek-ai/dsh-session'
@@ -55,7 +56,7 @@ function appendToolStep(
   extra: Record<string, unknown> = {},
   name = 'bash',
 ): SessionSeq {
-  const callId = ToolCallId(call)
+  const callId = brandString<ToolCallId>(call)
   session.append('turn/start', {
     turn,
   })
@@ -87,7 +88,7 @@ function appendToolStep(
 
 describe('tool-result pruning configuration', () => {
   it('preserves a logged image offload when pruning the same result later', () => {
-    const session = Session.create(SessionId('prune-offloaded'), undefined, undefined, undefined, [imageOffloadProjection])
+    const session = Session.create(brandString<SessionId>('prune-offloaded'), undefined, undefined, undefined, [imageOffloadProjection])
     const seq = appendToolStep(session, 1, 'shot', [
       { type: 'text', text: 'x'.repeat(200) },
       { type: 'image', attachment: {
@@ -100,7 +101,7 @@ describe('tool-result pruning configuration', () => {
     const replacement = session.snapshotEvents().at(-1)!
     expect(replacement.type).toBe('tool/result')
     expect(JSON.stringify(session.deriveEventMessage(replacement))).toContain('"offloaded":true')
-    expect(JSON.stringify(Session.create(SessionId('restored-offloaded'), session.snapshotEvents(), undefined, undefined, [imageOffloadProjection]).deriveMessages())).toContain('"offloaded":true')
+    expect(JSON.stringify(Session.create(brandString<SessionId>('restored-offloaded'), session.snapshotEvents(), undefined, undefined, [imageOffloadProjection]).deriveMessages())).toContain('"offloaded":true')
     expect(JSON.stringify(session.eventAt(SessionSeq(seq)))).not.toContain('offloaded')
   })
 
@@ -157,7 +158,7 @@ describe('ToolResultPruner content transform', () => {
     const reasoning: ContentBlock = { type: 'reasoning', text: 'private-rich-block' }
     const call: ContentBlock = {
       type: 'tool-call',
-      id: ToolCallId('nested'),
+      id: brandString<ToolCallId>('nested'),
       name: 'nested',
       arguments: '{}',
     }
@@ -191,7 +192,7 @@ describe('ToolResultPruner content transform', () => {
 
 describe('ToolResultPruner session transaction', () => {
   it('prunes a stable snapshot, preserves all data, and cites the replaced result', () => {
-    const session = Session.create(SessionId('preserve'))
+    const session = Session.create(brandString<SessionId>('preserve'))
     const originalSeq = appendToolStep(session, 1, 'one', [{
       type: 'text',
       text: 'x'.repeat(100),
@@ -209,7 +210,7 @@ describe('ToolResultPruner session transaction', () => {
     expect(result.pruned).toHaveLength(1)
     expect(result.charsRemoved).toBeGreaterThan(0)
     const entry = result.pruned[0]!
-    expect(entry).toMatchObject({ originalSeq, callId: ToolCallId('one'), charsBefore: 100 })
+    expect(entry).toMatchObject({ originalSeq, callId: brandString<ToolCallId>('one'), charsBefore: 100 })
     expect(entry.charsAfter).toBeLessThanOrEqual(50)
 
     const original = session.snapshotEvents()[originalSeq]!
@@ -229,9 +230,9 @@ describe('ToolResultPruner session transaction', () => {
         step: 1,
         isError: true,
         message: {
-          source: { kind: 'tool', callId: ToolCallId('one') },
+          source: { kind: 'tool', callId: brandString<ToolCallId>('one') },
           role: 'tool',
-          toolCallId: ToolCallId('one'),
+          toolCallId: brandString<ToolCallId>('one'),
           isError: true,
         },
         error: { name: 'ExitError', code: 'EXIT_1' },
@@ -257,7 +258,7 @@ describe('ToolResultPruner session transaction', () => {
   })
 
   it('prunes multiple results, skips short ones, and converges in one pass', () => {
-    const session = Session.create(SessionId('multiple'))
+    const session = Session.create(brandString<SessionId>('multiple'))
     appendToolStep(session, 1, 'a', [{ type: 'text', text: 'A'.repeat(100) }])
     appendToolStep(session, 2, 'b', [{ type: 'text', text: 'short' }])
     appendToolStep(session, 3, 'c', [{ type: 'text', text: 'C'.repeat(80) }])
@@ -267,7 +268,7 @@ describe('ToolResultPruner session transaction', () => {
     const prune = service()
     const first = prune.pruneSession(session)
     const second = prune.pruneSession(session)
-    expect(first.pruned.map(entry => entry.callId)).toEqual([ToolCallId('a'), ToolCallId('c')])
+    expect(first.pruned.map(entry => entry.callId)).toEqual([brandString<ToolCallId>('a'), brandString<ToolCallId>('c')])
     expect(first.charsRemoved).toBe(
       first.pruned.reduce((sum, entry) => sum + entry.charsBefore - entry.charsAfter, 0),
     )
@@ -275,7 +276,7 @@ describe('ToolResultPruner session transaction', () => {
   })
 
   it('replays to the identical pruned model messages', () => {
-    const session = Session.create(SessionId('replay'))
+    const session = Session.create(brandString<SessionId>('replay'))
     appendToolStep(session, 1, 'a', [{ type: 'text', text: 'A'.repeat(100) }])
     session.append('turn/start', {
       turn: 2,
@@ -335,7 +336,7 @@ describe('ToolResultPruner recovery addresses', () => {
   }
 
   it('addresses the original log event by default and writes nothing', async () => {
-    const session = Session.create(SessionId('recovery-session-address'))
+    const session = Session.create(brandString<SessionId>('recovery-session-address'))
     const originalSeq = appendToolStep(session, 1, 'big', [{ type: 'text', text: 'x'.repeat(2000) }])
     const store = new FakeSpillStore()
     const result = await service(RECOVERY).pruneSessionWithRecovery(session, { spillStore: store })
@@ -360,7 +361,7 @@ describe('ToolResultPruner recovery addresses', () => {
       { kind: 'exact', count: 1234 },
       { locator: SpillLocator('/tmp/spill/kept.txt'), retrievalHint: 'Use read with offset/limit, or grep this path to search within it.' },
     )
-    const session = Session.create(SessionId('recovery-existing-spill'))
+    const session = Session.create(brandString<SessionId>('recovery-existing-spill'))
     const originalSeq = appendToolStep(session, 1, 'spilled', [{
       type: 'text',
       text: `${'x'.repeat(3000)}\n\n${notice}`,
@@ -377,7 +378,7 @@ describe('ToolResultPruner recovery addresses', () => {
   })
 
   it('saves complete text once in spill mode and reuses the cache on a second pass', async () => {
-    const session = Session.create(SessionId('recovery-spill-save'))
+    const session = Session.create(brandString<SessionId>('recovery-spill-save'))
     const originalSeq = appendToolStep(session, 1, 'big', [{ type: 'text', text: 'y'.repeat(2000) }])
     const store = new FakeSpillStore()
     const pruner = service(RECOVERY)
@@ -386,7 +387,7 @@ describe('ToolResultPruner recovery addresses', () => {
     expect(store.saves).toHaveLength(1)
     expect(store.saves[0]).toMatchObject({
       owner: { sessionId: session.id },
-      source: { kind: 'tool', toolName: 'bash', callId: ToolCallId('big'), label: 'result' },
+      source: { kind: 'tool', toolName: 'bash', callId: brandString<ToolCallId>('big'), label: 'result' },
       content: 'y'.repeat(2000),
     })
     expect(first.pruned[0]!.recovery.kind).toBe('spill')
@@ -401,7 +402,7 @@ describe('ToolResultPruner recovery addresses', () => {
   })
 
   it('follows consecutive replacements and intervening events to the original result', async () => {
-    const session = Session.create(SessionId('recovery-chain'))
+    const session = Session.create(brandString<SessionId>('recovery-chain'))
     const originalSeq = appendToolStep(session, 1, 'big', [{ type: 'text', text: 'z'.repeat(2000) }])
     const first = appendReplacement(session, originalSeq, 'a'.repeat(2000))
     session.append('user/message', createUserMessage({
@@ -417,7 +418,7 @@ describe('ToolResultPruner recovery addresses', () => {
   })
 
   it('covers a large read result through the same session address', async () => {
-    const session = Session.create(SessionId('recovery-read'))
+    const session = Session.create(brandString<SessionId>('recovery-read'))
     const originalSeq = appendToolStep(session, 1, 'read-file', [{
       type: 'text',
       text: 'r'.repeat(2000),
@@ -427,7 +428,7 @@ describe('ToolResultPruner recovery addresses', () => {
   })
 
   it('falls back to the session address when a forced spill fails', async () => {
-    const session = Session.create(SessionId('recovery-failed-save'))
+    const session = Session.create(brandString<SessionId>('recovery-failed-save'))
     appendToolStep(session, 1, 'big', [{ type: 'text', text: 'q'.repeat(2000) }])
     const store = new FakeSpillStore(new Error('no space left'))
     const result = await service(RECOVERY).pruneSessionWithRecovery(session, { address: 'spill', spillStore: store })
@@ -441,14 +442,14 @@ describe('ToolResultPruner recovery addresses', () => {
   })
 
   it('falls back to the session address when no spill backend is available', async () => {
-    const session = Session.create(SessionId('recovery-no-store'))
+    const session = Session.create(brandString<SessionId>('recovery-no-store'))
     const originalSeq = appendToolStep(session, 1, 'big', [{ type: 'text', text: 'n'.repeat(2000) }])
     const result = await service(RECOVERY).pruneSessionWithRecovery(session, { address: 'spill' })
     expect(result.pruned[0]!.recovery).toMatchObject({ kind: 'session', seq: originalSeq })
   })
 
   it('keeps an image-bearing result unchanged when no address can be produced', async () => {
-    const session = Session.create(SessionId('recovery-image-unavailable'))
+    const session = Session.create(brandString<SessionId>('recovery-image-unavailable'))
     const image: ContentBlock = {
       type: 'image',
       attachment: {
@@ -472,7 +473,7 @@ describe('ToolResultPruner recovery addresses', () => {
   })
 
   it('previews a concrete replacement message, then applies it once', async () => {
-    const session = Session.create(SessionId('recovery-preview-apply'))
+    const session = Session.create(brandString<SessionId>('recovery-preview-apply'))
     const originalSeq = appendToolStep(session, 1, 'big', [{ type: 'text', text: 'p'.repeat(2000) }])
     const original = session.deriveEventMessage(session.eventAt(originalSeq)!) as ToolResultMessage
     const pruner = service(RECOVERY)
@@ -499,7 +500,7 @@ describe('ToolResultPruner recovery addresses', () => {
   })
 
   it('keeps a non-text result out of preview instead of pricing it heuristically', async () => {
-    const session = Session.create(SessionId('recovery-preview-non-text'))
+    const session = Session.create(brandString<SessionId>('recovery-preview-non-text'))
     const image: ContentBlock = {
       type: 'image',
       attachment: {
@@ -523,7 +524,7 @@ describe('ToolResultPruner recovery addresses', () => {
   })
 
   it('marks a deferred spill candidate as not previewable and writes nothing', async () => {
-    const session = Session.create(SessionId('recovery-preview-deferred'))
+    const session = Session.create(brandString<SessionId>('recovery-preview-deferred'))
     const originalSeq = appendToolStep(session, 1, 'big', [{ type: 'text', text: 'd'.repeat(2000) }])
     const store = new FakeSpillStore()
     const before = session.snapshotEvents().length
@@ -535,7 +536,7 @@ describe('ToolResultPruner recovery addresses', () => {
   })
 
   it('skips preview entries whose seq a summary replacement shadowed', async () => {
-    const session = Session.create(SessionId('recovery-preview-shadowed'))
+    const session = Session.create(brandString<SessionId>('recovery-preview-shadowed'))
     const originalSeq = appendToolStep(session, 1, 'big', [{ type: 'text', text: 'm'.repeat(2000) }])
     const pruner = service(RECOVERY)
     const preview = pruner.previewSessionPrune(session)
@@ -554,7 +555,7 @@ describe('ToolResultPruner recovery addresses', () => {
   })
 
   it('leaves the result untouched when its recovery notice cannot fit the budget', async () => {
-    const session = Session.create(SessionId('recovery-notice-too-large'))
+    const session = Session.create(brandString<SessionId>('recovery-notice-too-large'))
     const originalSeq = appendToolStep(session, 1, 'big', [{ type: 'text', text: 'w'.repeat(2000) }])
     const result = await service(SMALL).pruneSessionWithRecovery(session)
     expect(result.pruned).toHaveLength(0)
@@ -565,7 +566,7 @@ describe('ToolResultPruner recovery addresses', () => {
   })
 
   it('writes nothing when the result is below the pruning threshold', async () => {
-    const session = Session.create(SessionId('recovery-below-threshold'))
+    const session = Session.create(brandString<SessionId>('recovery-below-threshold'))
     appendToolStep(session, 1, 'small', [{ type: 'text', text: 's'.repeat(100) }])
     const store = new FakeSpillStore()
     const result = await service(RECOVERY).pruneSessionWithRecovery(session, { address: 'spill', spillStore: store })
@@ -574,7 +575,7 @@ describe('ToolResultPruner recovery addresses', () => {
   })
 
   it('writes nothing when the notice cannot fit, even in spill mode', async () => {
-    const session = Session.create(SessionId('recovery-notice-too-large-spill'))
+    const session = Session.create(brandString<SessionId>('recovery-notice-too-large-spill'))
     const originalSeq = appendToolStep(session, 1, 'big', [{ type: 'text', text: 'v'.repeat(2000) }])
     const store = new FakeSpillStore()
     const result = await service(SMALL).pruneSessionWithRecovery(session, { address: 'spill', spillStore: store })

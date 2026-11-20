@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "cutoff": "d0c7f7987df6e978e19b402f5a63b69e251dc1fb",
+  "entries": [
+    {
+      "commit": "f2def4f9f6edfd4847b8a428465f8aa0c557bdce",
+      "firstParent": "f5e9e50b8a72a49d93ca4698017aba480508b479",
+      "upstream": "e8f7b93a344964de3dca1ace9e72b6e4d6de87cb",
+      "reason": "Retain the exact previously accepted two-parent master merge when the upstream base advances, without rewriting history or approving unlisted ancestors."
+    }
+  ]
+}

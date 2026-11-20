@@ -9,6 +9,8 @@
  * @module @deepseek-ai/dsh-permission-presets/types
  */
 
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+
 /**
  * One glyph of the permission selector's design set. The set is closed: a
  * presentation layer draws exactly these three, so a host names one instead of
@@ -56,6 +58,18 @@ export interface PermissionCatalog {
 export interface PermissionSelection {
   /** The effective current value: a configured preset key, `auto`, or `custom`. */
   currentValue: string
+}
+
+/**
+ * Request of the `permissionPresets.set` Remote: switch one live Session to
+ * another preset. The call's `session` resource is the Session named here, so
+ * the Gateway decides access before any preset is resolved or written.
+ */
+export interface PermissionPresetSetRequest {
+  /** Live Session whose knobs the switch writes. */
+  readonly sessionId: SessionId
+  /** Preset name to switch to; an unknown name refuses the call without writing. */
+  readonly preset: string
 }
 
 declare module '@deepseek-ai/cordis' {

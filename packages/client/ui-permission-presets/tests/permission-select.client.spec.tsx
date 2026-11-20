@@ -131,8 +131,11 @@ describe('PermissionSelect', () => {
     expect(icons[1]).not.toBe(icons[2])
     // Outside the design set: the bare shield outline from the shared sprite.
     expect(screen.getAllByRole('menuitem')[4]?.querySelector('svg')?.getAttribute('data-icon')).toBe('dsw-icon-shield-outline-regular')
-    // The trigger resolves the current option through the same glyph choice.
-    expect(trigger().querySelector('svg')?.innerHTML).toBe(icons[2])
+    // The trigger resolves the current option through the same glyph artwork at medium stroke weight.
+    const triggerIcon = trigger().querySelector('svg')
+    expect(triggerIcon?.innerHTML).toBe(icons[2])
+    expect(triggerIcon?.getAttribute('stroke-width')).toBe('1.3')
+    expect(screen.getAllByRole('menuitem')[2]?.querySelector('svg')?.getAttribute('stroke-width')).toBe('1')
   })
 
   it('paints the row whose tone the host named, and only that row', () => {

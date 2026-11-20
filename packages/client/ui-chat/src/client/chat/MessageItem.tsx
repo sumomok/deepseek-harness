@@ -3,7 +3,9 @@ import type { ReactNode } from 'react'
 import type { PendingSubmission } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { PropsRenderFactories, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { UserTextFacts } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { JsonBlock, referenceLabelsOf, StateDot, TextShimmer } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  IconBranchOutlineRegular, JsonBlock, referenceLabelsOf, StateDot, TextShimmer,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import type { CompactionFailureChatData } from '../contract/chat-nodes.ts'
 import type {
   ChatNodeOwnerProps, ChatNodeViewProps, ChatViewSlotProps, UserContentAttachment, UserContentData, UserContentInput,
@@ -432,6 +434,20 @@ export const CompactionRunningNodeView = memo(function CompactionRunningNodeView
   { t }: Pick<ChatNodeViewProps<'compaction-running'>, 't'>,
 ) {
   return <CompactionItem node={null} t={t} />
+})
+
+/** Divider between a forked Session's inherited history and its own messages. */
+export const InheritedHistoryNodeView = memo(function InheritedHistoryNodeView({ t }: ChatNodeViewProps<'inherited-history'>) {
+  return (
+    <div className={css.inheritedHistoryRow} role="separator" aria-label={t('message.inheritedHistory')}>
+      <span className={css.inheritedHistoryLine} aria-hidden />
+      <span className={css.inheritedHistoryCaption} aria-hidden>
+        <IconBranchOutlineRegular className={css.inheritedHistoryIcon} />
+        <span className={css.inheritedHistoryLabel}>{t('message.inheritedHistory')}</span>
+      </span>
+      <span className={css.inheritedHistoryLine} aria-hidden />
+    </div>
+  )
 })
 
 /** Correlated retry-chain keyed Chat renderer. */
