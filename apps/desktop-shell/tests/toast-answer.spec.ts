@@ -171,7 +171,6 @@ const fakeDock = {
   bounce: () => 0,
 }
 const sockets: FakeSocket[] = []
-const quitHandlers: (() => void)[] = []
 const windows: (typeof hiddenWindow)[] = []
 
 /**
@@ -185,7 +184,7 @@ vi.mock('electron', () => ({
   app: {
     dock: fakeDock,
     on: (event: string, handler: () => void) => { appHandlers.set(event, handler) },
-    once: (_event: string, handler: () => void) => { quitHandlers.push(handler) },
+    once: (event: string, handler: () => void) => { appHandlers.set(event, handler) },
   },
   BrowserWindow: { getAllWindows: () => windows },
   Notification: FakeNotification,
@@ -227,7 +226,7 @@ vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit)
   return response
 })
 
-const { setupNotifications } = await import('../src/notifications.ts')
+const { setupNotifications, stopNotifications } = await import('../src/notifications.ts')
 
 /** The `$events/result` payloads the loopback server received, in order. */
 const answers: Record<string, unknown>[] = []
@@ -505,7 +504,7 @@ describe('the approval toast', () => {
   })
 
   afterEach(async () => {
-    for (const stop of quitHandlers) stop()
+    stopNotifications()
     Object.defineProperty(process, 'platform', { value: realPlatform, writable: false, enumerable: true, configurable: true })
     notifications.length = 0
     sockets.length = 0
@@ -690,7 +689,7 @@ describe('the approval toast', () => {
     const toast = await announcedApproval()
     // A rebind stops this generation and starts one against a new server,
     // whose delivery ids have nothing to do with the buttons still on screen.
-    for (const stop of quitHandlers) stop()
+    stopNotifications()
     expect(toast.closed).toBe(1)
   })
 
@@ -766,7 +765,7 @@ describe('the reminder message', () => {
   })
 
   afterEach(async () => {
-    for (const stop of quitHandlers) stop()
+    stopNotifications()
     // A held lookup keeps its response open, and the server would not close.
     release('schedule/catalog')
     release('session/list')
@@ -937,7 +936,7 @@ describe('the reminder message', () => {
     catalog = [reminder('message-1')]
     scheduleChanged(socket)
     await until(() => posted.includes('/api/session/list'), 'the held lookup')
-    for (const stop of quitHandlers) stop()
+    stopNotifications()
     release('session/list')
     await new Promise<void>((resolve) => { setTimeout(resolve, 100) })
     expect(notifications).toHaveLength(0)
@@ -949,7 +948,7 @@ describe('the reminder message', () => {
     sessionRunning(socket, true)
     sessionRunning(socket, false)
     await until(() => posted.includes('/api/session/list'), 'the held lookup')
-    for (const stop of quitHandlers) stop()
+    stopNotifications()
     release('session/list')
     await new Promise<void>((resolve) => { setTimeout(resolve, 100) })
     expect(notifications).toHaveLength(0)
@@ -961,7 +960,7 @@ describe('the reminder message', () => {
     catalog = [reminder('message-1')]
     scheduleChanged(socket)
     await until(() => posted.filter(path => path === '/api/schedule/catalog').length >= 2, 'the held read')
-    for (const stop of quitHandlers) stop()
+    stopNotifications()
     release('schedule/catalog')
     await until(() => catalogReads >= 2, 'the answered read')
     await new Promise<void>((resolve) => { setTimeout(resolve, 100) })
@@ -1136,7 +1135,7 @@ describe('the macOS Dock badge', () => {
   })
 
   afterEach(async () => {
-    for (const stop of quitHandlers) stop()
+    stopNotifications()
     // The finished-run count outlives a generation; focus is what clears it.
     appHandlers.get('browser-window-focus')?.()
     Object.defineProperty(process, 'platform', { value: realPlatform, writable: false, enumerable: true, configurable: true })
@@ -1242,7 +1241,7 @@ describe('the macOS Dock badge', () => {
 
   it('drops the requests of a generation that was stopped', async () => {
     await badgedApprovals(await subscribed(), 'event-a')
-    for (const stop of quitHandlers) stop()
+    stopNotifications()
     expect(shownBadge()).toBe('')
   })
 

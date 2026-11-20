@@ -1773,7 +1773,7 @@ describe('seedBuiltinBundles retiring the auto-review guard row an earlier build
     writeFileSync(installAnchor, JSON.stringify({ name: 'dsh' }))
     return {
       name: DESKTOP_PROFILE, dir: join(home, 'profiles', DESKTOP_PROFILE), patchPath: patchPath(), installAnchor,
-      cwd: root, home, startedBundles: bundlesNow() as string[], overlays: [], telemetryDisabledEnv: undefined,
+      cwd: root, home, startedBundles: bundlesNow() as string[], overlayPaths: [], telemetryDisabledEnv: undefined,
     }
   }
 

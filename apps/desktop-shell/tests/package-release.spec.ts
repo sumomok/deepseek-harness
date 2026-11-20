@@ -149,7 +149,7 @@ describe('release packaging entry', () => {
   })
 
   it('fails an actual Git source check before any build when revision differs', async () => {
-    const root = new URL('../../../..', import.meta.url).pathname
+    const root = new URL('../../..', import.meta.url).pathname
     await expect(verifyBuildSource(root, bridge)).rejects.toMatchObject({ code: 'BUILD_SOURCE_INVALID' })
   })
 })
@@ -235,13 +235,13 @@ describe('package CLI', () => {
   it('rejects redeploying existing compiled code without a verified staging receipt', async () => {
     const script = new URL('../scripts/package.ts', import.meta.url)
     await expect(execute(process.execPath, ['--import', 'tsx/esm', script.pathname, '--mac', '--skip-repo-build'], {
-      cwd: new URL('../../../..', import.meta.url),
+      cwd: new URL('../../..', import.meta.url),
     })).rejects.toThrow('--skip-repo-build requires --skip-deploy')
   })
 
   it('prints the build-input and final-manifest usage without preparing a build', async () => {
     const script = new URL('../scripts/package.ts', import.meta.url)
-    const result = await execute(process.execPath, ['--import', 'tsx/esm', script.pathname, '--help'], { cwd: new URL('../../../..', import.meta.url) })
+    const result = await execute(process.execPath, ['--import', 'tsx/esm', script.pathname, '--help'], { cwd: new URL('../../..', import.meta.url) })
     expect(result.stdout).toContain('--build-input <file>')
     expect(result.stdout).toContain('--output-manifest <file>')
     expect(result.stdout).toContain('Publishing accepts this completed inventory only')

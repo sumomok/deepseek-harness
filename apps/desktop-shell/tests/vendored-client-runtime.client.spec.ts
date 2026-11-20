@@ -56,7 +56,7 @@ import type {
   WebBootEntry, WebBootGraph,
 } from '@deepseek-ai/dsh-client-modules/client'
 import { orderByModuleGraph } from '@deepseek-ai/dsh-client-modules'
-import { getStaticModules } from '@deepseek-ai/dsh-client-web'
+import { getStaticModules } from '../../../packages/client/web/tests/source-static-modules.client.ts'
 import { SlotTestRuntime, stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import type { TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
 import * as gatewayClient from '@deepseek-ai/dsh-api-gateway/client'
@@ -67,7 +67,7 @@ import { UiConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { documentTabInfoFactory } from '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/src/client/document/contract.ts'
 import { DocumentPreviewRegistry } from '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/src/client/document/registry.ts'
 import { apply as registerOffice } from '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/src/client/office/index.ts'
-import { Config as DocumentPreviewConfig } from '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/src/config.ts'
+import { OFFICE_DEFAULTS } from '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/src/defaults.ts'
 import { BUILTIN_WEB_BUNDLES } from '../src/profile-seed.ts'
 
 // The deploy root whose `node_modules` becomes the payload's server closure:
@@ -410,7 +410,7 @@ describe('vendored built-in client halves', () => {
     // The preview package's own Office renderer, registered the way its apply registers it.
     await mounted.mount({
       name: 'builtin-office', inject: ['documentPreviews', 'locale', 'slots'],
-      apply: (ctx: Context) => { registerOffice(ctx, DocumentPreviewConfig({ office: {}, excel: {} }).office) },
+      apply: (ctx: Context) => { registerOffice(ctx, OFFICE_DEFAULTS) },
     } as never)
     for (const row of ROWS) {
       await mounted.mount(await modules.import(row.id) as never)

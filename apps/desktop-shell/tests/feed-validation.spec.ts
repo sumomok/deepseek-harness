@@ -54,62 +54,62 @@ describe('validateFeedVersion', () => {
   })
 
   it('rejects versions with POSIX path separators', () => {
-    expect(() => validateFeedVersion('1.0.0/../etc/passwd')).toThrow('更新源的 version 字段包含非法字符')
-    expect(() => validateFeedVersion('../1.0.0')).toThrow('更新源的 version 字段包含非法字符')
-    expect(() => validateFeedVersion('1.0.0/malicious')).toThrow('更新源的 version 字段包含非法字符')
+    expect(() => validateFeedVersion('1.0.0/../etc/passwd')).toThrow('更新源的 version 字段格式无效')
+    expect(() => validateFeedVersion('../1.0.0')).toThrow('更新源的 version 字段格式无效')
+    expect(() => validateFeedVersion('1.0.0/malicious')).toThrow('更新源的 version 字段格式无效')
   })
 
   it('rejects versions with Windows path separators', () => {
-    expect(() => validateFeedVersion('1.0.0\\..\\Windows')).toThrow('更新源的 version 字段包含非法字符')
-    expect(() => validateFeedVersion('C:\\Windows\\System32')).toThrow('更新源的 version 字段包含非法字符')
+    expect(() => validateFeedVersion('1.0.0\\..\\Windows')).toThrow('更新源的 version 字段格式无效')
+    expect(() => validateFeedVersion('C:\\Windows\\System32')).toThrow('更新源的 version 字段格式无效')
   })
 
   it('rejects versions with parent directory traversal', () => {
-    expect(() => validateFeedVersion('1.0.0..')).toThrow('更新源的 version 字段包含非法序列')
-    expect(() => validateFeedVersion('..1.0.0')).toThrow('更新源的 version 字段包含非法序列')
+    expect(() => validateFeedVersion('1.0.0..')).toThrow('更新源的 version 字段格式无效')
+    expect(() => validateFeedVersion('..1.0.0')).toThrow('更新源的 version 字段格式无效')
     expect(() => validateFeedVersion('1...0')).toThrow('更新源的 version 字段格式无效')
   })
 
   it('rejects versions with URL-encoded path separators', () => {
-    expect(() => validateFeedVersion('1.0.0%2f')).toThrow('更新源的 version 字段包含非法序列')
-    expect(() => validateFeedVersion('1.0.0%2F')).toThrow('更新源的 version 字段包含非法序列')
-    expect(() => validateFeedVersion('1.0.0%5c')).toThrow('更新源的 version 字段包含非法序列')
-    expect(() => validateFeedVersion('1.0.0%5C')).toThrow('更新源的 version 字段包含非法序列')
+    expect(() => validateFeedVersion('1.0.0%2f')).toThrow('更新源的 version 字段格式无效')
+    expect(() => validateFeedVersion('1.0.0%2F')).toThrow('更新源的 version 字段格式无效')
+    expect(() => validateFeedVersion('1.0.0%5c')).toThrow('更新源的 version 字段格式无效')
+    expect(() => validateFeedVersion('1.0.0%5C')).toThrow('更新源的 version 字段格式无效')
   })
 
   it('rejects versions with URL-encoded dots', () => {
-    expect(() => validateFeedVersion('1%2e0%2e0')).toThrow('更新源的 version 字段包含非法序列')
-    expect(() => validateFeedVersion('1.0.0%2E')).toThrow('更新源的 version 字段包含非法序列')
+    expect(() => validateFeedVersion('1%2e0%2e0')).toThrow('更新源的 version 字段格式无效')
+    expect(() => validateFeedVersion('1.0.0%2E')).toThrow('更新源的 version 字段格式无效')
   })
 
   it('rejects versions with UNC paths', () => {
-    expect(() => validateFeedVersion('\\\\server\\share')).toThrow('更新源的 version 字段包含非法字符')
+    expect(() => validateFeedVersion('\\\\server\\share')).toThrow('更新源的 version 字段格式无效')
   })
 
   it('rejects versions with Windows drive letters', () => {
-    expect(() => validateFeedVersion('C:1.0.0')).toThrow('更新源的 version 字段包含非法字符')
-    expect(() => validateFeedVersion('D:\\1.0.0')).toThrow('更新源的 version 字段包含非法字符')
+    expect(() => validateFeedVersion('C:1.0.0')).toThrow('更新源的 version 字段格式无效')
+    expect(() => validateFeedVersion('D:\\1.0.0')).toThrow('更新源的 version 字段格式无效')
   })
 
   it('rejects versions with null bytes', () => {
-    expect(() => validateFeedVersion('1.0.0\x00')).toThrow('更新源的 version 字段包含非法字符')
+    expect(() => validateFeedVersion('1.0.0\x00')).toThrow('更新源的 version 字段格式无效')
   })
 
   it('rejects versions with control characters', () => {
-    expect(() => validateFeedVersion('1.0.0\n')).toThrow('更新源的 version 字段包含非法字符')
-    expect(() => validateFeedVersion('1.0.0\r')).toThrow('更新源的 version 字段包含非法字符')
-    expect(() => validateFeedVersion('1.0.0\t')).toThrow('更新源的 version 字段包含非法字符')
+    expect(() => validateFeedVersion('1.0.0\n')).toThrow('更新源的 version 字段格式无效')
+    expect(() => validateFeedVersion('1.0.0\r')).toThrow('更新源的 version 字段格式无效')
+    expect(() => validateFeedVersion('1.0.0\t')).toThrow('更新源的 version 字段格式无效')
   })
 
   it('rejects versions with wildcards', () => {
-    expect(() => validateFeedVersion('1.0.*')).toThrow('更新源的 version 字段包含非法字符')
-    expect(() => validateFeedVersion('1.?.0')).toThrow('更新源的 version 字段包含非法字符')
+    expect(() => validateFeedVersion('1.0.*')).toThrow('更新源的 version 字段格式无效')
+    expect(() => validateFeedVersion('1.?.0')).toThrow('更新源的 version 字段格式无效')
   })
 
   it('rejects versions with shell metacharacters', () => {
-    expect(() => validateFeedVersion('1.0.0|cmd')).toThrow('更新源的 version 字段包含非法字符')
-    expect(() => validateFeedVersion('1.0.0<script>')).toThrow('更新源的 version 字段包含非法字符')
-    expect(() => validateFeedVersion('1.0.0>out')).toThrow('更新源的 version 字段包含非法字符')
+    expect(() => validateFeedVersion('1.0.0|cmd')).toThrow('更新源的 version 字段格式无效')
+    expect(() => validateFeedVersion('1.0.0<script>')).toThrow('更新源的 version 字段格式无效')
+    expect(() => validateFeedVersion('1.0.0>out')).toThrow('更新源的 version 字段格式无效')
   })
 
   it('rejects invalid semver patterns', () => {

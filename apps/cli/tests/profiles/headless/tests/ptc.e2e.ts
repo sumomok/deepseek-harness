@@ -27,6 +27,7 @@ import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as AgentInstructions from '@deepseek-ai/dsh-agent-instructions'
+import type { JobId } from '@deepseek-ai/dsh-jobs'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
 import * as ToolJobs from '@deepseek-ai/dsh-tool-jobs'
 import CordisHostRunner from '@deepseek-ai/dsh-cordis-host-runner'
@@ -252,7 +253,7 @@ describe('PTC mode typed values: keyless real-process contracts', () => {
     })
   })
 
-  it('returns a background job id, settles the outer run, and polls that id to completion', async () => {
+  it('returns a background job id, settles the outer run, and reads the completed output', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'dsh-ptc-background-'))
     ctx = await backgroundPtcModeHarness(workdir)
 
@@ -265,9 +266,14 @@ describe('PTC mode typed values: keyless real-process contracts', () => {
       inspect(JSON.stringify(started.jobId));
     `))
     expect(jobId).toMatch(/^bash-[0-9a-f]{16}$/)
+    if (typeof jobId !== 'string') throw new Error('invalid background job id')
+    const jobs = ctx.get('jobs')
+    if (jobs === undefined) throw new Error('missing background job registry')
+    // job_output never waits; settlement also guarantees the producer's final output drain.
+    expect(await jobs.wait(brandString<JobId>(jobId), 5_000)).toMatchObject({ id: jobId, status: 'completed' })
 
     const polled = completion(await runCode(ctx, `
-      inspect(JSON.stringify(await tools.job_output({ job_id: ${JSON.stringify(jobId)}, wait: true, timeout_ms: 5000 })));
+      inspect(JSON.stringify(await tools.job_output({ job_id: ${JSON.stringify(jobId)} })));
     `))
     if (typeof polled !== 'object' || polled === null || Array.isArray(polled)) throw new Error('invalid job_output completion')
     const taskOutput = polled as Record<string, unknown>
@@ -319,8 +325,9 @@ describe('PTC mode typed values: keyless real-process contracts', () => {
       inspect(JSON.stringify(await tools.job_kill({ job_id: ${JSON.stringify(job!.id)}, reason: 'test owns cancellation' })));
     `))
     expect(killed).toMatchObject({ outcome: 'cancellation-requested', job: { id: job!.id } })
+    expect(await jobs.wait(job!.id, 5_000)).toMatchObject({ id: job!.id, status: 'killed' })
     const settled = completion(await runCode(ctx, `
-      inspect(JSON.stringify(await tools.job_output({ job_id: ${JSON.stringify(job!.id)}, wait: true, timeout_ms: 5000 })));
+      inspect(JSON.stringify(await tools.job_output({ job_id: ${JSON.stringify(job!.id)} })));
     `))
     expect(settled).toMatchObject({ job: { id: job!.id, status: 'killed' } })
   })

@@ -1,3 +1,5 @@
+- id: otel
+  disabled: false
 - id: session-telemetry-otel
   disabled: true
 - id: headless-startup
