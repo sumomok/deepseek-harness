@@ -54,6 +54,9 @@ function fixture(running = false) {
     loadOlder: vi.fn(),
     consumeOlder: vi.fn(),
     loadThrough: vi.fn(),
+    openAt: vi.fn(),
+    openTail: vi.fn(),
+    loadNewer: vi.fn(),
     command: vi.fn(),
   }
   const binding = { session }

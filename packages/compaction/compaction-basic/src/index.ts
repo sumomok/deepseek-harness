@@ -205,6 +205,7 @@ export class BasicCompactionEngine extends CompactionEngine {
   private readonly summaryFailures = new Map<string, { count: number; errorClass: string }>()
   /** Registered at construction; `summarize()` awaits it, so no read precedes readiness. */
   private readonly answeredRoute: Promise<ProjectionHandle<AnsweredRoute>>
+  private answeredRouteHandle: ProjectionHandle<AnsweredRoute> | undefined
 
   constructor(ctx: Context, config: BasicCompactionConfig = {}) {
     super(ctx)
@@ -219,6 +220,10 @@ export class BasicCompactionEngine extends CompactionEngine {
       }), 'compaction-basic: checkpoint reference guidance')
     }
     this.answeredRoute = this.ctx.sessionProjections.register(answeredRouteProjectionDefinition)
+      .then((handle) => {
+        this.answeredRouteHandle = handle
+        return handle
+      })
     this._registerWaitingCompaction()
     if (this.config.auto) this._registerAutomaticCompaction()
   }
@@ -633,7 +638,7 @@ export class BasicCompactionEngine extends CompactionEngine {
         else if (legacyPrune && prune !== undefined) await this.applyToolResultPruning(agent, prune)
         return null
       }
-      const tools = await this.summaryToolsForAgent(agent)
+      const tools = this.summaryToolsForAgent(agent)
       // Forced overflow recovery uses its retry budget, not the step-pressure
       // summary-size guard, to decide whether another attempt is useful.
       const result = await this.compactPressureRegion(range.start, range.end, agent, signal,
@@ -713,7 +718,7 @@ export class BasicCompactionEngine extends CompactionEngine {
       return null
     }
 
-    const summaryTools = await this.summaryToolsForAgent(agent)
+    const summaryTools = this.summaryToolsForAgent(agent)
     let previewApplied = false
     let result: CompactionResult | null = null
     let stoppedForFloor = false
@@ -1019,8 +1024,8 @@ export class BasicCompactionEngine extends CompactionEngine {
    * @param agent - agent owning the session.
    * @returns header tools for a matching route, null to omit, undefined to inherit.
    */
-  private async summaryToolsForAgent(agent: Agent): Promise<readonly ToolSchema[] | null | undefined> {
-    const conversation = conversationTarget(agent, (await this.answeredRoute).stateOf(agent.session))
+  private summaryToolsForAgent(agent: Agent): readonly ToolSchema[] | null | undefined {
+    const conversation = conversationTarget(agent, this.answeredRouteHandle?.stateOf(agent.session) ?? null)
     if (conversation === undefined) return undefined
     const policy = resolveTargetPolicy(this.config, conversation)
     const summaryTarget = policy.summarizationProvider.length === 0
@@ -1035,7 +1040,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     agent: Agent,
     signal?: AbortSignal,
   ): Promise<CompactionResult> {
-    const manualTools = await this.summaryToolsForAgent(agent)
+    const manualTools = this.summaryToolsForAgent(agent)
     return compactSurfaceRegion(
       this.regionDependencies(),
       agent.session,
@@ -1153,7 +1158,7 @@ export class BasicCompactionEngine extends CompactionEngine {
       // Model switching likewise terminates on its retry budget rather than
       // rejecting a summary before that budget has a chance to recover.
       result = await this.compactPressureRegion(range.start, range.end, agent, signal,
-        Number.POSITIVE_INFINITY, undefined, await this.summaryToolsForAgent(agent))
+        Number.POSITIVE_INFINITY, undefined, this.summaryToolsForAgent(agent))
       measurement = meter.measure(agent.session, header)
       occupancy = this.occupancyTokens(agent.session, measurement)
       if (occupancy < spec.thresholdTokens) return result
@@ -1256,7 +1261,7 @@ export class BasicCompactionEngine extends CompactionEngine {
       0,
     )
     if (range === null) return null
-    const manualTools = await this.summaryToolsForAgent(agent)
+    const manualTools = this.summaryToolsForAgent(agent)
     const result = await compactSurfaceRegion(
       this.regionDependencies(),
       agent.session,

@@ -47,7 +47,8 @@
  * tag they cannot reach. A two-parent merge whose second parent exactly equals
  * the explicit base commit is also accepted. Its ancestors and descendants are
  * not: after a base update, earlier untagged merges still in range fail unless
- * they independently satisfy the release or unchanged-tree rule.
+ * they independently satisfy the release, unchanged-tree, or validated
+ * historical upstream merge rule (`.claude/core-patches-upstream-merges.json`).
  *
  * Scope. A checkout on any branch other than the declared line — `develop`, an
  * integration branch, a detached HEAD — and a shallow clone report `skipped` and
@@ -55,14 +56,20 @@
  * does not declare exactly one patch line and exactly one base, or gives a
  * malformed commit SHA, fails on
  * every branch, because a check that cannot read its own declarations cannot
- * tell which case it is in. The history manifest's syntax and schema are checked on
- * every branch before a skip; only an absent manifest is treated as no approvals.
+ * tell which case it is in. The history and upstream-merge manifests' syntax and
+ * schema are checked on every branch before a skip; only an absent manifest is
+ * treated as no approvals.
  */
 
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { CORE_PATCHES_HISTORY_PATH, parseCorePatchesHistory, type CorePatchesHistory } from './core-patches-history.ts'
+import {
+  CORE_PATCHES_UPSTREAM_MERGES_PATH,
+  parseCorePatchesUpstreamMerges,
+  type CorePatchesUpstreamMerges,
+} from './core-patches-upstream-merges.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -172,6 +179,8 @@ export interface LineMerge {
   mergesRelease: boolean
   /** True only for a two-parent merge whose second parent is the explicitly declared base commit. */
   mergesBaseCommit: boolean
+  /** Present only for an exact historical merge approved after Git validation. */
+  mergesHistoricalUpstream?: true
   /** True when the merge's tree equals its first parent's tree. */
   treeUnchanged: boolean
 }
@@ -428,11 +437,11 @@ export function findRegistryViolations(line: PatchLine, registry: Registry): Reg
     }
   }
   for (const merge of line.merges) {
-    if (merge.mergesRelease || merge.mergesBaseCommit || merge.treeUnchanged) continue
+    if (merge.mergesRelease || merge.mergesBaseCommit || merge.mergesHistoricalUpstream === true || merge.treeUnchanged) continue
     violations.push({
       kind: 'merge-commit',
       subject: merge.id,
-      detail: `${merge.id} (${merge.subject}) is a merge that neither brings in a ${RELEASE_TAG_PATTERN} release or the explicitly declared base commit as its only second parent nor keeps its first parent's tree; commits under such a merge carry no trailer this check can read. Moving the base commit does not authorize earlier untagged merges that remain on the first-parent chain.`,
+      detail: `${merge.id} (${merge.subject}) is a merge that neither brings in a ${RELEASE_TAG_PATTERN} release or the explicitly declared base commit as its only second parent nor keeps its first parent's tree; commits under such a merge carry no trailer this check can read. Moving the base commit does not authorize earlier untagged merges; each historical exception requires an exact validated approval.`,
     })
   }
   return violations
@@ -567,9 +576,16 @@ export function lineCommits(repoRoot: string, base: string): LineCommit[] {
  * @param base - the base commit, excluded from the result.
  * @param releases - the commits release tags point at.
  * @param baseCommit - the explicitly declared commit; null or omitted for a tag-based registry.
- * @returns one entry per merge, oldest first; ancestors and descendants of baseCommit receive no exception.
+ * @param historical - Exact merge commits whose historical approvals passed Git validation.
+ * @returns one entry per merge, oldest first; unlisted ancestors and descendants receive no exception.
  */
-export function lineMerges(repoRoot: string, base: string, releases: ReadonlySet<string>, baseCommit: string | null = null): LineMerge[] {
+export function lineMerges(
+  repoRoot: string,
+  base: string,
+  releases: ReadonlySet<string>,
+  baseCommit: string | null = null,
+  historical: ReadonlySet<string> = new Set(),
+): LineMerge[] {
   const raw = git(repoRoot, [
     'log',
     '--first-parent',
@@ -589,6 +605,7 @@ export function lineMerges(repoRoot: string, base: string, releases: ReadonlySet
       // two-parent merge counts as a release merge.
       mergesRelease: rest.length === 0 && releases.has(second),
       mergesBaseCommit: rest.length === 0 && second === baseCommit,
+      ...rest.length === 0 && historical.has(id) ? { mergesHistoricalUpstream: true as const } : {},
       treeUnchanged: git(repoRoot, ['rev-parse', `${first}^{tree}`]) === tree,
     }
   })
@@ -622,9 +639,15 @@ export function changedPaths(repoRoot: string, base: string, pathspec: string | 
  * @param repoRoot - repository root directory.
  * @param base - the validated base commit, resolved from the tag or declared directly.
  * @param registry - the parsed registry, whose standing records' pathspecs are matched.
+ * @param historical - Exact Git-validated historical upstream merge commits.
  * @returns the line's commits, merges, changed paths and claims.
  */
-export function readPatchLine(repoRoot: string, base: string, registry: Registry): PatchLine {
+export function readPatchLine(
+  repoRoot: string,
+  base: string,
+  registry: Registry,
+  historical: ReadonlySet<string> = new Set(),
+): PatchLine {
   const claims: PathspecClaim[] = []
   for (const record of registry.records) {
     if (!isStanding(record)) continue
@@ -634,7 +657,7 @@ export function readPatchLine(repoRoot: string, base: string, registry: Registry
   }
   return {
     commits: lineCommits(repoRoot, base),
-    merges: lineMerges(repoRoot, base, releaseCommits(repoRoot), registry.declaredBaseCommits[0]?.value ?? null),
+    merges: lineMerges(repoRoot, base, releaseCommits(repoRoot), registry.declaredBaseCommits[0]?.value ?? null, historical),
     changedPaths: changedPaths(repoRoot, base, null),
     claims,
   }
@@ -667,6 +690,37 @@ export function validateCorePatchesHistory(repoRoot: string, history: CorePatche
 }
 
 /**
+ * Validate exact historical merge identities without authorizing any other upstream ancestor.
+ * @param repoRoot - Repository root directory.
+ * @param history - Strictly parsed historical merge approvals.
+ * @param base - Current validated upstream base.
+ * @returns A diagnostic for an invalid approval, or null when every identity matches Git.
+ */
+export function validateHistoricalUpstreamMerges(
+  repoRoot: string,
+  history: CorePatchesUpstreamMerges,
+  base: string,
+): string | null {
+  if (git(repoRoot, ['cat-file', '-t', history.cutoff]) !== 'commit') return 'cutoff is not a commit object'
+  const chain = git(repoRoot, ['rev-list', '--first-parent', 'HEAD']).split('\n')
+  const cutoffIndex = chain.indexOf(history.cutoff)
+  if (cutoffIndex < 0) return 'cutoff is not on HEAD\'s first-parent chain'
+  const ancestors = new Set(chain.slice(cutoffIndex + 1))
+  for (const entry of history.entries) {
+    if (git(repoRoot, ['cat-file', '-t', entry.commit]) !== 'commit') return `${entry.commit} is not a commit object`
+    if (!ancestors.has(entry.commit)) return `${entry.commit} is not strictly before cutoff on its first-parent chain`
+    const parents = git(repoRoot, ['show', '-s', '--format=%P', entry.commit]).split(' ')
+    if (parents.length !== 2 || parents[0] !== entry.firstParent || parents[1] !== entry.upstream) {
+      return `${entry.commit} does not have exactly the declared first and upstream parents`
+    }
+    if (git(repoRoot, ['merge-base', entry.upstream, base]) !== entry.upstream) {
+      return `${entry.commit} upstream parent is not an ancestor of the current base`
+    }
+  }
+  return null
+}
+
+/**
  * Run the whole check against one repository.
  * @param repoRoot - repository root directory.
  * @returns what the run concluded and the report to print.
@@ -685,6 +739,28 @@ export function runCheck(repoRoot: string): CheckResult {
     const parsed = parseCorePatchesHistory(historySource)
     if (parsed.error !== null) return { status: 'failed', report: `history-invalid: ${CORE_PATCHES_HISTORY_PATH}: ${parsed.error}` }
     history = parsed.manifest
+  }
+  let upstreamMerges: CorePatchesUpstreamMerges | null = null
+  let upstreamSource: string | null = null
+  try {
+    upstreamSource = readFileSync(resolve(repoRoot, CORE_PATCHES_UPSTREAM_MERGES_PATH), 'utf8')
+  } catch (cause) {
+    if (!(typeof cause === 'object' && cause !== null && 'code' in cause && cause.code === 'ENOENT')) {
+      return {
+        status: 'failed',
+        report: `upstream-merges-invalid: ${CORE_PATCHES_UPSTREAM_MERGES_PATH} is unreadable: ${failureReason(cause)}`,
+      }
+    }
+  }
+  if (upstreamSource !== null) {
+    const parsed = parseCorePatchesUpstreamMerges(upstreamSource)
+    if (parsed.error !== null || parsed.manifest === null) {
+      return {
+        status: 'failed',
+        report: `upstream-merges-invalid: ${CORE_PATCHES_UPSTREAM_MERGES_PATH}: ${parsed.error ?? 'invalid manifest'}`,
+      }
+    }
+    upstreamMerges = parsed.manifest
   }
   let source: string
   try {
@@ -745,7 +821,12 @@ export function runCheck(repoRoot: string): CheckResult {
       const invalid = validateCorePatchesHistory(repoRoot, history, registry)
       if (invalid !== null) return { status: 'failed', report: `history-invalid: ${CORE_PATCHES_HISTORY_PATH}: ${invalid}` }
     }
-    const line = readPatchLine(repoRoot, base, registry)
+    if (upstreamMerges !== null) {
+      const invalid = validateHistoricalUpstreamMerges(repoRoot, upstreamMerges, base)
+      if (invalid !== null) return { status: 'failed', report: `upstream-merges-invalid: ${CORE_PATCHES_UPSTREAM_MERGES_PATH}: ${invalid}` }
+    }
+    const historicalMerges = new Set(upstreamMerges?.entries.map(entry => entry.commit))
+    const line = readPatchLine(repoRoot, base, registry, historicalMerges)
     const approvals = new Map(history?.entries.map(entry => [entry.commit, entry.patch]))
     const violations = findRegistryViolations({
       ...line,

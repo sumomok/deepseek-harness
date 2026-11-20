@@ -489,8 +489,8 @@ describe('SQLite session search', () => {
 
   it('returns every matching message across sessions instead of one strong hit per session', async () => {
     const ctx = await liveContext()
-    const first = ctx.sessions.create(SessionId('messages-first'))
-    const second = ctx.sessions.create(SessionId('messages-second'))
+    const first = ctx.sessions.create(brandString<SessionId>('messages-first'))
+    const second = ctx.sessions.create(brandString<SessionId>('messages-second'))
     // Distinct lengths keep the length tiebreaker decisive, so the expected
     // order does not depend on the wall clock the appends happen to share.
     for (const [session, text] of [
@@ -521,7 +521,7 @@ describe('SQLite session search', () => {
 
   it('finds literal substrings anywhere and requires every term', async () => {
     const ctx = await liveContext()
-    const glued = ctx.sessions.create(SessionId('literal-glued'))
+    const glued = ctx.sessions.create(brandString<SessionId>('literal-glued'))
     glued.append(
       'user/message',
       createUserMessage({
@@ -529,7 +529,7 @@ describe('SQLite session search', () => {
       }),
       { surfaceOp: 'append' },
     )
-    const spaced = ctx.sessions.create(SessionId('literal-spaced'))
+    const spaced = ctx.sessions.create(brandString<SessionId>('literal-spaced'))
     spaced.append(
       'user/message',
       createUserMessage({
@@ -557,7 +557,7 @@ describe('SQLite session search', () => {
 
   it('keeps a long scan responsive and still ranks the whole matching set', async () => {
     const ctx = await liveContext()
-    const session = ctx.sessions.create(SessionId('yielding-scan'))
+    const session = ctx.sessions.create(brandString<SessionId>('yielding-scan'))
     for (let index = 0; index < 300; index += 1) {
       session.append(
         'user/message',
@@ -578,7 +578,7 @@ describe('SQLite session search', () => {
 
   it('pages messages with a cursor that the session and event scopes reject', async () => {
     const ctx = await liveContext()
-    const session = ctx.sessions.create(SessionId('messages-paged'))
+    const session = ctx.sessions.create(brandString<SessionId>('messages-paged'))
     for (const text of ['needle a', 'needle bb', 'needle ccc']) {
       session.append(
         'user/message',
@@ -629,7 +629,7 @@ describe('SQLite session search', () => {
 
   it('refuses a message cursor in another scope or under a changed request', async () => {
     const ctx = await liveContext()
-    const session = ctx.sessions.create(SessionId('cursor-scope'))
+    const session = ctx.sessions.create(brandString<SessionId>('cursor-scope'))
     for (const text of ['needle a', 'needle bb', 'needle ccc']) {
       session.append(
         'user/message',
@@ -657,7 +657,7 @@ describe('SQLite session search', () => {
 
   it('rejects a cursor that decodes to something other than an object', async () => {
     const ctx = await liveContext()
-    const session = ctx.sessions.create(SessionId('cursor-shape'))
+    const session = ctx.sessions.create(brandString<SessionId>('cursor-shape'))
     session.append(
       'user/message',
       createUserMessage({ content: [{ type: 'text', text: 'needle' }], source: { kind: 'user' } }),
@@ -665,7 +665,7 @@ describe('SQLite session search', () => {
     )
 
     for (const body of ['null', '7', '"text"', '[]']) {
-      const cursor = SessionSearchCursor(Buffer.from(body, 'utf8').toString('base64url'))
+      const cursor = brandString<SessionSearchCursor>(Buffer.from(body, 'utf8').toString('base64url'))
       // A JSON document that is not an object must fail as a typed cursor error,
       // not as a TypeError read off a primitive.
       await expect(ctx.sessionQuery.searchMessages({ query: 'needle', cursor }))
@@ -1562,8 +1562,8 @@ describe('SQLite reconciliation and source lifecycle', () => {
     ])
     // The listed header disagrees with the stored one on an immutable field.
     TestPersistence.listOverride = () => [
-      { header: readable, revision: SessionPersistenceRevision('conflict-peer:1') },
-      { header: header('conflicted-surface', 2), revision: SessionPersistenceRevision('conflicted:1') },
+      { header: readable, revision: brandString<SessionPersistenceRevision>('conflict-peer:1') },
+      { header: header('conflicted-surface', 2), revision: brandString<SessionPersistenceRevision>('conflicted:1') },
     ]
     const ctx = await liveContext()
     await ctx.plugin(TestPersistence)

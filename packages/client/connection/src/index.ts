@@ -11,7 +11,9 @@ import { assertTrustedAuthority } from './api-request-trust.ts'
 import { HostConnectionService } from './rpc-host.ts'
 import { ConnectionAuthentication } from './authentication.ts'
 import { ConnectionRecoveryConfigSchema, resolveConnectionConfig, type ConnectionRecoveryConfig } from './recovery-config.ts'
-import type { ConnectionConfig as SharedConnectionConfig } from './types.ts'
+import type { ConnectionConfig } from './types.ts'
+
+export type { ConnectionConfig } from './types.ts'
 
 export type {
   AuthenticationProvider,
@@ -90,19 +92,6 @@ function assertImageBodyCapacity(ctx: Context, maxRequestBodyBytes: number): voi
 
 /** Services required before providing Connection. */
 export const inject: string[] = []
-
-/** Host Connection configuration: shared synced fields plus Host-only Peer admission controls. */
-export interface ConnectionConfig extends SharedConnectionConfig {
-  /**
-   * Refuse with 401, while no Peer admitter is installed, every HTTP request
-   * and WebSocket upgrade that passes the Host/Origin checks and registered
-   * authentication, instead of admitting the provider's Peer directly.
-   * This covers the time before the admitter's plugin applies and while it
-   * restarts. With no admitter plugin in the composition, every such request
-   * is refused. Default: false.
-   */
-  requireAdmitter?: boolean
-}
 
 /** Host request limits and trusted authorities; `recovery` is synced to the browser. */
 export const Config: z<Omit<ConnectionConfig, 'recovery'> & { recovery?: ConnectionRecoveryConfig }, ConnectionConfig> = z.object({

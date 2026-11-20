@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-11-16-bounded-historical-upstream-merges.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-11-16-bounded-historical-upstream-merges.md
+/agent-note-retain-an-exact-historical-upstream-merge-when-the-base-advances:
+  en: 92cdb6a5284cb92e
+  zh: b1b0156f7839ff44
+/agent-note-retain-an-exact-historical-upstream-merge-when-the-base-advances/problem:
+  en: 6821acb31153dadc
+  zh: 73d6726c8a5f368c
+/agent-note-retain-an-exact-historical-upstream-merge-when-the-base-advances/decision:
+  en: 4ef4459e956f45b0
+  zh: abcec2bc2e1b1cb0
+/agent-note-retain-an-exact-historical-upstream-merge-when-the-base-advances/alternatives-considered:
+  en: da2fe25df4012c8d
+  zh: 77dcff4b73d32418
+/agent-note-retain-an-exact-historical-upstream-merge-when-the-base-advances/consequences:
+  en: feb9356e4d729f0c
+  zh: 9add2240b2e431b8

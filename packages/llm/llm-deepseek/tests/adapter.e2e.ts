@@ -347,7 +347,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('DeepSeek Messages real API', () 
     }
     const response = await assemble(ctx.llm.stream(options({
       messages: [user('Review this command and give your verdict: ls -la')],
-      tools: [verdict], toolChoice: { type: 'any' }, reasoningEffort: ReasoningEffortId(effort),
+      tools: [verdict], toolChoice: { type: 'any' }, reasoningEffort: brandString<ReasoningEffortId>(effort),
     })))
     expect(response.assembler.finish.kind).toBe('tool-calls')
     const calls = response.message.content.filter(block => block.type === 'tool-call')

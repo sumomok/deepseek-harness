@@ -2,20 +2,21 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CommandId } from '@deepseek-ai/dsh-commands/brand'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type { CommandId } from '@deepseek-ai/dsh-commands/types'
 import { ManualCompactionError } from '@deepseek-ai/dsh-compaction'
 import type { CompactionResult, ManualCompactionWhileBusy } from '@deepseek-ai/dsh-compaction'
 import { BasicCompactionEngine } from '@deepseek-ai/dsh-compaction-basic'
-import { createUserMessage, LlmAdapter, LlmError, ToolCallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, LlmAdapter, LlmError, type ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, LlmResolvedModelInfo, RequestMessage, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
-import { SessionId, type Session } from '@deepseek-ai/dsh-session'
+import type { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
 const MODEL = 'busy-mock'
 const LONG = 'history the summary replaces '.repeat(80)
-const COMMAND = CommandId('busy-compact-command')
+const COMMAND = brandString<CommandId>('busy-compact-command')
 
 /** One scripted model call; `hold` keeps the call open until released. */
 interface Reply {
@@ -56,7 +57,7 @@ class ScriptedAdapter extends LlmAdapter {
     options.signal?.throwIfAborted()
     if (reply.kind === 'fail') throw new LlmError('provider unavailable', 'UNKNOWN')
     if (reply.kind === 'tool') {
-      const id = ToolCallId(`call-${index}`)
+      const id = brandString<ToolCallId>(`call-${index}`)
       yield { type: 'block-start', index: 0, blockType: 'tool-call' }
       yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: 'work', arguments: '{}' } }
       yield { type: 'finish', reason: { kind: 'tool-calls' } }
@@ -111,7 +112,7 @@ async function bench(script: Reply[]): Promise<Bench> {
   const engineFiber = ctx.plugin(SummaryStubEngine, { auto: false })
   await engineFiber
   const engine = ctx.compaction as SummaryStubEngine
-  const agent = await ctx.agentLoop.create(SessionId('busy-compact'), { provider: MODEL, model: MODEL })
+  const agent = await ctx.agentLoop.create(brandString<SessionId>('busy-compact'), { provider: MODEL, model: MODEL })
   const log: string[] = []
   ctx.on('session/event', (_session, event) => {
     switch (event.type) {

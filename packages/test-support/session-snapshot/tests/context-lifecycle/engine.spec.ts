@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import type { BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
-import { CompactionId } from '@deepseek-ai/dsh-compaction'
-import type { CompactionResult } from '@deepseek-ai/dsh-compaction'
+import type { CompactionId, CompactionResult } from '@deepseek-ai/dsh-compaction'
 import LlmRuntime, {
   createMessage,
   createSystemMessage,
@@ -11,7 +11,7 @@ import LlmRuntime, {
   LlmAdapter,
 } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { Session, type SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -82,7 +82,7 @@ function agent(session: Session, model: string | undefined = MODEL): Agent {
 
 /** Closed two-message turns; `system` puts a system message at surface node 0. */
 function conversation(turns = 4, text = 'fixture '.repeat(40).trim(), system?: string): Session {
-  const session = Session.create(SessionId(`conversation-${String(turns)}`))
+  const session = Session.create(brandString<SessionId>(`conversation-${String(turns)}`))
   for (let turn = 1; turn <= turns; turn += 1) {
     session.append('turn/start', { turn })
     if (turn === 1 && system !== undefined) {
@@ -257,7 +257,7 @@ describe('stale route', () => {
 
   it('routes the summary to the pending model selection, not the stale header', async () => {
     const { adapter, compactEngine } = await routeHarness()
-    const session = conversation(2)
+    const session = Session.create(brandString<SessionId>('stale-route-pending'))
     session.append('request/header', {
       header: { config: { provider: 'header-provider', model: 'header-model' } },
       reason: 'initial',
@@ -272,7 +272,7 @@ describe('stale route', () => {
 
   it('falls back to the durable header route when no pending selection exists', async () => {
     const { adapter, compactEngine } = await routeHarness()
-    const session = conversation(2)
+    const session = Session.create(brandString<SessionId>('stale-route-header'))
     session.append('request/header', {
       header: { config: { provider: 'header-provider', model: 'header-model' } },
       reason: 'initial',
@@ -288,8 +288,8 @@ describe('failure circuit survives a restart', () => {
   // on its first check, so a restarted process keeps backing off.
   it('seeds the circuit from trailing compaction/end errors', async () => {
     const session = conversation(4, 'body '.repeat(40).trim())
-    session.append('compaction/end', { compactionId: CompactionId('failed-1'), turn: 2, error: 'Connection error.' })
-    session.append('compaction/end', { compactionId: CompactionId('failed-2'), turn: 3, error: 'Connection error.' })
+    session.append('compaction/end', { compactionId: brandString<CompactionId>('failed-1'), turn: 2, error: 'Connection error.' })
+    session.append('compaction/end', { compactionId: brandString<CompactionId>('failed-2'), turn: 3, error: 'Connection error.' })
     const subject = engine({ auto: false, thresholdRatio: 0.3, retainTokens: 40, maxConsecutiveFailures: 2 })
     const result = await compact(subject, session)
     expect(result).toBeNull()
@@ -298,7 +298,7 @@ describe('failure circuit survives a restart', () => {
 
   it('still compacts when the trailing failures are below the configured limit', async () => {
     const session = conversation(10, 'body '.repeat(120).trim())
-    session.append('compaction/end', { compactionId: CompactionId('failed-1'), turn: 2, error: 'Connection error.' })
+    session.append('compaction/end', { compactionId: brandString<CompactionId>('failed-1'), turn: 2, error: 'Connection error.' })
     const subject = engine({ auto: false, thresholdRatio: 0.3, retainTokens: 20, maxConsecutiveFailures: 3 })
     await compact(subject, session)
     expect(subject.calls.length).toBeGreaterThan(0)
@@ -311,7 +311,7 @@ describe('interruption points (engine-level restart)', () => {
   // for the three points a compaction transaction can be cut at. The process
   // lifecycle (JSONL reopen + agentLoop.create) is still uncovered.
   function withOpenStart(session: Session): void {
-    session.append('compaction/start', { compactionId: CompactionId('interrupted'), turn: 5 })
+    session.append('compaction/start', { compactionId: brandString<CompactionId>('interrupted'), turn: 5 })
   }
 
   it('refuses a new compaction while an earlier start is still open', async () => {

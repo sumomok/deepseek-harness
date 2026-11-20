@@ -15,4 +15,13 @@ export interface ConnectionConfig {
   trustedHosts?: string[]
   /** Maximum buffered JSON body for every `/api` request. Default: 300 MiB. */
   maxRequestBodyBytes?: number
+  /**
+   * Refuse with 401, while no Peer admitter is installed, every HTTP request
+   * and WebSocket upgrade that passes the Host/Origin checks and registered
+   * authentication, instead of admitting the provider's Peer directly.
+   * This covers the time before the admitter's plugin applies and while it
+   * restarts. With no admitter plugin in the composition, every such request
+   * is refused. Default: false.
+   */
+  requireAdmitter?: boolean
 }

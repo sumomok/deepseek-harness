@@ -1,6 +1,8 @@
 /** Exact Fetch routes and non-owner Peers: only a route's own access rule lets one through. */
 import { request as httpRequest } from 'node:http'
 import { Context } from '@deepseek-ai/cordis'
+import * as Token from '@deepseek-ai/dsh-host-authentication-token'
+import { BrowserAuth } from '@deepseek-ai/dsh-host-authentication-token/src/browser-auth.ts'
 import WebServer from '@deepseek-ai/dsh-host-webserver'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { API_PATH, apply, inject, type PeerScope } from '../src/index.ts'
@@ -34,6 +36,7 @@ async function mount(): Promise<Mounted> {
   await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 })
   provideBrowserCredentials(ctx)
   await ctx.plugin({ inject: [...inject], apply })
+  await ctx.plugin(Token, { cookieMaxAgeDays: 30 }).await()
   const owned = vi.fn((request: Request) => Promise.resolve(new Response(`owner ${new URL(request.url).pathname}`)))
   // A rule that admits only alice, as a route would after asking remote access.
   const ruled = vi.fn((_request: Request, peer: PeerScope) => Promise.resolve(
@@ -86,13 +89,18 @@ describe('exact Fetch routes for non-owner Peers', () => {
     const { ctx, owned, ruled } = await mount()
     const alice = member(ctx, 'alice')
     ctx.connection.peers.admitWith(() => alice)
-    const target = new URL(ctx.connection.authenticatedUrl(`http://127.0.0.1:${String(ctx.webServer.port)}`))
-    let setCookie: string | undefined
-    ctx.connection.authorizeIndex(
-      { method: 'GET', url: `${target.pathname}${target.search}`, headers: { host: target.host } },
-      { writeHead(_status, headers) { setCookie = headers?.['set-cookie'] }, end() {} },
-    )
-    const cookie = setCookie!.split(';', 1)[0]!
+    const auth = await BrowserAuth.create(ctx[Context.root], ctx.credentials, 30)
+    const target = new URL(auth.authenticatedUrl(`http://127.0.0.1:${String(ctx.webServer.port)}/`))
+    const setCookie = await new Promise<string | undefined>((resolve, reject) => {
+      const request = httpRequest({ host: '127.0.0.1', port: ctx.webServer.port, path: `${target.pathname}${target.search}`, method: 'GET' }, (response) => {
+        response.resume()
+        response.on('end', () => { resolve(response.headers['set-cookie']?.[0]) })
+      })
+      request.on('error', reject)
+      request.end()
+    })
+    if (setCookie === undefined) throw new Error('fetch-guard fixture did not receive a browser cookie')
+    const cookie = setCookie.split(';', 1)[0]!
     const status = (path: string, method: string): Promise<number> => new Promise((resolve, reject) => {
       const request = httpRequest({ host: '127.0.0.1', port: ctx.webServer.port, path, method, headers: { cookie } }, (response) => {
         response.resume()

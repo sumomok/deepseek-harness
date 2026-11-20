@@ -297,7 +297,7 @@ describe('the shipped Web composition', () => {
   // the other three able to ship broken.
   it.each(['standard', 'ptc', 'minimal', 'cordis'])('mounts the shipped `%s` preset', async (preset) => {
     const handle = await ctx.agents.create({
-      sessionId: SessionId(`preset-mount-${preset}`),
+      sessionId: brandString<SessionId>(`preset-mount-${preset}`),
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, preset).then(() => undefined),
     })
     try {

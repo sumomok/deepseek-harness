@@ -6,22 +6,22 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { JobId } from '@deepseek-ai/dsh-jobs/brand'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type { JobId } from '@deepseek-ai/dsh-jobs'
 import * as CompactionRehydration from '@deepseek-ai/dsh-compaction-rehydration'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
-import { CompactionId } from '@deepseek-ai/dsh-compaction'
+import type { CompactionId } from '@deepseek-ai/dsh-compaction'
 import {
   createMessage,
   createToolResultMessage,
   createUserMessage,
   LlmAdapter,
-  ToolCallId,
 } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk, ToolCallId } from '@deepseek-ai/dsh-llm'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
-import SessionStore, { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import SessionStore, { SESSION_FORMAT_VERSION, Session } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -160,11 +160,11 @@ async function tempRoot(): Promise<string> {
 describe.skipIf(!HAS_LOCK_BINDING)('resume after an interrupted compaction', () => {
   it('reopens a session whose compaction never closed, without a replacement', async () => {
     const root = await tempRoot()
-    const id = SessionId('interrupted-open-start')
+    const id = brandString<SessionId>('interrupted-open-start')
 
     const first = await mount(root)
     const session = baseSession(id)
-    session.append('compaction/start', { compactionId: CompactionId('interrupted'), turn: 3 })
+    session.append('compaction/start', { compactionId: brandString<CompactionId>('interrupted'), turn: 3 })
     await seed(first, session)
     await first.fiber.dispose()
 
@@ -183,11 +183,11 @@ describe.skipIf(!HAS_LOCK_BINDING)('resume after an interrupted compaction', () 
 
   it('keeps the durable log append-only across the reopen', async () => {
     const root = await tempRoot()
-    const id = SessionId('interrupted-append-only')
+    const id = brandString<SessionId>('interrupted-append-only')
 
     const first = await mount(root)
     const session = baseSession(id)
-    session.append('compaction/start', { compactionId: CompactionId('interrupted'), turn: 3 })
+    session.append('compaction/start', { compactionId: brandString<CompactionId>('interrupted'), turn: 3 })
     const before = session.snapshotEvents().length
     await seed(first, session)
     await first.fiber.dispose()
@@ -201,11 +201,11 @@ describe.skipIf(!HAS_LOCK_BINDING)('resume after an interrupted compaction', () 
 
   it('accepts a resume when the interrupted start predates a restart boundary', async () => {
     const root = await tempRoot()
-    const id = SessionId('interrupted-stale-evidence')
+    const id = brandString<SessionId>('interrupted-stale-evidence')
 
     const first = await mount(root)
     const session = baseSession(id)
-    session.append('compaction/start', { compactionId: CompactionId('interrupted'), turn: 3 })
+    session.append('compaction/start', { compactionId: brandString<CompactionId>('interrupted'), turn: 3 })
     session.append('session/end-seed', {})
     await seed(first, session)
     await first.fiber.dispose()
@@ -235,8 +235,8 @@ async function compactionCycle(id: SessionId): Promise<{ events: readonly Sessio
   const session = baseSession(id, 10, (early) => {
     early.append('todo/write', { todos: [{ content: 'plan', status: 'in_progress' }, { content: 'build', status: 'pending' }] })
     early.append('job/registered', {
-      jobId: JobId('job-open-1'), owner: id, kind: 'bash', label: 'bench job', startedAt: 1,
-      toolCall: { callId: ToolCallId('call-open-1'), rootCallId: ToolCallId('call-open-1') },
+      jobId: brandString<JobId>('job-open-1'), owner: id, kind: 'bash', label: 'bench job', startedAt: 1,
+      toolCall: { callId: brandString<ToolCallId>('call-open-1'), rootCallId: brandString<ToolCallId>('call-open-1') },
     })
     // A read whose metadata predates the version/digest fields, so the rebuilt
     // Files section exercises the bounded re-read fallback.
@@ -246,19 +246,19 @@ async function compactionCycle(id: SessionId): Promise<{ events: readonly Sessio
       step: 1,
       message: createMessage({
         role: 'assistant',
-        content: [{ type: 'tool-call', id: ToolCallId('read-open-1'), name: 'read', arguments: JSON.stringify({ file_path: '/abs/resumed.txt' }) }],
+        content: [{ type: 'tool-call', id: brandString<ToolCallId>('read-open-1'), name: 'read', arguments: JSON.stringify({ file_path: '/abs/resumed.txt' }) }],
         source: { kind: 'model', ...{ provider: MODEL, model: MODEL } },
       }),
     }, { surfaceOp: 'append' })
     early.append('tool/call', {
-      turn: 1, step: 1, callId: ToolCallId('read-open-1'), name: 'read',
+      turn: 1, step: 1, callId: brandString<ToolCallId>('read-open-1'), name: 'read',
       arguments: JSON.stringify({ file_path: '/abs/resumed.txt' }),
     })
     early.append('tool/result', {
       turn: 1,
       step: 1,
       message: createToolResultMessage({
-        callId: ToolCallId('read-open-1'),
+        callId: brandString<ToolCallId>('read-open-1'),
         content: [{ type: 'text', text: 'resumed content' }],
         isError: false,
       }),
@@ -335,7 +335,7 @@ async function resumeFrom(root: string, id: SessionId): Promise<Context> {
 
 describe.skipIf(!HAS_LOCK_BINDING)('resume at the three compaction interruption points', () => {
   it('recovers at "start written, summary not written"', async () => {
-    const id = SessionId('cut-after-start')
+    const id = brandString<SessionId>('cut-after-start')
     const { events, stage } = await compactionCycle(id)
     expect(stage['start']).toBeGreaterThanOrEqual(0)
     expect(stage['summary']).toBeGreaterThan(stage['start']!)
@@ -356,7 +356,7 @@ describe.skipIf(!HAS_LOCK_BINDING)('resume at the three compaction interruption 
   })
 
   it('recovers at "summary written, replacement not written"', async () => {
-    const id = SessionId('cut-after-summary')
+    const id = brandString<SessionId>('cut-after-summary')
     const { events, stage } = await compactionCycle(id)
     expect(stage['summary']).toBeGreaterThan(stage['start']!)
     expect(stage['replacement']).toBeGreaterThan(stage['summary']!)
@@ -383,7 +383,7 @@ describe.skipIf(!HAS_LOCK_BINDING)('resume at the three compaction interruption 
   })
 
   it('recovers at "replacement written, compaction/end not written"', async () => {
-    const id = SessionId('cut-after-replacement')
+    const id = brandString<SessionId>('cut-after-replacement')
     const { events, stage } = await compactionCycle(id)
     expect(stage['replacement']).toBeGreaterThan(stage['summary']!)
     expect(stage['end']).toBeGreaterThan(stage['replacement']!)
@@ -429,7 +429,7 @@ describe.skipIf(!HAS_LOCK_BINDING)('resume at the three compaction interruption 
   })
 
   it('restates a file after a resume with the replacement and no closing event', async () => {
-    const id = SessionId('cut-after-replacement-files')
+    const id = brandString<SessionId>('cut-after-replacement-files')
     const { events, stage } = await compactionCycle(id)
     const root = await tempRoot()
     await seedPrefix(root, id, events, stage['replacement']!)

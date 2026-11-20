@@ -37,6 +37,10 @@ async function mounted(secure = false, before?: (ctx: Context) => void) {
       intercept() { throw new Error('RPC interception is outside this fixture') },
     },
     fetch: { register() { throw new Error('Fetch routes are outside this fixture') } },
+    peers: {
+      requireAdmitter: false,
+      admitWith() { throw new Error('Peer admission is outside this fixture') },
+    },
     createSharedFetchHandler() { throw new Error('Fetch dispatch is outside this fixture') },
     admit() { throw new Error('Combined admission is outside this fixture') },
     createPeer,

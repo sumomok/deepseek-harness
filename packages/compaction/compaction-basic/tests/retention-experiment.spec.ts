@@ -167,7 +167,6 @@ describe('retention experiment', () => {
         + `  ratio=${(measured.ratio * 100).toFixed(1)}%`,
       )
     }
-    // eslint-disable-next-line no-console -- the table is this experiment's output
     console.log(`\n${rows.join('\n')}\n`)
     expect(rows).toHaveLength(5)
   }, 60_000)

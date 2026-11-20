@@ -1,8 +1,9 @@
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import LlmRuntime, { createAssistantMessage, createSystemMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek-api-key'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { type SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { afterEach, describe, expect, it } from 'vitest'
 import { summarizeWithLlm } from '../src/summarizer.ts'
@@ -23,7 +24,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('default summarizer with real Dee
     await ctx.plugin(SessionProjectionRegistry)
     const provider = 'deepseek-official'
     const model = 'deepseek-v4-flash'
-    const session = ctx.sessions.create(SessionId('real-summary-language'))
+    const session = ctx.sessions.create(brandString<SessionId>('real-summary-language'))
     const owner = { session, options: { provider, model } } as Agent
     const source = { provider, model }
     const priorCheckpoint = [

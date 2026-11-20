@@ -301,7 +301,7 @@ export function prepareException(
     // that alone would overflow the remaining budget keeps the message rather than
     // turning the failure into an output-limit diagnostic.
     const detail: unknown = isNativeError(error)
-      ? (typeof error.stack === 'string' && jsonStringBytesUpTo(error.stack, remainingOutputBytes) === undefined
+      ? (typeof error.stack === 'string' && jsonStringBytesUpTo(error.stack, availableBytes) === undefined
         ? error.message
         : error.stack ?? error.message)
       : error

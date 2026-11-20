@@ -213,7 +213,6 @@ describe.skipIf(TRANSCRIPT === undefined)('replay of a real transcript', () => {
       const after = ctx.tokenMeter.measure(session).surfaceTokens
       rows.push(`retain=${String(retainTokens).padStart(7)}  before=${String(before).padStart(8)}  after=${String(after).padStart(8)}  ratio=${(((before - after) / before) * 100).toFixed(1)}%`)
     }
-    // eslint-disable-next-line no-console -- the table is this experiment's output
     console.log(`\nrecords=${String(target.length)}\n${rows.join('\n')}\n`)
     expect(rows).toHaveLength(5)
   }, 120_000)

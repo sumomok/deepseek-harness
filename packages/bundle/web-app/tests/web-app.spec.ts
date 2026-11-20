@@ -70,13 +70,8 @@ function shellContributions(ctx: Context): BashContribution[] {
 }
 
 describe('web-app runtime glue', () => {
-  it('requests a search warmup once the searchable page is served', async () => {
-    stageDist()
-    const ctx = new Context()
-    onTestFinished(() => ctx.fiber.dispose())
-    ctx.provide('webServer', fakeHttpServer().server)
-    provideConnection(ctx)
-    provideLoader(ctx)
+  it('requests a search warmup once the searchable page is served', () => {
+    const ctx = context()
     const warmups: number[] = []
     ctx.on('session-query/warmup-requested', () => { warmups.push(Date.now()) })
     apply(ctx, new Config({ openBrowser: false, printUrl: false, surfaceContext: false }))

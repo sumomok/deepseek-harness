@@ -12,7 +12,7 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SessionProjectionCache, { projectionCacheDomainSpec } from '@deepseek-ai/dsh-session-projection-cache'
 import type { CheckpointRecord } from '@deepseek-ai/dsh-session-projection-cache'
 import SessionQueryEngine from '@deepseek-ai/dsh-session-query'
-import type { SessionEventSearchPage, SessionSearchHit, SessionSearchPage } from '@deepseek-ai/dsh-session-query'
+import type { SessionEventSearchHit, SessionEventSearchPage, SessionSearchHit, SessionSearchPage } from '@deepseek-ai/dsh-session-query'
 import { titleProjectionDefinition } from '@deepseek-ai/dsh-session-title'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
@@ -60,6 +60,10 @@ class ListingQuery extends SessionQueryEngine {
 
   override searchEvents(): Promise<SessionEventSearchPage> {
     return Promise.reject(new Error('listing must not search event contents'))
+  }
+
+  override searchMessages(): Promise<SessionSearchPage<SessionEventSearchHit>> {
+    return Promise.reject(new Error('listing must not search message contents'))
   }
 }
 

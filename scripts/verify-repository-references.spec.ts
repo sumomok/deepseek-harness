@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, type TestContext } from 'vitest'
 import { CORE_PATCHES_HISTORY_PATH } from './core-patches-history.ts'
+import { CORE_PATCHES_UPSTREAM_MERGES_PATH } from './core-patches-upstream-merges.ts'
 import { findRepositoryReferences, repositoryCommits, scanRepositoryReferences, uniquePrefixMatch } from './verify-repository-references.ts'
 
 const organizationUrl = `https://${['github.com', ['deepseek', 'harness'].join('-')].join('/')}`
@@ -137,6 +138,106 @@ describe('historical manifest reference tokens', () => {
     const fixture = repository(test)
     fixture.write(CORE_PATCHES_HISTORY_PATH, manifest(fixture.commit, organizationUrl))
     expect(scanRepositoryReferences(fixture.root)).toEqual([{ file: CORE_PATCHES_HISTORY_PATH, line: 9, kind: 'organization-url' }])
+  })
+})
+
+describe('historical upstream merge reference tokens', () => {
+  function manifest(hash: string, reason = 'Approved'): string {
+    return JSON.stringify({
+      version: 1,
+      cutoff: hash,
+      entries: [{ commit: hash, firstParent: hash, upstream: hash, reason }],
+    }, null, 2)
+  }
+
+  function escapeAll(value: string): string {
+    return value.split('').map(character => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`).join('')
+  }
+
+  it.for(['compact', 'multiline', 'crlf', 'escaped', 'reordered'] as const)(
+    'exempts only schema-defined identity tokens in %s JSON', (mode, test) => {
+      const fixture = repository(test)
+      const hash = fixture.commit
+      let source = manifest(hash)
+      if (mode === 'compact') source = JSON.stringify({ version: 1, cutoff: hash, entries: [{ commit: hash, firstParent: hash, upstream: hash, reason: 'Approved' }] })
+      if (mode === 'crlf') source = source.replaceAll('\n', '\r\n')
+      if (mode === 'escaped') source = source.replaceAll(hash, escapeAll(hash)).replace('firstParent', String.raw`first\u0050arent`)
+      if (mode === 'reordered') source = JSON.stringify({ entries: [{ reason: 'Approved', upstream: hash, firstParent: hash, commit: hash }], cutoff: hash, version: 1 })
+      fixture.write(CORE_PATCHES_UPSTREAM_MERGES_PATH, source)
+      expect(scanRepositoryReferences(fixture.root)).toEqual([])
+    },
+  )
+
+  it('checks hashes in reason on the same line, multiline, and Unicode-escaped', (test) => {
+    const fixture = repository(test)
+    const hash = fixture.commit
+    const entry = { commit: hash, firstParent: hash, upstream: hash, reason: hash }
+    fixture.write(CORE_PATCHES_UPSTREAM_MERGES_PATH, JSON.stringify({ version: 1, cutoff: hash, entries: [entry] }))
+    expect(scanRepositoryReferences(fixture.root)).toEqual([
+      { file: CORE_PATCHES_UPSTREAM_MERGES_PATH, line: 1, kind: 'commit-hash' },
+    ])
+    const pretty = manifest(hash, hash)
+    fixture.write(CORE_PATCHES_UPSTREAM_MERGES_PATH, pretty)
+    expect(scanRepositoryReferences(fixture.root)).toEqual([
+      { file: CORE_PATCHES_UPSTREAM_MERGES_PATH, line: pretty.split('\n').findIndex(line => line.includes('"reason"')) + 1, kind: 'commit-hash' },
+    ])
+    fixture.write(CORE_PATCHES_UPSTREAM_MERGES_PATH, pretty.replaceAll(hash, escapeAll(hash)))
+    expect(scanRepositoryReferences(fixture.root)).toEqual([
+      { file: CORE_PATCHES_UPSTREAM_MERGES_PATH, line: pretty.split('\n').findIndex(line => line.includes('"reason"')) + 1, kind: 'commit-hash' },
+    ])
+  })
+
+  it.for([
+    'other.json',
+    'nested/.claude/core-patches-upstream-merges.json',
+    '.claude/core-patches-upstream-merges.json.bak',
+  ])('does not exempt the same upstream-merge manifest at %s', (file, test) => {
+    const fixture = repository(test)
+    fixture.write(file, JSON.stringify({
+      version: 1,
+      cutoff: fixture.commit,
+      entries: [{ commit: fixture.commit, firstParent: fixture.commit, upstream: fixture.commit, reason: 'Approved' }],
+    }))
+    expect(scanRepositoryReferences(fixture.root)).toEqual([{ file, line: 1, kind: 'commit-hash' }])
+  })
+
+  it.for([
+    'invalid-json',
+    'unknown-field',
+    'wrong-version',
+    'empty-entries',
+    'multiple-entries',
+    'duplicate-key',
+    'escaped-duplicate-key',
+    'uppercase',
+    'abbreviated',
+  ] as const)('grants no exemptions to %s', (kind, test) => {
+    const fixture = repository(test)
+    const hash = fixture.commit
+    const entry = { commit: hash, firstParent: hash, upstream: hash, reason: 'Approved' }
+    let source = JSON.stringify({ version: 1, cutoff: hash, entries: [entry] })
+    if (kind === 'invalid-json') source += ','
+    if (kind === 'unknown-field') source = source.replace('"version":1', `"extra":"${hash}","version":1`)
+    if (kind === 'wrong-version') source = source.replace('"version":1', '"version":2')
+    if (kind === 'empty-entries') source = JSON.stringify({ version: 1, cutoff: hash, entries: [] })
+    if (kind === 'multiple-entries') source = JSON.stringify({ version: 1, cutoff: hash, entries: [entry, entry] })
+    if (kind === 'duplicate-key') source = source.replace('"reason":', '"reason":"Approved","reason":')
+    if (kind === 'escaped-duplicate-key') source = source.replace('"reason":', String.raw`"r\u0065ason":"Approved","reason":`)
+    if (kind === 'uppercase') source = source.replaceAll(hash, hash.toUpperCase())
+    if (kind === 'abbreviated') source = source.replaceAll(hash, hash.slice(0, Math.max(10, hash.search(/[a-f]/) + 1)))
+    fixture.write(CORE_PATCHES_UPSTREAM_MERGES_PATH, source)
+    expect(scanRepositoryReferences(fixture.root)).toEqual([
+      { file: CORE_PATCHES_UPSTREAM_MERGES_PATH, line: 1, kind: 'commit-hash' },
+    ])
+  })
+
+  it('retains organization URL findings in an otherwise valid upstream-merge manifest', (test) => {
+    const fixture = repository(test)
+    const source = manifest(fixture.commit, organizationUrl)
+    fixture.write(CORE_PATCHES_UPSTREAM_MERGES_PATH, source)
+    expect(scanRepositoryReferences(fixture.root)).toEqual([
+      { file: CORE_PATCHES_UPSTREAM_MERGES_PATH, line: source.split('\n').findIndex(line => line.includes('"reason"')) + 1, kind: 'organization-url' },
+    ])
   })
 })
 

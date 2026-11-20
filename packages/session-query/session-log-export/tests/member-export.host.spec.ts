@@ -1,8 +1,7 @@
 /** The Session-log export route for non-owner Peers: remote access decides the Session and every exported descendant. */
 import { Context } from '@deepseek-ai/cordis'
 import RemoteAccessService from '@deepseek-ai/dsh-api-remote-access'
-import { HostConnectionService, type PeerScope } from '@deepseek-ai/dsh-client-connection'
-import type { BrowserAuth } from '@deepseek-ai/dsh-client-connection/src/browser-auth.ts'
+import { ConnectionAuthentication, HostConnectionService, type PeerScope } from '@deepseek-ai/dsh-client-connection'
 import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { PrincipalMap } from '@deepseek-ai/dsh-typert-protocol'
@@ -95,7 +94,8 @@ async function mount(options: {
       })),
     })
   }
-  const connection = new HostConnectionService(ctx, [], {} as BrowserAuth)
+  new ConnectionAuthentication(ctx)
+  const connection = new HostConnectionService(ctx, [])
   await ctx.plugin({ inject: [...inject], apply })
   return { ctx, connection, opened, read, traceReads: () => traceReads }
 }

@@ -872,7 +872,7 @@ describe('dsh-tool-skill', () => {
     try {
       const ctx = await setup(home)
       ctx.logger.warn = (() => {}) as typeof ctx.logger.warn
-      const session = Session.create(SessionId('degraded-root'))
+      const session = Session.create(brandString<SessionId>('degraded-root'))
       const agent = sessionAgent(session)
       openMessageTurn(session)
 
@@ -911,7 +911,7 @@ describe('dsh-tool-skill', () => {
     try {
       const ctx = await setup(home)
       ctx.logger.warn = (() => {}) as typeof ctx.logger.warn
-      const session = Session.create(SessionId('degraded-user-only'))
+      const session = Session.create(brandString<SessionId>('degraded-user-only'))
       const agent = sessionAgent(session)
       openMessageTurn(session)
       await fireStep(ctx, agent, 1, 1)

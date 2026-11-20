@@ -39,8 +39,11 @@ import {
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import z from '@deepseek-ai/schemastery'
-import { SESSION_FORMAT_VERSION, SessionId as makeSessionId } from '@deepseek-ai/dsh-session'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import type { SessionId } from '@deepseek-ai/dsh-session'
+
+const makeSessionId = (id: string): SessionId => brandString<SessionId>(id)
 import { SessionAlreadyOwnedError, SessionPersistenceCorruptionError } from '@deepseek-ai/dsh-session-persistence'
 import {
   encodeSegment, generationLogFilename, parseGenerationLogFilename, sessionDir, type JsonlCompression,

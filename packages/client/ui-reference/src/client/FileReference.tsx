@@ -33,7 +33,8 @@ type FileReferenceProps = UserTextNodeProps<'file'> & InjectFace<FileReferenceIn
 type FolderReferenceProps = UserTextNodeProps<'folder'> & InjectFace<PathPresenceInjected>
 
 /**
- * Render a file chip once the Host confirms its path exists, and contain navigation failures, thrown or rejected, without hiding the reference.
+ * Render a file chip once the Host confirms its path exists, and contain navigation failures,
+ * thrown or rejected, without hiding the reference.
  * @param props - JSON node, interaction policy, Session-authorized navigation and presence, and locale seat.
  * @returns the original spelling until confirmation; afterwards an inline chip and, after a navigation failure, its body-portaled dialog.
  */

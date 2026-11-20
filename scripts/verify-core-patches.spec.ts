@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, type TestContext } from 'vitest'
 import { CORE_PATCHES_HISTORY_PATH, type CorePatchesHistory } from './core-patches-history.ts'
+import { CORE_PATCHES_UPSTREAM_MERGES_PATH, type CorePatchesUpstreamMerges } from './core-patches-upstream-merges.ts'
 import {
   changedPaths,
   findRegistryViolations,
@@ -380,9 +381,10 @@ describe('findRegistryViolations', () => {
     }])
   })
 
-  it('accepts a release merge and a tree-preserving merge, and rejects any other merge', () => {
+  it('accepts a release merge, a validated historical merge, and a tree-preserving merge, and rejects any other merge', () => {
     const merges = [
       { id: 'cccccccccc', subject: 'release', mergesRelease: true, mergesBaseCommit: false, treeUnchanged: false },
+      { id: 'bbbbbbbbbb', subject: 'historical', mergesRelease: false, mergesBaseCommit: false, mergesHistoricalUpstream: true as const, treeUnchanged: false },
       { id: 'dddddddddd', subject: 'join', mergesRelease: false, mergesBaseCommit: false, treeUnchanged: true },
       { id: 'eeeeeeeeee', subject: 'topic', mergesRelease: false, mergesBaseCommit: false, treeUnchanged: false },
     ]
@@ -625,6 +627,245 @@ describe('explicit base commits', () => {
     expect(result.report).toContain('Moving the base commit does not authorize earlier untagged merges')
     const merges = lineMerges(fixture.root, second, releaseCommits(fixture.root), second)
     expect(merges.map(merge => merge.mergesBaseCommit)).toEqual([false, true])
+  })
+})
+
+describe('historical upstream merge approvals', () => {
+  function upstreamMergeFixture(test: TestContext) {
+    const fixture = repository(test)
+    const firstParent = fixture.record('registry\n\nPatch: alpha-seam')
+    const firstUpstream = upstreamCommit(fixture, fixture.base, 'first-unreleased')
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', 'merge first', firstUpstream])
+    const firstMerge = fixture.git(['rev-parse', 'HEAD'])
+    fixture.write(REGISTRY_PATH, registryForCommit(firstUpstream))
+    const cutoff = fixture.record('declare first\n\nPatch: alpha-seam')
+    const secondUpstream = upstreamCommit(fixture, firstUpstream, 'second-unreleased')
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', 'merge second', secondUpstream])
+    fixture.write(
+      REGISTRY_PATH,
+      registryForCommit(secondUpstream).replace('`alpha/**` ', `\`alpha/**\` \`${CORE_PATCHES_UPSTREAM_MERGES_PATH}\` `),
+    )
+    const manifest: CorePatchesUpstreamMerges = {
+      version: 1,
+      cutoff,
+      entries: [{
+        commit: firstMerge,
+        firstParent,
+        upstream: firstUpstream,
+        reason: 'Retain the exact prior upstream merge approval',
+      }],
+    }
+    const save = () => { fixture.write(CORE_PATCHES_UPSTREAM_MERGES_PATH, JSON.stringify(manifest)) }
+    save()
+    const head = fixture.record('declare second and approval\n\nPatch: alpha-seam')
+    return { ...fixture, firstParent, firstUpstream, firstMerge, cutoff, secondUpstream, head, manifest, save }
+  }
+
+  it('accepts the exact prior merge after a base advance without granting a release tag', (test) => {
+    const fixture = upstreamMergeFixture(test)
+    expect(runCheck(fixture.root).status).toBe('ok')
+    const merges = lineMerges(
+      fixture.root,
+      fixture.secondUpstream,
+      releaseCommits(fixture.root),
+      fixture.secondUpstream,
+      new Set([fixture.firstMerge]),
+    )
+    expect(merges).toMatchObject([
+      { subject: 'merge first', mergesRelease: false, mergesBaseCommit: false, mergesHistoricalUpstream: true },
+      { subject: 'merge second', mergesRelease: false, mergesBaseCommit: true },
+    ])
+    expect(merges[1]!.mergesHistoricalUpstream).toBeUndefined()
+  })
+
+  it('still rejects a different unlisted upstream ancestor before the same cutoff', (test) => {
+    const fixture = repository(test)
+    const firstParent = fixture.record('registry\n\nPatch: alpha-seam')
+    const firstUpstream = upstreamCommit(fixture, fixture.base, 'first-unreleased')
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', 'merge first', firstUpstream])
+    const firstMerge = fixture.git(['rev-parse', 'HEAD'])
+    const unlistedUpstream = upstreamCommit(fixture, firstUpstream, 'unlisted-unreleased')
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', 'merge unlisted', unlistedUpstream])
+    const cutoff = fixture.record('cutoff\n\nPatch: alpha-seam')
+    const secondUpstream = upstreamCommit(fixture, unlistedUpstream, 'second-unreleased')
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', 'merge second', secondUpstream])
+    fixture.write(
+      REGISTRY_PATH,
+      registryForCommit(secondUpstream).replace('`alpha/**` ', `\`alpha/**\` \`${CORE_PATCHES_UPSTREAM_MERGES_PATH}\` `),
+    )
+    fixture.write(CORE_PATCHES_UPSTREAM_MERGES_PATH, JSON.stringify({
+      version: 1,
+      cutoff,
+      entries: [{ commit: firstMerge, firstParent, upstream: firstUpstream, reason: 'Approve only first merge' }],
+    }))
+    fixture.record('declare second\n\nPatch: alpha-seam')
+    const result = runCheck(fixture.root)
+    expect(result.status).toBe('failed')
+    expect(result.report.split('\n').filter(line => line.includes('merge-commit:'))).toHaveLength(1)
+    expect(result.report).toContain('(merge unlisted)')
+    expect(result.report).not.toContain('(merge first)')
+  })
+
+  it('still rejects a topic merge after a valid historical approval', (test) => {
+    const fixture = upstreamMergeFixture(test)
+    expect(runCheck(fixture.root).status).toBe('ok')
+    fixture.git(['checkout', '--quiet', '-b', 'topic'])
+    fixture.write('alpha/topic.md', 'topic\n')
+    fixture.record('untrailed topic')
+    fixture.git(['checkout', '--quiet', LINE])
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', 'merge topic', 'topic'])
+    const result = runCheck(fixture.root)
+    expect(result.status).toBe('failed')
+    expect(result.report).toContain('merge-commit:')
+    expect(result.report).toContain('(merge topic)')
+  })
+
+  it.for([
+    'wrong-first-parent',
+    'wrong-upstream-parent',
+    'entry-at-cutoff',
+    'entry-after-cutoff',
+    'ordinary-commit',
+    'off-chain-cutoff',
+    'missing-cutoff',
+    'missing-merge',
+  ] as const)('rejects %s even though the current upstream base is merged', (kind, test) => {
+    const fixture = upstreamMergeFixture(test)
+    if (kind === 'wrong-first-parent') fixture.manifest.entries[0]!.firstParent = fixture.base
+    if (kind === 'wrong-upstream-parent') fixture.manifest.entries[0]!.upstream = fixture.secondUpstream
+    if (kind === 'entry-at-cutoff') fixture.manifest.entries[0]!.commit = fixture.cutoff
+    if (kind === 'entry-after-cutoff') fixture.manifest.entries[0]!.commit = fixture.head
+    if (kind === 'ordinary-commit') fixture.manifest.entries[0]!.commit = fixture.firstParent
+    if (kind === 'off-chain-cutoff') fixture.manifest.cutoff = fixture.firstUpstream
+    if (kind === 'missing-cutoff') fixture.manifest.cutoff = '0'.repeat(40)
+    if (kind === 'missing-merge') fixture.manifest.entries[0]!.commit = '0'.repeat(40)
+    fixture.save()
+    const result = runCheck(fixture.root)
+    expect(result.status).toBe('failed')
+    expect(result.report).toContain(kind.startsWith('missing-') ? 'cat-file -t' : 'upstream-merges-invalid:')
+  })
+
+  it('rejects an approved octopus whose second parent is a valid upstream ancestor', (test) => {
+    const fixture = repository(test)
+    const firstParent = fixture.record('registry\n\nPatch: alpha-seam')
+    const firstUpstream = upstreamCommit(fixture, fixture.base, 'first-unreleased')
+    fixture.git(['checkout', '--quiet', '-b', 'topic'])
+    fixture.write('alpha/topic.md', 'topic\n')
+    fixture.record('untrailed topic')
+    fixture.git(['checkout', '--quiet', LINE])
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', 'merge octopus', firstUpstream, 'topic'])
+    const octopus = fixture.git(['rev-parse', 'HEAD'])
+    const cutoff = fixture.record('cutoff\n\nPatch: alpha-seam')
+    const secondUpstream = upstreamCommit(fixture, firstUpstream, 'second-unreleased')
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', 'merge second', secondUpstream])
+    fixture.write(
+      REGISTRY_PATH,
+      registryForCommit(secondUpstream).replace('`alpha/**` ', `\`alpha/**\` \`${CORE_PATCHES_UPSTREAM_MERGES_PATH}\` `),
+    )
+    fixture.write(CORE_PATCHES_UPSTREAM_MERGES_PATH, JSON.stringify({
+      version: 1,
+      cutoff,
+      entries: [{ commit: octopus, firstParent, upstream: firstUpstream, reason: 'Attempt to approve octopus' }],
+    }))
+    fixture.record('declare second\n\nPatch: alpha-seam')
+    expect(runCheck(fixture.root)).toMatchObject({
+      status: 'failed',
+      report: expect.stringContaining('does not have exactly the declared first and upstream parents') as string,
+    })
+    expect(lineMerges(
+      fixture.root,
+      secondUpstream,
+      releaseCommits(fixture.root),
+      secondUpstream,
+      new Set([octopus]),
+    )[0]!.mergesHistoricalUpstream).toBeUndefined()
+  })
+
+  it('rejects a historical upstream parent outside the declared base ancestry', (test) => {
+    const fixture = repository(test)
+    const firstParent = fixture.record('registry\n\nPatch: alpha-seam')
+    const sideUpstream = upstreamCommit(fixture, fixture.base, 'side-unreleased')
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', 'merge side', sideUpstream])
+    const sideMerge = fixture.git(['rev-parse', 'HEAD'])
+    const cutoff = fixture.record('cutoff\n\nPatch: alpha-seam')
+    const baseUpstream = upstreamCommit(fixture, fixture.base, 'other-base')
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', 'merge base', baseUpstream])
+    fixture.write(
+      REGISTRY_PATH,
+      registryForCommit(baseUpstream).replace('`alpha/**` ', `\`alpha/**\` \`${CORE_PATCHES_UPSTREAM_MERGES_PATH}\` \`upstream/**\` `),
+    )
+    fixture.write(CORE_PATCHES_UPSTREAM_MERGES_PATH, JSON.stringify({
+      version: 1,
+      cutoff,
+      entries: [{ commit: sideMerge, firstParent, upstream: sideUpstream, reason: 'Non-ancestor upstream' }],
+    }))
+    fixture.record('declare other base\n\nPatch: alpha-seam')
+    expect(runCheck(fixture.root)).toMatchObject({
+      status: 'failed',
+      report: expect.stringContaining('upstream parent is not an ancestor of the current base') as string,
+    })
+  })
+
+  it.for(['cutoff', 'commit'] as const)('requires upstream-merge %s to identify a real commit object', (field, test) => {
+    const fixture = upstreamMergeFixture(test)
+    fixture.git(['tag', '-a', 'upstream-merge-tag', '-m', 'upstream merge tag'])
+    for (const value of [
+      fixture.git(['rev-parse', 'HEAD:base.md']),
+      fixture.git(['rev-parse', 'HEAD^{tree}']),
+      fixture.git(['rev-parse', 'refs/tags/upstream-merge-tag']),
+    ]) {
+      if (field === 'cutoff') fixture.manifest.cutoff = value
+      else fixture.manifest.entries[0]!.commit = value
+      fixture.save()
+      expect(runCheck(fixture.root)).toMatchObject({
+        status: 'failed',
+        report: expect.stringContaining('is not a commit object') as string,
+      })
+    }
+  })
+
+  it('validates historical approvals even after they leave the current diff range', (test) => {
+    const fixture = upstreamMergeFixture(test)
+    fixture.write('alpha/a.md', 'updated alpha\n')
+    fixture.write(REGISTRY_PATH, registryForCommit(fixture.head))
+    fixture.record('advance base past merge\n\nPatch: alpha-seam')
+    expect(lineMerges(fixture.root, fixture.head, releaseCommits(fixture.root), fixture.head)).toEqual([])
+    expect(runCheck(fixture.root).status).toBe('ok')
+    fixture.manifest.entries[0]!.firstParent = fixture.base
+    fixture.save()
+    expect(runCheck(fixture.root)).toMatchObject({
+      status: 'failed',
+      report: expect.stringContaining('does not have exactly the declared first and upstream parents') as string,
+    })
+  })
+
+  it.for(['line', 'other', 'detached', 'shallow'] as const)(
+    'fails closed on a malformed upstream-merge manifest before branch skips: %s', (mode, test) => {
+      const fixture = upstreamMergeFixture(test)
+      if (mode === 'other') fixture.git(['checkout', '--quiet', '-b', 'develop'])
+      if (mode === 'detached') fixture.git(['checkout', '--quiet', '--detach'])
+      let root = fixture.root
+      if (mode === 'shallow') {
+        root = join(fixture.root, 'shallow-clone')
+        fixture.git(['clone', '--quiet', '--depth', '1', `file://${fixture.root}`, root])
+      }
+      writeFileSync(join(root, CORE_PATCHES_UPSTREAM_MERGES_PATH), '{"version":1}')
+      expect(runCheck(root)).toMatchObject({
+        status: 'failed',
+        report: expect.stringContaining('upstream-merges-invalid:') as string,
+      })
+    },
+  )
+
+  it('treats a non-file upstream-merge manifest as a read failure even off the patch line', (test) => {
+    const fixture = repository(test)
+    fixture.record('registry\n\nPatch: alpha-seam')
+    fixture.git(['checkout', '--quiet', '-b', 'develop'])
+    mkdirSync(join(fixture.root, CORE_PATCHES_UPSTREAM_MERGES_PATH))
+    expect(runCheck(fixture.root)).toMatchObject({
+      status: 'failed',
+      report: expect.stringContaining('upstream-merges-invalid:') as string,
+    })
   })
 })
 

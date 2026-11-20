@@ -165,7 +165,7 @@ describe('SearchPanel keyboard', () => {
 
   it('reports every keystroke so the plugin body can debounce the read', () => {
     const setQuery = vi.fn()
-    render(<SearchPanel {...props(state(), { setQuery })} />)
+    render(<SearchPanel {...props(state({ query: '' }), { setQuery })} />)
     fireEvent.change(field(), { target: { value: '分页' } })
     expect(setQuery).toHaveBeenCalledWith('分页')
   })

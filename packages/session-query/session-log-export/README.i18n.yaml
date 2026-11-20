@@ -35,9 +35,12 @@
 /deepseek-ai-dsh-session-log-export/use-this-package/command-contract:
   en: 26329688b9a924a7
   zh: 94e21c10fdcfc1ac
+/deepseek-ai-dsh-session-log-export/use-this-package/route-response-fields:
+  en: b1c524c5adae4cb3
+  zh: 240eab78e70beb82
 /deepseek-ai-dsh-session-log-export/use-this-package/what-to-expect:
-  en: 737aadb8946182da
-  zh: 1e4a1c16b6f8b18a
+  en: 37a040522bc0f67d
+  zh: 3a3b8b929de3c937
 /deepseek-ai-dsh-session-log-export/use-this-package/failures:
   en: 355facfc072eb15d
   zh: bd7686d16d933eae
@@ -45,11 +48,11 @@
   en: 7cb82a6851405f95
   zh: b8c525170d19dc6c
 /deepseek-ai-dsh-session-log-export/understand-the-implementation/design-split:
-  en: a1a931677dabc1aa
-  zh: d4bd10bde23c14e9
+  en: abacd7989142b406
+  zh: 13383dcb2c3479e3
 /deepseek-ai-dsh-session-log-export/understand-the-implementation/download-flow:
-  en: 00002fe0448b1654
-  zh: 9d8f88e42d88fd15
+  en: ed2038cf67d63adb
+  zh: 981d69f508bbad48
 /deepseek-ai-dsh-session-log-export/understand-the-implementation/markdown-copy-flow:
   en: d4e02b56ffb8ee8a
   zh: 0a329039788a13ee
@@ -72,8 +75,8 @@
   en: 61e7dbf79010d071
   zh: 29294355598c0476
 /deepseek-ai-dsh-session-log-export/known-limitations-and-deferred-work:
-  en: 961c206403204080
-  zh: c0cea2c965cc0b1b
+  en: b60a01e116ee7581
+  zh: 46becbab0f6d4c95
 /deepseek-ai-dsh-session-log-export/known-limitations-and-deferred-work/dev-note:
   en: 4ee4d24c26c127bf
   zh: 1facdfbfa3ccefbc

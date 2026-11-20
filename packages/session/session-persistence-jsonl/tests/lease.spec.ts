@@ -442,14 +442,14 @@ describe('cross-process write lock', () => {
     const root = await freshRoot()
     const dir = join(root, 'raced')
     refuse.einvalLockOpen = 'removing'
-    await expect(SessionWriteLease.acquire(dir, SessionId('raced'))).rejects.toMatchObject({ code: 'ENOENT', path: dir })
+    await expect(SessionWriteLease.acquire(dir, brandString<SessionId>('raced'))).rejects.toMatchObject({ code: 'ENOENT', path: dir })
     // The directory exists, or cannot be inspected: the EINVAL stands.
     refuse.einvalLockOpen = 'keeping'
-    await expect(SessionWriteLease.acquire(dir, SessionId('raced'))).rejects.toMatchObject({ code: 'EINVAL' })
+    await expect(SessionWriteLease.acquire(dir, brandString<SessionId>('raced'))).rejects.toMatchObject({ code: 'EINVAL' })
     refuse.einvalLockOpen = 'keeping'
     refuse.deniedStat = dir
-    await expect(SessionWriteLease.acquire(dir, SessionId('raced'))).rejects.toMatchObject({ code: 'EINVAL' })
-    const lease = await SessionWriteLease.acquire(dir, SessionId('raced'))
+    await expect(SessionWriteLease.acquire(dir, brandString<SessionId>('raced'))).rejects.toMatchObject({ code: 'EINVAL' })
+    const lease = await SessionWriteLease.acquire(dir, brandString<SessionId>('raced'))
     await lease.release()
   })
 

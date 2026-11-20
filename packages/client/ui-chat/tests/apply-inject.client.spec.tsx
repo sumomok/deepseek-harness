@@ -537,9 +537,9 @@ describe('Chat inject API', () => {
     await b.runtime.sessions.setProjection(ROOT, 'workingDirectory', '/proj/child')
     await injected.openFile('src/a.ts')
     await injected.openFile('src/a.ts', { line: 12 })
-    // An absolute path keeps its own spelling whatever the current directory.
+    // An absolute path outside the current directory keeps its absolute spelling in the address.
     await injected.openFile('/proj/top.ts')
-    // Outside the header workspace the address keeps the absolute path.
+    // Moving to a working directory outside the header workspace still addresses relative paths under that directory.
     await b.runtime.sessions.setProjection(ROOT, 'workingDirectory', '/tmp/wt')
     await injected.openFile('notes.md', { line: 3 })
     // A null projection means no recorded directory: back to the header.
@@ -550,10 +550,10 @@ describe('Chat inject API', () => {
     ])
     expect(b.sidebarRight.openResource.mock.calls).toEqual([
       ['dsh-resource://file/session/root-1/src/a.ts'],
-      ['dsh-resource://file/session/root-1/child/src/a.ts'],
-      ['dsh-resource://file/session/root-1/child/src/a.ts', { params: { line: 12 } }],
-      ['dsh-resource://file/session/root-1/top.ts'],
-      ['dsh-resource://file/session/root-1//tmp/wt/notes.md', { params: { line: 3 } }],
+      ['dsh-resource://file/session/root-1/src/a.ts'],
+      ['dsh-resource://file/session/root-1/src/a.ts', { params: { line: 12 } }],
+      ['dsh-resource://file/session/root-1//proj/top.ts'],
+      ['dsh-resource://file/session/root-1/notes.md', { params: { line: 3 } }],
       ['dsh-resource://file/session/root-1/src/a.ts'],
     ])
     await b.runtime.dispose()
@@ -580,8 +580,8 @@ describe('Chat inject API', () => {
     await injected.openFile('a.ts')
     expect(targets).toEqual(['C:\\proj\\child\\src\\a.ts', 'D:\\wt\\a.ts'])
     expect(b.sidebarRight.openResource.mock.calls).toEqual([
-      ['dsh-resource://file/session/root-win/child/src/a.ts', { params: { line: 2 } }],
-      ['dsh-resource://file/session/root-win/D:/wt/a.ts'],
+      ['dsh-resource://file/session/root-win/src/a.ts', { params: { line: 2 } }],
+      ['dsh-resource://file/session/root-win/a.ts'],
     ])
     await b.runtime.dispose()
   })

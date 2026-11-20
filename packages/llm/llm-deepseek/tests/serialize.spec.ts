@@ -122,7 +122,7 @@ describe('Messages request conversion', () => {
     })
 
     it.each(['off', 'low', 'high', 'max'])('maps the same tool_choice at reasoning effort %s', (effort) => {
-      const request = body([user()], { tools: [verdict], toolChoice: { type: 'any' }, reasoningEffort: ReasoningEffortId(effort) })
+      const request = body([user()], { tools: [verdict], toolChoice: { type: 'any' }, reasoningEffort: brandString<ReasoningEffortId>(effort) })
       expect(request.tool_choice).toEqual({ type: 'any' })
       expect(request.thinking).toEqual({ type: effort === 'off' ? 'disabled' : 'enabled' })
     })
