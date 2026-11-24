@@ -141,7 +141,10 @@ async function bench(snapshot: ChatSnapshot) {
   ctx.provide('layout', layout as never)
   const sidebarRight = { openResource: vi.fn<(address: string) => void>() }
   ctx.provide('sidebarRight', sidebarRight as never)
-  ctx.provide('uiWorkspace', {} as never)
+  ctx.provide('uiWorkspace', {
+    revealSource: () => ({ getSnapshot: () => null, subscribe: () => () => {} }),
+    settleReveal: vi.fn(),
+  } as never)
   runtime.remote.provideNamespaces({ session: { openWorkspacePath } })
   const locale = new LocaleRuntime(ctx)
   ctx.provide('locale', locale)
