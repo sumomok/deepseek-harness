@@ -4,7 +4,7 @@
 
 **当前补丁线**：`feature/core-patches`。
 
-**基座 commit**：`2e39e70496aa02986ca6a820c5d497e816b69d7e`
+**基座 tag**：`dsh-v0.2.3-alpha.2`
 
 上面两行是门禁读的声明。`基座 tag` 与 `基座 commit` 必须恰好声明其中一种：tag 按 `refs/tags/<tag>^{commit}` 解析；commit 必须是仓库内真实提交的完整 40 位小写 SHA，不接受 tag 对象、缩写或 Git 修订表达式。`git merge-base HEAD <base>` 必须等于该提交，即声明的上游基准已经并进本线。当前 commit 基准对应本轮合并的未发布 master；移动 master 引用不改变该声明。2026-11-05 的核心线恢复把旧核心的改动按 922 条路径分类重新投影到 `dsh-v0.2.2-alpha.2` 上，再用 `-s ours` 接回旧核心的历史；投影进来的路径由 `core-layer-recovery` 与四个恢复族认领。随后 `dsh-v0.2.2-rc.1` 用 `git merge` 并入本线。本线由 `core-patches-v11` 用 `-s ours` 合并 tag `core-patches-z` 接续，不再变基；`core-patches-v9` 与旧的 `core-patches` 线经 `core-patches-z` 并入了历史。上游发布用 `git merge` 并入本线；`core-patches` 只从本线快进，`develop` 与 `product/server-console` 只通过合并 `core-patches` 取得核心改动。
 

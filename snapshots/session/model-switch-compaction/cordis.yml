@@ -10,7 +10,7 @@
         contextWindow: 100000
         maxTokens: 1000
       - id: deepseek-v4-pro
-        contextWindow: 9112
+        contextWindow: 9400
         maxTokens: 1000
 
 - id: compaction-basic

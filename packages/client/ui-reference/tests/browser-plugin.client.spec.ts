@@ -956,7 +956,7 @@ describe('reference preview', () => {
     await factory(sid('in-project')).openFile('claimed.md')
     expect(openResource).not.toHaveBeenCalled()
     await factory(sid('in-project')).openFile('docs/a b.md')
-    expect(openResource.mock.calls).toEqual([['dsh-resource://file/session/in-project/docs/a%20b.md']])
+    expect(openResource.mock.calls).toEqual([['dsh-resource://file/session/in-project//proj/docs/a%20b.md']])
     expect(seen).toEqual([
       {
         kind: 'file', target: '/proj/claimed.md', raw: 'claimed.md', sessionId: 'in-project',
@@ -999,12 +999,12 @@ describe('reference preview', () => {
       '/proj/notes.md', '/proj/child/notes.md', '/proj/top.md', '/proj/child/nested.md', '/tmp/wt/docs/a b.md', '/proj/notes.md',
     ])
     expect(openResource.mock.calls).toEqual([
-      ['dsh-resource://file/session/in-project/notes.md'],
-      ['dsh-resource://file/session/in-project/notes.md'],
+      ['dsh-resource://file/session/in-project//proj/notes.md'],
+      ['dsh-resource://file/session/in-project//proj/child/notes.md'],
       ['dsh-resource://file/session/in-project//proj/top.md'],
-      ['dsh-resource://file/session/in-project/nested.md'],
-      ['dsh-resource://file/session/in-project/docs/a%20b.md'],
-      ['dsh-resource://file/session/in-project/notes.md'],
+      ['dsh-resource://file/session/in-project//proj/child/nested.md'],
+      ['dsh-resource://file/session/in-project//tmp/wt/docs/a%20b.md'],
+      ['dsh-resource://file/session/in-project//proj/notes.md'],
     ])
   })
 
@@ -1027,8 +1027,8 @@ describe('reference preview', () => {
     await factory(sid('win')).openFile('C:\\proj\\a.md')
     expect(seen).toEqual(['C:\\proj\\child\\notes\\a.md', 'C:\\proj\\a.md'])
     expect(openResource.mock.calls).toEqual([
-      ['dsh-resource://file/session/win/notes/a.md'],
-      ['dsh-resource://file/session/win/notes/b.md'],
+      ['dsh-resource://file/session/win/C:/proj/child/notes/a.md'],
+      ['dsh-resource://file/session/win/C:/proj/child/notes/b.md'],
       ['dsh-resource://file/session/win/C:/proj/a.md'],
     ])
   })
@@ -1045,8 +1045,8 @@ describe('reference preview', () => {
     await sessions.setProjection('in-project', 'workingDirectory', '/elsewhere')
     expect(source.openReference?.(composer, { ref: '@/proj/notes.md', appearance: 'file' })).toBe(true)
     expect(openResource.mock.calls).toEqual([
-      ['dsh-resource://file/session/in-project/notes.md'],
-      ['dsh-resource://file/session/in-project/a%20b.md'],
+      ['dsh-resource://file/session/in-project//proj/notes.md'],
+      ['dsh-resource://file/session/in-project//proj/child/a%20b.md'],
       ['dsh-resource://file/session/in-project//proj/notes.md'],
     ])
   })

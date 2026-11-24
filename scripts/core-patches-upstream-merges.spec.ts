@@ -3,6 +3,8 @@ import { parseCorePatchesUpstreamMerges } from './core-patches-upstream-merges.t
 
 const cutoff = 'ab'.repeat(20)
 const entry = { commit: 'cd'.repeat(20), firstParent: 'ef'.repeat(20), upstream: 'ad'.repeat(20), reason: 'Retain the exact prior upstream merge approval' }
+const secondEntry = { commit: 'bc'.repeat(20), firstParent: 'de'.repeat(20), upstream: 'fa'.repeat(20), reason: 'Retain the second prior upstream merge approval' }
+const thirdEntry = { commit: '12'.repeat(20), firstParent: '34'.repeat(20), upstream: '56'.repeat(20), reason: 'Exceeds the two-entry cap' }
 const manifest = { version: 1, cutoff, entries: [entry] }
 
 describe('bounded upstream merge manifest', () => {
@@ -12,6 +14,20 @@ describe('bounded upstream merge manifest', () => {
     expect(parsed.manifest).toEqual(manifest)
     expect(parsed.error).toBeNull()
     expect(parsed.referenceTokens.map(token => token.value)).toEqual([cutoff, entry.commit, entry.firstParent, entry.upstream])
+    for (const token of parsed.referenceTokens) expect(JSON.parse(source.slice(token.start, token.end))).toBe(token.value)
+  })
+
+  it('accepts two distinct historical merges and exempts all their identity tokens', () => {
+    const two = { version: 1, cutoff, entries: [entry, secondEntry] }
+    const source = JSON.stringify(two, null, 2)
+    const parsed = parseCorePatchesUpstreamMerges(source)
+    expect(parsed.manifest).toEqual(two)
+    expect(parsed.error).toBeNull()
+    expect(parsed.referenceTokens.map(token => token.value)).toEqual([
+      cutoff,
+      entry.commit, entry.firstParent, entry.upstream,
+      secondEntry.commit, secondEntry.firstParent, secondEntry.upstream,
+    ])
     for (const token of parsed.referenceTokens) expect(JSON.parse(source.slice(token.start, token.end))).toBe(token.value)
   })
 
@@ -29,6 +45,7 @@ describe('bounded upstream merge manifest', () => {
     { ...manifest, version: '1' }, { ...manifest, version: 2 },
     { ...manifest, extra: true }, { cutoff, entries: [entry] },
     { ...manifest, entries: [] }, { ...manifest, entries: [entry, entry] },
+    { ...manifest, entries: [entry, secondEntry, thirdEntry] },
     { ...manifest, entries: null }, { ...manifest, entries: [null] },
     { ...manifest, entries: [{ ...entry, extra: true }] },
     { ...manifest, entries: [{ commit: entry.commit, firstParent: entry.firstParent, upstream: entry.upstream }] },

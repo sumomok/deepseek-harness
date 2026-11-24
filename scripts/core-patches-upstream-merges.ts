@@ -17,13 +17,13 @@ export interface HistoricalUpstreamMerge {
   reason: string
 }
 
-/** The current migration approves one historical merge, independently of trailer identities. */
+/** Version one permits one to two historical merge approvals, independently of trailer identities. */
 export interface CorePatchesUpstreamMerges {
   /** Supported manifest version. */
   version: 1
   /** First-parent commit strictly after every approved merge. */
   cutoff: string
-  /** Exactly one approval for this historical migration. */
+  /** Explicit approvals (one to two unique merge commits). */
   entries: HistoricalUpstreamMerge[]
 }
 
@@ -75,18 +75,25 @@ export function parseCorePatchesUpstreamMerges(source: string): UpstreamMergesPa
     const version = fields.get('version')
     if (version === undefined || !ts.isNumericLiteral(version) || Number(version.text) !== 1) throw new Error('version must be 1')
     const cutoff = string(fields.get('cutoff'), 'cutoff (full lowercase commit SHA required)', true)
-    const entries = fields.get('entries')
-    if (entries === undefined || !ts.isArrayLiteralExpression(entries) || entries.elements.length !== 1) {
-      throw new Error('entries must contain exactly one historical upstream merge')
+    const entriesNode = fields.get('entries')
+    if (entriesNode === undefined || !ts.isArrayLiteralExpression(entriesNode)
+      || entriesNode.elements.length < 1 || entriesNode.elements.length > 2) {
+      throw new Error('entries must contain one to two historical upstream merges')
     }
-    const entry = object(entries.elements[0], ['commit', 'firstParent', 'upstream', 'reason'])
-    const approved: HistoricalUpstreamMerge = {
-      commit: string(entry.get('commit'), 'commit (full lowercase commit SHA required)', true),
-      firstParent: string(entry.get('firstParent'), 'firstParent (full lowercase commit SHA required)', true),
-      upstream: string(entry.get('upstream'), 'upstream (full lowercase commit SHA required)', true),
-      reason: string(entry.get('reason'), 'reason'),
-    }
-    return { manifest: { version: 1, cutoff, entries: [approved] }, referenceTokens: references, stringTokens, error: null }
+    const commits = new Set<string>()
+    const entries = entriesNode.elements.map((node): HistoricalUpstreamMerge => {
+      const entry = object(node, ['commit', 'firstParent', 'upstream', 'reason'])
+      const commit = string(entry.get('commit'), 'commit (full lowercase commit SHA required)', true)
+      if (commits.has(commit)) throw new Error('duplicate commit')
+      commits.add(commit)
+      return {
+        commit,
+        firstParent: string(entry.get('firstParent'), 'firstParent (full lowercase commit SHA required)', true),
+        upstream: string(entry.get('upstream'), 'upstream (full lowercase commit SHA required)', true),
+        reason: string(entry.get('reason'), 'reason'),
+      }
+    })
+    return { manifest: { version: 1, cutoff, entries }, referenceTokens: references, stringTokens, error: null }
   } catch (cause) {
     return { manifest: null, referenceTokens: [], stringTokens, error: cause instanceof Error ? cause.message : String(cause) }
   }

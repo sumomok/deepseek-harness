@@ -627,12 +627,12 @@ describe('Chat inject API', () => {
       '/proj/src/a.ts', '/proj/child/src/a.ts', '/proj/child/src/a.ts', '/proj/top.ts', '/tmp/wt/notes.md', '/proj/src/a.ts',
     ])
     expect(b.sidebarRight.openResource.mock.calls).toEqual([
-      ['dsh-resource://file/session/root-1/src/a.ts'],
-      ['dsh-resource://file/session/root-1/src/a.ts'],
-      ['dsh-resource://file/session/root-1/src/a.ts', { params: { line: 12 } }],
+      ['dsh-resource://file/session/root-1//proj/src/a.ts'],
+      ['dsh-resource://file/session/root-1//proj/child/src/a.ts'],
+      ['dsh-resource://file/session/root-1//proj/child/src/a.ts', { params: { line: 12 } }],
       ['dsh-resource://file/session/root-1//proj/top.ts'],
-      ['dsh-resource://file/session/root-1/notes.md', { params: { line: 3 } }],
-      ['dsh-resource://file/session/root-1/src/a.ts'],
+      ['dsh-resource://file/session/root-1//tmp/wt/notes.md', { params: { line: 3 } }],
+      ['dsh-resource://file/session/root-1//proj/src/a.ts'],
     ])
     await b.runtime.dispose()
   })
@@ -658,8 +658,8 @@ describe('Chat inject API', () => {
     await injected.openFile('a.ts')
     expect(targets).toEqual(['C:\\proj\\child\\src\\a.ts', 'D:\\wt\\a.ts'])
     expect(b.sidebarRight.openResource.mock.calls).toEqual([
-      ['dsh-resource://file/session/root-win/src/a.ts', { params: { line: 2 } }],
-      ['dsh-resource://file/session/root-win/a.ts'],
+      ['dsh-resource://file/session/root-win/C:/proj/child/src/a.ts', { params: { line: 2 } }],
+      ['dsh-resource://file/session/root-win/D:/wt/a.ts'],
     ])
     await b.runtime.dispose()
   })

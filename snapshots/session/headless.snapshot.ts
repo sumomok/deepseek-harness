@@ -64,11 +64,13 @@ const tsconfigPath = join(repoRoot, 'tsconfig.json')
 /** Scenarios whose read results persist provider version tokens. */
 const fileVersionScenarios = new Set([
   'agent-instructions', 'agent-instructions-budget', 'agent-instructions-budget-chains', 'agent-instructions-group-failure',
-  'apply-patch-rejected', 'apply-patch-update', 'deepseek-messages-system-prompt', 'deepseek-protocol-system-prompt',
-  'dsh-doc-load', 'dynamic-tool-prompt-updates', 'dynamic-tool-updates', 'fs-delete-recreate', 'fs-edit', 'fs-read',
-  'fs-read-window', 'fs-same-mode-empty-justification', 'fs-write-overwrite', 'fs-write-overwrite-bounded',
-  'in-history-series-start', 'parallel-tool-calls', 'pi-ai-conversation-updates', 'ptc-node-workspace',
-  'ptc-workspace-context', 'subagent-archive-lineage', 'system-prompt-in-history', 'worktree',
+  'apply-patch-rejected', 'apply-patch-update', 'complete-prompt-in-history', 'deepseek-messages-system-prompt',
+  'deepseek-protocol-system-prompt', 'dsh-doc-load', 'dynamic-tool-prompt-updates', 'dynamic-tool-updates',
+  'fs-delete-recreate', 'fs-edit', 'fs-read', 'fs-read-window', 'fs-same-mode-empty-justification',
+  'fs-write-overwrite', 'fs-write-overwrite-bounded', 'in-history-series-start', 'parallel-tool-calls',
+  'persona-section-overrides', 'pi-ai-conversation-updates', 'ptc-node-workspace', 'ptc-node-workspace-scoped',
+  'ptc-workspace-context', 'ptc-workspace-context-scoped', 'scoped-section-overrides', 'subagent-archive-lineage',
+  'system-prompt-in-history', 'worktree',
 ])
 
 type SnapshotMode = 'replay' | 'record' | 'refresh'

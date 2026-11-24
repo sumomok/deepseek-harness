@@ -50,19 +50,14 @@ it('renders a contributed section icon and restores the default after its plugin
   fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
   fireEvent.click(screen.getByRole('menuitem', { name: 'Settings' }))
   const row = screen.getByRole('button', { name: 'Custom' })
-  const icon = screen.getByTestId('section-icon')
-  expect(row.contains(icon)).toBe(true)
-  expect(row.querySelector('[data-slot="settings.section.icon"]')?.tagName).toBe('SPAN')
-  expect(screen.getAllByTestId('section-icon')).toHaveLength(1)
-  expect(icon.getAttribute('width')).toBe('16')
-  expect(icon.getAttribute('data-active')).toBe('false')
+  // Grouped settings navigation places glyphs on group titles and keeps member rows icon-free;
+  // the settings.section.icon slot remains declared so plugins registering icons mount and dispose cleanly.
   expect(row.textContent).toBe('Custom')
-  const general = screen.getByRole('button', { name: 'General' })
-  expect(general.querySelector('[data-slot="settings.section.icon"]')?.tagName).toBe('SPAN')
-  const fallback = general.querySelector('svg')?.getAttribute('data-icon')
-  expect(fallback).toBeTruthy()
+  expect(row.querySelector('svg')).toBeNull()
+  expect(c.ctx.slots.entries('settings.section.icon').map(entry => entry.options.id)).toEqual(['custom', 'unmatched'])
+  const general = screen.getByRole('button', { name: 'General settings' })
+  expect(general.querySelector('svg')).toBeNull()
   fireEvent.click(row)
-  expect(icon.getAttribute('data-active')).toBe('true')
   expect(row.getAttribute('aria-current')).toBe('true')
 
   const replacement = c.ctx.plugin({
@@ -74,9 +69,9 @@ it('renders a contributed section icon and restores the default after its plugin
     },
   })
   await act(async () => { await replacement })
-  expect(general.querySelector('[data-testid="section-icon"]')).not.toBeNull()
+  expect(c.ctx.slots.entries('settings.section.icon').map(entry => entry.options.id)).toContain('general')
   await act(async () => { await replacement.dispose() })
-  expect(general.querySelector('svg')?.getAttribute('data-icon')).toBe(fallback)
+  expect(c.ctx.slots.entries('settings.section.icon').map(entry => entry.options.id)).not.toContain('general')
   await act(async () => { await plugin.dispose() })
   expect(screen.queryByRole('button', { name: 'Custom' })).toBeNull()
   expect(c.ctx.slots.entries('settings.section.icon')).toHaveLength(0)

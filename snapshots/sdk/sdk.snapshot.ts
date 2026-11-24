@@ -447,7 +447,7 @@ function assembledSystem(log: PersistedLog): string {
     .find(candidate => candidate.type === 'system/message')
   const content = event?.data?.message?.content
   if (content === undefined) throw new Error('session log has no system/message text')
-  return content.map(block => block.text).join('')
+  return content.map(block => block.text).join('\n\n')
 }
 
 function assembledRuntimeContexts(log: PersistedLog): string[] {

@@ -1,12 +1,18 @@
 {
   "version": 1,
-  "cutoff": "d0c7f7987df6e978e19b402f5a63b69e251dc1fb",
+  "cutoff": "bb6496ee206050fafbd9ba56e859cc8c3e859692",
   "entries": [
     {
       "commit": "f2def4f9f6edfd4847b8a428465f8aa0c557bdce",
       "firstParent": "f5e9e50b8a72a49d93ca4698017aba480508b479",
       "upstream": "e8f7b93a344964de3dca1ace9e72b6e4d6de87cb",
       "reason": "Retain the exact previously accepted two-parent master merge when the upstream base advances, without rewriting history or approving unlisted ancestors."
+    },
+    {
+      "commit": "9deee1f027613c83d030e01da14fbe00de20472d",
+      "firstParent": "d0c7f7987df6e978e19b402f5a63b69e251dc1fb",
+      "upstream": "2e39e70496aa02986ca6a820c5d497e816b69d7e",
+      "reason": "Retain the exact previously accepted two-parent master merge at 0.2.2-rc.5 when advancing to the dsh-v0.2.3-alpha.2 release tag, without rewriting history or approving unlisted ancestors."
     }
   ]
 }

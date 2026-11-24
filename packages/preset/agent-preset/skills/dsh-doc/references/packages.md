@@ -84,7 +84,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-client-ui-approval` | no | Approval composer takeover over the scoped Remote Event waterfall |
 | `@deepseek-ai/dsh-client-ui-attachment` | no | Dynamic attachment presentation plugin for conversation input, message-image, and trajectory image slots |
 | `@deepseek-ai/dsh-client-ui-brand-official` | no | Official DeepSeek Harness brand artwork and click-triggered home background |
-| `@deepseek-ai/dsh-client-ui-chat` | no | Chat Conversation target, node definitions, renderers, and details surface |
+| `@deepseek-ai/dsh-client-ui-chat` | yes | Chat Conversation target, node definitions, renderers, and details surface |
 | `@deepseek-ai/dsh-client-ui-commands` | no | Client command surface: global directory cache, '/' source, three command UI kinds, popupSelect registry |
 | `@deepseek-ai/dsh-client-ui-connector-account` | no | Connector account surfaces: the Host registry CLI app plugins and MCP connectors register their accounts with, and the Plugins page section, title tag, activation prompt, and notices it serves over one Remote |
 | `@deepseek-ai/dsh-client-ui-context-menu` | yes | Typed, plugin-extensible context menus with captured targets and shared Web presentation |
@@ -108,9 +108,10 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-client-ui-plugin-manager` | yes | Plugin management for the dsh web client: the sidebar Plugins panel installs, enables, disables, retries, and composes installed plugin packages |
 | `@deepseek-ai/dsh-client-ui-plugin-market` | no | Discover tab of the dsh web Plugins page: browse configured plugin market indexes and install their bundles |
 | `@deepseek-ai/dsh-client-ui-plugin-recommendations` | no | Official plugin card body with catalog text and enabling |
-| `@deepseek-ai/dsh-client-ui-reference` | no | Unified Web @file and @session reference source |
+| `@deepseek-ai/dsh-client-ui-reference` | no | Unified Web @file, @workspace, and @session reference source |
 | `@deepseek-ai/dsh-client-ui-renderer` | no | Browser UI renderer: React slot bindings, ctx.uiRenderer, and the assembled application root |
 | `@deepseek-ai/dsh-client-ui-schedule` | no | Host task management page and Session reminder catalog |
+| `@deepseek-ai/dsh-client-ui-search` | no | Workspace-wide message search panel: cursor-paged Host full-text results with matched-span highlighting |
 | `@deepseek-ai/dsh-client-ui-secret-mask` | no | Web display masking for recognized credentials in sent user text |
 | `@deepseek-ai/dsh-client-ui-session` | no | Session Controller adapter for React and session-scoped slots |
 | `@deepseek-ai/dsh-client-ui-session-panel` | no | Floating Session panel opened from the Session header, composed of sections that plugins register |
@@ -147,6 +148,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-command-compact` | no | Human-facing slash command for explicit session compaction |
 | `@deepseek-ai/dsh-compaction-basic` | yes | Token-meter-driven compaction policy and LLM summarization backend for the DeepSeek Harness |
 | `@deepseek-ai/dsh-compaction-image-offload` | no | Durable image offload for image-capable routes: replace over-budget request images with placeholders and retry |
+| `@deepseek-ai/dsh-compaction-microcompact` | yes | Opt-in idle microcompaction that clears old tool results to addressable session sequences |
 | `@deepseek-ai/dsh-compaction-tool-result-pruner` | yes | Replay-safe model-free head/middle/tail pruning for tool-result surface nodes |
 
 ## computer-use
@@ -174,8 +176,10 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | Package | Config | Description |
 |---|---|---|
 | `@deepseek-ai/dsh-agent-instructions` | yes | Workspace context loader for AGENTS.md/CLAUDE.md instruction files |
+| `@deepseek-ai/dsh-compaction-rehydration` | no | Rebuild the task state a compaction checkpoint left behind |
 | `@deepseek-ai/dsh-file-reference-local` | yes | Local-filesystem ctx.fileReferences provider with bounded fuzzy indexes |
 | `@deepseek-ai/dsh-harness-dev-context` | no | Model context naming the DeepSeek Harness checkout and Web GUI URL without letting either change the system prompt |
+| `@deepseek-ai/dsh-session-memory-recall` | yes | Opt-in automatic recall of related prior Sessions in the same workspace |
 | `@deepseek-ai/dsh-session-reference` | yes | Cross-session snapshot references and durable untrusted model context (ctx.sessionReferenceResolver) |
 | `@deepseek-ai/dsh-time-context` | yes | Durable per-step context with the current time and elapsed time |
 | `@deepseek-ai/dsh-tmux-context` | yes | Opt-in durable per-step context with this agent's tmux pane and window location |

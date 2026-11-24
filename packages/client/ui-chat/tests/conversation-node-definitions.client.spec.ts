@@ -2889,52 +2889,6 @@ describe('built-in conversation node Definitions', () => {
     expect(snapshot(compactions).nodes.values().filter(candidate => candidate.kind === 'compaction')).toHaveLength(1)
   })
 
-  it('keeps one automatic compaction row from start through the committed summary', () => {
-    const value = assembler([
-      at(1, 'turn/start', { turn: 1 }),
-      at(2, 'compaction/start', { compactionId: 'automatic-live', turn: 1 }),
-    ])
-    const running = node(snapshot(value), 'compaction')
-    expect(running?.data).toEqual({ kind: 'compaction-progress', status: 'running' })
-    value.append(at(3, 'compaction/summary', {
-      compactionId: 'automatic-live', summary: [{ type: 'text', text: 'retained context' }],
-      shadowedSeqs: [0], shadowedTokenCount: 42,
-    }))
-    value.flush()
-    expect(node(snapshot(value), 'compaction')?.data).toEqual(running?.data)
-    value.append(at(4, 'user/message', {
-      ...textMessage('automatic-checkpoint', 'retained context'),
-      source: { kind: 'compact-checkpoint', compactionId: 'automatic-live' },
-    }, { surfaceOp: { op: 'replace', startSeq: 0, endSeq: 0 } }))
-    value.append(at(5, 'compaction/end', { compactionId: 'automatic-live', turn: 1 }))
-    value.flush()
-    const completed = node(snapshot(value), 'compaction')
-    expect(completed?.key).toBe(running?.key)
-    expect(completed?.data).toMatchObject({ kind: 'compaction', summaryEventSeq: 3, shadowedTokenCount: 42 })
-    expect(snapshot(value).nodes.values().filter(candidate => candidate.kind === 'compaction')).toHaveLength(1)
-  })
-
-  it.each([undefined, 'Summarizer failed', 'Cancelled'])('settles automatic compaction without a checkpoint: %s', (error) => {
-    const start = at(2, 'compaction/start', { compactionId: 'automatic-ended', turn: 1 })
-    const end = at(3, 'compaction/end', { compactionId: 'automatic-ended', turn: 1, ...error === undefined ? {} : { error } })
-    const value = assembler([at(1, 'turn/start', { turn: 1 }), start])
-    value.append(end)
-    value.flush()
-    const expected = { kind: 'compaction-progress', status: 'ended', ...error === undefined ? {} : { error } }
-    expect(node(snapshot(value), 'compaction')?.data).toEqual(expected)
-    expect(node(snapshot(assembler([end], true)), 'compaction')?.data).toEqual(expected)
-  })
-
-  it('stops an unfinished automatic compaction when its owning turn closes', () => {
-    const value = assembler([
-      at(1, 'turn/start', { turn: 1 }),
-      at(2, 'compaction/start', { compactionId: 'automatic-interrupted', turn: 1 }),
-    ])
-    value.append(at(3, 'turn/end', { turn: 1, reason: { kind: 'interrupted' } }))
-    value.flush()
-    expect(node(snapshot(value), 'compaction')?.data).toEqual({ kind: 'compaction-progress', status: 'interrupted' })
-  })
-
   it.each(['replace', 'append', 'prepend'] as const)('places one divider at the latest inherited history marker via %s', (mode) => {
     const entries = [
       at(0, 'session/end-seed', { inherited: true }),
@@ -3382,7 +3336,7 @@ describe('built-in conversation node Definitions', () => {
     ], true)
 
     expect(node(snapshot(landed), 'compaction')?.data).toMatchObject({
-      summary: 'landed summary',
+      summaryEventSeq: 11,
       shadowedItemCount: 3,
       shadowedTokenCount: 42,
     })

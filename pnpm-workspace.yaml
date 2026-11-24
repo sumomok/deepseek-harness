@@ -27,8 +27,8 @@ overrides:
   'dompurify': '^3.4.17'
   'fflate': '^0.8.3'
   'undici@6': '^6.29.1'
-  'undici@7': '^7.30.1'
-  'undici@8': '^8.12.2'
+  'undici@7': '^7.30.2'
+  'undici@8': '^8.12.4'
 
 peerDependencyRules:
   allowedVersions:
@@ -71,7 +71,6 @@ allowBuilds:
   # The Tencent Meeting plugin's CLI ships executable binaries; its install script only
   # restores their mode and runs `tmeet auth logout`, so repository installs skip it.
   '@tencentcloud/tmeet@1.0.18': false
-  electron: set this to true or false
 
 minimumReleaseAgeExclude:
   # Native Codex and Claude tests qualify this exact release with its local patches.
