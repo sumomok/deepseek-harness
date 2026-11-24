@@ -494,7 +494,7 @@ export class SessionInputShell implements SessionInput {
       return
     }
     // A reference annotates a prompt; on its own it leaves nothing to send.
-    if (before.phase === 'plain' && before.draft.trim() === '' && this.attachmentIds.length === references) return
+    if (before.phase === 'plain' && before.draft.trim() === '' && references > 0 && this.attachmentIds.length === references) return
     this.dispatchRun({
       type: 'enter',
       ...allowEmpty ? { allowEmpty: true } : {},

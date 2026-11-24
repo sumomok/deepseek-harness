@@ -992,6 +992,9 @@ describe('sendSession submission echo', () => {
       })
       const draft = b.root.createReferenceDraft({ source: 'owner', label: '行 2', resolve: () => Promise.resolve({ row: 2 }) })
       const resolved = [{ source: 'owner', label: '行 2', data: { row: 2 } }]
+      b.prompt.mockResolvedValueOnce({
+        ok: false, error: new RemoteError('subagent/attachment-invalid', 'nope', { reason: 'nope' }),
+      } as never)
       const failed = b.root.sendSession(session, '继续', [draft.id], 'queue')
       await vi.waitFor(() => { expect(b.prompt).toHaveBeenCalledOnce() })
       expect(b.beginSubmission).toHaveBeenLastCalledWith(expect.objectContaining({
