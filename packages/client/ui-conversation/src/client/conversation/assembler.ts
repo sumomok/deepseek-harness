@@ -8,7 +8,7 @@ import type {
   ConversationLocationDataScope, ConversationPublication, ConversationViewBuilder,
   ConversationStartMatch,
   ConversationViewDefinition, ConversationViewNode, ConversationViewSnapshotMap,
-  ConversationViewSnapshotStore,
+  ConversationViewSnapshotStore, TurnLocation,
 } from '../contract/conversation.ts'
 import { conversationContextKey } from '../contract/conversation.ts'
 import type {
@@ -17,7 +17,7 @@ import type {
 import { ConversationGroupStore } from './group-store.ts'
 import type { ConversationEventRegistry } from './event-registry.ts'
 import {
-  ConversationLocationIndex, type ConversationLocationDataChange,
+  ConversationLocationIndex, sameTurnHeader, type ConversationLocationDataChange,
 } from './location-index.ts'
 
 interface Dependency {
@@ -159,6 +159,18 @@ function mergeMatches(
   return merged
 }
 
+function findMatchIndex(matches: readonly ConversationMatch[], seq: number): number {
+  if ((matches[0] as ConversationMatch).event.seq === seq) return 0
+  let low = 1
+  let high = matches.length - 1
+  while (low < high) {
+    const middle = low + ((high - low) >> 1)
+    if ((matches[middle] as ConversationMatch).event.seq < seq) low = middle + 1
+    else high = middle
+  }
+  return low
+}
+
 function conversationMatch(
   input: SessionEventLikeEntry,
   role: ConversationMatch['role'],
@@ -284,12 +296,18 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     let publication: ConversationPublication = 'none'
     if (event.type !== 'assistant/live-chunk' && isLocationBoundary(event.type)) {
       const previousTimeline = this.locationIndex.snapshot()
+      const isStepBoundary = event.type === 'step/start' || event.type === 'step/end'
+      const previousTurn = isStepBoundary ? previousTimeline.turns.get(event.data.turn) : undefined
       const changed = this.locationIndex.appendBoundary(event)
-      if (this.locationIndex.snapshot() !== previousTimeline) {
+      const nextTimeline = this.locationIndex.snapshot()
+      if (nextTimeline !== previousTimeline) {
         this.timelineDirty = true
         publication = 'immediate'
       }
-      this.replayContexts(this.refreshMatchLocations(changed))
+      const stepBoundaryOnly = isStepBoundary
+        && sameTurnHeader(previousTurn, nextTimeline.turns.get(event.data.turn) as TurnLocation)
+      const toReplay = this.refreshMatchLocations(changed, stepBoundaryOnly)
+      if (toReplay.size > 0) this.replayContexts(toReplay)
       if (changed.size > 0) publication = 'immediate'
     } else {
       this.locationIndex.appendNonBoundary(event)
@@ -482,11 +500,34 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     const view = this.views.get(target)
     if (this.activeTargets.has(target)) return false
     const published = this.flush()
-    this.activeTargets.add(target)
-    if (view === undefined) return published
-    this.replaceView(view)
-    this.publishViews([view])
-    return true
+    try {
+      this.activeTargets.add(target)
+      if (this.inputs.size > 0) {
+        for (const entry of this.sortedInputs()) {
+          // oxlint-disable-next-line typescript/unbound-method -- dispatchInput supplies the assembler receiver
+          this.dispatchInput(entry, this.acceptMatch, target)
+        }
+        this.replayDependencies()
+        this.revised.clear()
+        const targetContexts = this.contextsByTarget.get(target)
+        if (targetContexts !== undefined && this.applyLocationDataFor(targetContexts)) {
+          this.timelineDirty = true
+        }
+      }
+      if (view === undefined) return published
+      this.replaceView(view)
+      const dirtyTarget = this.dirtyByTarget.get(target)
+      if (dirtyTarget !== undefined) {
+        for (const context of dirtyTarget) this.dirty.delete(context)
+        this.dirtyByTarget.delete(target)
+      }
+      this.publishViews([view])
+      return true
+    } catch (error: unknown) {
+      this.activeTargets.delete(target)
+      this.rebuildPending = true
+      throw error
+    }
   }
 
   /**
@@ -554,8 +595,14 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
       id: string,
       match: ConversationMatch,
     ) => ConversationPublication,
+    onlyTarget?: string,
   ): ConversationPublication {
     const event = input.event
+    const matchesTarget = (target: string | undefined): boolean => (
+      onlyTarget !== undefined
+        ? target === onlyTarget
+        : target === undefined || this.activeTargets.has(target)
+    )
     let startMatch: ConversationMatch | undefined
     let updateMatch: ConversationMatch | undefined
     let location: ConversationMatch['location'] | undefined
@@ -572,6 +619,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     const routes = this.eventDefinitions.forEvent?.(event.type)
     if (routes === undefined) {
       for (const definition of this.eventDefinitions.entries()) {
+        if (!matchesTarget(definition.target)) continue
         const result = definition.match(event)
         if (result === null) continue
         definitions.push(definition)
@@ -579,6 +627,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
       }
     } else {
       for (const { definition, match } of routes) {
+        if (!matchesTarget(definition.target)) continue
         const result = match(event)
         if (result === null) continue
         definitions.push(definition)
@@ -620,6 +669,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     const fallback = this.eventDefinitions.fallbackEntry()
     const target = fallback?.target
     if (fallback !== undefined && target !== undefined
+      && matchesTarget(target)
       && target !== firstTarget && target !== secondTarget && otherTargets?.has(target) !== true) {
       const result = fallback.match(event)
       if (result !== null) {
@@ -947,30 +997,43 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     return replayed
   }
 
-  private refreshMatchLocations(changedSeqs: ReadonlySet<number>): Set<InternalContext> {
-    const affected = new Set<InternalContext>()
-    if (changedSeqs.size === 0) return affected
+  private refreshMatchLocations(
+    changedSeqs: ReadonlySet<number>,
+    stepBoundaryOnly = false,
+  ): Set<InternalContext> {
+    const toReplay = new Set<InternalContext>()
+    if (changedSeqs.size === 0) return toReplay
+    const seqsByContext = new Map<InternalContext, number[]>()
     for (const seq of changedSeqs) {
-      for (const context of this.contextsBySeq.get(seq) ?? []) affected.add(context)
-    }
-    for (const context of affected) {
-      let start = context.start
-      const matches = context.matches.map((match): ConversationMatch => {
-        if (!changedSeqs.has(match.event.seq)) return match
-        if (match.role === 'start') {
-          const refreshed: ConversationStartMatch = {
-            ...match,
-            location: this.locationIndex.locationOf(match.event),
-          }
-          if (match === start) start = refreshed
-          return refreshed
+      for (const context of this.contextsBySeq.get(seq) ?? []) {
+        let seqs = seqsByContext.get(context)
+        if (seqs === undefined) {
+          seqs = []
+          seqsByContext.set(context, seqs)
         }
-        return { ...match, location: this.locationIndex.locationOf(match.event) }
-      })
-      context.matches = matches
-      context.start = start
+        seqs.push(seq)
+      }
     }
-    return affected
+    for (const [context, seqs] of seqsByContext) {
+      for (const seq of seqs) {
+        const index = findMatchIndex(context.matches, seq)
+        const match = context.matches[index] as ConversationMatch
+        const location = this.locationIndex.locationOf(match.event)
+        if (match.role === 'start') {
+          const refreshed: ConversationStartMatch = { ...match, location }
+          context.matches[index] = refreshed
+          if (match === context.start) context.start = refreshed
+        } else {
+          context.matches[index] = { ...match, location }
+        }
+      }
+      if (stepBoundaryOnly && context.start?.location.kind === 'turn') {
+        this.markDirty(context)
+      } else {
+        toReplay.add(context)
+      }
+    }
+    return toReplay
   }
 
   private buildNode(context: InternalContext, target: string): ConversationViewNode | null {
@@ -1112,10 +1175,14 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
   }
 
   private applyDirtyLocationData(): boolean {
+    return this.applyLocationDataFor(this.dirty)
+  }
+
+  private applyLocationDataFor(contexts: Iterable<InternalContext>): boolean {
     let changed = false
     for (const scope of LOCATION_DATA_SCOPES) {
       const changes: ConversationLocationDataChange[] = []
-      for (const context of this.dirty) {
+      for (const context of contexts) {
         const previous = context.locationData[scope]
         const next = this.buildLocationData(context, scope, previous)
         if (previous === next) continue

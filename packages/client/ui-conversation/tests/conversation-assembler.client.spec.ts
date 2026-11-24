@@ -133,7 +133,7 @@ function transientChunk(
   turn: number,
   step: number,
   chunk: StreamChunk,
-): SessionEventLikeEntry {
+): Extract<SessionEventLikeEntry, { type: 'transient' }> {
   return {
     type: 'transient',
     event: {
@@ -1888,10 +1888,13 @@ describe('ConversationNodeAssembler', () => {
       assembler.replaceWindow([run(1, 'claimed')], false)
       assembler.flush()
 
-      expect(otherTargetStart).toHaveBeenCalledOnce()
+      expect(otherTargetStart).not.toHaveBeenCalled()
       expect(stateOnlyStart).toHaveBeenCalledOnce()
       expect(fallbackStart).not.toHaveBeenCalled()
       expect(nodeData(assembler)).toEqual(['specific'])
+
+      assembler.activateTarget('trajectory')
+      expect(otherTargetStart).toHaveBeenCalledOnce()
     })
 
     it('rejects two claims on one target', () => {
@@ -2072,5 +2075,220 @@ describe('ConversationNodeAssembler', () => {
     assembler.flush()
     expect(start).toHaveBeenCalledTimes(2)
     expect([...testSnapshot(assembler)?.nodes.values() ?? []][0]?.data).toEqual([0, 1, 2])
+  })
+
+  it('skips replaying turn-kind and prior step Contexts across step boundaries while refreshing views and closing on turn/end', () => {
+    const turnStarts = vi.fn(() => 0)
+    const turnUpdates = vi.fn((context: { readonly state: number }) => context.state + 1)
+    const stepStarts = vi.fn((_context: ConversationNodeContext<string>, match: ConversationMatch) => (
+      match.location.kind === 'step' ? `${match.location.turn.status}:${match.location.step.status}` : 'other'
+    ))
+    const turnDef: ConversationNodeDefinition<number> = {
+      kind: 'turn-accum',
+      target: 'test',
+      match: (event) => {
+        if (event.type === 'turn/start') return { id: String(event.data.turn), role: 'start' }
+        if (event.type === 'step/start' || event.type === 'step/end') return { id: String(event.data.turn), role: 'update' }
+        return null
+      },
+      start: turnStarts,
+      update: turnUpdates,
+      buildViewNode: context => node(context, {
+        updates: context.state,
+        steps: context.start?.location.kind === 'turn' ? context.start.location.turn.steps.length : -1,
+        status: context.start?.location.kind === 'turn' ? context.start.location.turn.status : 'missing',
+      }),
+    }
+    const stepDef: ConversationNodeDefinition<string> = {
+      kind: 'step-item',
+      target: 'test',
+      match: event => event.type === 'step/start'
+        ? { id: `${event.data.turn}:${event.data.step}`, role: 'start' }
+        : null,
+      start: stepStarts,
+      update: context => context.state,
+      buildViewNode: context => node(context, context.state),
+    }
+    const assembler = new ConversationNodeAssembler(
+      new TestEventDefinitions([turnDef, stepDef]),
+      new TestViewDefinitions([testView()]),
+    )
+    assembler.replaceWindow([input(at(SessionSeq(1), 'turn/start', { turn: 1 }))], false)
+    assembler.flush()
+
+    let seq = 2
+    for (let step = 1; step <= 4; step++) {
+      assembler.append(input(at(SessionSeq(seq++), 'step/start', { turn: 1, step })))
+      assembler.flush()
+      assembler.append(input(at(SessionSeq(seq++), 'step/end', { turn: 1, step })))
+      assembler.flush()
+    }
+    // Turn-scoped Context started once and updated once per step boundary (never replayed O(S^2)).
+    expect(turnStarts).toHaveBeenCalledTimes(1)
+    expect(turnUpdates).toHaveBeenCalledTimes(8)
+    // Each of the 4 steps started once on step/start and replayed once on its own step/end = 8 calls.
+    expect(stepStarts).toHaveBeenCalledTimes(8)
+    const nodes = [...testSnapshot(assembler)?.nodes.values() ?? []]
+    expect(nodes.find(entry => entry.kind === 'turn-accum')?.data).toEqual({ updates: 8, steps: 4, status: 'open' })
+
+    // Turn header change refreshes every step and turn Context once.
+    assembler.append(input(at(SessionSeq(seq++), 'turn/end', { turn: 1, reason: { kind: 'completed' } })))
+    assembler.flush()
+    expect(turnStarts).toHaveBeenCalledTimes(2)
+    expect(stepStarts).toHaveBeenCalledTimes(12)
+    const closedNodes = [...testSnapshot(assembler)?.nodes.values() ?? []]
+    expect(closedNodes.find(entry => entry.kind === 'turn-accum')?.data).toEqual({ updates: 8, steps: 4, status: 'closed' })
+    expect(closedNodes.filter(entry => entry.kind === 'step-item').map(entry => entry.data))
+      .toEqual(['closed:closed', 'closed:closed', 'closed:closed', 'closed:closed'])
+  })
+
+  it('replays a Context promoted from turn to step Location when its delayed step/start arrives', () => {
+    const starts = vi.fn((_context: ConversationNodeContext<string>, match: ConversationMatch) => match.location.kind)
+    const def: ConversationNodeDefinition<string> = {
+      kind: 'promoted',
+      target: 'test',
+      match: event => (event.type as string) === 'command/run' ? { id: 'one', role: 'start' } : null,
+      start: starts,
+      update: context => context.state,
+      buildViewNode: context => node(context, context.state),
+    }
+    const assembler = new ConversationNodeAssembler(
+      new TestEventDefinitions([def]),
+      new TestViewDefinitions([testView()]),
+    )
+    assembler.replaceWindow([
+      input(at(SessionSeq(1), 'turn/start', { turn: 1 })),
+    ], false)
+    assembler.append(input(at(SessionSeq(2), 'command/run', { turn: 1, step: 9, commandId: 'one', name: 'x' })))
+    assembler.flush()
+    expect(starts).toHaveBeenCalledTimes(1)
+    expect([...testSnapshot(assembler)?.nodes.values() ?? []][0]?.data).toBe('turn')
+
+    assembler.append(input(at(SessionSeq(3), 'step/start', { turn: 1, step: 9 })))
+    assembler.flush()
+    expect(starts).toHaveBeenCalledTimes(2)
+    expect([...testSnapshot(assembler)?.nodes.values() ?? []][0]?.data).toBe('step')
+  })
+
+  it('updates matched slots via binary search across multi-match Contexts and cleans empty seqsByTurn buckets', () => {
+    const index = new ConversationLocationIndex()
+    const stepChunk = transientChunk(1.1, 1, 2, { type: 'text-delta', index: 0, text: 'a' }).event
+    const turnOnlyChunk: ReturnType<typeof transientChunk>['event'] = {
+      ...transientChunk(1.2, 2, 1, { type: 'text-delta', index: 0, text: 'b' }).event,
+      data: { attemptId: brandString<LlmAttemptId>('attempt-turn'), turn: 2, chunk: { type: 'text-delta', index: 0, text: 'b' } } as never,
+    }
+    index.appendNonBoundary(stepChunk)
+    index.appendNonBoundary(turnOnlyChunk)
+    const buckets = Reflect.get(index, 'seqsByTurn') as Map<number, { turn: Set<number>; steps: Map<number, Set<number>> }>
+    expect(buckets.get(1)?.steps.get(2)?.has(stepChunk.seq)).toBe(true)
+    expect(buckets.get(2)?.turn.has(turnOnlyChunk.seq)).toBe(true)
+    index.removeAssistantTransients([stepChunk, turnOnlyChunk])
+    expect(buckets.size).toBe(0)
+
+    const def: ConversationNodeDefinition<number> = {
+      kind: 'multi-slot',
+      target: 'test',
+      match: (event) => {
+        if (event.type === 'turn/start') return { id: 'one', role: 'start' }
+        if ((event.type as string) === 'command/run') return { id: 'one', role: 'update' }
+        return null
+      },
+      start: () => 0,
+      update: context => context.state + 1,
+      buildViewNode: context => node(context, context.matches.map(m => m.location.kind)),
+    }
+    const assembler = new ConversationNodeAssembler(
+      new TestEventDefinitions([def]),
+      new TestViewDefinitions([testView()]),
+    )
+    assembler.replaceWindow([
+      input(at(SessionSeq(1), 'turn/start', { turn: 1 })),
+    ], false)
+    assembler.append(input(at(SessionSeq(2), 'command/run', { turn: 1, step: 1, commandId: 'a', name: 'a' })))
+    assembler.append(input(at(SessionSeq(3), 'command/run', { turn: 1, step: 2, commandId: 'b', name: 'b' })))
+    assembler.append(input(at(SessionSeq(4), 'command/run', { turn: 1, step: 3, commandId: 'c', name: 'c' })))
+    assembler.flush()
+    assembler.append(input(at(SessionSeq(5), 'step/start', { turn: 1, step: 1 })))
+    assembler.append(input(at(SessionSeq(6), 'step/start', { turn: 1, step: 3 })))
+    assembler.flush()
+    expect([...testSnapshot(assembler)?.nodes.values() ?? []][0]?.data).toEqual(['turn', 'step', 'turn', 'step'])
+  })
+
+  it('materializes inactive targets lazily on activateTarget, replays cross-target dependents, and rolls back on failure', () => {
+    let failTrajectory = true
+    const trajectoryMatch = vi.fn((event: SessionEventLike) => (
+      event.type === 'step/start' ? { id: `${event.data.turn}:${event.data.step}`, role: 'start' as const } : null
+    ))
+    const fallbackMatch = vi.fn(() => ({ id: 'fb', role: 'start' as const }))
+    const trajectoryDef: ConversationNodeDefinition<number> = {
+      kind: 'scope-probe',
+      target: 'trajectory',
+      match: trajectoryMatch,
+      start: (_context, match) => {
+        if (failTrajectory) throw new Error('trajectory boom')
+        return match.event.seq
+      },
+      update: context => context.state,
+      buildLocationData: (context, scope) => (
+        scope === 'step' && context.state !== undefined
+          ? { kind: 'step', turn: 1, step: 1, key: 'scope-probe', value: { value: context.state } }
+          : null
+      ),
+      buildViewNode: context => ({
+        key: context.key, kind: context.kind, id: context.id, target: 'trajectory', data: context.state,
+      }),
+    }
+    const chatDef: ConversationNodeDefinition<number> = {
+      kind: 'chat-reader',
+      target: 'chat',
+      match: event => (event.type as string) === 'command/run' ? { id: 'one', role: 'start' } : null,
+      start: (_context, _match, reader) => reader.previous<number>('scope-probe')?.state ?? -1,
+      update: context => context.state,
+      buildViewNode: context => ({
+        key: context.key, kind: context.kind, id: context.id, target: 'chat', data: context.state,
+      }),
+    }
+    const chat = trackedView('chat')
+    const trajectory = trackedView('trajectory')
+    const assembler = new RuntimeConversationNodeAssembler(
+      new TestEventDefinitions(
+        [trajectoryDef, chatDef],
+        {
+          kind: 'inactive-fb',
+          target: 'unused',
+          match: fallbackMatch,
+          start: () => null,
+          update: context => context.state,
+          buildViewNode: () => null,
+        },
+      ),
+      new TestViewDefinitions([chat.definition, trajectory.definition]),
+    )
+    assembler.activateTarget('chat')
+    assembler.replaceWindow([
+      input(at(SessionSeq(1), 'turn/start', { turn: 1 })),
+      input(at(SessionSeq(2), 'step/start', { turn: 1, step: 1 })),
+      input(at(SessionSeq(3), 'command/run', { turn: 1, step: 1, commandId: 'one', name: 'x' })),
+    ], false)
+    assembler.flush()
+    expect(trajectoryMatch).not.toHaveBeenCalled()
+    expect(fallbackMatch).not.toHaveBeenCalled()
+    expect((assembler.snapshot('chat') as readonly ConversationViewNode[]).map(entry => entry.data)).toEqual([-1])
+
+    // A failing activateTarget rolls back activeTargets and schedules a clean rebuild on the next flush.
+    expect(() => assembler.activateTarget('trajectory')).toThrow('trajectory boom')
+    expect(assembler.flush()).toBe(true)
+    expect((assembler.snapshot('chat') as readonly ConversationViewNode[]).map(entry => entry.data)).toEqual([-1])
+
+    // Once fixed, activateTarget materializes trajectory, replays chat's cross-target dependency, and marks timelineDirty.
+    failTrajectory = false
+    expect(assembler.activateTarget('trajectory')).toBe(true)
+    expect((assembler.snapshot('trajectory') as readonly ConversationViewNode[]).map(entry => entry.data)).toEqual([2])
+    expect(assembler.flush()).toBe(true)
+    expect((assembler.snapshot('chat') as readonly ConversationViewNode[]).map(entry => entry.data)).toEqual([2])
+
+    // Activating an unregistered target still materializes its Contexts when inputs exist.
+    expect(assembler.activateTarget('unused')).toBe(false)
+    expect(fallbackMatch).toHaveBeenCalled()
   })
 })

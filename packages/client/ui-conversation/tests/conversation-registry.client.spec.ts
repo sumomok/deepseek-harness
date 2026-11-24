@@ -583,8 +583,7 @@ describe('Conversation registries', () => {
       return event.type === 'turn/start' ? { id: String(event.data.turn), role: 'start' as const } : null
     })
     events.register({
-      kind: 'failing-probe', target: 'chat', match, start: () => null, update: context => context.state,
-      buildViewNode: context => ({ key: context.key, kind: 'failing-probe', id: context.id, target: 'chat', data: null }),
+      kind: 'failing-probe', match, start: () => null, update: context => context.state,
     })
     views.register(viewDefinition('chat'))
     await Promise.resolve()
@@ -661,6 +660,7 @@ describe('Conversation registries', () => {
     views.register(viewDefinition('chat'))
     await Promise.resolve()
     const conversation = uiConversation.binding(binding)
+    conversation.activate('chat')
     const source = binding.eventSource as MutableSessionEventSource
     retained.set(false)
     for (let seq = 1; seq <= 3; seq++) {

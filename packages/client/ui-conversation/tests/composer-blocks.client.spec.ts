@@ -25,4 +25,19 @@ describe('ComposerBlockRegistry', () => {
     registry.forget(SESSION)
     expect(registry.storeFor(SESSION).getSnapshot()).toBeUndefined()
   })
+
+  it('skips creating a store when clearing an absent session and clears all stores on clear()', () => {
+    const registry = new ComposerBlockRegistry()
+    const absent = 'absent-session' as SessionId
+    registry.set(absent, undefined)
+    const stores = Reflect.get(registry, 'stores') as Map<SessionId, unknown>
+    expect(stores.has(absent)).toBe(false)
+
+    const store = registry.storeFor(SESSION)
+    registry.set(SESSION, { reason: 'blocked' })
+    expect(stores.size).toBe(1)
+    registry.clear()
+    expect(stores.size).toBe(0)
+    expect(registry.storeFor(SESSION)).not.toBe(store)
+  })
 })

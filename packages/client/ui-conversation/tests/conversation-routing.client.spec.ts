@@ -150,6 +150,8 @@ describe('Conversation event routing', () => {
     events.register(definition('ordinary', { 'turn/start': match }, target))
     events.registerFallback(definition('fallback', { 'turn/start': fallback }, 'chat'))
     const assembler = new ConversationNodeAssembler(events, { entries: () => [] })
+    assembler.activateTarget('chat')
+    if (target !== undefined) assembler.activateTarget(target)
     assembler.replaceWindow([], false)
     assembler.append({ type: 'event', event: turn(1) })
     assembler.append({ type: 'event', event: turn(2, 2) })
@@ -175,6 +177,7 @@ describe('Conversation event routing', () => {
       entries: () => events.entries(), fallbackEntry: () => events.fallbackEntry(),
     }
     const assembler = new ConversationNodeAssembler(definitions, { entries: () => [] })
+    for (const active of new Set([...targets, target])) assembler.activateTarget(active)
     assembler.append({ type: 'event', event: turn(1) })
     expect(matched).toEqual(targets)
     expect(fallback).toHaveBeenCalledTimes(target === 'unmatched' ? 1 : 0)

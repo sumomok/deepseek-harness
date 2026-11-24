@@ -134,6 +134,11 @@ interface TurnDraft {
   readonly steps: Map<number, StepDraft>
 }
 
+interface TurnSeqBucket {
+  readonly turn: Set<number>
+  readonly steps: Map<number, Set<number>>
+}
+
 const SESSION_LOCATION = { kind: 'session' } as const
 const UNRESOLVED_LOCATION = { kind: 'unresolved' } as const
 
@@ -158,32 +163,53 @@ function sameReferences<T>(left: readonly T[], right: readonly T[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index])
 }
 
-function sameStep(left: StepLocation | undefined, right: StepLocation): boolean {
+interface BoundaryHeader {
+  readonly start: unknown
+  readonly end: unknown
+  readonly status: 'open' | 'closed' | 'unknown'
+  readonly data: unknown
+}
+
+function sameBoundaryHeader<Location extends BoundaryHeader>(
+  left: Location | undefined,
+  right: Location,
+): left is Location {
   return left !== undefined
     && left.start === right.start && left.end === right.end && left.status === right.status
     && left.data === right.data
 }
 
-function sameTurn(left: TurnLocation | undefined, right: TurnLocation): boolean {
-  return left !== undefined
-    && left.start === right.start && left.end === right.end && left.status === right.status
-    && left.data === right.data && sameReferences(left.steps, right.steps)
+/**
+ * Compare two Turn Locations by their Turn-level header fields, excluding Step membership.
+ * @param left - previous Turn Location, when present.
+ * @param right - next Turn Location.
+ * @returns whether `left` is defined and matches `right` on `start`, `end`, `status`, and `data`.
+ */
+export function sameTurnHeader(left: TurnLocation | undefined, right: TurnLocation): left is TurnLocation {
+  return sameBoundaryHeader(left, right)
 }
 
-function sameLocation(left: ConversationLocation | undefined, right: ConversationLocation | undefined): boolean {
-  if (left === undefined || right === undefined || left.kind !== right.kind) return left === right
+function sameTurn(left: TurnLocation | undefined, right: TurnLocation): boolean {
+  return sameTurnHeader(left, right) && sameReferences(left.steps, right.steps)
+}
+
+/**
+ * Compare two resolved Locations for change detection. Step-kind Locations carry
+ * the Turn snapshot from their own boundary or header change and are not
+ * rewritten merely because later Steps were appended.
+ */
+function sameLocation(left: ConversationLocation | undefined, right: ConversationLocation): boolean {
+  if (left === undefined || left.kind !== right.kind) return false
   if (left.kind === 'session' || left.kind === 'unresolved') return true
-  if (right.kind === 'session' || right.kind === 'unresolved') return false
-  if (left.kind === 'turn' || right.kind === 'turn') {
-    return left.kind === 'turn' && right.kind === 'turn' && left.turn === right.turn
-  }
-  return left.turn === right.turn && left.step === right.step
+  if (left.kind === 'turn') return left.turn === (right as Extract<ConversationLocation, { kind: 'turn' }>).turn
+  const rightStep = right as Extract<ConversationLocation, { kind: 'step' }>
+  return sameTurnHeader(left.turn, rightStep.turn) && left.step === rightStep.step
 }
 
 /** Session-owned Turn/Step timeline and event-to-Location index. */
 export class ConversationLocationIndex {
   private coordinates = new Map<number, Coordinates>()
-  private seqsByTurn = new Map<number, Set<number>>()
+  private seqsByTurn = new Map<number, TurnSeqBucket>()
   private readonly stepsByTurn = new Map<number, Map<number, StepLocation>>()
   private timeline: ConversationTimelineSnapshot = { turnOrder: [], turns: new Map() }
   private readonly turnDataStores = new Map<number, MutableLocationDataStore>()
@@ -377,7 +403,7 @@ export class ConversationLocationIndex {
             data: this.stepData(candidate.turn, candidate.step),
           }
           const previous = previousSteps.get(candidate.step)
-          return sameStep(previous, value) ? previous as StepLocation : value
+          return sameBoundaryHeader(previous, value) ? previous : value
         })
       const value: TurnLocation = {
         turn: draft.turn,
@@ -418,7 +444,7 @@ export class ConversationLocationIndex {
     this.seqsByTurn = new Map()
     for (const { event } of entries) {
       const coordinates = this.coordinates.get(event.seq) as Coordinates
-      if (coordinates.turn !== undefined) this.indexTurnSeq(coordinates.turn, event.seq)
+      if (coordinates.turn !== undefined) this.indexTurnSeq(coordinates.turn, coordinates.step, event.seq)
       coordinates.location = this.resolve(event.seq)
     }
     this.currentTurn = currentTurn
@@ -428,7 +454,7 @@ export class ConversationLocationIndex {
     for (const { event } of entries) {
       if (!sameLocation(
         previousCoordinates.get(event.seq)?.location,
-        this.coordinates.get(event.seq)?.location,
+        (this.coordinates.get(event.seq) as Coordinates).location as ConversationLocation,
       )) {
         changed.add(event.seq)
       }
@@ -470,7 +496,7 @@ export class ConversationLocationIndex {
       ...stepNumber === undefined ? {} : { step: stepNumber },
       location: this.coordinates.get(event.seq)?.location,
     })
-    this.indexTurnSeq(turnNumber, event.seq)
+    const bucket = this.indexTurnSeq(turnNumber, stepNumber, event.seq)
 
     const previousTurn = this.timeline.turns.get(turnNumber)
     let steps = previousTurn?.steps ?? []
@@ -486,7 +512,7 @@ export class ConversationLocationIndex {
         status: event.type === 'step/end' || previousStep?.end !== undefined ? 'closed' : 'open',
         data: this.stepData(turnNumber, number),
       }
-      const nextStep = sameStep(previousStep, candidate) ? previousStep as StepLocation : candidate
+      const nextStep = sameBoundaryHeader(previousStep, candidate) ? previousStep : candidate
       indexedSteps.set(number, nextStep)
       this.stepsByTurn.set(turnNumber, indexedSteps)
       const index = steps.findIndex(step => step.step === number)
@@ -514,12 +540,22 @@ export class ConversationLocationIndex {
     if (turn !== previousTurn) this.changedTurns.add(turnNumber)
 
     const changed = new Set<number>()
-    for (const seq of this.seqsByTurn.get(turnNumber) ?? []) {
-      const coordinates = this.coordinates.get(seq) as Coordinates
-      const previous = coordinates.location
-      const next = this.resolve(seq)
-      coordinates.location = next
-      if (!sameLocation(previous, next)) changed.add(seq)
+    const refreshSeqs = (seqs: ReadonlySet<number>): void => {
+      for (const seq of seqs) {
+        const coordinates = this.coordinates.get(seq) as Coordinates
+        const previous = coordinates.location
+        const next = this.resolve(seq)
+        coordinates.location = next
+        if (!sameLocation(previous, next)) changed.add(seq)
+      }
+    }
+    const turnHeaderChanged = !sameTurnHeader(previousTurn, turn)
+    if (turnHeaderChanged) {
+      refreshSeqs(bucket.turn)
+      for (const seqs of bucket.steps.values()) refreshSeqs(seqs)
+    } else if (turn !== previousTurn) {
+      refreshSeqs(bucket.turn)
+      refreshSeqs(bucket.steps.get(stepNumber as number) as ReadonlySet<number>)
     }
 
     if (event.type === 'step/end' && this.currentTurn === event.data.turn && this.currentStep === event.data.step) {
@@ -555,7 +591,7 @@ export class ConversationLocationIndex {
       location: undefined,
     }
     this.coordinates.set(event.seq, coordinates)
-    if (turn !== undefined) this.indexTurnSeq(turn, event.seq)
+    if (turn !== undefined) this.indexTurnSeq(turn, step, event.seq)
     coordinates.location = this.resolve(event.seq)
   }
 
@@ -565,11 +601,19 @@ export class ConversationLocationIndex {
    */
   removeAssistantTransients(events: readonly AssistantLiveChunkEvent[]): void {
     for (const event of events) {
-      const turn = this.coordinates.get(event.seq)?.turn
-      if (turn !== undefined) {
-        const seqs = this.seqsByTurn.get(turn)
-        seqs?.delete(event.seq)
-        if (seqs?.size === 0) this.seqsByTurn.delete(turn)
+      const coordinates = this.coordinates.get(event.seq)
+      if (coordinates?.turn !== undefined) {
+        const bucket = this.seqsByTurn.get(coordinates.turn) as TurnSeqBucket
+        if (coordinates.step === undefined) {
+          bucket.turn.delete(event.seq)
+        } else {
+          const stepSeqs = bucket.steps.get(coordinates.step)
+          stepSeqs?.delete(event.seq)
+          if (stepSeqs?.size === 0) bucket.steps.delete(coordinates.step)
+        }
+        if (bucket.turn.size === 0 && bucket.steps.size === 0) {
+          this.seqsByTurn.delete(coordinates.turn)
+        }
       }
       this.coordinates.delete(event.seq)
     }
@@ -588,17 +632,27 @@ export class ConversationLocationIndex {
       location: undefined,
     }
     this.coordinates.set(event.seq, coordinates)
-    this.indexTurnSeq(event.data.turn, event.seq)
+    this.indexTurnSeq(event.data.turn, event.data.step, event.seq)
     coordinates.location = this.resolve(event.seq)
   }
 
-  private indexTurnSeq(turn: number, seq: number): void {
-    let current = this.seqsByTurn.get(turn)
-    if (current === undefined) {
-      current = new Set<number>()
-      this.seqsByTurn.set(turn, current)
+  private indexTurnSeq(turn: number, step: number | undefined, seq: number): TurnSeqBucket {
+    let bucket = this.seqsByTurn.get(turn)
+    if (bucket === undefined) {
+      bucket = { turn: new Set<number>(), steps: new Map<number, Set<number>>() }
+      this.seqsByTurn.set(turn, bucket)
     }
-    current.add(seq)
+    if (step === undefined) {
+      bucket.turn.add(seq)
+      return bucket
+    }
+    let stepSeqs = bucket.steps.get(step)
+    if (stepSeqs === undefined) {
+      stepSeqs = new Set<number>()
+      bucket.steps.set(step, stepSeqs)
+    }
+    stepSeqs.add(seq)
+    return bucket
   }
 
   private turnData(turn: number): ConversationLocationDataStore<ConversationTurnDataMap> {
