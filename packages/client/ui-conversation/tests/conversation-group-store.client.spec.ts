@@ -147,6 +147,7 @@ describe('ConversationGroupStore', () => {
 
   it.each<{ name: string; update: GroupUpdate<number>; error: string }>([
     { name: 'duplicate group roots', update: { entries: [reference('a'), reference('a')], groups: { kind: 'apply', upserts: [], removes: [] } }, error: 'duplicate root' },
+    { name: 'duplicate group roots on replace', update: { entries: [reference('a'), reference('a')], groups: { kind: 'replace', snapshots: [group('a', [])] } }, error: 'duplicate root' },
     { name: 'unreferenced group', update: { entries: [reference('a'), reference('c')], groups: { kind: 'apply', upserts: [group('b', [])], removes: [] } }, error: 'no root reference' },
     { name: 'missing group', update: { entries: [reference('missing')], groups: { kind: 'apply', upserts: [], removes: [] } }, error: 'missing group' },
     { name: 'removed referenced group', update: { groups: { kind: 'apply', upserts: [group('b', [])], removes: [key('a')] } }, error: 'still referenced' },
@@ -166,5 +167,71 @@ describe('ConversationGroupStore', () => {
     expect(() => { store.prepareAndInstall(update, readNode) }).toThrow(error)
     expect(store.entries).toBe(root)
     expect(source.getSnapshot()).toBe(initial)
+  })
+
+  it('diffs incremental root changes by common prefix/suffix with overlap clamp and cleans up unsubscribed sources', () => {
+    const store = new ConversationGroupStore<number>()
+    replace(store, [node('n1'), reference('a'), reference('b'), node('n2')], [group('a', [node('ma')]), group('b', [node('mb')])])
+    store.publish()
+
+    // Middle edit touches only the delta slice; untouched prefix/suffix nodes are not re-read.
+    const reads = vi.fn(readNode)
+    store.prepareAndInstall({
+      entries: [node('n1'), reference('b'), reference('a'), node('n2')],
+      groups: { kind: 'apply', upserts: [], removes: [] },
+    }, reads)
+    expect(reads).not.toHaveBeenCalled()
+    expect(store.entries).toEqual([node('n1'), reference('b'), reference('a'), node('n2')])
+
+    // Overlap clamp: duplicate root colliding with surviving suffix is rejected atomically.
+    const beforeReject = store.entries
+    expect(() => {
+      store.prepareAndInstall({
+        entries: [node('n1'), reference('a'), reference('a'), node('n2')],
+        groups: { kind: 'apply', upserts: [], removes: [] },
+      }, readNode)
+    }).toThrow('duplicate root')
+    expect(store.entries).toBe(beforeReject)
+
+    // Duplicate root within the added slice itself is rejected atomically.
+    expect(() => {
+      store.prepareAndInstall({
+        entries: [node('n1'), reference('c'), reference('c'), node('n2')],
+        groups: { kind: 'apply', upserts: [group('c', [])], removes: [key('a'), key('b')] },
+      }, readNode)
+    }).toThrow('duplicate root')
+    expect(store.entries).toBe(beforeReject)
+
+    // Overlap clamp when shrinking repeated-adjacent-like shapes (root prefix + suffix <= minLen).
+    store.prepareAndInstall({
+      entries: [node('n1'), reference('b'), reference('a'), node('n3'), node('n2')],
+      groups: { kind: 'apply', upserts: [], removes: [] },
+    }, readNode)
+    store.prepareAndInstall({
+      entries: [node('n1'), reference('b'), reference('a'), node('n2')],
+      groups: { kind: 'apply', upserts: [], removes: [] },
+    }, readNode)
+
+    // Source cleanup: unsubscribed removed group is evicted on publish; subscribed group stays until all unsubscribe.
+    const sourceA = store.groupSource(key('a'))
+    const sourceB = store.groupSource(key('b'))
+    const unsubA1 = sourceA.subscribe(() => {})
+    const unsubA2 = sourceA.subscribe(() => {})
+    store.prepareAndInstall({
+      entries: [node('n1'), node('n2')],
+      groups: { kind: 'apply', upserts: [], removes: [key('a'), key('b')] },
+    }, readNode)
+    store.publish()
+
+    // B had 0 subscribers so publish evicted it; A still has 2 subscribers.
+    expect(store.groupSource(key('b'))).not.toBe(sourceB)
+    expect(store.groupSource(key('a'))).toBe(sourceA)
+
+    // Calling unsubscribe twice on the same subscription is idempotent and does not underflow.
+    unsubA1()
+    unsubA1()
+    expect(store.groupSource(key('a'))).toBe(sourceA)
+    unsubA2()
+    expect(store.groupSource(key('a'))).not.toBe(sourceA)
   })
 })

@@ -170,6 +170,29 @@ describe('target-neutral Conversation apply wiring', () => {
     await b.runtime.dispose()
   })
 
+  it('forgets per-Session composer blocks on binding teardown and clears remaining blocks on plugin teardown', async () => {
+    const b = await bench()
+    await b.runtime.sessions.add({ id: SID })
+    const ref = b.runtime.sessions.retain(SID)
+    b.runtime.ctx.uiSession.adapter.bindingSource(ref).getSnapshot()
+    const blocks = b.runtime.ctx.conversation.blocks
+    const initialStore = blocks.storeFor(SID)
+    blocks.set(SID, { reason: 'Choose a model' })
+    expect(initialStore.getSnapshot()).toEqual({ reason: 'Choose a model' })
+
+    ref.release()
+    await b.runtime.flush()
+    expect(blocks.storeFor(SID)).not.toBe(initialStore)
+    expect(blocks.storeFor(SID).getSnapshot()).toBeUndefined()
+
+    const orphan = 'orphan-session' as SessionId
+    const orphanStore = blocks.storeFor(orphan)
+    blocks.set(orphan, { reason: 'Orphan block' })
+    await b.feature.dispose()
+    expect(orphanStore.getSnapshot()).toEqual({ reason: 'Orphan block' })
+    await b.runtime.dispose()
+  })
+
   it('removes services, entries, and declarations with the plugin fiber', async () => {
     const b = await bench()
     await b.feature.dispose()

@@ -229,13 +229,19 @@ export function apply(ctx: Context, config: SyncedConfig<ConversationConfig>): v
     getSnapshot: () => slots.entriesOfSlot('conversation.session.header.views.actions').length > 0,
     subscribe: (listener: () => void) => slots.subscribe('conversation.session.header.views.actions', listener),
   }
+  const composerBlocks = new ComposerBlockRegistry()
+  ctx.effect(() => () => { composerBlocks.clear() }, 'ui-conversation: composer blocks')
   const bindings = new Set<SessionBinding>()
   const trackedBindings = new WeakSet<SessionBinding>()
   const trackBinding = (binding: SessionBinding): void => {
     if (trackedBindings.has(binding)) return
     trackedBindings.add(binding)
     bindings.add(binding)
-    binding.ctx.effect(() => () => { bindings.delete(binding) }, 'ui-conversation: active Provider binding')
+    binding.ctx.effect(() => () => {
+      bindings.delete(binding)
+      const current = sessions.binding(binding.sessionId)
+      if (current === undefined || current === binding) composerBlocks.forget(binding.sessionId)
+    }, 'ui-conversation: active Provider binding')
   }
   const refreshViews = (): void => {
     const current = conversationViews.getSnapshot()
@@ -297,7 +303,6 @@ export function apply(ctx: Context, config: SyncedConfig<ConversationConfig>): v
   })
 
   const inputHub = new InputHub(ctx, t)
-  const composerBlocks = new ComposerBlockRegistry()
 
   ctx.inject(['commandUi'], (scope) => {
     const commands = scope.get('commandUi') as FileCommandRegistry

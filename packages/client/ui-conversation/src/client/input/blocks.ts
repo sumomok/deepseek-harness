@@ -22,6 +22,7 @@ export class ComposerBlockRegistry implements ComposerBlocks {
 
   /** @inheritdoc */
   set(sessionId: SessionId, block: ComposerBlock | undefined): void {
+    if (block === undefined && !this.stores.has(sessionId)) return
     const store = this.storeFor(sessionId)
     const current = store.getSnapshot()
     if (current?.reason === block?.reason) return
@@ -40,5 +41,10 @@ export class ComposerBlockRegistry implements ComposerBlocks {
   /** @inheritdoc */
   forget(sessionId: SessionId): void {
     this.stores.delete(sessionId)
+  }
+
+  /** Drop every per-Session block store. */
+  clear(): void {
+    this.stores.clear()
   }
 }
