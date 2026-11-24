@@ -7,7 +7,7 @@
 
 import { JSDOM } from 'jsdom'
 import { describe, expect, it, vi } from 'vitest'
-import { bootPage } from '../src/boot-page.ts'
+import { BOOT_RELOAD_URL, bootPage } from '../src/boot-page.ts'
 import { PRODUCT_NAME } from '../src/brand.ts'
 
 vi.mock('electron', () => ({ nativeTheme: { shouldUseDarkColors: false } }))
@@ -59,5 +59,30 @@ describe('the boot page', () => {
 
     expect(document.getElementById('summary')?.textContent).toBe(summary)
     expect(document.getElementById('injected')).toBeNull()
+  })
+
+  it('renders a reload button pointing at BOOT_RELOAD_URL only when failure.reloadable is true', () => {
+    expect(BOOT_RELOAD_URL).toBe('dsh-boot://reload')
+
+    const reloadableDark = render(bootPage('0.1.0-rc.36', 'dark', undefined, { phase: 2, message: 'err', reloadable: true }))
+    const failureBlock = reloadableDark.getElementById('failure')
+    const link = failureBlock?.querySelector('.actions a.button')
+    const lead = failureBlock?.querySelector('.lead')
+    expect(link?.getAttribute('href')).toBe(BOOT_RELOAD_URL)
+    expect(link?.textContent).toBe('重新加载界面')
+    expect(lead).not.toBeNull()
+    expect(link && lead ? Boolean(link.compareDocumentPosition(lead) & 4) : false).toBe(true)
+
+    const reloadableLight = render(bootPage('0.1.0-rc.36', 'light', undefined, { phase: 2, message: 'err', reloadable: true }))
+    expect(reloadableLight.querySelector('#failure .actions a.button')?.getAttribute('href')).toBe(BOOT_RELOAD_URL)
+
+    const notReloadable = render(bootPage('0.1.0-rc.36', 'dark', undefined, { phase: 2, message: 'err', reloadable: false }))
+    expect(notReloadable.querySelector('.actions')).toBeNull()
+
+    const omittedReloadable = render(bootPage('0.1.0-rc.36', 'dark', undefined, { phase: 2, message: 'err' }))
+    expect(omittedReloadable.querySelector('.actions')).toBeNull()
+
+    const booting = render(bootPage('0.1.0-rc.36', 'light', undefined))
+    expect(booting.querySelector('.actions')).toBeNull()
   })
 })

@@ -4,11 +4,11 @@
  * @module
  */
 
-import { mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { KEPT_REPORTS, LOG_ROTATE_BYTES, pruneReports, rotateLog } from '../src/log-retention.ts'
+import { KEPT_CRASH_DUMPS, KEPT_REPORTS, LOG_ROTATE_BYTES, pruneCrashDumps, pruneReports, rotateLog } from '../src/log-retention.ts'
 
 let dir: string
 
@@ -83,5 +83,95 @@ describe('pruneReports', () => {
 
   it('keeps five', () => {
     expect(KEPT_REPORTS).toBe(5)
+  })
+})
+
+describe('pruneCrashDumps', () => {
+  /**
+   * Write one crash dump dated `secondsAgo` in the past.
+   * @param relPath - relative path inside `dir`.
+   * @param secondsAgo - how old its modification time is.
+   */
+  function dump(relPath: string, secondsAgo: number): void {
+    const full = join(dir, relPath)
+    const parent = join(full, '..')
+    mkdirSync(parent, { recursive: true })
+    writeFileSync(full, 'MDMP')
+    const at = Date.now() / 1000 - secondsAgo
+    utimesSync(full, at, at)
+  }
+
+  it('keeps the newest crash dumps globally across immediate subdirs and preserves metadata and deeper trees', () => {
+    dump('completed/a.dmp', 120)
+    dump('pending/b.dmp', 110)
+    dump('root-old.dmp', 100)
+    dump('completed/c.dmp', 90)
+    dump('pending/d.DMP', 80)
+    dump('new/e.dmp', 70)
+    dump('completed/f.dmp', 60)
+    dump('root-newest.dmp', 50)
+    // Crashpad metadata and deeper attachment directories must never be touched.
+    writeFileSync(join(dir, 'settings.dat'), 'settings')
+    writeFileSync(join(dir, 'metadata'), 'meta')
+    mkdirSync(join(dir, 'attachments', 'uuid-1'), { recursive: true })
+    writeFileSync(join(dir, 'attachments', 'uuid-1', 'nested.dmp'), 'attachment')
+
+    expect(pruneCrashDumps(dir, 5)).toBe('[desktop] removed 3 old crash dump(s), keeping the newest 5\n')
+    expect(existsSync(join(dir, 'completed/a.dmp'))).toBe(false)
+    expect(existsSync(join(dir, 'pending/b.dmp'))).toBe(false)
+    expect(existsSync(join(dir, 'root-old.dmp'))).toBe(false)
+    expect(existsSync(join(dir, 'completed/c.dmp'))).toBe(true)
+    expect(existsSync(join(dir, 'pending/d.DMP'))).toBe(true)
+    expect(existsSync(join(dir, 'new/e.dmp'))).toBe(true)
+    expect(existsSync(join(dir, 'completed/f.dmp'))).toBe(true)
+    expect(existsSync(join(dir, 'root-newest.dmp'))).toBe(true)
+    expect(existsSync(join(dir, 'settings.dat'))).toBe(true)
+    expect(existsSync(join(dir, 'metadata'))).toBe(true)
+    expect(existsSync(join(dir, 'attachments', 'uuid-1', 'nested.dmp'))).toBe(true)
+  })
+
+  it('breaks mtime ties by relative path descending', () => {
+    dump('completed/a.dmp', 50)
+    dump('completed/b.dmp', 50)
+    dump('pending/a.dmp', 50)
+
+    expect(pruneCrashDumps(dir, 2)).toBe('[desktop] removed 1 old crash dump(s), keeping the newest 2\n')
+    expect(existsSync(join(dir, 'completed/a.dmp'))).toBe(false)
+    expect(existsSync(join(dir, 'completed/b.dmp'))).toBe(true)
+    expect(existsSync(join(dir, 'pending/a.dmp'))).toBe(true)
+  })
+
+  it('never follows or deletes symlinked dumps or symlinked subdirectories', () => {
+    const external = mkdtempSync(join(tmpdir(), 'dsh-crash-ext-'))
+    try {
+      const externalDump = join(external, 'outside.dmp')
+      writeFileSync(externalDump, 'MDMP')
+      const oldAt = Date.now() / 1000 - 500
+      utimesSync(externalDump, oldAt, oldAt)
+
+      dump('completed/real-1.dmp', 40)
+      dump('completed/real-2.dmp', 30)
+      symlinkSync(externalDump, join(dir, 'link.dmp'))
+      symlinkSync(external, join(dir, 'linked-dir'))
+
+      expect(pruneCrashDumps(dir, 1)).toBe('[desktop] removed 1 old crash dump(s), keeping the newest 1\n')
+      expect(existsSync(join(dir, 'completed/real-1.dmp'))).toBe(false)
+      expect(existsSync(join(dir, 'completed/real-2.dmp'))).toBe(true)
+      expect(existsSync(join(dir, 'link.dmp'))).toBe(true)
+      expect(existsSync(externalDump)).toBe(true)
+    } finally {
+      rmSync(external, { recursive: true, force: true })
+    }
+  })
+
+  it('removes nothing and says nothing at or under the limit or when the directory is missing', () => {
+    for (let index = 0; index < 5; index++) dump(`completed/d${String(index)}.dmp`, 10 - index)
+    expect(pruneCrashDumps(dir, 5)).toBeUndefined()
+    expect(readdirSync(join(dir, 'completed'))).toHaveLength(5)
+    expect(pruneCrashDumps(join(dir, 'missing'), 5)).toBeUndefined()
+  })
+
+  it('keeps five', () => {
+    expect(KEPT_CRASH_DUMPS).toBe(5)
   })
 })

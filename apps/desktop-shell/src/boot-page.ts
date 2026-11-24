@@ -8,6 +8,13 @@ import { PRODUCT_NAME } from './brand.ts'
 import { PALETTES, type Appearance } from './theme.ts'
 
 /**
+ * The synthetic URL the failure page's reload button navigates to. The app
+ * window's `will-navigate` listener intercepts it only when the current page
+ * is a `data:` document and reloads the served UI through the app loader.
+ */
+export const BOOT_RELOAD_URL = 'dsh-boot://reload'
+
+/**
  * The boot page: a self-contained `data:` document (no external resource, no
  * preload) that the main process drives through `window.__dsh`. It shows one
  * phase at a time — the one actually running — because a checklist of things
@@ -18,19 +25,26 @@ import { PALETTES, type Appearance } from './theme.ts'
  * of a new version. It is baked into the document rather than pushed into it,
  * because the push path tolerates a page that has not finished loading by
  * dropping what it carries, which is right for a phase and wrong for this.
- * @param failure - the phase to show as failed and the summary under it, when
- * the page is loaded to report a failure. Baked in for the same reason as
+ * @param failure - the phase to show as failed, the summary under it, and
+ * whether to render a reload button pointing at [[BOOT_RELOAD_URL]], when the
+ * page is loaded to report a failure. Baked in for the same reason as
  * `receipt`: the page replaces a served UI that is gone, so there is nothing
  * loaded to push into.
  * @returns the `data:` URL to load.
  */
 export function bootPage(
-  version: string, appearance: Appearance, receipt: string | undefined, failure?: { phase: number; message: string },
+  version: string,
+  appearance: Appearance,
+  receipt: string | undefined,
+  failure?: { phase: number; message: string; reloadable?: boolean },
 ): string {
   // `<` escaped so a summary can never close the script element it sits in.
   const failed = failure === undefined
     ? ''
     : `window.__dsh.phase(${String(failure.phase)})\n  window.__dsh.fail(${JSON.stringify(failure.message).replace(/</g, '\\u003c')})`
+  const reloadAction = failure?.reloadable === true
+    ? `\n    <div class="actions"><a class="button" href="${BOOT_RELOAD_URL}">重新加载界面</a></div>`
+    : ''
   const colors = PALETTES[appearance]
   return 'data:text/html;charset=utf-8,' + encodeURIComponent(`<!doctype html>
 <html lang="zh"><head><meta charset="utf-8"><title>${PRODUCT_NAME.zh}</title><style>
@@ -99,6 +113,13 @@ export function bootPage(
     font-size: 13px; color: ${colors.text}; word-break: break-all; user-select: text;
     display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden;
   }
+  .actions { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
+  a.button {
+    display: inline-block; padding: 5px 14px; border-radius: 6px; text-decoration: none; font-size: 13px;
+    background: ${colors.accent}; border: 1px solid ${colors.accent}; color: ${colors.background};
+  }
+  a.button:hover { opacity: .9; }
+  a.button:focus-visible { outline: 2px solid ${colors.accent}; outline-offset: 2px; }
   .lead { margin-top: 12px; font-size: 13px; color: ${colors.muted}; }
   footer {
     position: fixed; left: 0; right: 0; bottom: 24px; text-align: center;
@@ -121,7 +142,7 @@ export function bootPage(
   ${receipt === undefined ? '' : `<div class="receipt">${receipt}</div>`}
   <div class="hint" id="hint" hidden>首次启动会被系统安全扫描拖慢,通常最多一两分钟</div>
   <div class="failure" id="failure">
-    <div class="summary" id="summary"></div>
+    <div class="summary" id="summary"></div>${reloadAction}
     <div class="lead">完整日志:菜单 帮助 → 查看日志</div>
   </div>
 </main>

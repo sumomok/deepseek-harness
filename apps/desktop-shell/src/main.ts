@@ -29,7 +29,7 @@ import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { app, BrowserWindow, dialog, ipcMain, Notification, powerMonitor, session, shell, systemPreferences, type DownloadItem } from 'electron'
+import { app, BrowserWindow, crashReporter, dialog, ipcMain, Notification, powerMonitor, session, shell, systemPreferences, type DownloadItem } from 'electron'
 import { appBootCss, restateAppBootPage } from './app-boot-text.ts'
 import { desktopKeybindings } from './keybindings.ts'
 import { installKeyboard } from './keyboard.ts'
@@ -37,8 +37,8 @@ import { SHORTCUT_CHANNELS } from './shortcut-channels.ts'
 import { THEME_CHANNEL } from './theme-channels.ts'
 import type { ShortcutConfigSnapshot, ShortcutDefinition, ShortcutEdit, ShortcutPlatform, ShortcutRevision } from '@deepseek-ai/dsh-client-shortcuts/protocol'
 import { pinAppIdentity } from './app-identity.ts'
-import { KEPT_REPORTS, LOG_ROTATE_BYTES, pruneReports, rotateLog } from './log-retention.ts'
-import { bootPage } from './boot-page.ts'
+import { KEPT_CRASH_DUMPS, KEPT_REPORTS, LOG_ROTATE_BYTES, pruneCrashDumps, pruneReports, rotateLog } from './log-retention.ts'
+import { BOOT_RELOAD_URL, bootPage } from './boot-page.ts'
 import { PRODUCT_NAME } from './brand.ts'
 import { clearStaleAuthCookies } from './auth-cookies.ts'
 import { reportUncaughtException, setupCrashLog, type CrashLogHost } from './crash-log.ts'
@@ -196,6 +196,8 @@ let officeEngineService: (OfficeEngineServiceHandle & { readonly env: Record<str
 /** This launch's Office engine state machine, which the launch tells when to start an upgrade's download. */
 let officeEngine: OfficeEngineManager | undefined
 let quitting = false
+/** Raised when the OS announces shutdown, restart, or log-off, where Windows skips `before-quit`. */
+let sessionEnding = false
 /**
  * The data move this process is carrying, while its window is up: asking it
  * to cancel, and its end. `before-quit` uses it so a quit during a move
@@ -1352,6 +1354,11 @@ function createBootWindow(receipt?: string): BootView {
     return { action: 'deny' }
   })
   window.webContents.on('will-navigate', (event, target) => {
+    if (target === BOOT_RELOAD_URL && window.webContents.getURL().startsWith('data:')) {
+      event.preventDefault()
+      if (server !== undefined) loadApp(server.authenticatedUrl)
+      return
+    }
     if (server === undefined || !isServerNavigation(target, server.url)) {
       event.preventDefault()
       if (isExternalNavigationTarget(target)) void shell.openExternal(target)
@@ -1365,15 +1372,24 @@ function createBootWindow(receipt?: string): BootView {
   let booting = true
   const showFailure = (message: string): void => {
     if (window.isDestroyed()) return
-    window.loadURL(bootPage(app.getVersion(), appearance, undefined, { phase: 2, message })).catch(() => {
+    const failure = { phase: 2, message, reloadable: server !== undefined }
+    window.loadURL(bootPage(app.getVersion(), resolveAppearance(), undefined, failure)).catch(() => {
       // The failure page is a `data:` document with nothing to fetch; a
       // rejection means the window was closed while it loaded.
     })
   }
   // `logLine` is read at call time: the file sink replaces it after this
   // window already exists.
-  const loader = superviseAppLoad(window.webContents, { log: (line) => { logLine(line) }, giveUp: (summary) => { view.fail(summary) } })
-  appLoaders.set(window, loader)
+  const loader = superviseAppLoad(window.webContents, {
+    log: (line) => { logLine(line) },
+    giveUp: (summary) => { view.fail(summary) },
+    isQuitting: () => quitting || sessionEnding,
+  })
+  const loadApp = (url: string): void => {
+    booting = false
+    loader.load(url)
+  }
+  appLoaders.set(window, { load: loadApp })
   const push = (script: string): void => {
     if (!booting || window.isDestroyed()) return
     window.webContents.executeJavaScript(script).catch(() => {
@@ -1386,14 +1402,17 @@ function createBootWindow(receipt?: string): BootView {
     phase: (index) => { push(`window.__dsh.phase(${String(index)})`) },
     elapsed: (seconds) => { push(`window.__dsh.elapsed(${String(seconds)})`) },
     fail: (message) => {
-      if (booting) push(`window.__dsh.fail(${JSON.stringify(message)})`)
-      else showFailure(message)
+      if (booting && !window.isDestroyed()) {
+        window.webContents.executeJavaScript(`window.__dsh.fail(${JSON.stringify(message)})`).catch(() => {
+          // The boot page's own renderer died or was not ready; replace it with a baked failure page.
+          showFailure(message)
+        })
+      } else {
+        showFailure(message)
+      }
     },
     block: (message) => { push(`window.__dsh.block(${JSON.stringify(message)})`) },
-    showApp: (url) => {
-      booting = false
-      loader.load(url)
-    },
+    showApp: loadApp,
   }
   return view
 }
@@ -1484,6 +1503,23 @@ if (!locked) {
     void stopServerBounded().finally(() => { app.exit(0) })
   })
 
+  let crashDumpsDir: string | undefined
+  const crashReporterNotes: string[] = []
+  try {
+    crashDumpsDir = app.getPath('crashDumps')
+  } catch (error) {
+    crashReporterNotes.push(`[desktop] could not resolve electron crash dumps directory: ${String(error)}\n`)
+  }
+  const crashDumpRetention = crashDumpsDir === undefined
+    ? undefined
+    : pruneCrashDumps(crashDumpsDir, KEPT_CRASH_DUMPS)
+  if (crashDumpRetention !== undefined) crashReporterNotes.push(crashDumpRetention)
+  try {
+    crashReporter.start({ uploadToServer: false, compress: false })
+  } catch (error) {
+    crashReporterNotes.push(`[desktop] could not start electron crash reporter: ${String(error)}\n`)
+  }
+
   void app.whenReady().then(async () => {
     app.setAppUserModelId(APP_USER_MODEL_ID)
     // Before the first window, which on Windows is what reports the end. A
@@ -1496,7 +1532,10 @@ if (!locked) {
         for (const window of BrowserWindow.getAllWindows()) listener(window)
         app.on('browser-window-created', (_event, window) => { listener(window) })
       },
-    }, () => { markIntentionalStop(server, 'shutdown', { home: resolveHarnessHome(), log: logLine }) })
+    }, () => {
+      sessionEnding = true
+      markIntentionalStop(server, 'shutdown', { home: resolveHarnessHome(), log: logLine })
+    })
     // Before the first window, so no page ever runs under the default policy.
     installMicrophonePermissions(session.defaultSession, {
       primary: () => mainWindow()?.webContents,
@@ -1519,7 +1558,7 @@ if (!locked) {
       // Logging must never block the app; a failed sink drops chunks only.
     }
     // Before the first write, so nothing holds the file while it is renamed.
-    const retention = [rotateLog(logFile, LOG_ROTATE_BYTES), pruneReports(logDir, KEPT_REPORTS)]
+    const retention = [rotateLog(logFile, LOG_ROTATE_BYTES), pruneReports(logDir, KEPT_REPORTS), ...crashReporterNotes]
     // Every server byte lands in the file; the boot page shows phases only.
     const sink = (chunk: string): void => {
       try {
@@ -1544,6 +1583,7 @@ if (!locked) {
     sink(`[desktop] server entry: ${spec.entry} (exists: ${String(existsSync(spec.entry))})\n`)
     sink(`[desktop] server cwd: ${spec.cwd}\n`)
     sink(`[desktop] server diagnostic reports: ${spec.reportDirectory}\n`)
+    if (crashDumpsDir !== undefined) sink(`[desktop] electron crash dumps: ${crashDumpsDir}\n`)
     if (confirmedInstall !== undefined) sink(`[desktop] installed build ${String(confirmedInstall.target.dshRelease.buildSequence)} confirmed; previous build ${String(confirmedInstall.from.dshRelease.buildSequence)}\n`)
     if (isRecoveryRelaunch) sink('[desktop] this launch is an automatic recovery relaunch after repeated server crashes\n')
     view.phase(1)
@@ -1556,6 +1596,17 @@ if (!locked) {
         void shell.openPath(logFile).then((failure) => {
           if (failure !== '') shell.showItemInFolder(logFile)
         })
+      },
+      reloadWindow: (ignoreCache: boolean) => {
+        const focused = BrowserWindow.getFocusedWindow()
+        if (focused === null || focused.isDestroyed()) return
+        const appLoader = appLoaders.get(focused)
+        if (appLoader !== undefined && focused.webContents.getURL().startsWith('data:')) {
+          if (server !== undefined) appLoader.load(server.authenticatedUrl)
+          return
+        }
+        if (ignoreCache) focused.webContents.reloadIgnoringCache()
+        else focused.webContents.reload()
       },
       prepareQuit: async () => {
         quitting = true

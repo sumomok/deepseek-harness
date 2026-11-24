@@ -206,6 +206,13 @@ export interface UpdateHost {
    * @returns once the app is back.
    */
   resumeAfterFailedInstall: (blocking: boolean) => Promise<void>
+  /**
+   * Reload the focused window from the View menu (`CmdOrCtrl+R` /
+   * `Shift+CmdOrCtrl+R`). When omitted, the menu uses Electron's built-in
+   * `reload` and `forceReload` roles.
+   * @param ignoreCache - whether to bypass the HTTP cache (Force Reload).
+   */
+  reloadWindow?: (ignoreCache: boolean) => void
 }
 
 /** The single updater instance; its event listeners must be registered once. */
@@ -717,7 +724,7 @@ export function setupUpdates(host: UpdateHost): () => void {
   const manual = (): void => { check('manual') }
   // Built before the packaged check: 「查看日志」 is exactly as useful in a
   // development launch, where startup problems are just as likely.
-  buildMenu(manual, host.openLog)
+  buildMenu(manual, host.openLog, host.reloadWindow)
   if (!app.isPackaged) return manual
   // Before the first check, so no download of this run can be staged yet.
   sweepAfterInstall(host)
@@ -2279,8 +2286,9 @@ async function reportUpToDate(): Promise<void> {
  * for directly.
  * @param onCheck - runs the manual update check.
  * @param onOpenLog - opens the server log file.
+ * @param onReload - optional handler for View → Reload / Force Reload.
  */
-function buildMenu(onCheck: () => void, onOpenLog: () => void): void {
+function buildMenu(onCheck: () => void, onOpenLog: () => void, onReload?: (ignoreCache: boolean) => void): void {
   const text = menuText()
   const onAbout = (): void => { void showAbout(text.about) }
   const appName = app.getName()
@@ -2317,8 +2325,15 @@ function buildMenu(onCheck: () => void, onOpenLog: () => void): void {
     {
       label: text.view,
       submenu: [
-        { role: 'reload', label: text.reload },
-        { role: 'forceReload', label: text.forceReload },
+        ...onReload === undefined
+          ? [
+            { role: 'reload' as const, label: text.reload },
+            { role: 'forceReload' as const, label: text.forceReload },
+          ]
+          : [
+            { label: text.reload, accelerator: 'CmdOrCtrl+R', click: () => { onReload(false) } },
+            { label: text.forceReload, accelerator: 'Shift+CmdOrCtrl+R', click: () => { onReload(true) } },
+          ],
         { role: 'toggleDevTools', label: text.devTools },
         { type: 'separator' },
         { role: 'resetZoom', label: text.resetZoom },
