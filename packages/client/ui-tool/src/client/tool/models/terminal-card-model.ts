@@ -8,6 +8,13 @@ import { parsedToolCall, singleResultText } from './raw-tool-call.ts'
 import { recordedAbsolutePath } from './recorded-path.ts'
 
 /**
+ * Output lines a Chat terminal card renders before folding the middle behind
+ * an expand control. Bounds initial DOM node count for long command outputs
+ * while preserving full-output copy and one-click expansion.
+ */
+export const CHAT_TERMINAL_MAX_LINES = 200
+
+/**
  * Build the TerminalBlock display copy from the conversation locale seat —
  * the one place the primitive's label surface pairs with this package's
  * dictionary, shared by every terminal render site (chat row, bash row,

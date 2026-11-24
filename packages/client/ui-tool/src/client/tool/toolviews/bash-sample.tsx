@@ -8,6 +8,7 @@ import {
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolCallViewProps } from '../../contract/slots.ts'
 import {
+  CHAT_TERMINAL_MAX_LINES,
   isBackgroundShellCall,
   isSettledPersistentShellCall,
   isSpilledShellCall,
@@ -127,7 +128,7 @@ export const BashRow = memo(function BashRow({ toolName, block, sessionId, useSe
             ? (
               <TerminalBlock
                 {...terminal.card}
-                maxLines={Infinity}
+                maxLines={CHAT_TERMINAL_MAX_LINES}
                 labels={labels}
                 className={css.terminal}
               />

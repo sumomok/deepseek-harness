@@ -12,7 +12,7 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import {
-  localizeTerminalCardModel, terminalCardModel, terminalFailed, terminalExitLabel,
+  CHAT_TERMINAL_MAX_LINES, localizeTerminalCardModel, terminalCardModel, terminalFailed, terminalExitLabel,
 } from '../src/client/tool/models/terminal-card-model.ts'
 import { GenericToolCard, type GenericToolCardProps } from '../src/client/tool/toolviews/GenericToolCard.tsx'
 import { BashRow } from '../src/client/tool/toolviews/bash-sample.tsx'
@@ -734,5 +734,51 @@ describe('BashRow terminal card', () => {
     expect(view.getByText('输出')).toBeTruthy()
     expect(view.getByText(/"command": "ls -la"/)).toBeTruthy()
     expect(view.container.querySelector('[data-error]')?.textContent).toBe('Error: command aborted')
+  })
+
+  it.each(['BashRow', 'GenericToolCard'] as const)('%s folds terminal outputs past CHAT_TERMINAL_MAX_LINES, expands on click, and copies full output', async (renderer) => {
+    expect(CHAT_TERMINAL_MAX_LINES).toBe(200)
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+    const writeText = vi.fn<Clipboard['writeText']>().mockResolvedValue(undefined)
+    const total = CHAT_TERMINAL_MAX_LINES + 50
+    const lines = Array.from({ length: total }, (_, index) => `row-${index}`)
+    const output = `${lines.join('\n')}\n`
+    const props = rowProps(settled({
+      content: [{ type: 'text', text: output }],
+    }))
+    vi.useFakeTimers()
+    try {
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+      const view = render(renderer === 'BashRow' ? <BashRow {...props} /> : <GenericToolCard {...props}
+        getFileTriggerProps={() => ({})} />)
+      fireEvent.click(view.container.querySelector('[data-expandable]')!)
+      expect(view.getByText('row-0')).toBeTruthy()
+      expect(view.getByText('row-99')).toBeTruthy()
+      expect(view.queryByText('row-125')).toBeNull()
+      expect(view.getByText('row-150')).toBeTruthy()
+      expect(view.getByText(`row-${total - 1}`)).toBeTruthy()
+
+      const expand = view.getByRole('button', { name: t('terminal.expandAria', { n: 50 }) })
+      expect(expand.getAttribute('aria-expanded')).toBe('false')
+
+      // Copying while folded still copies the entire raw output.
+      await act(async () => { fireEvent.click(view.getByRole('button', { name: t('copy') })) })
+      expect(writeText).toHaveBeenCalledWith(output)
+
+      fireEvent.click(expand)
+      expect(view.getByText('row-125')).toBeTruthy()
+      const collapse = view.getByRole('button', { name: t('terminal.collapseAria') })
+      expect(collapse.getAttribute('aria-expanded')).toBe('true')
+
+      fireEvent.click(collapse)
+      expect(view.queryByText('row-125')).toBeNull()
+      await act(async () => { await vi.runOnlyPendingTimersAsync() })
+    } finally {
+      cleanup()
+      vi.clearAllTimers()
+      vi.useRealTimers()
+      if (clipboard === undefined) Reflect.deleteProperty(navigator, 'clipboard')
+      else Object.defineProperty(navigator, 'clipboard', clipboard)
+    }
   })
 })
