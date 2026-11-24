@@ -14,7 +14,7 @@ import { CHAT_READ_MAX_LINES, type ReadCardModel } from '../models/read-card-mod
 import type { ImageCardModel } from '../models/image-card-model.ts'
 import { CHAT_SEARCH_MAX_LINES, type SearchCardModel } from '../models/search-card-model.ts'
 import {
-  localizeTerminalCardModel, terminalBlockLabels, terminalExitLabel, type TerminalCardModel,
+  CHAT_TERMINAL_MAX_LINES, localizeTerminalCardModel, terminalBlockLabels, terminalExitLabel, type TerminalCardModel,
 } from '../models/terminal-card-model.ts'
 import {
   codeToolbarLabels, diffBlockLabels, readBlockLabels, searchBlockLabels, webBlockLabels,
@@ -337,7 +337,7 @@ export const ToolRow = memo(function ToolRow({
           ? (
             <TerminalBlock
               {...terminalBody.card}
-              maxLines={Infinity}
+              maxLines={CHAT_TERMINAL_MAX_LINES}
               labels={terminalLabels}
               className={css.terminalBody}
             />
