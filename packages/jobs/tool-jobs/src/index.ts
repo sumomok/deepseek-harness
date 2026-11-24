@@ -326,6 +326,7 @@ export function apply(ctx: Context, config: Config): void {
     name: 'tool:jobs',
     order: ctx.systemPrompt.getSectionOrder('TOOL_JOBS'),
     text: 'Track every background job id you start. A completion always reaches you — as a new turn when the call asked for wake, otherwise with your next input — so never poll or sleep on one; ending your turn does not stop the work, and a wake result starts a new turn for you. Keep working on independent steps and do not duplicate a running job\'s work. job_output never waits: it reports what the job has produced so far. Before giving a final answer, collect every still-relevant job with job_output, and job_kill jobs that stopped mattering.',
+    retirement: 'The background-job tools are no longer available. Their guidance no longer applies.',
   })
 
   // Live jobs whose kill the model itself requested through `job_kill`: that

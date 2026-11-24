@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-desktop",
   "description": "Electron desktop shell for a bundled dsh runtime and external plugins",
-  "version": "0.2.2-rc.5",
+  "version": "0.2.3-alpha.2",
   "private": true,
   "license": "MIT",
   "author": {
@@ -74,7 +74,7 @@
     "@types/yauzl": "^2.10.3",
     "app-builder-lib": "26.17.0",
     "cos-nodejs-sdk-v5": "3.0.0",
-    "electron": "^44.9.1",
+    "electron": "^44.11.5",
     "electron-builder": "^26.17.0",
     "js-yaml": "^4.3.2",
     "yauzl": "^3.4.0",

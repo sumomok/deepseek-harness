@@ -28,7 +28,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-基于 base 的 profile 提供管理服务。在 Web 中，侧边栏的**插件**页（[ui-plugin-manager](../../client/ui-plugin-manager/README.zh.md)）管理 profile 的组合包及其能唯一定位的行。Agent 预设条目保持只读。`plugin_manager` 工具提供相同操作，在标准和 Creator 预设中启用。其他 Web 预设仍默认禁用。完整 SDK profile 在 profile 作用域为 native/PTC 模式启用此工具；没有 HMR 时，保存的变更返回 `restart-required` 和 `no-hmr`，在运行时重启后应用。每个工具操作都要求 `danger-full-access` 或本次调用的批准。在较低沙箱模式下，`ask` 会请求审批；`never`、拒绝、取消或审批渠道不可用时均不执行。批准不改变会话的权限模式。profile 变更跨会话持久化，已安装的 Host 代码在宿主进程内运行，不受工作区沙箱限制。依赖构建脚本仍需单独批准。
+基于 base 的 profile 提供管理服务。在 Web 中，侧边栏的**插件**页（[ui-plugin-manager](../../client/ui-plugin-manager/README.zh.md)）管理 profile 的组合包及其能唯一定位的行。Agent 预设条目保持只读。`plugin_manager` 工具提供相同操作，在标准、PTC 和 Creator 预设中启用。其他 Web 预设仍默认禁用。完整 SDK profile 在 profile 作用域为 native/PTC 模式启用此工具；没有 HMR 时，保存的变更返回 `restart-required` 和 `no-hmr`，在运行时重启后应用。每个工具操作都要求 `danger-full-access` 或本次调用的批准。在较低沙箱模式下，`ask` 会请求审批；`never`、拒绝、取消或审批渠道不可用时均不执行。批准不改变会话的权限模式。profile 变更跨会话持久化，已安装的 Host 代码在宿主进程内运行，不受工作区沙箱限制。依赖构建脚本仍需单独批准。
 
 除完整 SDK profile 外，未使用 Agent 预设的部署在 profile patch 中启用工具；安装/移除包要求 PATH 中有 pnpm，或显式配置 `pnpmCommand`，启动器提供的包管理器优先；使用预设的会话由其预设中的 `tool-plugin-manager` 条目控制。
 
@@ -45,7 +45,9 @@ kind: "package-reference"
 
 部署方在 `requiredModules` 中列出它离不开的模块。点名其中之一的插件行报 `readOnlyReason: 'deployment-required'`，patch 插入这种行的组合包也一样，除非该组合包同时插入管理组件，那时报 `management-required`。两者都不能通过插件页面或 `plugin_manager` 工具停用或移除，这种组合包的文件变得不可读后仍受保护。没有任何已启动组合包插入的名字，在管理器启动时记一条警告。
 
-`listBundles` 为各组合包及其声明的插件行提供可选的展示 `meta`，包括已禁用的组合包。Client 从这些值中选择语言。单独的 `description` 字段是该组合包原始的 `package.json.description`；元信息诊断不会阻止管理操作。`source` 以 `pnpm add` 接受的 spec 给出 profile 依赖：git 地址或 URL 按记录给出，但去掉 http(s) URL 的 user information（查询字符串保持原样）；`file:` 或 `link:` 路径按 profile 目录解析为绝对路径，`~` 展开为主目录；注册表版本范围、标签或别名接在包名的 `@` 之后，以别名安装的包的 spec 也是如此。安装提供的组合包没有该字段，即使 profile 也依赖它，因为实际加载的是安装中的副本。`plugin_manager` 工具的列表结果不包含 UI 展示元信息。
+推荐 Skill 使用 `@deepseek-ai/dsh-plugin-manager/catalog` 导出的 `bundleCatalogEntry(bundle)` 生成英文目录条目，包含包名、标题、描述和当前的 `enabled` 值。缺少展示文案时，标题回退到包名，描述回退到清单中的描述。
+
+`listBundles` 为各组合包及其声明的插件行提供可选的展示 `meta`，包括已禁用的组合包。Client 从这些值中选择语言。单独的 `description` 字段是该组合包原始的 `package.json.description`；元信息诊断不会阻止管理操作。`source` 以 `pnpm add` 接受的 spec 给出 profile 依赖：git 地址或 URL 按记录给出，但去掉 http(s) URL 的 user information（查询字符串保持原样）；`file:` 或 `link:` 路径按 profile 目录解析为绝对路径，`~` 展开为主目录；注册表版本范围、标签或别名接在包名的 `@` 之后，以别名安装的包的 spec 也是如此。安装提供的组合包没有该字段，即使 profile 也依赖它，因为实际加载的是安装中的副本。`plugin_manager` 工具的列表结果不包含 UI 展示元信息和更新资格。
 
 `listBundles` 将随附可选组合包和按需目录项标为 `official`，与包的安装状态独立。`availability` 表示可读取的安装随附包、profile 包，或 `missing`；按需目录项不计入未声明的传递依赖副本。`installed` 仅表示 profile 是否声明该依赖。尚未安装的按需条目携带内嵌的本地化元信息，以及 Host 生成、包含当前 DSH 版本与安装 spec 的 `installTarget`，无需访问注册表。profile 已声明但文件不可读的包保留依赖声明，并展示原有错误。
 
