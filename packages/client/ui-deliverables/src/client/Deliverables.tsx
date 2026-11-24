@@ -31,7 +31,9 @@ export interface DeliverablesInjected {
   }
   reloadPresentedHost: PresentedOpenController['loadHost']
   loadChangesDiff: ChangesDiffStore['load']
+  retainChangesDiff: ChangesDiffStore['retain']
   loadChangesSummary: ChangesSummaryStore['load']
+  retainChangesSummary: ChangesSummaryStore['retain']
   openPresented: PresentedOpenController['open']
   openChanged: PresentedOpenController['openChanged']
   /** Open one turn's review in the right Sidebar on the file at an index. */
@@ -68,7 +70,8 @@ export function DeliverablesTail(props: PropsRuntime<'conversation.chat.turnTail
  */
 export function Deliverables({
   matched, openFile, useContextMenu, t, sessionId, useSessions, openPresented, openChangesReview, usePresentedOpen, usePresentedHost,
-  useChangesDiff, loadChangesDiff, useChangesSummary, reloadPresentedHost, loadChangesSummary, useShowCodeDiff, renderSlot,
+  useChangesDiff, loadChangesDiff, retainChangesDiff, useChangesSummary, reloadPresentedHost, loadChangesSummary, retainChangesSummary,
+  useShowCodeDiff, renderSlot,
 }: Pick<TurnTailOwnerProps, 'openFile'> & {
   matched: DeliverablesMatch
 } & PropsLocale<typeof NS> & Pick<SessionStandardProps, 'sessionId'> & Pick<GlobalStandardProps, 'useSessions' | 'useContextMenu'> & InjectFace<DeliverablesInjected> & PropsRenderSlots<'deliverables.file.actions'>) {
@@ -79,7 +82,9 @@ export function Deliverables({
   const states = usePresentedOpen(value => value)
   const host = usePresentedHost(value => value)
   const announced = showCodeDiff ? matched.changes : null
-  const summary = useChangesSummary(value => announced === null ? undefined : value[changesSummaryUrl(sessionId, announced.seq)])
+  const summaryUrl = announced === null ? null : changesSummaryUrl(sessionId, announced.seq)
+  const summary = useChangesSummary(value => summaryUrl === null ? undefined : value[summaryUrl])
+  useEffect(() => (summaryUrl === null ? undefined : retainChangesSummary(summaryUrl)), [summaryUrl, retainChangesSummary])
   useEffect(() => {
     if (announced !== null && summary === undefined) void loadChangesSummary(sessionId, announced.seq)
   }, [announced, summary, sessionId, loadChangesSummary])
@@ -96,6 +101,7 @@ export function Deliverables({
   return <>
     {changes !== null && <ChangedFiles changes={changes} t={t}
       sessionId={sessionId} useChangesDiff={useChangesDiff} loadChangesDiff={loadChangesDiff}
+      retainChangesDiff={retainChangesDiff}
       openReview={(index) => { openChangesReview({ sessionId, seq: changes.seq, turn: changes.turn }, index) }} />}
     {matched.presented.length > 0 && <div
       className={css.root}

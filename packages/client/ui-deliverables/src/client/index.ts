@@ -59,7 +59,17 @@ export function apply(ctx: ClientContext): void {
     summaries.reset()
     diffs.reset()
   })
-  ctx.uiConversation.events.register(deliverablesDefinition)
+  const matchDeliverables = deliverablesDefinition.match.bind(deliverablesDefinition)
+  ctx.uiConversation.events.register({
+    ...deliverablesDefinition,
+    match: {
+      'turn/start': matchDeliverables,
+      'tool/call': matchDeliverables,
+      'deliverables/presented': matchDeliverables,
+      'workspace/changes': matchDeliverables,
+      'tool/result': matchDeliverables,
+    },
+  })
   ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'ui-deliverables: dictionaries')
   ctx.slots.inject(
     'conversation.chat.turnTail',
@@ -72,8 +82,10 @@ export function apply(ctx: ClientContext): void {
         hooks: { changesDiff: diffs.state, presentedOpen: opener.state, presentedHost: opener.host, changesSummary: summaries.state,
           showCodeDiff: ctx.configForms.developerTools.enabled },
         loadChangesDiff: (sessionId, seq, index) => diffs.load(sessionId, seq, index),
+        retainChangesDiff: url => diffs.retain(url),
         reloadPresentedHost: () => opener.loadHost(),
         loadChangesSummary: (sessionId, seq) => summaries.load(sessionId, seq),
+        retainChangesSummary: url => summaries.retain(url),
         openPresented: (sessionId, seq, index, action, application) => opener.open(sessionId, seq, index, action, application),
         openChanged: (sessionId, seq, index, action, application) => opener.openChanged(sessionId, seq, index, action, application),
         openChangesReview: (coordinates, index) => {
@@ -94,7 +106,9 @@ export function apply(ctx: ClientContext): void {
       inject: (): ReviewInjected => ({
         hooks: { changesSummary: summaries.state, changesDiff: diffs.state, presentedOpen: opener.state, presentedHost: opener.host },
         loadChangesSummary: (sessionId, seq) => summaries.load(sessionId, seq),
+        retainChangesSummary: url => summaries.retain(url),
         loadChangesDiff: (sessionId, seq, index) => diffs.load(sessionId, seq, index),
+        retainChangesDiff: url => diffs.retain(url),
         reloadPresentedHost: () => opener.loadHost(),
         openChanged: (sessionId, seq, index, action, application) => opener.openChanged(sessionId, seq, index, action, application),
       }),

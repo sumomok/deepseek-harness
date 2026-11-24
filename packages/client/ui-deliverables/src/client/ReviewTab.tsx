@@ -36,7 +36,9 @@ export interface ReviewInjected {
     presentedHost: ObservableSnapshot<ReturnType<PresentedOpenController['host']['getSnapshot']>>
   }
   loadChangesSummary: ChangesSummaryStore['load']
+  retainChangesSummary: ChangesSummaryStore['retain']
   loadChangesDiff: ChangesDiffStore['load']
+  retainChangesDiff: ChangesDiffStore['retain']
   reloadPresentedHost: PresentedOpenController['loadHost']
   openChanged: PresentedOpenController['openChanged']
 }
@@ -68,7 +70,7 @@ function Counts({ file, t }: { file: WorkspaceChangedFile } & PropsLocale<typeof
  */
 export function ReviewTab({
   useTabInfo, sessionId, useSessions, useStore, actions, useChangesSummary, useChangesDiff, usePresentedOpen, usePresentedHost,
-  loadChangesSummary, loadChangesDiff, reloadPresentedHost, openChanged, t, renderSlot,
+  loadChangesSummary, retainChangesSummary, loadChangesDiff, retainChangesDiff, reloadPresentedHost, openChanged, t, renderSlot,
 }: ReviewTabProps): ReactNode {
   const { tab } = useTabInfo()
   const { navigation, signal } = tab
@@ -76,7 +78,8 @@ export function ReviewTab({
   if (coordinates === undefined) throw new Error(`ui-deliverables: not a review address "${tab.contentId}"`)
   const { seq } = coordinates
   const cwd = useSessions(sessions => selectSessionDirectory(sessions, sessionId))
-  const summary = useChangesSummary(value => value[changesSummaryUrl(sessionId, seq)])
+  const summaryUrl = changesSummaryUrl(sessionId, seq)
+  const summary = useChangesSummary(value => value[summaryUrl])
   const state = useStore(store => store.byTab[tab.id])
   const host = usePresentedHost(value => value)
   // Every navigation to this tab applies its file index once; the first one seeds the tab's choices.
@@ -89,6 +92,7 @@ export function ReviewTab({
     signal.addEventListener('abort', forget, { once: true })
     return () => { signal.removeEventListener('abort', forget) }
   }, [signal, actions, tab.id])
+  useEffect(() => retainChangesSummary(summaryUrl), [summaryUrl, retainChangesSummary])
   useEffect(() => {
     if (summary === undefined) void loadChangesSummary(sessionId, seq)
   }, [summary, sessionId, seq, loadChangesSummary])
@@ -101,7 +105,9 @@ export function ReviewTab({
   // A navigated index the summary does not list falls back to the first file.
   const index = state !== undefined && files[state.index] !== undefined ? state.index : 0
   const file = files[index]
-  const diffState = useChangesDiff(value => file === undefined ? undefined : value[changesDiffUrl(sessionId, seq, index)])
+  const diffUrl = file === undefined ? null : changesDiffUrl(sessionId, seq, index)
+  const diffState = useChangesDiff(value => diffUrl === null ? undefined : value[diffUrl])
+  useEffect(() => (diffUrl === null ? undefined : retainChangesDiff(diffUrl)), [diffUrl, retainChangesDiff])
   useEffect(() => {
     if (file !== undefined && diffState === undefined) void loadChangesDiff(sessionId, seq, index)
   }, [file, diffState, sessionId, seq, index, loadChangesDiff])

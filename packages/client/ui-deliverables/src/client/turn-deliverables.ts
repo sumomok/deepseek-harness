@@ -46,7 +46,13 @@ declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
 
 interface DeliverablesState extends DeliverablesTurnData {
   readonly turn: number
-  readonly calls: ReadonlyMap<string, string | null>
+  readonly calls: ReadonlyMap<string, string>
+}
+
+type MutationToolName = 'write' | 'edit' | 'str_replace_editor'
+
+function isMutationTool(name: string): name is MutationToolName {
+  return name === 'write' || name === 'edit' || name === 'str_replace_editor'
 }
 
 /**
@@ -57,7 +63,7 @@ interface DeliverablesState extends DeliverablesTurnData {
  * @param argsRaw - model-produced JSON arguments.
  * @returns the mutation path, or null when the call is not a supported mutation.
  */
-function mutationPath(name: string, argsRaw: string): string | null {
+function mutationPath(name: MutationToolName, argsRaw: string): string | null {
   let args: unknown
   try {
     args = JSON.parse(argsRaw) as unknown
@@ -72,8 +78,6 @@ function mutationPath(name: string, argsRaw: string): string | null {
       return validEditArgs(args) ? pathValue(args.file_path) : null
     case 'str_replace_editor':
       return editorMutationPath(args)
-    default:
-      return null
   }
 }
 
@@ -174,7 +178,9 @@ export const deliverablesDefinition: ConversationNodeDefinition<DeliverablesStat
   kind: 'deliverables',
   match: (event) => {
     if (event.type === 'turn/start') return { id: String(event.data.turn), role: 'start' }
-    if (event.type === 'tool/call') return { id: String(event.data.turn), role: 'update' }
+    if (event.type === 'tool/call') {
+      return isMutationTool(event.data.name) ? { id: String(event.data.turn), role: 'update' } : null
+    }
     if (event.type === 'deliverables/presented') return isPresentedData(event.data) ? { id: String(event.data.turn), role: 'update' } : null
     if (event.type === 'workspace/changes') return isChangesEvent(event.data) ? { id: String(event.data.turn), role: 'update' } : null
     if (event.type === 'tool/result' && isAppendSurfaceEvent(event)) {
@@ -200,18 +206,18 @@ export const deliverablesDefinition: ConversationNodeDefinition<DeliverablesStat
       return { ...context.state, presented: [...context.state.presented ?? [], ...presented] }
     }
     if (match.event.type === 'tool/call') {
+      if (!isMutationTool(match.event.data.name)) return context.state
+      const path = mutationPath(match.event.data.name, match.event.data.arguments)
+      if (path === null) return context.state
       const calls = new Map(context.state.calls)
-      calls.set(
-        String(match.event.data.callId),
-        mutationPath(match.event.data.name, match.event.data.arguments),
-      )
+      calls.set(String(match.event.data.callId), path)
       return { ...context.state, calls }
     }
     if (match.event.type !== 'tool/result') return context.state
     if (match.event.data.message.isError === true) return context.state
     const callId = String(match.event.data.message.source.callId)
     const argumentPath = context.state.calls.get(callId)
-    if (argumentPath === null || argumentPath === undefined) return context.state
+    if (argumentPath === undefined) return context.state
     const path = mutationResultPath(argumentPath, match.event.data.meta)
     return path === null
       ? context.state

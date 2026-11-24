@@ -9,12 +9,15 @@ import { HostReadStore } from './host-read-store.ts'
  */
 export type ChangesDiffState = ChangesDiff | 'missing' | 'error' | 'loading'
 
+const MAX_DIFF_ENTRIES = 64
+
 /** One browser plugin's comparison reads; a failed read is the one state a later request replaces. */
 export class ChangesDiffStore extends HostReadStore<ChangesDiffState> {
-  constructor() {
+  constructor(maxEntries = MAX_DIFF_ENTRIES) {
     super({
       loading: 'loading',
       failed: 'error',
+      maxEntries,
       retryable: state => state === 'error',
       decode: async (response) => {
         if (response.status === 404) return 'missing'
