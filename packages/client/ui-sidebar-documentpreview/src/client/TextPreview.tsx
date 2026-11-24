@@ -116,11 +116,14 @@ export function TextPreview({
   storedScrollTopRef.current = state?.scrollTop ?? 0
   const bindBody = useCallback((body: HTMLDivElement | null): void => {
     const previous = bodyRef.current
+    if (previous !== null) clearLineMark(previous)
     bodyRef.current = body
     if (scrollportRef.current === null || scrollportRef.current === previous) scrollportRef.current = body
   }, [])
   const bindScrollport = useCallback((scrollport: HTMLElement | null): void => {
+    const previous = scrollportRef.current
     const next = scrollport ?? bodyRef.current
+    if (previous !== null && previous !== next) clearLineMark(previous)
     scrollportRef.current = next
     if (next !== null) next.scrollTop = storedScrollTopRef.current
   }, [])

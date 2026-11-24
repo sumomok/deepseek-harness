@@ -5,6 +5,7 @@ import type { PdfSession } from './document.ts'
 import { PdfWorkerFailure } from './errors.ts'
 
 const WORKER_READY = 'dsh-pdf-worker-ready'
+const WORKER_DESTROY_TIMEOUT_MS = 5_000
 
 /**
  * Open complete PDF bytes with an explicitly owned Worker. Startup failure
@@ -50,7 +51,20 @@ export function openPdf(data: Uint8Array<ArrayBuffer>, signal: AbortSignal, repo
     if (closing !== undefined) return closing
     closing = Promise.resolve().then(async () => {
       try {
-        if (loading !== undefined) await Promise.race([loading.destroy(), broken.promise])
+        if (loading !== undefined) {
+          const destroy = loading.destroy()
+          let timer: ReturnType<typeof setTimeout> | undefined
+          const timeout = new Promise<undefined>((resolve) => {
+            timer = setTimeout(() => { resolve(undefined) }, WORKER_DESTROY_TIMEOUT_MS)
+          })
+          // Prevent an unhandled rejection if the timeout or worker-failure signal wins first.
+          void destroy.catch(() => {})
+          try {
+            await Promise.race([destroy, broken.promise, timeout])
+          } finally {
+            clearTimeout(timer)
+          }
+        }
       } finally {
         removeReady?.()
         stopped.removeEventListener('abort', aborted)
