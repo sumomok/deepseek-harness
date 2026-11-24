@@ -72,16 +72,6 @@ export interface ManualCompactionChatData {
   readonly exited: boolean
 }
 
-/**
- * One automatic compaction bracket that closed on an error. The render
- * position comes from the node's `anchorSeq`, so the payload carries only what
- * the card shows: the backend's own failure text, for the diagnostic `title`.
- */
-export interface CompactionFailureChatData {
-  /** Failure text the bracket recorded, or null when it recorded none usable. */
-  readonly reason: string | null
-}
-
 /** One durable retry chain rendered as a single row. */
 export interface RetryChatData {
   readonly attempts: readonly ModelRetryNode[]

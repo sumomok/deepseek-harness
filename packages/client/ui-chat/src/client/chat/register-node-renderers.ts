@@ -8,9 +8,8 @@ import { AssistantNodeView, type AssistantNodeInjected } from './AssistantNodeVi
 import { sessionFilePath } from '../file-path.ts'
 import { CommandNodeView, ManualCompactionNodeView } from './CommandNodeView.tsx'
 import {
-  CompactionFailureNodeView, CompactionNodeView, CompactionRunningNodeView, ContextMessageNodeView,
-  InheritedHistoryNodeView, RetryNodeView, TurnErrorNodeView, TurnMaxTokensNodeView, UnknownNodeView,
-  UserMessageNodeView,
+  CompactionNodeView, ContextMessageNodeView, InheritedHistoryNodeView, RetryNodeView, TurnErrorNodeView,
+  TurnMaxTokensNodeView, UnknownNodeView, UserMessageNodeView,
 } from './MessageItem.tsx'
 import { DefaultReasoningBody, ReasoningContent } from './ReasoningContent.tsx'
 import { SystemPromptNodeView } from './SystemPromptRow.tsx'
@@ -80,10 +79,6 @@ export function registerChatNodeRenderers(
     { name: 'conversation.chat.node', key: 'manual-compaction', locale: NS, inject: injectCompaction }, ManualCompactionNodeView))
   ctx.slots.inject('conversation.chat.node', () => ctx.slots.register(
     { name: 'conversation.chat.node', key: 'compaction', locale: NS, inject: injectCompaction }, CompactionNodeView))
-  ctx.slots.inject('conversation.chat.node', () => ctx.slots.register(
-    { name: 'conversation.chat.node', key: 'compaction-running', locale: NS }, CompactionRunningNodeView))
-  ctx.slots.inject('conversation.chat.node', () => ctx.slots.register(
-    { name: 'conversation.chat.node', key: 'compaction-failure', locale: NS }, CompactionFailureNodeView))
   ctx.slots.inject('conversation.chat.node', () => ctx.slots.register(
     { name: 'conversation.chat.node', key: 'inherited-history', locale: NS }, InheritedHistoryNodeView))
   ctx.slots.inject('conversation.chat.node', () => ctx.slots.register(

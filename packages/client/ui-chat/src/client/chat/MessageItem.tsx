@@ -6,7 +6,6 @@ import type { UserTextFacts } from '@deepseek-ai/dsh-client-ui-conversation/clie
 import {
   IconBranchOutlineRegular, JsonBlock, referenceLabelsOf, StateDot, TextShimmer,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { CompactionFailureChatData } from '../contract/chat-nodes.ts'
 import type {
   ChatNodeOwnerProps, ChatNodeViewProps, ChatViewSlotProps, UserContentAttachment, UserContentData, UserContentInput,
 } from '../contract/slots.ts'
@@ -174,8 +173,8 @@ function TurnMaxTokensItem({ t }: {
  * conversation is unchanged: the engine prunes oversized tool results before
  * it opens the bracket, so a failure here can follow a landed reduction.
  */
-function CompactionFailureItem({ node, t }: {
-  node: CompactionFailureChatData
+function CompactionFailureItem({ reason, t }: {
+  reason: string | null
   t: ChatViewSlotProps['t']
 }) {
   const detail = t('message.compaction.failed.detail')
@@ -186,7 +185,7 @@ function CompactionFailureItem({ node, t }: {
         <span className={css.maxTokensTitle}>{t('message.compaction.failed')}</span>
         <span
           className={css.compactionFailureReason}
-          {...node.reason === null ? {} : { title: node.reason }}
+          {...reason === null ? {} : { title: reason }}
         >
           {detail}
         </span>
@@ -432,20 +431,15 @@ export const CompactionNodeView = memo(function CompactionNodeView({
   const available = useCompactionPreview(value => value)
   const data = node.data
   if (data.kind === 'compaction-progress') {
+    if (data.status === 'ended' && data.error !== undefined) {
+      return <CompactionFailureItem reason={data.error === '' ? null : data.error} t={t} />
+    }
     const title = t('message.compaction.commandTitle')
     if (data.status === 'running') return <CommandStatusRow title={title} state="running" summary={t('message.compaction.running')} body={null} t={t} />
-    const error = data.status === 'interrupted' ? t('message.taskStopped') : data.error
-    return <CommandStatusRow title={title} state={error === undefined ? 'ok' : 'error'} summary={error ?? t('command.done')}
-      body={error?.includes('\n') ? error : null} t={t} />
+    if (data.status === 'interrupted') return <CommandStatusRow title={title} state="error" summary={t('message.taskStopped')} body={null} t={t} />
+    return <CommandStatusRow title={title} state="ok" summary={t('command.done')} body={null} t={t} />
   }
   return <CompactionItem node={data} openCompaction={available ? openCompaction : undefined} t={t} />
-})
-
-/** Open automatic-compaction bracket keyed Chat renderer. */
-export const CompactionRunningNodeView = memo(function CompactionRunningNodeView(
-  { t }: Pick<ChatNodeViewProps<'compaction-running'>, 't'>,
-) {
-  return <CompactionItem node={null} t={t} />
 })
 
 /** Divider between a forked Session's inherited history and its own messages. */
@@ -476,13 +470,6 @@ export const TurnErrorNodeView = memo(function TurnErrorNodeView({ node, t }: Ch
 /** Max-tokens turn-end notice keyed Chat renderer. */
 export const TurnMaxTokensNodeView = memo(function TurnMaxTokensNodeView({ t }: ChatNodeViewProps<'turn-max-tokens'>) {
   return <TurnMaxTokensItem t={t} />
-})
-
-/** Failed automatic-compaction keyed Chat renderer. */
-export const CompactionFailureNodeView = memo(function CompactionFailureNodeView(
-  { node, t }: Pick<ChatNodeViewProps<'compaction-failure'>, 'node' | 't'>,
-) {
-  return <CompactionFailureItem node={node.data} t={t} />
 })
 
 /** Explicit unknown-surface keyed Chat renderer. */

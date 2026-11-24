@@ -80,7 +80,7 @@ function body(count: number): string {
 describe('ApprovalDiffPreview', () => {
   it('previews a pending write as the whole file it will contain', () => {
     const { container } = render(<ApprovalDiffPreview {...props([
-      node('compaction-running', null),
+      node('compaction', { kind: 'compaction-progress', status: 'running' }),
       running('write', { file_path: `${CWD}/notes.txt`, content: 'alpha\nbeta\n' }),
     ])} />)
 
@@ -151,7 +151,7 @@ describe('ApprovalDiffPreview', () => {
 
   it('renders nothing for an absent, uncorrelated, preparing, or settled call', () => {
     const { container } = render(<ApprovalDiffPreview {...props([
-      node('compaction-running', null),
+      node('compaction', { kind: 'compaction-progress', status: 'running' }),
       running('write', { file_path: `${CWD}/other.txt`, content: 'x' }, 'call-2'),
       node('tool-call', {
         root: { phase: 'preparing', args: PartialArguments.EMPTY, callId: 'call-1', name: 'write', turn: 1, step: 1, time: 0, subCalls: [] },

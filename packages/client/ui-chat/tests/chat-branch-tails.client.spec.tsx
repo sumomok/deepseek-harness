@@ -878,13 +878,23 @@ describe('MessageItem arms', () => {
     [{ status: 'running' }, 'running', t('message.compaction.running')],
     [{ status: 'interrupted' }, 'error', t('message.taskStopped')],
     [{ status: 'ended' }, 'ok', t('command.done')],
-    [{ status: 'ended', error: 'Failure\nDetails' }, 'error', 'Failure Details'],
   ] as const)('renders automatic compaction progress %j', (progress, state, summary) => {
     const node = { data: { kind: 'compaction-progress', ...progress } }
     const view = render(<CompactionNodeView {...{ node, t } as ChatNodeViewProps<'compaction'>}
       useCompactionPreview={select => select(false)} openCompaction={vi.fn()} />)
     expect(view.container.querySelector(`[data-state="${state}"]`)).toBeTruthy()
     expect(view.getByText(summary)).toBeTruthy()
+  })
+
+  it('renders automatic compaction failure as a localized warning notice with the raw error on title', () => {
+    const node = { data: { kind: 'compaction-progress', status: 'ended', error: 'Failure\nDetails' } }
+    const view = render(<CompactionNodeView {...{ node, t } as ChatNodeViewProps<'compaction'>}
+      useCompactionPreview={select => select(false)} openCompaction={vi.fn()} />)
+    const status = view.getByRole('status')
+    expect(status.textContent).toContain(t('message.compaction.failed'))
+    const reason = status.querySelector('[title]')
+    expect(reason?.getAttribute('title')).toBe('Failure\nDetails')
+    expect(reason?.textContent).toBe(t('message.compaction.failed.detail'))
   })
 
   it('a compaction marker opens its summary seq in the Sidebar and never shows the framed checkpoint', () => {

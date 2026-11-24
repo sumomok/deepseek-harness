@@ -19,9 +19,8 @@ export interface CompactionRowInjected {
 }
 
 interface CompactionItemProps {
-  /** Landed checkpoint marker, or null while the bracket is still open. */
-  node: CompactionSummaryNode | null
-  openCompaction?: CompactionRowInjected['openCompaction'] | undefined
+  openCompaction: CompactionRowInjected['openCompaction'] | undefined
+  node: CompactionSummaryNode
   /** Optional command title for a manual compaction folded into this marker. */
   title?: string
   /** Command settlement text used when structured compaction counts are unavailable. */
@@ -31,10 +30,9 @@ interface CompactionItemProps {
 }
 
 /**
- * Renders the model-history compaction marker. An open bracket reads as the
- * running title alone: it has no counts to state and no summary to open.
- * @param props - the marker node off the snapshot cache (or null while running) and the Sidebar opener.
- * @returns the marker row; disabled while running or while no Sidebar tab type opens checkpoints.
+ * Renders the model-history compaction marker.
+ * @param props - the marker node off the snapshot cache and the Sidebar opener.
+ * @returns the marker row; disabled while no Sidebar tab type opens checkpoints.
  */
 export const CompactionItem = memo(function CompactionItem({
   node,
@@ -43,8 +41,8 @@ export const CompactionItem = memo(function CompactionItem({
   fallbackSummary,
   t,
 }: CompactionItemProps) {
-  const summarySeq = node?.summaryEventSeq ?? null
-  const available = node !== null && openCompaction !== undefined && summarySeq !== null
+  const summarySeq = node.summaryEventSeq
+  const available = openCompaction !== undefined && summarySeq !== null
   const pending = useRef<AbortController | null>(null)
   const [opening, setOpening] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
@@ -53,7 +51,7 @@ export const CompactionItem = memo(function CompactionItem({
     setOpening(false)
     setFailure(null)
     return () => { pending.current?.abort() }
-  }, [node?.seq, summarySeq, openCompaction])
+  }, [node.seq, summarySeq, openCompaction])
   const open = async (): Promise<void> => {
     if (!available || pending.current !== null) return
     const controller = new AbortController()
@@ -70,27 +68,22 @@ export const CompactionItem = memo(function CompactionItem({
       if (!controller.signal.aborted) setOpening(false)
     }
   }
-  const titleText = title
-    ?? (node === null ? t('message.compaction.running') : t('message.compaction'))
-  const summary = node === null
-    ? null
-    : node.shadowedItemCount !== null && node.shadowedTokenCount !== null
-      ? t('message.compaction.completed', {
-        items: node.shadowedItemCount,
-        tokens: node.shadowedTokenCount,
-      })
-      : fallbackSummary ?? t('message.compaction.landed')
+  const summary = node.shadowedItemCount !== null && node.shadowedTokenCount !== null
+    ? t('message.compaction.completed', {
+      items: node.shadowedItemCount,
+      tokens: node.shadowedTokenCount,
+    })
+    : fallbackSummary ?? t('message.compaction.landed')
   const action = t('message.compaction.open')
   return (
     <div className={css.compactionRow}>
-      {node === null && <span className={a11yCss.visuallyHidden}>{t('row.running')}</span>}
       <Tooltip label={action} side="top" portal delayMs={200} disabled={!available}>
         <button
           type="button"
           className={css.compactionButton}
           disabled={!available || opening}
           aria-busy={opening}
-          {...node === null ? {} : { 'data-compaction-seq': node.seq }}
+          data-compaction-seq={node.seq}
           onClick={() => { void open() }}
         >
           <span className={css.compactionLeading} aria-hidden>
@@ -101,13 +94,9 @@ export const CompactionItem = memo(function CompactionItem({
               <IconChevronRightOutlineRegular />
             </span>
           </span>
-          <span className={css.compactionTitle}>{titleText}</span>
-          {summary !== null && (
-            <>
-              <span className={css.compactionSep} aria-hidden />
-              <span className={css.compactionSummary}>{summary}</span>
-            </>
-          )}
+          <span className={css.compactionTitle}>{title ?? t('message.compaction')}</span>
+          <span className={css.compactionSep} aria-hidden />
+          <span className={css.compactionSummary}>{summary}</span>
           {available && <span className={a11yCss.visuallyHidden}>{action}</span>}
         </button>
       </Tooltip>

@@ -48,7 +48,7 @@ import { en, zh, pt } from '../src/client/locale.ts'
 import { AssistantNodeView } from '../src/client/chat/AssistantNodeView.tsx'
 import { CommandNodeView, ManualCompactionNodeView } from '../src/client/chat/CommandNodeView.tsx'
 import {
-  CompactionFailureNodeView, CompactionNodeView, CompactionRunningNodeView, ContextMessageNodeView,
+  CompactionNodeView, ContextMessageNodeView,
   InheritedHistoryNodeView, RetryNodeView, TurnErrorNodeView,
   TurnMaxTokensNodeView, UnknownNodeView, UserMessageNodeView,
 } from '../src/client/chat/MessageItem.tsx'
@@ -354,10 +354,6 @@ function HarnessChatNode({
       return <ManualCompactionNodeView {...nodeProps} {...compaction} node={owner.node} />
     case 'compaction':
       return <CompactionNodeView {...nodeProps} {...compaction} node={owner.node} />
-    case 'compaction-running':
-      return <CompactionRunningNodeView t={nodeProps.t} />
-    case 'compaction-failure':
-      return <CompactionFailureNodeView node={owner.node} t={nodeProps.t} />
     case 'model-retry':
       return <RetryNodeView {...nodeProps} node={owner.node} />
     case 'turn-error':
@@ -1090,12 +1086,13 @@ describe('ChatView', () => {
     const fixture = chatSnapshotFixture({ nodes: legacy, turnTimings: new Map([[1, { startTime: 0 }]]) })
     const turn = fixture.timeline.turns.get(1)
     if (turn === undefined) throw new Error('expected an open Turn')
-    const running: ChatNode<'compaction-running'> = {
-      key: 'fixture:compaction-running:4', id: '4', target: 'chat', kind: 'compaction-running',
-      anchorSeq: 4, location: { kind: 'turn', turn }, visibility: 'visible', groupTree: 'process', data: null,
+    const running: ChatNode<'compaction'> = {
+      key: 'fixture:compaction:4', id: '4', target: 'chat', kind: 'compaction',
+      anchorSeq: 4, location: { kind: 'turn', turn }, visibility: 'visible', groupTree: 'process',
+      data: { kind: 'compaction-progress', status: 'running' },
     }
     const landed: ChatNode<'compaction'> = {
-      key: 'fixture:compaction-running:4', id: '4', target: 'chat', kind: 'compaction',
+      key: 'fixture:compaction:4', id: '4', target: 'chat', kind: 'compaction',
       anchorSeq: 6, location: { kind: 'turn', turn }, visibility: 'visible',
       data: compaction({ seq: 6, summaryEventSeq: 5 }),
     }
@@ -1108,15 +1105,16 @@ describe('ChatView', () => {
     const view = render(<h.ChatView {...h.props} />)
     const group = view.container.querySelector<HTMLElement>('[data-chat-group-key]')!
     expect(group.querySelector('[data-step-process-body]')!.hasAttribute('hidden')).toBe(true)
-    const row = view.container.querySelector<HTMLElement>('[data-chat-flow-kind="compaction-running"]')!
+    const row = view.container.querySelector<HTMLElement>('[data-chat-flow-kind="compaction"]')!
     expect(row.closest('[data-chat-group-key]')).toBeNull()
     expect(row.closest('[hidden]')).toBeNull()
-    expect(within(row).getByRole('button').textContent).toBe('正在压缩…')
+    expect(within(row).getByText('正在压缩…')).toBeTruthy()
+    expect(within(row).queryByRole('button')).toBeNull()
 
     act(() => { h.set({ chat: project([landed]) }) })
-    expect(view.container.querySelector('[data-chat-flow-kind="compaction-running"]')).toBeNull()
     const marker = view.container.querySelector<HTMLElement>('[data-chat-flow-kind="compaction"]')!
     expect(marker.closest('[data-chat-group-key]')).not.toBeNull()
+    expect(within(marker).getByRole('button', { hidden: true }).textContent).toContain('上下文已压缩')
   })
 
   it('keeps a manual /compact refused inside a running Turn outside the collapsed process group', () => {
@@ -1158,10 +1156,10 @@ describe('ChatView', () => {
     const fixture = chatSnapshotFixture({ nodes: legacy, turnTimings: new Map([[1, { startTime: 0 }]]) })
     const turn = fixture.timeline.turns.get(1)
     if (turn === undefined) throw new Error('expected an open Turn')
-    const failed: ChatNode<'compaction-failure'> = {
-      key: 'fixture:compaction-failure:5', id: '5', target: 'chat', kind: 'compaction-failure',
+    const failed: ChatNode<'compaction'> = {
+      key: 'fixture:compaction:5', id: '5', target: 'chat', kind: 'compaction',
       anchorSeq: 5, location: { kind: 'turn', turn }, visibility: 'visible', groupTree: 'turn',
-      data: { reason: 'summarizer unavailable' },
+      data: { kind: 'compaction-progress', status: 'ended', error: 'summarizer unavailable' },
     }
     const builder = new ChatSnapshotBuilder()
     const groups = new ConversationGroupStore<ProcessGroupData>()
@@ -1171,7 +1169,7 @@ describe('ChatView', () => {
     const view = render(<h.ChatView {...h.props} />)
     const group = view.container.querySelector<HTMLElement>('[data-chat-group-key]')!
     expect(group.querySelector('[data-step-process-body]')!.hasAttribute('hidden')).toBe(true)
-    const card = view.container.querySelector<HTMLElement>('[data-chat-flow-kind="compaction-failure"]')!
+    const card = view.container.querySelector<HTMLElement>('[data-chat-flow-kind="compaction"]')!
     expect(card.closest('[data-chat-group-key]')).toBeNull()
     expect(card.closest('[hidden]')).toBeNull()
     expect(card.textContent).toContain('上下文压缩失败')
@@ -1206,10 +1204,10 @@ describe('ChatView', () => {
         exited: false,
       },
     }
-    const failed: ChatNode<'compaction-failure'> = {
-      key: 'fixture:compaction-failure:5', id: '5', target: 'chat', kind: 'compaction-failure',
+    const failed: ChatNode<'compaction'> = {
+      key: 'fixture:compaction:5', id: '5', target: 'chat', kind: 'compaction',
       anchorSeq: 5, location, visibility: 'visible', groupTree: 'turn',
-      data: { reason: 'summarizer unavailable' },
+      data: { kind: 'compaction-progress', status: 'ended', error: 'summarizer unavailable' },
     }
     const builder = new ChatSnapshotBuilder()
     const groups = new ConversationGroupStore<ProcessGroupData>()
@@ -1222,7 +1220,7 @@ describe('ChatView', () => {
     const members = [...view.container.querySelectorAll<HTMLElement>('[data-turn-process-member]')]
     expect(members.length).toBeGreaterThan(0)
     expect(members.every(member => member.getAttribute('hidden') === 'until-found')).toBe(true)
-    for (const kind of ['manual-compaction', 'compaction-failure']) {
+    for (const kind of ['manual-compaction', 'compaction']) {
       const row = view.container.querySelector<HTMLElement>(`[data-chat-flow-kind="${kind}"]`)!
       expect(row.closest('[data-turn-process-member]')).toBeNull()
       expect(row.closest('[hidden]')).toBeNull()

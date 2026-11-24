@@ -44,7 +44,7 @@ export interface CompactionPolicy {
 
 ## 失败卡
 
-`compactionDefinition` 在摘要与检查点之外获得第三份证据：`error` 存在的 `compaction/end`。`buildViewNode` 仍然优先采用已落地的检查点——提交了替换的标记对会干净闭合，因此两者不可能描述同一笔事务——否则发出一个 `compaction-failure` Chat 节点，锚在出错那条 end 自己的 seq 上，携带该 seq、时间与原因文本。`error` 缺席与 `error` 存在但为空白分别不是失败与不是原因：前者不产生节点，后者产生一个 `reason` 为 null、卡片回退到 locale 文案的节点。
+`compactionDefinition` 在摘要与检查点之外获得第三份证据：`error` 存在的 `compaction/end`。`buildViewNode` 仍然优先采用已落地的检查点——提交了替换的标记对会干净闭合，因此两者不可能描述同一笔事务——否则发出一个携带 `CompactionProgress`（`status: 'ended'` 与 `error`）的 `compaction` Chat 节点，锚在出错那条 end 自己的 seq 上。`error` 缺席不是失败（收束后的标记对保持隐藏）；`error` 为空白或不可用文本时写入 `error: ''`，让 `CompactionNodeView` 渲染不带 `title` 的本地化警告卡片。
 
 渲染器沿用 max-tokens 提示的形状——一行 `role="status"`、一个警告圆点、一条 locale 标题、一行详情——因为它就是这种东西：一条持久的、有位置的提示，说明一件用户没有要求过的事没有做成。原因是后端自己的文本，所以它是数据不是文案；它以 `text-overflow: ellipsis` 保持单行，完整字符串放在 `title` 上，让一条很长的收敛失败链仍然可达而不会把转录撑开。
 
@@ -84,7 +84,7 @@ host 平面插件可以把自动压缩变成用户设置——一个百分比与
 
 **留给插件一半的陷阱。** 被引擎拒绝的 `thresholdRatio()`——不在 `(0, 1]` 内，或保留尾部越不过的预算——只会对每条路由目标记一次日志，随后被已配置比例悄悄顶替。设置卡会继续显示 20%，而压缩实际按 80% 触发，屏幕上没有任何提示。引擎单方面修不了这件事：它对一个只读取的服务没有回话的途径。提供方必须在发布取值前按同一条规则自校验，并在某个已存设置未生效时告知用户。
 
-**退役条件。** 两个 overlay 分别退役。失败卡在上游以任何形式在会话里渲染自动压缩失败时退役。策略位与分子对齐是 fork 对上游包的 overlay。上游以任何形式让自动压缩获得运行期策略输入——服务、由设置驱动的 config 重载、阈值回调——即退役该 overlay，fork 的插件去适配上游形式。分子对齐同样退役，只要上游把自己的触发改到 context-pressure 投影上；机械判据是 `git grep -n "contextPressure" upstream/master -- packages/compaction`，任何命中都意味着移植前先复核。三者每轮滚动同步都重新移植。移植面并不安静：直到 0.1.5-rc.2 上游没动 `packages/compaction` 的源码，但改写了它的散文——`compaction-basic/README.md` 与 `README.zh.md`（14 行）以及 `compaction/README.md`（8 行）——而本 overlay 改的正是 compaction-basic 这两个文件里的 36 行，因此活跃冲突面是 README 而不是代码。失败卡是第二片，且是 client-UI 补丁：`packages/client/ui-chat/src/client/` 下六个文件，每轮必须重新移植与重新核实，因为上游一直在改那个包；`git grep -n compaction-failure upstream/master` 零命中即未退役。
+**退役条件。** 两个 overlay 分别退役。失败卡在上游以位于折叠过程组与整轮折叠之外的本地化警告形态渲染自动压缩失败时退役。策略位与分子对齐是 fork 对上游包的 overlay。上游以任何形式让自动压缩获得运行期策略输入——服务、由设置驱动的 config 重载、阈值回调——即退役该 overlay，fork 的插件去适配上游形式。分子对齐同样退役，只要上游把自己的触发改到 context-pressure 投影上；机械判据是 `git grep -n "contextPressure" upstream/master -- packages/compaction`，任何命中都意味着移植前先复核。三者每轮滚动同步都重新移植。移植面并不安静：直到 0.1.5-rc.2 上游没动 `packages/compaction` 的源码，但改写了它的散文——`compaction-basic/README.md` 与 `README.zh.md`（14 行）以及 `compaction/README.md`（8 行）——而本 overlay 改的正是 compaction-basic 这两个文件里的 36 行，因此活跃冲突面是 README 而不是代码。失败卡是第二片，且是 client-UI 补丁：落在 `packages/client/ui-chat/src/client/` 下的 `compaction.ts`、`MessageItem.tsx`、`MessageItem.module.css` 与 `locale.ts`，统一到上游的 `compaction` 类别与 `CompactionProgress` 载荷上；每轮同步对照上游 `CompactionNodeView` 的错误渲染重新核实。
 
 包内测试承载证据。ui-chat 侧：出错的自动 `compaction/end` 产生带原因的失败节点，已落地的检查点仍产生成功标记且不产生失败节点，干净的 end 两者都不产生，空白 error 报告为原因缺席，从未载入标记对起点的窗口仍能构建该节点，手动失败不产生节点，三种取消渲染完全不出卡，无法渲染的取消原因报告为「有失败但无可用原因」，卡片在两种语言下都渲染 locale 文案而后端文本只留在 `title` 上。compaction-basic 侧：在一份 assistant stream 为真实记录的 fixture 上，等于已发布 `projectedTokens` 的预算会触发、比它高一个 token 的不触发——把引擎的分子夹到了那个精确值，而计量总量既不等于它也不等于它加 output token；空 stream 的用例保留并改名，说明它只是差值恰好等于已报告 output 的特例；小到无法锚定的用量样本保留按路由定价的总量，且压缩仍会在那里触发；把阈值预算严格放在两个候选之间时不触发，证明被比较的是显示的那个数字；挂载的策略按它自己的比例压缩，压过 `modelPolicies` 里为 `1` 的阈值，而该条目的保留量仍然决定被遮蔽的范围；禁用的策略跳过压力路径，却仍然从提供方确认的溢出中恢复；三个不可用比例各自对每条路由目标警告一次，并让已配置比例继续主政；自动摘要失败留下一条携带错误文本、供会话渲染的 `compaction/end`。
 

@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-用户在回答进行中输入 `/compact`，反馈「没有反应」。Host 经 `compactNow` 执行手动压缩，它调用 `agent.runMaintenance`，agent 不空闲就抛 `busy`，于是命令以一张失败的 `/compact` 卡结束。这张卡是运行中轮次里的 `manual-compaction` 节点，而 `compact` 与 `standard` 两档工作步骤展示在轮次运行时也折叠过程组，所以卡被藏起来了。轮次完成后，整轮折叠又把它藏了一次。[自动压缩的运行行](2026-09-18-auto-compaction-running-card.zh.md) 已经移出了组，手动卡没有。
+用户在回答进行中输入 `/compact`，反馈「没有反应」。Host 经 `compactNow` 执行手动压缩，它调用 `agent.runMaintenance`，agent 不空闲就抛 `busy`，于是命令以一张失败的 `/compact` 卡结束。这张卡是运行中轮次里的 `manual-compaction` 节点，而 `compact` 与 `standard` 两档工作步骤展示在轮次运行时也折叠过程组，所以卡被藏起来了。轮次完成后，整轮折叠又把它藏了一次。自动压缩的运行行已经移出了组，手动卡没有。
 
 用户 09-27 定：忙时的 `/compact` 不拒绝；设置 → 通用里的「繁忙时的压缩行为」一行选择它在运行中轮次的下一个 step 边界执行（「立即打断」），还是在轮次结束后立即执行（「排队等候」）；轮次折叠后压缩相关的行仍然可见。
 
