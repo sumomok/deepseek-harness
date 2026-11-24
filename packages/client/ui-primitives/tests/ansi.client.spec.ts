@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseAnsiLines } from '../src/ansi.ts'
+import { MAX_REPLAY_COLUMNS, parseAnsiLines } from '../src/ansi.ts'
 
 const ESC = '\u001b'
 const BS = '\u0008'
@@ -502,5 +502,80 @@ describe('parseAnsiLines: runs spanning lines', () => {
       { text: 'red', style: { color: 'var(--dsw-alias-state-error-primary)' } },
       { text: 'tail', style: undefined },
     ]])
+  })
+})
+
+describe('parseAnsiLines: fast-skip, erase edge cases, and column bounds', () => {
+  it('fast-skips both \\r\\x1b[K and \\x1b[2K\\r resets while preserving mode 1 and bare 2K semantics', () => {
+    expect(onlySpan(`10%${ESC}[2K\r50%${ESC}[2;5K\rdone`)).toEqual({ text: 'done', style: undefined })
+    expect(onlySpan(`old\r${ESC}[0;9Kmid\r${ESC}[2;9Kfinal`)).toEqual({ text: 'final', style: undefined })
+    // Mode 1 erases only through column 0 after CR, leaving columns 1..3 intact.
+    expect(onlySpan(`abcd\r${ESC}[1Kx`)).toEqual({ text: 'xbcd', style: undefined })
+    // Bare 2K without CR keeps the cursor column and pads unwritten leading cells with spaces.
+    expect(onlySpan(`abcd${ESC}[2Kxy`)).toEqual({ text: '    xy', style: undefined })
+  })
+
+  it('folds SGR across a fast-skipped prefix while emitting transitions from the line entry SGR', () => {
+    // Line 1 leaves red open; line 2 resets inside the skipped prefix before \r\x1b[K,
+    // so line 2 must emit a reset from entrySgr instead of inheriting red.
+    expect(parseAnsiLines(`${ESC}[31mred\n${ESC}[0mtemp\r${ESC}[Kplain`)).toEqual([
+      [{ text: 'red', style: { color: 'var(--dsw-alias-state-error-primary)' } }],
+      [{ text: 'plain', style: undefined }],
+    ])
+    // Same when nothing follows the reset on line 2: line 3 must enter plain.
+    expect(parseAnsiLines(`${ESC}[31mred\n${ESC}[0mtemp\r${ESC}[K\nplain`)).toEqual([
+      [{ text: 'red', style: { color: 'var(--dsw-alias-state-error-primary)' } }],
+      [],
+      [{ text: 'plain', style: undefined }],
+    ])
+    // Color opened inside a skipped \x1b[2K\r prefix carries into the surviving tail.
+    expect(onlySpan(`${ESC}[32mtemp${ESC}[2K\rdone`)).toEqual({
+      text: 'done',
+      style: { color: 'var(--dsw-alias-state-success-primary)' },
+    })
+  })
+
+  it('handles mid-line 0K truncation and avoids hole extension when cursor exceeds buffer length', () => {
+    expect(onlySpan(`abcd${BS}${BS}${ESC}[0K`)).toEqual({ text: 'ab', style: undefined })
+    expect(onlySpan(`abcd${BS}${BS}${ESC}[K`)).toEqual({ text: 'ab', style: undefined })
+    // After 2K clears the buffer (cursor stays at 4), 0K must not extend empty holes.
+    expect(parseAnsiLines(`abcd${ESC}[2K${ESC}[0K`)).toEqual([[]])
+  })
+
+  it('preserves already-written cells skipped over by a tab after CR', () => {
+    expect(onlySpan('abcdef\r\tx')).toEqual({ text: 'abcdef  x', style: undefined })
+  })
+
+  it('bounds replayed lines at MAX_REPLAY_COLUMNS across ASCII, non-ASCII, wide, tab, 1K, and combining marks', () => {
+    // ASCII overflow stays bounded at MAX_REPLAY_COLUMNS while CR still rewinds to column 0.
+    const asciiOverflow = onlySpan(`${'a'.repeat(MAX_REPLAY_COLUMNS + 50)}\rX`)
+    expect(asciiOverflow.text.length).toBe(MAX_REPLAY_COLUMNS)
+    expect(asciiOverflow.text.startsWith('Xa')).toBe(true)
+
+    // Leading `a\r` ensures the line enters replayLine (trailing CR alone is stripped as CRLF).
+    // Non-ASCII narrow char past cap is dropped cleanly.
+    const nonAsciiOverflow = onlySpan(`a\r${'a'.repeat(MAX_REPLAY_COLUMNS)}\u2713`)
+    expect(nonAsciiOverflow.text.length).toBe(MAX_REPLAY_COLUMNS)
+    expect(nonAsciiOverflow.text.endsWith('a')).toBe(true)
+
+    // Wide char at MAX_REPLAY_COLUMNS - 1 cannot fit two columns and is skipped.
+    const wideAtEdge = onlySpan(`a\r${'a'.repeat(MAX_REPLAY_COLUMNS - 1)}中`)
+    expect(wideAtEdge.text.length).toBe(MAX_REPLAY_COLUMNS - 1)
+
+    // Tab at the column cap does not grow the buffer.
+    const tabAtCap = onlySpan(`a\r${'a'.repeat(MAX_REPLAY_COLUMNS)}\t`)
+    expect(tabAtCap.text.length).toBe(MAX_REPLAY_COLUMNS)
+
+    // 1K with cursor past cap clamps its erase loop at MAX_REPLAY_COLUMNS - 1.
+    const erase1kAtCap = onlySpan(`${'a'.repeat(MAX_REPLAY_COLUMNS + 10)}${ESC}[1K`)
+    expect(erase1kAtCap.text).toBe(' '.repeat(MAX_REPLAY_COLUMNS))
+
+    // Combining mark at exact cap attaches to the final cell; after overflow or 2K it is dropped.
+    const markAtCap = onlySpan(`a\r${'a'.repeat(MAX_REPLAY_COLUMNS)}${ACCENT}`)
+    expect(markAtCap.text.endsWith(`a${ACCENT}`)).toBe(true)
+    const markPastCap = onlySpan(`a\r${'a'.repeat(MAX_REPLAY_COLUMNS)}b${ACCENT}`)
+    expect(markPastCap.text.length).toBe(MAX_REPLAY_COLUMNS)
+    expect(markPastCap.text.endsWith('a')).toBe(true)
+    expect(parseAnsiLines(`abcd${ESC}[2K${ACCENT}`)).toEqual([[]])
   })
 })

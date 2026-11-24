@@ -8,7 +8,7 @@ import {
 } from './diff-fence.ts'
 import type { DiffRow } from './diff-fence.ts'
 import {
-  StreamingHighlightSession, grammarLoadCount, highlightToHtml, subscribeGrammarLoaded,
+  StreamingHighlightSession, grammarForHint, highlightToHtml, loadedGrammarCount, subscribeGrammars,
 } from './highlight.ts'
 import type { HighlightSpan, StreamingHighlightFrame } from './highlight.ts'
 import { useViewportHighlighting } from './useViewportHighlighting.ts'
@@ -119,10 +119,28 @@ export function CodeBlock({
   // Diff rows join the same viewport gate as grammar-highlighted fences, so an
   // off-screen fence paints its row colors without tokenizing the body.
   const highlighting = useViewportHighlighting(rootRef, diffRows === undefined ? lang : 'diff')
-  // Re-render when a lazy grammar finishes loading, so a fence that showed plain
-  // text while its language's grammar imported picks up highlighting. The
-  // snapshot value is opaque; only its change across renders drives the memo.
-  const loaded = useSyncExternalStore(subscribeGrammarLoaded, grammarLoadCount, grammarLoadCount)
+  // Subscribe only to this block's own canonical grammar ids while highlighting
+  // is active; the joined key keeps the array and store callbacks stable across
+  // streaming updates so useSyncExternalStore avoids churn.
+  const grammarKey = useMemo(() => {
+    const hints = diffRows !== undefined ? diffRows.languages.values() : [lang]
+    const ids = new Set<string>()
+    for (const hint of hints) {
+      const id = grammarForHint(hint)
+      if (id !== undefined) ids.add(id)
+    }
+    return highlighting ? [...ids].sort().join('\0') : ''
+  }, [highlighting, diffRows, lang])
+  const grammarIds = useMemo(() => (grammarKey === '' ? [] : grammarKey.split('\0')), [grammarKey])
+  const subscribe = useCallback(
+    (listener: () => void) => subscribeGrammars(grammarIds, listener),
+    [grammarIds],
+  )
+  const getSnapshot = useCallback(
+    () => loadedGrammarCount(grammarIds),
+    [grammarIds],
+  )
+  const loaded = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
   // Each file's old and new sides are tokenized separately; a growing fence
   // re-tokenizes per chunk because that grouping has no incremental path, and
   // diffs in a fence are short enough to accept it.
@@ -134,7 +152,7 @@ export function CodeBlock({
   // streaming-cache pattern): the session's caches carry across chunks only
   // because the owner keys this instance stably while the fence grows.
   const sessionRef = useRef<StreamingHighlightSession | null>(null)
-  const lineCacheRef = useRef<{
+  const streamCacheRef = useRef<{
     code: string
     lang: string | undefined
     generation: number
@@ -144,38 +162,38 @@ export function CodeBlock({
     nextLine: number
     body: ReactNode
   } | null>(null)
-  const settledRef = useRef(false)
+  const settledBodyRef = useRef<{
+    code: string
+    lang: string | undefined
+    body: ReactNode
+  } | null>(null)
   const streamedBody = useMemo(() => {
     // A diff fence draws its own rows; the session's single-language stream is unused.
     if (!highlighting || diffRows !== undefined) {
       sessionRef.current = null
-      lineCacheRef.current = null
-      settledRef.current = false
+      streamCacheRef.current = null
+      settledBodyRef.current = null
       return undefined
     }
     if (streaming !== true) {
-      const previous = lineCacheRef.current
-      if (previous !== null && previous.code === trimmed && previous.lang === lang) {
-        settledRef.current = true
-        return previous.body
-      }
       sessionRef.current = null
-      lineCacheRef.current = null
-      settledRef.current = true
+      const retained = streamCacheRef.current ?? settledBodyRef.current
+      streamCacheRef.current = null
+      if (retained !== null && retained.code === trimmed && retained.lang === lang) {
+        settledBodyRef.current = { code: trimmed, lang, body: retained.body }
+        return retained.body
+      }
+      settledBodyRef.current = null
       return undefined
     }
-    if (settledRef.current) {
-      sessionRef.current = null
-      lineCacheRef.current = null
-      settledRef.current = false
-    }
+    settledBodyRef.current = null
     sessionRef.current ??= new StreamingHighlightSession()
     const frame = sessionRef.current.updateFrame(trimmed, lang)
     if (frame === undefined) {
-      lineCacheRef.current = null
+      streamCacheRef.current = null
       return undefined
     }
-    const previous = lineCacheRef.current
+    const previous = streamCacheRef.current
     if (previous?.frame === frame && previous.code === trimmed && previous.lang === lang) {
       return previous.body
     }
@@ -194,7 +212,7 @@ export function CodeBlock({
     const tail = frame.tail.map((line, index) => renderLine(line, nextLine + index))
     const tailGroup = <Fragment key={nextLine - pending.length}>{[...pending, ...tail]}</Fragment>
     const body = <pre {...SHIKI_PRE_PROPS}><code>{groups}{tailGroup}</code></pre>
-    lineCacheRef.current = {
+    streamCacheRef.current = {
       code: trimmed, lang, generation: frame.generation, frame, groups, pending, nextLine, body,
     }
     return body
