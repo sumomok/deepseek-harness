@@ -104,7 +104,7 @@ async function bench(
     return () => { pending.delete(value) }
   })
   ctx.provide('uiSession', { registerPendingInteraction } as never)
-  const registerNode = vi.fn((_definition: { kind: string }) => () => {})
+  const registerNode = vi.fn((_definition: { kind: string; match?: Record<string, unknown> }) => () => {})
   ctx.provide('uiConversation', { events: { register: registerNode } } as never)
   let listener: QuestionListener | undefined
   const on = vi.fn((event: string, value: QuestionListener) => {
@@ -340,6 +340,10 @@ describe('apply', () => {
     expect(b.registerNode).toHaveBeenCalledTimes(2)
     expect(b.registerNode.mock.calls[0]![0]).toMatchObject({ kind: 'user-question-reply', target: 'chat' })
     expect(b.registerNode.mock.calls[1]![0]).toMatchObject({ kind: 'answered-user-question', target: 'chat' })
+    expect(Object.keys(b.registerNode.mock.calls[0]![0].match ?? {})).toEqual(['user/message'])
+    expect(Object.keys(b.registerNode.mock.calls[1]![0].match ?? {})).toEqual([
+      'tool/call', 'tool/ptc-dispatch-start', 'tool/ptc-dispatch', 'tool/result',
+    ])
     expect(b.slots.entries('conversation.chat.node').map(entry => entry.options.key)).toEqual(['question-reply'])
   })
 

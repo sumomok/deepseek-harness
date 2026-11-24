@@ -165,29 +165,58 @@ function callQuestions(value: unknown): readonly QuestionReplyQuestion[] | null 
   return questions
 }
 
-function resultReply(
-  questions: readonly QuestionReplyQuestion[],
+interface ParsedAnswers {
+  readonly text: string
+  readonly answers: readonly QuestionReplyAnswer[]
+}
+
+function parsedAnswers(
   event: SessionEvent<'tool/result' | 'tool/ptc-dispatch'>,
-): QuestionReplyState | undefined {
+): ParsedAnswers | undefined {
   const result = event.type === 'tool/result' ? event.data.message : event.data
   if (result.isError === true) return undefined
   const content = result.content
   if (content.length !== 1 || content[0]?.type !== 'text') return undefined
   const text = content[0].text
+  const trimmed = text.trimStart()
+  if (!trimmed.startsWith('{') || !trimmed.includes('"answers"')) return undefined
   const value = jsonRecord(text)
-  if (value === null || value.pending === true || !Array.isArray(value.answers)
-    || value.answers.length !== questions.length) return undefined
-  const ids = new Set(questions.map(question => question.id))
+  if (value === null || value.pending === true || !Array.isArray(value.answers) || value.answers.length === 0) {
+    return undefined
+  }
   const answers: QuestionReplyAnswer[] = []
   for (const answer of value.answers) {
-    if (!isRecord(answer) || typeof answer.id !== 'string' || !ids.delete(answer.id)
+    if (!isRecord(answer) || typeof answer.id !== 'string'
       || !Array.isArray(answer.selected) || !answer.selected.every(item => typeof item === 'string')
       || (answer.custom !== undefined && typeof answer.custom !== 'string')) return undefined
-    answers.push({ id: answer.id, selected: answer.selected,
-      ...(answer.custom === undefined ? {} : { custom: answer.custom }) })
+    answers.push({
+      id: answer.id,
+      selected: answer.selected,
+      ...(answer.custom === undefined ? {} : { custom: answer.custom }),
+    })
   }
-  return { seq: event.seq, time: event.time, callId: String(event.type === 'tool/result' ? event.data.message.source.callId : event.data.subCallId),
-    outcome: 'answered', questions, answers, text }
+  return { text, answers }
+}
+
+function resultReply(
+  questions: readonly QuestionReplyQuestion[],
+  event: SessionEvent<'tool/result' | 'tool/ptc-dispatch'>,
+): QuestionReplyState | undefined {
+  const parsed = parsedAnswers(event)
+  if (parsed === undefined || parsed.answers.length !== questions.length) return undefined
+  const ids = new Set(questions.map(question => question.id))
+  for (const answer of parsed.answers) {
+    if (!ids.delete(answer.id)) return undefined
+  }
+  return {
+    seq: event.seq,
+    time: event.time,
+    callId: String(event.type === 'tool/result' ? event.data.message.source.callId : event.data.subCallId),
+    outcome: 'answered',
+    questions,
+    answers: parsed.answers,
+    text: parsed.text,
+  }
 }
 
 /**
@@ -208,8 +237,8 @@ export const answeredQuestionDefinition: ConversationNodeDefinition<AnsweredQues
     if (event.type === 'tool/ptc-dispatch' && event.data.name === 'ask_user_question') {
       return { id: String(event.data.subCallId), role: 'update' }
     }
-    // Native results omit the tool name; retain update-only matches for history prepends.
-    if (event.type === 'tool/result' && isAppendSurfaceEvent(event)) {
+    // Native results omit the tool name; accept only valid answer payloads so unrelated tools create no Contexts.
+    if (event.type === 'tool/result' && isAppendSurfaceEvent(event) && parsedAnswers(event) !== undefined) {
       return { id: String(event.data.message.source.callId), role: 'update' }
     }
     return null

@@ -205,7 +205,10 @@ describe('answeredQuestionDefinition', () => {
   })
 
   it.each([
-    'null', '[]', 'not json', '{"answers":"wrong"}', '{"answers":[]}',
+    'null', '[]', 'not json', '{"answers":', '{"pending":true,"answers":[{"id":"scope","selected":[]}]}',
+    '{"answers":"wrong"}', '{"answers":[]}', '{"answers":[null]}',
+    '{"answers":[{"id":1,"selected":[]}]}', '{"answers":[{"id":"scope","selected":"nope"}]}',
+    '{"answers":[{"id":"scope","selected":[]}]}',
     '{"answers":[{"id":"scope","selected":[]},{"id":"scope","selected":[]}]}',
     '{"answers":[{"id":"scope","selected":[1]},{"id":"notes","selected":[]}]}',
     '{"answers":[{"id":"scope","selected":[],"custom":1},{"id":"notes","selected":[]}]}',
@@ -217,7 +220,7 @@ describe('answeredQuestionDefinition', () => {
     expect(run.nodes()).toEqual([])
   })
 
-  it.each(['not json', '{"questions":[]}', '{"questions":[{"id":1}]}',
+  it.each(['not json', 'null', '[]', '{"questions":[]}', '{"questions":[{"id":1}]}',
     '{"questions":[{"id":"scope","question":"A"},{"id":"scope","question":"B"}]}',
     '{"questions":[{"id":"scope","question":"Approve?","intent":{"kind":"plan-review"}}]}',
   ])('does not pair unsafe or plan-review call arguments %s', (args) => {
@@ -280,6 +283,8 @@ describe('answeredQuestionDefinition', () => {
     expect(answeredQuestionDefinition.match(toolCall(undefined, 'exit_plan_mode'))).toBeNull()
     expect(answeredQuestionDefinition.match(toolCall(undefined, 'bash'))).toBeNull()
     expect(answeredQuestionDefinition.match(toolResult(undefined, false, 'replace'))).toBeNull()
+    expect(answeredQuestionDefinition.match(toolResult('plain tool output'))).toBeNull()
+    expect(answeredQuestionDefinition.match(toolResult(undefined, true))).toBeNull()
     const run = answerAssembler()
     run.assembler.replaceWindow([{ type: 'event', event: toolCall() }, { type: 'event', event: toolResult(undefined, true) }], false)
     run.assembler.flush()

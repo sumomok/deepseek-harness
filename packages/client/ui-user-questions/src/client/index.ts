@@ -391,8 +391,21 @@ export function apply(ctx: ClientContext): void {
     },
     QuestionComposer,
   ))
-  ctx.uiConversation.events.register(questionReplyDefinition)
-  ctx.uiConversation.events.register(answeredQuestionDefinition)
+  const matchQuestionReply = questionReplyDefinition.match.bind(questionReplyDefinition)
+  ctx.uiConversation.events.register({
+    ...questionReplyDefinition,
+    match: { 'user/message': matchQuestionReply },
+  })
+  const matchAnsweredQuestion = answeredQuestionDefinition.match.bind(answeredQuestionDefinition)
+  ctx.uiConversation.events.register({
+    ...answeredQuestionDefinition,
+    match: {
+      'tool/call': matchAnsweredQuestion,
+      'tool/ptc-dispatch-start': matchAnsweredQuestion,
+      'tool/ptc-dispatch': matchAnsweredQuestion,
+      'tool/result': matchAnsweredQuestion,
+    },
+  })
   ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({
     name: 'conversation.chat.node',
     key: 'question-reply',
