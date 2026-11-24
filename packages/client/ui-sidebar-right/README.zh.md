@@ -109,7 +109,7 @@ tab 类型分两阶段注册，随包发布的引导类型走的正是别的包�
 <a id="the-tab-domain"></a>
 ## Tab 域
 
-Tab 域按（Session，Tab id）保留品牌化 occurrence id、导航、中止信号与绑定动作。私有装配回调采用各 Session 的 store，立即对齐恢复的记录，再跟随其提交。同一 Session 的 store 重建会替换其 `adopt` 注册，同时释放旧订阅与清理引用。记录消失或插件卸载才中止 signal，收起和切会话不销毁记录；undo 恢复的是新 occurrence。`useTabInfo()` 组合框架绑定的 store 与导航 hook，不在组件中手写订阅或在渲染时创建记录。`tab.actions` 始终作用于自己的会话；`tab.visible` 区分正文与标题，并排除后台 Session；前台浮窗不受整栏收起影响。`adopt` 不在公开控制器上。
+Tab 域按（Session，Tab id）保留品牌化 occurrence id、导航、中止信号与绑定动作。私有装配回调采用各 Session 的 store，立即对齐恢复的记录，再跟随其提交。同一 Session 的 store 重建会替换其 `adopt` 注册，同时释放旧订阅与清理引用。记录消失、未保活 Session 作用域结束或插件卸载会中止 signal；收起侧栏以及切离已保活 Session 会保留 occurrence，而 undo 或重新返回已释放 Session 会创建新的 occurrence。`useTabInfo()` 组合框架绑定的 store 与导航 hook，不在组件中手写订阅或在渲染时创建记录。`tab.actions` 始终作用于自己的会话；`tab.visible` 区分正文与标题，并排除后台 Session；前台浮窗不受整栏收起影响。`adopt` 不在公开控制器上。
 
 类型声明 `keepMounted: true` 后，已访问正文会在切 tab、切 Session、收起和停靠切换期间保留。每个 View 通过 owner props 提供自身稳定的持有回调，因此 Session injection binding 重建不会释放正文。未访问的正文不会提前挂载。
 

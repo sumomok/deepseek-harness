@@ -54,7 +54,7 @@ export interface TabOccurrence {
   readonly id: SidebarRightOccurrenceId
   readonly sessionId: SessionId
   readonly tabId: TabId
-  /** Aborted when the record disappears or this package unloads. */
+  /** Aborted when the record disappears, its Session scope ends, or this package unloads. */
   readonly signal: AbortSignal
   /** The latest navigation aimed at the record; `set` on every `navigate`. */
   readonly navigation: SnapshotStore<SidebarRightTabNavigation>
@@ -140,6 +140,17 @@ export class TabDomain {
       return
     }
     existing.navigation.set({ ...target, revision: existing.navigation.getSnapshot().revision + 1 })
+  }
+
+  /**
+   * Abort and drop every occurrence held for one Session when its scope ends.
+   * @param sessionId - the Session whose occurrences are releasing.
+   */
+  release(sessionId: SessionId): void {
+    const held = this.bySession.get(sessionId)
+    if (held === undefined) return
+    this.bySession.delete(sessionId)
+    for (const occurrence of held.values()) occurrence.controller.abort()
   }
 
   /** Abort every occurrence of every session; the package is unloading. */

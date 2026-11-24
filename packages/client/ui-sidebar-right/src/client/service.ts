@@ -78,7 +78,7 @@ interface SidebarRightSessions {
   readonly onScreen: ObservableSnapshot<SessionId | undefined>
   /** Open tab metadata across saved and adopted Sessions. */
   readonly openTabs: SidebarTabInventory['source']
-  /** Each Session's flash source, created on first use and released when the Session is forgotten. */
+  /** Each Session's flash source, created on first use and released when the Session scope ends or is forgotten. */
   readonly flashes: Map<SessionId, SnapshotStore<SidebarRightFlash | undefined>>
 }
 
@@ -88,11 +88,13 @@ interface SidebarRightSessions {
  * @param tabs - registered tab types.
  * @param pin - resource retention for an occurrence's lifetime.
  * @param host - the viewport rule and focus continuity the commands use.
- * @returns the controller; store adoption and scope removal; naming the on-screen Session; and recording a seat's room rule.
+ * @returns the controller; store adoption, Session scope release, and permanent scope removal;
+ *   naming the on-screen Session; and recording a seat's room rule.
  */
 export function createSidebarRightController(tabs: SidebarRightTabRegistry, pin: PinResource, host: SidebarRightHost): {
   controller: SidebarRightController
   adopt: (sessionId: SessionId, store: SidebarRightSurfaceStore) => () => void
+  release: (sessionId: SessionId) => void
   forget: (sessionId: SessionId) => void
   show: (sessionId: SessionId | undefined) => void
   measure: (sessionId: SessionId, canSplitPane: RoomRule) => void
@@ -105,6 +107,11 @@ export function createSidebarRightController(tabs: SidebarRightTabRegistry, pin:
   const controller = new SidebarRightController(tabs, pin, host, { adopted, rooms, onScreen, openTabs: inventory.source, flashes })
   return {
     controller,
+    release: (sessionId) => {
+      rooms.delete(sessionId)
+      flashes.delete(sessionId)
+      controller.tabDomain.release(sessionId)
+    },
     forget: (sessionId) => {
       inventory.remove(sessionId)
       rooms.delete(sessionId)
