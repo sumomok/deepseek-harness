@@ -41,7 +41,7 @@ export type ChatRevealFailure =
  * @returns whether this row presents that position.
  */
 function ownsSeq(node: ChatNode, seq: number): boolean {
-  if (node.kind === 'compaction') return node.data.seq === seq || node.data.summaryEventSeq === seq
+  if (node.kind === 'compaction') return node.data.kind === 'compaction' && (node.data.seq === seq || node.data.summaryEventSeq === seq)
   return messageSeqOf(node) === seq
 }
 
@@ -75,7 +75,7 @@ function messageSeqOf(node: ChatNode): number | undefined {
     case 'manual-compaction':
       return node.data.command.seq
     case 'compaction':
-      return node.data.seq
+      return node.data.kind === 'compaction' ? node.data.seq : undefined
     // Merge-extensible kind space: a kind that owns no durable message
     // identity cannot be reached from a search hit.
     default:

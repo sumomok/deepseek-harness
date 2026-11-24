@@ -854,6 +854,49 @@ describe('pick and codec', () => {
     expect(stat).not.toHaveBeenCalled()
   })
 
+  it('writes settled picks by absolute path once the Session directory is known; a drill keeps the listed text', async () => {
+    const stat = vi.fn<PathStat>(() => new Promise(() => {}))
+    const { ctx, source, sessions } = await bench(undefined, undefined, {}, {}, stat)
+    await sessions.updateSummary(session.sessionId, { cwd: '/workspace' })
+    await sessions.setProjection(session.sessionId, 'workingDirectory', '/workspace/.agents/worktrees/w')
+    const [directory, file] = await source.candidates(session, request(''))
+    expect(pick(source, directory!)).toEqual({
+      insert: {
+        source: 'reference',
+        ref: '@/workspace/.agents/worktrees/w/src/',
+        label: 'src/',
+        appearance: 'folder',
+        clipboardText: '@/workspace/.agents/worktrees/w/src/',
+      },
+    })
+    expect(pick(source, file!)).toEqual({
+      insert: {
+        source: 'reference',
+        ref: '@"/workspace/.agents/worktrees/w/docs/a b.md"',
+        label: 'a b.md',
+        appearance: 'file',
+        clipboardText: '@"/workspace/.agents/worktrees/w/docs/a b.md"',
+      },
+    })
+    expect(drill(source, directory!)).toEqual({ text: '@src/', continue: true })
+    // A settled quoted folder closes the quote that its listed spelling leaves open for a descent.
+    const [quotedDirectory] = await source.candidates(session, request('', { quoted: true }))
+    expect(pick(source, quotedDirectory!)).toMatchObject({ insert: { ref: '@"/workspace/.agents/worktrees/w/src/"' } })
+    // The sent echo carries the absolute path, so that path is the one confirmed.
+    expect(injectedPresence(ctx, 'folder')(session.sessionId).keyedHooks
+      .pathPresence('/workspace/.agents/worktrees/w/src/').getSnapshot()).toBe('present')
+    expect(injectedPresence(ctx, 'file')(session.sessionId).keyedHooks
+      .pathPresence('/workspace/.agents/worktrees/w/docs/a b.md').getSnapshot()).toBe('present')
+    expect(stat).not.toHaveBeenCalled()
+  })
+
+  it('keeps the listed spelling when the absolute path cannot be written as a mention', async () => {
+    const { source, sessions } = await bench()
+    await sessions.updateSummary(session.sessionId, { cwd: '/work"space' })
+    const [directory] = await source.candidates(session, request(''))
+    expect(pick(source, directory!)).toMatchObject({ insert: { ref: '@src/', clipboardText: '@src/' } })
+  })
+
   it('ignores candidates that do not carry a source-owned value', async () => {
     const { source } = await bench()
     expect(pick(source, { name: 'foreign candidate' })).toBeUndefined()
@@ -913,7 +956,7 @@ describe('reference preview', () => {
     await factory(sid('in-project')).openFile('claimed.md')
     expect(openResource).not.toHaveBeenCalled()
     await factory(sid('in-project')).openFile('docs/a b.md')
-    expect(openResource.mock.calls).toEqual([['dsh-resource://file/session/in-project/docs/a%20b.md']])
+    expect(openResource.mock.calls).toEqual([['dsh-resource://file/session/in-project//proj/docs/a%20b.md']])
     expect(seen).toEqual([
       {
         kind: 'file', target: '/proj/claimed.md', raw: 'claimed.md', sessionId: 'in-project',
@@ -956,12 +999,12 @@ describe('reference preview', () => {
       '/proj/notes.md', '/proj/child/notes.md', '/proj/top.md', '/proj/child/nested.md', '/tmp/wt/docs/a b.md', '/proj/notes.md',
     ])
     expect(openResource.mock.calls).toEqual([
-      ['dsh-resource://file/session/in-project/notes.md'],
-      ['dsh-resource://file/session/in-project/notes.md'],
+      ['dsh-resource://file/session/in-project//proj/notes.md'],
+      ['dsh-resource://file/session/in-project//proj/child/notes.md'],
       ['dsh-resource://file/session/in-project//proj/top.md'],
-      ['dsh-resource://file/session/in-project/nested.md'],
-      ['dsh-resource://file/session/in-project/docs/a%20b.md'],
-      ['dsh-resource://file/session/in-project/notes.md'],
+      ['dsh-resource://file/session/in-project//proj/child/nested.md'],
+      ['dsh-resource://file/session/in-project//tmp/wt/docs/a%20b.md'],
+      ['dsh-resource://file/session/in-project//proj/notes.md'],
     ])
   })
 
@@ -984,8 +1027,8 @@ describe('reference preview', () => {
     await factory(sid('win')).openFile('C:\\proj\\a.md')
     expect(seen).toEqual(['C:\\proj\\child\\notes\\a.md', 'C:\\proj\\a.md'])
     expect(openResource.mock.calls).toEqual([
-      ['dsh-resource://file/session/win/notes/a.md'],
-      ['dsh-resource://file/session/win/notes/b.md'],
+      ['dsh-resource://file/session/win/C:/proj/child/notes/a.md'],
+      ['dsh-resource://file/session/win/C:/proj/child/notes/b.md'],
       ['dsh-resource://file/session/win/C:/proj/a.md'],
     ])
   })
@@ -1002,8 +1045,8 @@ describe('reference preview', () => {
     await sessions.setProjection('in-project', 'workingDirectory', '/elsewhere')
     expect(source.openReference?.(composer, { ref: '@/proj/notes.md', appearance: 'file' })).toBe(true)
     expect(openResource.mock.calls).toEqual([
-      ['dsh-resource://file/session/in-project/notes.md'],
-      ['dsh-resource://file/session/in-project/a%20b.md'],
+      ['dsh-resource://file/session/in-project//proj/notes.md'],
+      ['dsh-resource://file/session/in-project//proj/child/a%20b.md'],
       ['dsh-resource://file/session/in-project//proj/notes.md'],
     ])
   })

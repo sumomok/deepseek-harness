@@ -4,10 +4,11 @@
 
 import type { ChatViewSlotProps, CommandRowOwnerProps } from '../contract/slots.ts'
 import { localizedOutcome } from './compact-result.ts'
-import { CompactionItem } from './CompactionItem.tsx'
+import { CompactionItem, type CompactionRowInjected } from './CompactionItem.tsx'
 import { GenericCommandCard } from './GenericCommandCard.tsx'
 
 interface CompactionCommandCardProps extends CommandRowOwnerProps {
+  openCompaction: CompactionRowInjected['openCompaction'] | undefined
   t: ChatViewSlotProps['t']
   /** The request waits for a running turn and has not started compacting. */
   waiting?: boolean
@@ -16,11 +17,14 @@ interface CompactionCommandCardProps extends CommandRowOwnerProps {
 }
 
 /** Render one manual compaction lifecycle without duplicating its checkpoint marker. */
-export function CompactionCommandCard({ node, compaction, waiting = false, exited = false, t }: CompactionCommandCardProps) {
+export function CompactionCommandCard({
+  node, compaction, openCompaction, waiting = false, exited = false, t,
+}: CompactionCommandCardProps) {
   if (compaction !== undefined) {
     return (
       <CompactionItem
         node={compaction}
+        openCompaction={openCompaction}
         title={t('message.compaction.commandTitle')}
         fallbackSummary={node.outcome?.text ?? null}
         t={t}

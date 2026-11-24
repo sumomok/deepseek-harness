@@ -206,7 +206,8 @@ describe('historical upstream merge reference tokens', () => {
     'unknown-field',
     'wrong-version',
     'empty-entries',
-    'multiple-entries',
+    'duplicate-commit',
+    'too-many-entries',
     'duplicate-key',
     'escaped-duplicate-key',
     'uppercase',
@@ -215,12 +216,15 @@ describe('historical upstream merge reference tokens', () => {
     const fixture = repository(test)
     const hash = fixture.commit
     const entry = { commit: hash, firstParent: hash, upstream: hash, reason: 'Approved' }
+    const other = { commit: 'cd'.repeat(20), firstParent: hash, upstream: hash, reason: 'Second' }
+    const third = { commit: 'ef'.repeat(20), firstParent: hash, upstream: hash, reason: 'Third' }
     let source = JSON.stringify({ version: 1, cutoff: hash, entries: [entry] })
     if (kind === 'invalid-json') source += ','
     if (kind === 'unknown-field') source = source.replace('"version":1', `"extra":"${hash}","version":1`)
     if (kind === 'wrong-version') source = source.replace('"version":1', '"version":2')
     if (kind === 'empty-entries') source = JSON.stringify({ version: 1, cutoff: hash, entries: [] })
-    if (kind === 'multiple-entries') source = JSON.stringify({ version: 1, cutoff: hash, entries: [entry, entry] })
+    if (kind === 'duplicate-commit') source = JSON.stringify({ version: 1, cutoff: hash, entries: [entry, entry] })
+    if (kind === 'too-many-entries') source = JSON.stringify({ version: 1, cutoff: hash, entries: [entry, other, third] })
     if (kind === 'duplicate-key') source = source.replace('"reason":', '"reason":"Approved","reason":')
     if (kind === 'escaped-duplicate-key') source = source.replace('"reason":', String.raw`"r\u0065ason":"Approved","reason":`)
     if (kind === 'uppercase') source = source.replaceAll(hash, hash.toUpperCase())

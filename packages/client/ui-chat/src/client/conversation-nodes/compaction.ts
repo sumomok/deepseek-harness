@@ -10,8 +10,8 @@ import { compactSource, compactSummary, updateCompactionState } from './command.
 
 declare module '../contract/chat-nodes.ts' {
   interface ChatNodeDataMap {
-    /** Automatic compaction checkpoint marker. */
-    compaction: CompactionSummaryNode
+    /** Automatic compaction progress or committed checkpoint. */
+    compaction: CompactionSummaryNode | CompactionProgress
     /**
      * Automatic compaction bracket that has opened and has not yet landed a
      * checkpoint, recorded a failure, or closed. The card's copy is fixed and
@@ -22,6 +22,15 @@ declare module '../contract/chat-nodes.ts' {
     'compaction-failure': CompactionFailureChatData
   }
 }
+
+/** Progress without a committed summary; terminal states never animate. */
+export type CompactionProgress = {
+  readonly kind: 'compaction-progress'
+} & (
+  | { readonly status: 'running' }
+  | { readonly status: 'interrupted' }
+  | { readonly status: 'ended'; readonly error?: string }
+)
 
 interface CompactionState {
   readonly summary?: ConversationMatch

@@ -678,6 +678,36 @@ describe('historical upstream merge approvals', () => {
     expect(merges[1]!.mergesHistoricalUpstream).toBeUndefined()
   })
 
+  it('accepts two distinct prior merges before one cutoff after advancing to a release tag', (test) => {
+    const fixture = repository(test)
+    const firstParent = fixture.record('registry\n\nPatch: alpha-seam')
+    const firstUpstream = upstreamCommit(fixture, fixture.base, 'first-unreleased')
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', 'merge first', firstUpstream])
+    const firstMerge = fixture.git(['rev-parse', 'HEAD'])
+    const secondParent = fixture.record('between\n\nPatch: alpha-seam')
+    const secondUpstream = upstreamCommit(fixture, firstUpstream, 'second-unreleased')
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', 'merge second', secondUpstream])
+    const secondMerge = fixture.git(['rev-parse', 'HEAD'])
+    const cutoff = fixture.record('cutoff\n\nPatch: alpha-seam')
+    const releaseUpstream = upstreamCommit(fixture, secondUpstream, 'release-commit')
+    fixture.git(['tag', 'dsh-v0.0.2', releaseUpstream])
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', 'merge release', 'dsh-v0.0.2'])
+    fixture.write(
+      REGISTRY_PATH,
+      registryFor('dsh-v0.0.2').replace('`alpha/**` ', `\`alpha/**\` \`${CORE_PATCHES_UPSTREAM_MERGES_PATH}\` `),
+    )
+    fixture.write(CORE_PATCHES_UPSTREAM_MERGES_PATH, JSON.stringify({
+      version: 1,
+      cutoff,
+      entries: [
+        { commit: firstMerge, firstParent, upstream: firstUpstream, reason: 'Approve first merge' },
+        { commit: secondMerge, firstParent: secondParent, upstream: secondUpstream, reason: 'Approve second merge' },
+      ],
+    }))
+    fixture.record('declare release tag and two approvals\n\nPatch: alpha-seam')
+    expect(runCheck(fixture.root).status).toBe('ok')
+  })
+
   it('still rejects a different unlisted upstream ancestor before the same cutoff', (test) => {
     const fixture = repository(test)
     const firstParent = fixture.record('registry\n\nPatch: alpha-seam')

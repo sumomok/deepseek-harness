@@ -17,7 +17,6 @@ const LANDED: CompactionSummaryNode = {
   kind: 'compaction',
   seq: 12,
   time: 1_700_000_000_012,
-  summary: 'landed summary',
   summaryEventSeq: 11,
   shadowedItemCount: 3,
   shadowedTokenCount: 4_200,
@@ -49,10 +48,11 @@ describe('The compaction marker after the bracket lands', () => {
     expect(view.getByRole('button').textContent).toBe('上下文已压缩已压缩 3 条历史记录（约 4200 tokens）')
   })
 
-  it('keeps the summary disclosure the landed marker already offered', () => {
-    const view = render(<CompactionItem node={LANDED} t={makeTranslate(en, commonEn)} />)
+  it('keeps the summary opener the landed marker offers when a sidebar preview is mounted', () => {
+    const view = render(<CompactionItem node={LANDED} openCompaction={async () => null} t={makeTranslate(en, commonEn)} />)
     const button = view.getByRole('button')
-    expect(button.getAttribute('aria-expanded')).toBe('false')
-    expect(button.textContent).toBe('Context compactedCompacted 3 history items (~4200 tokens)')
+    expect((button as HTMLButtonElement).disabled).toBe(false)
+    expect(button.textContent).toContain('Context compacted')
+    expect(button.textContent).toContain('Compacted 3 history items (~4200 tokens)')
   })
 })

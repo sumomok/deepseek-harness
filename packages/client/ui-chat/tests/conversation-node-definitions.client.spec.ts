@@ -2353,7 +2353,7 @@ describe('built-in conversation node Definitions', () => {
     value.prepend([systemAt(1, 'A'), systemAt(3, 'B'), systemAt(5, 'A2', 1)], false)
     value.flush()
     expect(snapshot(value).nodes.values().filter(candidate => candidate.kind === 'system-prompt')
-      .map(candidate => candidate.data)).toEqual([{ text: 'A' }, { text: 'B', update: true }, { text: 'C' }])
+      .map(candidate => candidate.data)).toEqual([{ text: 'A' }, { text: 'B', update: true }, { text: 'D\n\nC' }])
   })
 
   it('hides a published prompt node while a prepended replacement makes its prompt unknown', () => {
@@ -2433,7 +2433,7 @@ describe('built-in conversation node Definitions', () => {
     expect(cards()).toEqual([
       [1, { text: '# System' }],
       [10, { text: '# Updated', update: true }],
-      [14, { text: '# Updated' }],
+      [14, { text: '# System\n\n# Updated' }],
     ])
   })
 
@@ -2879,12 +2879,13 @@ describe('built-in conversation node Definitions', () => {
     ])
 
     const manual = node(snapshot(compactions), 'manual-compaction')
-    expect((manual?.data as ManualCompactionChatData).compaction).toMatchObject({
-      summary: 'manual summary',
-      summaryEventSeq: 12,
+    expect((manual?.data as ManualCompactionChatData).compaction).toEqual({
+      kind: 'compaction', seq: 13, time: 1_700_000_000_000 + 13, summaryEventSeq: 12, shadowedItemCount: 2, shadowedTokenCount: 100,
     })
     const automatic = node(snapshot(compactions), 'compaction')
-    expect(automatic?.data).toMatchObject({ summary: 'automatic summary', summaryEventSeq: 21 })
+    expect(automatic?.data).toEqual({
+      kind: 'compaction', seq: 22, time: 1_700_000_000_000 + 22, summaryEventSeq: 21, shadowedItemCount: 2, shadowedTokenCount: 200,
+    })
     expect(snapshot(compactions).nodes.values().filter(candidate => candidate.kind === 'compaction')).toHaveLength(1)
   })
 
@@ -2944,7 +2945,9 @@ describe('built-in conversation node Definitions', () => {
       }, { surfaceOp: { op: 'replace', startSeq: 1, endSeq: 8 } }),
     ], true)
     const before = node(snapshot(value), 'compaction')
-    expect(before?.data).toMatchObject({ summary: null, summaryEventSeq: null })
+    expect(before?.data).toEqual({
+      kind: 'compaction', seq: 13, time: 1_700_000_000_000 + 13, summaryEventSeq: null, shadowedItemCount: null, shadowedTokenCount: null,
+    })
 
     value.prepend([
       at(9, 'compaction/start', { compactionId: 'compact-1', turn: null }),
@@ -2963,10 +2966,9 @@ describe('built-in conversation node Definitions', () => {
 
     const after = node(snapshot(value), 'compaction')
     expect(after?.key).toBe(before?.key)
-    expect(after?.data).toMatchObject({
-      summary: 'older summary',
-      summaryEventSeq: 10,
-      shadowedItemCount: 3,
+    expect(after?.data).toEqual({
+      kind: 'compaction', seq: 13, time: 1_700_000_000_000 + 13,
+      summaryEventSeq: 10, shadowedItemCount: 3,
       shadowedTokenCount: 42,
     })
   })
@@ -2985,10 +2987,9 @@ describe('built-in conversation node Definitions', () => {
       }, { surfaceOp: { op: 'replace', startSeq: 1, endSeq: 3 } }),
     ], true)
 
-    expect(node(snapshot(value), 'compaction')?.data).toMatchObject({
-      summary: 'loaded summary',
-      summaryEventSeq: 10,
-      shadowedItemCount: 3,
+    expect(node(snapshot(value), 'compaction')?.data).toEqual({
+      kind: 'compaction', seq: 11, time: 1_700_000_000_000 + 11,
+      summaryEventSeq: 10, shadowedItemCount: 3,
       shadowedTokenCount: 42,
     })
   })
@@ -3335,7 +3336,7 @@ describe('built-in conversation node Definitions', () => {
     ], true)
 
     expect(node(snapshot(landed), 'compaction')?.data).toMatchObject({
-      summary: 'landed summary',
+      summaryEventSeq: 11,
       shadowedItemCount: 3,
       shadowedTokenCount: 42,
     })
@@ -3643,7 +3644,7 @@ describe('built-in conversation node Definitions', () => {
     const manual = node(snapshot(value), 'manual-compaction')
     expect((manual?.data as ManualCompactionChatData)).toMatchObject({
       command: { commandId: 'command-1', name: 'compact', outcome: { kind: 'success' } },
-      compaction: { summary: 'manual summary', summaryEventSeq: 20 },
+      compaction: { seq: 21, summaryEventSeq: 20, shadowedItemCount: 2, shadowedTokenCount: 100 },
     })
   })
 })

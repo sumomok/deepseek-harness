@@ -50,7 +50,9 @@
         id: parent
         name: Parent
         description: Headless parent tools.
-        plugins: []
+        plugins:
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
     - id: preset-reviewer
       name: '@deepseek-ai/dsh-agent-preset'
       config:
@@ -83,3 +85,6 @@
     toolName: subagent
     maxDepth: 1
     allowedAgentPresets: [reviewer]
+
+- id: tool-fs
+  disabled: true
