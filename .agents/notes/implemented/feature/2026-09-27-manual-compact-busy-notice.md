@@ -6,7 +6,7 @@ English | [中文](2026-09-27-manual-compact-busy-notice.zh.md)
 
 ## Problem
 
-A user typed `/compact` while a reply was running and reported that nothing happened. The Host runs manual compaction through `compactNow`, which calls `agent.runMaintenance` and throws `busy` unless the agent is idle, so the command settled as a failed `/compact` card. That card was a `manual-compaction` node inside the running Turn, and the `compact` and `standard` work-details modes fold process groups even while a Turn runs, so the card was hidden. Once the Turn completed, the whole-Turn fold hid it again. The [automatic compaction running row](2026-09-18-auto-compaction-running-card.md) had already been taken out of the group; the manual card had not.
+A user typed `/compact` while a reply was running and reported that nothing happened. The Host runs manual compaction through `compactNow`, which calls `agent.runMaintenance` and throws `busy` unless the agent is idle, so the command settled as a failed `/compact` card. That card was a `manual-compaction` node inside the running Turn, and the `compact` and `standard` work-details modes fold process groups even while a Turn runs, so the card was hidden. Once the Turn completed, the whole-Turn fold hid it again. The automatic compaction running row had already been taken out of the group; the manual card had not.
 
 The user decided on 09-27 that a busy `/compact` is not refused: a Settings → General row, 「繁忙时的压缩行为」 ("Compaction while busy"), chooses whether it runs at the running Turn's next step boundary (「立即打断」, Interrupt) or right after the Turn ends (「排队等候」, Queue), and compaction rows stay visible after the Turn folds.
 

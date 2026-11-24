@@ -1,11 +1,13 @@
 - banner:
   - navigation "Session hierarchy": First event sourcing keeps every
   - text: Standard mode
+  - button "Session panel"
   - button "More actions"
   - button "Open right sidebar"
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
+  - button "More conversation views"
 - navigation "Turn navigation":
   - button "Jump to turn 1"
   - button "Jump to turn 2"
@@ -13,7 +15,7 @@
 - text: {{first-prompt}}{{clock}}
 - button "Copy"
 - status: Completed
-- button "Completed in {{duration}}" [disabled]
+- button "Completed in {{duration}}"
 - paragraph: READY
 - button "Copy"
 - button "Good response"
@@ -40,6 +42,6 @@
 - 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash": DeepSeek-V4-Flash
 - button "Stop generating"
-- button "3 turns 3 steps · {{throughput}} tok/s"
-- button "120K tok · Cache hit 0%"
-- button "94% of context used": 94%
+- button "3 turns 3 steps · {{throughput}} tok/s": 3 turns 3 steps{{throughput}} tok/s
+- button "80.4K tok · Cache hit 0%"
+- button "63% of context used": 63%

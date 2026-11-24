@@ -909,13 +909,9 @@ function legacyContribution(raw: ChatConversationViewNode): LegacyContribution {
       }
     case 'turn-tail':
     case 'system-prompt':
-    case 'compaction-running':
-      // These known Chat rows intentionally make no legacy timeline
-      // contribution: none of them is a durable transcript node, and the
-      // running compaction row is replaced by the `compaction` marker that is.
+      // These known Chat rows intentionally make no legacy timeline contribution.
       return EMPTY_CONTRIBUTION
     default:
-      // Third-party kinds this build does not know contribute nothing.
       return EMPTY_CONTRIBUTION
   }
 }

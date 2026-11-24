@@ -105,7 +105,7 @@ Preference menus restore focus to their trigger without scrolling before publish
 <a id="automatic-compaction"></a>
 ## Automatic compaction
 
-An automatic compaction owns one row for its whole lifetime: `Compacting context…` while its bracket is open, then `Context compacted` with the shadowed item and approximate token counts once the replacement lands, expandable to the summary the backend wrote. A bracket cancelled by Stop leaves no row, one that closes on an error shows the failure notice instead, and a bracket whose start is outside the loaded window shows only its landed marker. Inside a Turn the running row and the failure notice stand outside the process group, so a collapsed group never hides them; the failure notice also stays outside the whole-Turn fold once the Turn completes. The landed marker joins the group like other process content.
+An automatic compaction owns one `compaction` row across its lifetime: a `CompactionProgress` running row (`Compacting context…`) while its bracket is open, a localized failure notice (`CompactionProgress` with `status: 'ended'` and `error`) when it closes on a non-abort error, or the `Context compacted` marker with shadowed item and approximate token counts once the replacement lands. A bracket cancelled by Stop, closed cleanly without a checkpoint, or abandoned by a closed step or turn stays hidden, and one whose start is outside the loaded window shows only its landed marker or failure notice. Inside a Turn the running row declares `groupTree: 'process'` and the failure notice declares `groupTree: 'turn'`, keeping both outside collapsed process groups and the failure notice outside completed whole-Turn folds; the landed marker joins the group.
 
 <a id="manual-compaction"></a>
 ## Manual compaction

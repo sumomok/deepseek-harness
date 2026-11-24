@@ -4,7 +4,6 @@ import type {
   CompactionSummaryNode, ConversationMatch, ConversationNodeContext, ConversationNodeDefinition,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-compaction/types'
-import type { CompactionFailureChatData } from '../contract/chat-nodes.ts'
 import { chatNode } from './common.ts'
 import { compactSource, compactSummary, updateCompactionState } from './command.ts'
 
@@ -12,14 +11,6 @@ declare module '../contract/chat-nodes.ts' {
   interface ChatNodeDataMap {
     /** Automatic compaction progress or committed checkpoint. */
     compaction: CompactionSummaryNode | CompactionProgress
-    /**
-     * Automatic compaction bracket that has opened and has not yet landed a
-     * checkpoint, recorded a failure, or closed. The card's copy is fixed and
-     * its position is the node's `anchorSeq`, so the kind carries no payload.
-     */
-    'compaction-running': null
-    /** Automatic compaction bracket that closed without replacing any history. */
-    'compaction-failure': CompactionFailureChatData
   }
 }
 
@@ -188,9 +179,13 @@ export const compactionDefinition: ConversationNodeDefinition<CompactionState> =
     }
     if (state.failure !== undefined) {
       const event = state.failure.event
-      const data: CompactionFailureChatData = { reason: failureReason(event) ?? null }
+      const progress: CompactionProgress = {
+        kind: 'compaction-progress',
+        status: 'ended',
+        error: failureReason(event) ?? '',
+      }
       // The notice stands outside both the step group and whole-Turn folding.
-      return chatNode(context, 'compaction-failure', event.seq, data, { groupTree: 'turn' })
+      return chatNode(context, 'compaction', event.seq, progress, { groupTree: 'turn' })
     }
     // A window without the start carries no evidence that a bracket is open,
     // and no Context in that state ever published a Node, so returning null
@@ -201,10 +196,16 @@ export const compactionDefinition: ConversationNodeDefinition<CompactionState> =
     // cancelled, and one whose own step or turn closed first was abandoned.
     // Both stop showing the row, and both keep publishing the same key hidden:
     // a live Context that already materialized the row may not withdraw it.
-    const settled = bracketClosed(context) || bracketAbandoned(context)
+    const closed = bracketClosed(context)
+    const settled = closed || bracketAbandoned(context)
+    const progress: CompactionProgress = closed
+      ? { kind: 'compaction-progress', status: 'ended' }
+      : settled
+        ? { kind: 'compaction-progress', status: 'interrupted' }
+        : { kind: 'compaction-progress', status: 'running' }
     // The row ends the step run before it, so a folded step group never hides
     // it; whole-Turn folding still includes it.
-    return chatNode(context, 'compaction-running', start.event.seq, null, {
+    return chatNode(context, 'compaction', start.event.seq, progress, {
       groupTree: 'process',
       ...settled ? { visibility: 'hidden' as const } : {},
     })

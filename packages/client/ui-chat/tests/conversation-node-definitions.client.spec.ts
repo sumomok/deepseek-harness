@@ -2994,19 +2994,19 @@ describe('built-in conversation node Definitions', () => {
     })
   })
 
-  it('shows a running card while an automatic compaction bracket is open', () => {
+  it('shows a running progress row while an automatic compaction bracket is open', () => {
     const value = assembler([
       at(10, 'compaction/start', { compactionId: 'compact-open', turn: 2 }),
     ], true)
 
-    const running = node(snapshot(value), 'compaction-running')
+    const running = node(snapshot(value), 'compaction')
     expect(running?.anchorSeq).toBe(10)
-    expect(running?.data).toBeNull()
+    expect(running?.visibility).toBe('visible')
+    expect(running?.data).toEqual({ kind: 'compaction-progress', status: 'running' })
     expect(running?.groupTree).toBe('process')
-    expect(node(snapshot(value), 'compaction')).toBeUndefined()
   })
 
-  it('keeps the running card while the summary is written and before the checkpoint lands', () => {
+  it('keeps the running progress row while the summary is written and before the checkpoint lands', () => {
     const value = assembler([
       at(10, 'compaction/start', { compactionId: 'compact-midway', turn: 2 }),
       at(11, 'compaction/summary', {
@@ -3017,10 +3017,12 @@ describe('built-in conversation node Definitions', () => {
       }),
     ], true)
 
-    expect(node(snapshot(value), 'compaction-running')?.anchorSeq).toBe(10)
+    const running = node(snapshot(value), 'compaction')
+    expect(running?.anchorSeq).toBe(10)
+    expect(running?.data).toEqual({ kind: 'compaction-progress', status: 'running' })
   })
 
-  it('replaces the running card with the landed checkpoint and its counts', () => {
+  it('replaces the running progress row with the landed checkpoint and its counts', () => {
     const value = assembler([
       at(10, 'compaction/start', { compactionId: 'compact-landing', turn: 2 }),
       at(11, 'compaction/summary', {
@@ -3036,8 +3038,8 @@ describe('built-in conversation node Definitions', () => {
       at(13, 'compaction/end', { compactionId: 'compact-landing', turn: 2 }),
     ], true)
 
-    expect(node(snapshot(value), 'compaction-running')).toBeUndefined()
     expect(node(snapshot(value), 'compaction')?.data).toMatchObject({
+      kind: 'compaction',
       shadowedItemCount: 3,
       shadowedTokenCount: 42,
     })
@@ -3047,7 +3049,7 @@ describe('built-in conversation node Definitions', () => {
   it('splits the step group around a running automatic compaction row until the row settles', () => {
     const start = at(10, 'compaction/start', { compactionId: 'compact-between', turn: 1 })
     expect(stepLayout(groupedAssembler(toolStepsAround([start]))))
-      .toEqual(['turn-process', ['tool-call'], 'compaction-running', ['tool-call']])
+      .toEqual(['turn-process', ['tool-call'], 'compaction', ['tool-call']])
 
     const cancelled = groupedAssembler(toolStepsAround([start, at(11, 'compaction/end', {
       compactionId: 'compact-between',
@@ -3083,16 +3085,17 @@ describe('built-in conversation node Definitions', () => {
       }),
     ], true)
 
-    expect(node(snapshot(value), 'compaction-running')?.visibility).toBe('hidden')
-    expect(visibleNode(snapshot(value), 'compaction-running')).toBeUndefined()
-    expect(node(snapshot(value), 'compaction-failure')).toBeUndefined()
-    expect(node(snapshot(value), 'compaction')).toBeUndefined()
+    const settled = node(snapshot(value), 'compaction')
+    expect(settled?.visibility).toBe('hidden')
+    expect(settled?.data).toEqual({ kind: 'compaction-progress', status: 'ended' })
+    expect(settled?.groupTree).toBe('process')
+    expect(visibleNode(snapshot(value), 'compaction')).toBeUndefined()
   })
 
   it('hides a live running row without withdrawing it when the bracket is cancelled', () => {
     const value = assembler()
     live(value, at(10, 'compaction/start', { compactionId: 'compact-live-stop', turn: 2 }))
-    expect(visibleNode(snapshot(value), 'compaction-running')?.anchorSeq).toBe(10)
+    expect(visibleNode(snapshot(value), 'compaction')?.anchorSeq).toBe(10)
 
     expect(() => {
       live(value, at(11, 'compaction/end', {
@@ -3101,7 +3104,7 @@ describe('built-in conversation node Definitions', () => {
         error: 'DeepSeek request aborted by caller: The user aborted a request.',
       }))
     }).not.toThrow()
-    expect(visibleNode(snapshot(value), 'compaction-running')).toBeUndefined()
+    expect(visibleNode(snapshot(value), 'compaction')).toBeUndefined()
 
     live(value, at(12, 'user/message', textMessage('after-stop', 'next question'), { surfaceOp: 'append' }))
     expect(visibleNode(snapshot(value), 'user')?.anchorSeq).toBe(12)
@@ -3116,7 +3119,7 @@ describe('built-in conversation node Definitions', () => {
       shadowedSeqs: [1, 2, 3],
       shadowedTokenCount: 42,
     }))
-    expect(visibleNode(snapshot(value), 'compaction-running')?.anchorSeq).toBe(10)
+    expect(visibleNode(snapshot(value), 'compaction')?.anchorSeq).toBe(10)
 
     live(value, at(12, 'user/message', {
       ...textMessage('checkpoint-live', 'checkpoint'),
@@ -3124,8 +3127,10 @@ describe('built-in conversation node Definitions', () => {
     }, { surfaceOp: { op: 'replace', startSeq: 1, endSeq: 3 } }))
     live(value, at(13, 'compaction/end', { compactionId: 'compact-live-land', turn: 2 }))
 
-    expect(node(snapshot(value), 'compaction-running')).toBeUndefined()
-    expect(visibleNode(snapshot(value), 'compaction')?.anchorSeq).toBe(12)
+    const landed = visibleNode(snapshot(value), 'compaction')
+    expect(landed?.anchorSeq).toBe(12)
+    expect(landed?.data).toMatchObject({ kind: 'compaction', shadowedItemCount: 3 })
+    expect(landed?.groupTree).toBeUndefined()
     expect(snapshot(value).nodes.values().filter(candidate => candidate.kind === 'compaction')).toHaveLength(1)
   })
 
@@ -3138,8 +3143,14 @@ describe('built-in conversation node Definitions', () => {
       error: 'summarizer unavailable',
     }))
 
-    expect(node(snapshot(value), 'compaction-running')).toBeUndefined()
-    expect(visibleNode(snapshot(value), 'compaction-failure')?.data).toEqual({ reason: 'summarizer unavailable' })
+    const failed = visibleNode(snapshot(value), 'compaction')
+    expect(failed?.anchorSeq).toBe(11)
+    expect(failed?.groupTree).toBe('turn')
+    expect(failed?.data).toEqual({
+      kind: 'compaction-progress',
+      status: 'ended',
+      error: 'summarizer unavailable',
+    })
   })
 
   it('leaves no running card behind when the bracket closes on an error', () => {
@@ -3148,8 +3159,13 @@ describe('built-in conversation node Definitions', () => {
       at(11, 'compaction/end', { compactionId: 'compact-error', turn: 2, error: 'summarizer unavailable' }),
     ], true)
 
-    expect(node(snapshot(value), 'compaction-running')).toBeUndefined()
-    expect(node(snapshot(value), 'compaction-failure')?.data).toEqual({ reason: 'summarizer unavailable' })
+    const failed = node(snapshot(value), 'compaction')
+    expect(failed?.visibility).toBe('visible')
+    expect(failed?.data).toEqual({
+      kind: 'compaction-progress',
+      status: 'ended',
+      error: 'summarizer unavailable',
+    })
   })
 
   it('keeps the running row while the bracket\'s own turn is open', () => {
@@ -3158,18 +3174,34 @@ describe('built-in conversation node Definitions', () => {
       at(10, 'compaction/start', { compactionId: 'compact-live', turn: 2 }),
     ], true)
 
-    expect(visibleNode(snapshot(value), 'compaction-running')?.anchorSeq).toBe(10)
+    const running = visibleNode(snapshot(value), 'compaction')
+    expect(running?.anchorSeq).toBe(10)
+    expect(running?.data).toEqual({ kind: 'compaction-progress', status: 'running' })
   })
 
-  it('hides the running row for a bracket its own turn outlived', () => {
-    const value = assembler([
+  it('hides the running row for a bracket its own turn or step outlived', () => {
+    const turnCut = assembler([
       at(9, 'turn/start', { turn: 2 }),
       at(10, 'compaction/start', { compactionId: 'compact-cut', turn: 2 }),
       at(11, 'turn/end', { turn: 2, reason: { kind: 'interrupted' } }),
     ], true)
 
-    expect(node(snapshot(value), 'compaction-running')?.visibility).toBe('hidden')
-    expect(visibleNode(snapshot(value), 'compaction-running')).toBeUndefined()
+    const hiddenTurn = node(snapshot(turnCut), 'compaction')
+    expect(hiddenTurn?.visibility).toBe('hidden')
+    expect(hiddenTurn?.data).toEqual({ kind: 'compaction-progress', status: 'interrupted' })
+    expect(visibleNode(snapshot(turnCut), 'compaction')).toBeUndefined()
+
+    const stepCut = assembler([
+      at(9, 'turn/start', { turn: 2 }),
+      at(10, 'step/start', { turn: 2, step: 1 }),
+      at(11, 'compaction/start', { compactionId: 'compact-step-cut', turn: 2 }),
+      at(12, 'step/end', { turn: 2, step: 1 }),
+    ], true)
+
+    const hiddenStep = node(snapshot(stepCut), 'compaction')
+    expect(hiddenStep?.visibility).toBe('hidden')
+    expect(hiddenStep?.data).toEqual({ kind: 'compaction-progress', status: 'interrupted' })
+    expect(visibleNode(snapshot(stepCut), 'compaction')).toBeUndefined()
   })
 
   it('shows no running card for a window that never loaded the bracket start', () => {
@@ -3182,7 +3214,7 @@ describe('built-in conversation node Definitions', () => {
       }),
     ], true)
 
-    expect(node(snapshot(value), 'compaction-running')).toBeUndefined()
+    expect(node(snapshot(value), 'compaction')).toBeUndefined()
   })
 
   it('leaves an open manual compaction to the command card', () => {
@@ -3195,7 +3227,7 @@ describe('built-in conversation node Definitions', () => {
       }),
     ], true)
 
-    expect(node(snapshot(value), 'compaction-running')).toBeUndefined()
+    expect(node(snapshot(value), 'compaction')).toBeUndefined()
     expect(node(snapshot(value), 'manual-compaction')).toBeDefined()
   })
 
@@ -3286,9 +3318,13 @@ describe('built-in conversation node Definitions', () => {
       }),
     ], true)
 
-    expect(node(snapshot(value), 'compaction')).toBeUndefined()
-    const failure = node(snapshot(value), 'compaction-failure')
-    expect(failure?.data).toEqual({ reason: 'summarizer unavailable' })
+    const failure = node(snapshot(value), 'compaction')
+    expect(failure?.visibility).toBe('visible')
+    expect(failure?.data).toEqual({
+      kind: 'compaction-progress',
+      status: 'ended',
+      error: 'summarizer unavailable',
+    })
     expect(failure?.anchorSeq).toBe(11)
     expect(failure?.groupTree).toBe('turn')
   })
@@ -3298,7 +3334,7 @@ describe('built-in conversation node Definitions', () => {
       at(10, 'compaction/start', { compactionId: 'compact-failed-between', turn: 1 }),
       at(11, 'compaction/end', { compactionId: 'compact-failed-between', turn: 1, error: 'summarizer unavailable' }),
     ]))
-    expect(stepLayout(value)).toEqual(['turn-process', ['tool-call'], 'compaction-failure', ['tool-call']])
+    expect(stepLayout(value)).toEqual(['turn-process', ['tool-call'], 'compaction', ['tool-call']])
   })
 
   it('shows a failure node for a bracket opened between turns rather than inside one', () => {
@@ -3313,13 +3349,17 @@ describe('built-in conversation node Definitions', () => {
       }),
     ], true)
 
-    expect(node(snapshot(value), 'compaction')).toBeUndefined()
-    const failure = node(snapshot(value), 'compaction-failure')
-    expect(failure?.data).toEqual({ reason: 'summarizer unavailable' })
+    const failure = node(snapshot(value), 'compaction')
+    expect(failure?.visibility).toBe('visible')
+    expect(failure?.data).toEqual({
+      kind: 'compaction-progress',
+      status: 'ended',
+      error: 'summarizer unavailable',
+    })
     expect(failure?.anchorSeq).toBe(11)
   })
 
-  it('keeps a landed checkpoint rather than a failure node, and shows nothing for a clean end', () => {
+  it('keeps a landed checkpoint rather than a failure node, and hides a clean end without a checkpoint', () => {
     const landed = assembler([
       at(10, 'compaction/start', { compactionId: 'compact-clean', turn: 2 }),
       at(11, 'compaction/summary', {
@@ -3336,20 +3376,32 @@ describe('built-in conversation node Definitions', () => {
     ], true)
 
     expect(node(snapshot(landed), 'compaction')?.data).toMatchObject({
+      kind: 'compaction',
       summaryEventSeq: 11,
       shadowedItemCount: 3,
       shadowedTokenCount: 42,
     })
-    expect(node(snapshot(landed), 'compaction-failure')).toBeUndefined()
+
+    const cleanEmpty = assembler([
+      at(10, 'compaction/start', { compactionId: 'compact-clean-empty', turn: 2 }),
+      at(11, 'compaction/end', { compactionId: 'compact-clean-empty', turn: 2 }),
+    ], true)
+    expect(node(snapshot(cleanEmpty), 'compaction')?.visibility).toBe('hidden')
+    expect(node(snapshot(cleanEmpty), 'compaction')?.data).toEqual({ kind: 'compaction-progress', status: 'ended' })
+    expect(visibleNode(snapshot(cleanEmpty), 'compaction')).toBeUndefined()
   })
 
-  it('reports a failure with no recorded detail as an absent reason', () => {
+  it('reports a failure with no recorded detail as an empty error string', () => {
     const value = assembler([
       at(10, 'compaction/start', { compactionId: 'compact-blank', turn: 2 }),
       at(11, 'compaction/end', { compactionId: 'compact-blank', turn: 2, error: '   ' }),
     ], true)
 
-    expect(node(snapshot(value), 'compaction-failure')?.data).toEqual({ reason: null })
+    expect(node(snapshot(value), 'compaction')?.data).toEqual({
+      kind: 'compaction-progress',
+      status: 'ended',
+      error: '',
+    })
   })
 
   it.each([
@@ -3362,7 +3414,8 @@ describe('built-in conversation node Definitions', () => {
       at(11, 'compaction/end', { compactionId: 'compact-cancelled', turn: 2, error }),
     ], true)
 
-    expect(node(snapshot(value), 'compaction-failure')).toBeUndefined()
+    expect(visibleNode(snapshot(value), 'compaction')).toBeUndefined()
+    expect(node(snapshot(value), 'compaction')?.data).toEqual({ kind: 'compaction-progress', status: 'ended' })
   })
 
   it('reports an unrenderable cancel cause as a failure without a usable reason', () => {
@@ -3371,7 +3424,11 @@ describe('built-in conversation node Definitions', () => {
       at(11, 'compaction/end', { compactionId: 'compact-opaque', turn: 2, error: '[object Object]' }),
     ], true)
 
-    expect(node(snapshot(value), 'compaction-failure')?.data).toEqual({ reason: null })
+    expect(node(snapshot(value), 'compaction')?.data).toEqual({
+      kind: 'compaction-progress',
+      status: 'ended',
+      error: '',
+    })
   })
 
   it('builds the failure node from a window that never loaded the bracket start', () => {
@@ -3383,8 +3440,10 @@ describe('built-in conversation node Definitions', () => {
       }),
     ], true)
 
-    expect(node(snapshot(value), 'compaction-failure')?.data).toEqual({
-      reason: 'summary did not shrink its source',
+    expect(node(snapshot(value), 'compaction')?.data).toEqual({
+      kind: 'compaction-progress',
+      status: 'ended',
+      error: 'summary did not shrink its source',
     })
   })
 
@@ -3404,7 +3463,7 @@ describe('built-in conversation node Definitions', () => {
       }),
     ], true)
 
-    expect(node(snapshot(value), 'compaction-failure')).toBeUndefined()
+    expect(node(snapshot(value), 'compaction')).toBeUndefined()
   })
 
   it('ignores legacy compaction transactions without correlation ids', () => {

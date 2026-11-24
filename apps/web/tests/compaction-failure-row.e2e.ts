@@ -31,8 +31,9 @@ const MODE = webSnapshotMode()
 // and a completed Turn fold; the Web client defaults to Detailed.
 const STANDARD_VIEW_OVERLAY = '- id: ui-chat\n  config:\n    transcriptView: standard\n'
 
-// Two long earlier prompts give the pressure path a compactable span older
-// than its retained tail; the scripted usage alone decides when it triggers.
+// Two long earlier prompts give the pressure path a compactable span that
+// clears both the retained tail and the pressure gap; the scripted usage
+// below crosses the 64K-headroom pressure threshold without outgrowing that span.
 const LONG_PROMPT = (label: string): string => `${label} ${'event sourcing keeps every change as an event. '.repeat(2_000)}`
 const SECOND_PROMPT = 'Read notes.txt and summarize it.'
 const SUMMARIZER_FAILURE = 'summarizer unavailable'
@@ -103,7 +104,7 @@ describe('web e2e: failed automatic compaction inside a Turn', () => {
     const replay: ReplayEntry[] = [
       textReply('READY', 200),
       textReply('READY', 200),
-      readCall(120_000),
+      readCall(80_000),
       { kind: 'throw', chunks: [], message: SUMMARIZER_FAILURE, code: 'INVALID_REQUEST' },
       last,
     ]
@@ -152,7 +153,7 @@ describe('web e2e: failed automatic compaction inside a Turn', () => {
     expect(ends).toHaveLength(1)
     expect(ends[0]!.data.sourceCommandId).toBeUndefined()
     expect(ends[0]!.data.turn).not.toBeNull()
-    const row = page.locator('[data-chat-flow-kind="compaction-failure"]')
+    const row = page.locator('[data-chat-flow-kind="compaction"]')
     await row.waitFor({ timeout: 10_000 })
     const group = page.locator('[data-chat-group-key]').last()
     expect(await group.locator('[data-step-process-body]').first().evaluate(element => element.hasAttribute('hidden'))).toBe(true)
@@ -169,7 +170,7 @@ describe('web e2e: failed automatic compaction inside a Turn', () => {
     const tripwire = watchConsole(page)
     await settled
     await page.getByRole('button', { name: /^Completed in / }).last().waitFor({ timeout: 15_000 })
-    const row = page.locator('[data-chat-flow-kind="compaction-failure"]')
+    const row = page.locator('[data-chat-flow-kind="compaction"]')
     await row.waitFor({ timeout: 10_000 })
     expect(await row.evaluate(element => element.closest('[data-turn-process-member]') === null)).toBe(true)
     expect(await row.evaluate(element => element.closest('[hidden]') === null)).toBe(true)
