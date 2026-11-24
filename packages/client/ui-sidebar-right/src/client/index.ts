@@ -126,7 +126,7 @@ export function apply(ctx: ClientContext): void {
   // The automatic fullscreen rule as the seats last rendered it: the frame
   // hands them its width as owner props, and every seat reports the same rule.
   let autoFullscreen = false
-  const { controller, adopt, forget, show, measure } = createSidebarRightController(
+  const { controller, adopt, release, forget, show, measure } = createSidebarRightController(
     tabs,
     (address, signal) => { ctx.resources.pin(address, signal) },
     {
@@ -208,8 +208,27 @@ export function apply(ctx: ClientContext): void {
         const instance = handle.create(scopeKey)
         if (scopeKey !== undefined) {
           const sessionId = scopeKey as SessionId
-          adoptions.get(sessionId)?.()
-          adoptions.set(sessionId, adopt(sessionId, instance))
+          const previous = adoptions.get(sessionId)
+          // Clear the slot before detaching the previous adoption so its detach sees replacement.
+          adoptions.delete(sessionId)
+          previous?.()
+          const unadopt = adopt(sessionId, instance)
+          let detached = false
+          const cleanup = (): void => { detach(false) }
+          adoptions.set(sessionId, cleanup)
+          const stopScopeEffect = ctx.sessions.scope(sessionId)?.effect(
+            () => () => { detach(true) },
+            'ui-sidebar-right: session store lifetime',
+          )
+          function detach(scopeEnded: boolean): void {
+            if (detached) return
+            detached = true
+            void stopScopeEffect?.()
+            unadopt()
+            if (adoptions.get(sessionId) !== cleanup) return
+            adoptions.delete(sessionId)
+            if (scopeEnded) release(sessionId)
+          }
         }
         return { ...instance, clearPersisted() {
           instance.clearPersisted()
@@ -312,7 +331,7 @@ export function apply(ctx: ClientContext): void {
       disposeExpand()
       disposeSeat()
       for (const dispose of disposeTypes.reverse()) dispose()
-      for (const release of adoptions.values()) release()
+      for (const stop of adoptions.values()) stop()
       adoptions.clear()
     }
   }, 'ui-sidebar-right: seats and shipped tab type')

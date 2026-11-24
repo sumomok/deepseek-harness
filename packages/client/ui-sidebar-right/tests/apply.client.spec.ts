@@ -83,7 +83,11 @@ async function boot(shortcuts: Partial<Shortcuts> = {}) {
     catalog: { getSnapshot: () => SHORTCUT_CATALOG, subscribe: () => () => {} }, ...shortcuts } as never)
   ctx.provide('layout', layout as never)
   ctx.provide('resources', resources as never)
-  ctx.provide('sessions', { retain: vi.fn(() => ({ ready: Promise.resolve(), release: vi.fn() })) } as never)
+  const scopes = new Map<SessionId, Context>()
+  ctx.provide('sessions', {
+    retain: vi.fn(() => ({ ready: Promise.resolve(), release: vi.fn() })),
+    scope: vi.fn((id: SessionId) => scopes.get(id)),
+  } as never)
   ctx.provide('uiSession', { adapter: { current } } as never)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
@@ -96,7 +100,7 @@ async function boot(shortcuts: Partial<Shortcuts> = {}) {
     if (entry.inject === undefined) throw new Error(`expected ${entry.name} to inject`)
     return entry.inject(SESSION)
   }
-  return { ctx, menus, slots, registered, dictionaries, layout, current, resources, fiber, seat, injectedOf }
+  return { ctx, menus, slots, registered, dictionaries, layout, current, resources, scopes, fiber, seat, injectedOf }
 }
 
 describe('ui-sidebar-right apply', () => {
@@ -291,6 +295,61 @@ describe('ui-sidebar-right apply', () => {
       await b?.ctx.fiber.dispose()
       factory.mockRestore()
     }
+  })
+
+  it('binds store adoption to the Session scope, releasing on scope disposal without letting replaced scopes wipe newer adoptions', async () => {
+    const b = await boot()
+    onTestFinished(async () => { await b.ctx.fiber.dispose() })
+    const handle = b.seat('rightbar.session').store as ReturnType<typeof createSidebarRightStore>
+    const other = 's-other' as SessionId
+
+    const scopeA1 = new Context()
+    const scopeA2 = new Context()
+    const scopeB = new Context()
+    onTestFinished(async () => {
+      await scopeA1.fiber.dispose()
+      await scopeA2.fiber.dispose()
+      await scopeB.fiber.dispose()
+    })
+
+    // First adoption under scopeA1, then replaced by scopeA2 before scopeA1 disposes.
+    b.scopes.set(SESSION, scopeA1)
+    const first = handle.create(SESSION)
+    first.actions.open(SESSION)
+    first.actions.setExpanded(SESSION, true)
+    first.actions.openContent(SESSION, { kind: 'text', contentId: 'dsh-resource://file/session/s/a.txt', title: 'a' }, () => {})
+    const tabA = Object.values(first.getSnapshot().bySession[SESSION]?.layout.tabs ?? {}).find(tab => tab.kind === 'text')!
+    const occurrenceA = b.ctx.sidebarRight.tabDomain.occurrence(SESSION, tabA)
+
+    b.scopes.set(SESSION, scopeA2)
+    const second = handle.create(SESSION)
+    // Replacing an adoption must not abort occurrences or release the Session through the old scope effect.
+    expect(occurrenceA.signal.aborted).toBe(false)
+    second.actions.open(SESSION)
+    second.actions.setExpanded(SESSION, true)
+    const guideB = Object.values(second.getSnapshot().bySession[SESSION]?.layout.tabs ?? {})[0]!
+    const occurrenceB = b.ctx.sidebarRight.tabDomain.occurrence(SESSION, guideB)
+
+    // Disposing the superseded scopeA1 must not affect scopeA2's active adoption.
+    await scopeA1.fiber.dispose()
+    expect(occurrenceB.signal.aborted).toBe(false)
+
+    // Disposing the active scopeA2 releases occurrences and flashes while keeping persisted openTabs metadata.
+    const flashBefore = b.ctx.sidebarRight.flashOf(SESSION)
+    await scopeA2.fiber.dispose()
+    expect(occurrenceB.signal.aborted).toBe(true)
+    expect(b.ctx.sidebarRight.flashOf(SESSION)).not.toBe(flashBefore)
+    expect(b.ctx.sidebarRight.openTabs.getSnapshot().some(tab => tab.sessionId === SESSION)).toBe(true)
+
+    // Plugin disposal detaches live scope effects cleanly without triggering scope-end release.
+    b.scopes.set(other, scopeB)
+    const otherStore = handle.create(other)
+    otherStore.actions.open(other)
+    otherStore.actions.setExpanded(other, true)
+    const otherGuide = Object.values(otherStore.getSnapshot().bySession[other]?.layout.tabs ?? {})[0]!
+    const otherOccurrence = b.ctx.sidebarRight.tabDomain.occurrence(other, otherGuide)
+    await b.fiber.dispose()
+    expect(otherOccurrence.signal.aborted).toBe(true)
   })
 
   it('hands the guide body the registry\'s entry boxes, observable', async () => {

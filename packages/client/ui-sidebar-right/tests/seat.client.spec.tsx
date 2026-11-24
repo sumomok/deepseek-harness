@@ -15,6 +15,7 @@ import type { PaneId, SplitId, TabId } from '@deepseek-ai/dsh-client-ui-dockkit'
 import { dockPaneIds, getPane } from '@deepseek-ai/dsh-client-ui-dockkit'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { apply, inject } from '../src/client/index.ts'
+import { sidebarPersistence } from '../src/client/persistence.ts'
 import { intentsFor } from '../src/client/shell/SidebarRight.tsx'
 import { registerSidebarShortcuts } from '../src/client/shortcuts.ts'
 import { ShortcutRegistry } from '@deepseek-ai/dsh-client-shortcuts/src/client/registry.ts'
@@ -894,8 +895,9 @@ describe('slot-owned useTabInfo', () => {
     expect(h.bodies.get(a.id)?.tab.signal).toBe(signal)
   })
 
-  it('keeps session records and navigation while unmounted, aborting only removal and plugin unload', async () => {
+  it('keeps retained session records and navigation while unmounted, aborting only removal and plugin unload', async () => {
     const h = await mountSeat()
+    const background = h.runtime.sessions.retainFor(h.runtime.ctx, SESSION)
     const own = h.open()
     const info = h.bodies.get(own.id)!
     const stored = h.instance.getSnapshot()
@@ -921,6 +923,35 @@ describe('slot-owned useTabInfo', () => {
     expect(remaining.tab.signal.aborted).toBe(true)
     expect(otherInfo.tab.signal.aborted).toBe(true)
     expect(h.runtime.ctx.get('sidebarRight')).toBeUndefined()
+    background.release()
+  })
+
+  it('aborts unretained session occurrences on switch away while preserving openTabs and persisted layout on return', async () => {
+    const h = await mountSeat()
+    const own = h.open('a.txt')
+    const firstInfo = h.bodies.get(own.id)!
+    const firstSignal = firstInfo.tab.signal
+    const storageKey = `${sidebarPersistence}.${SESSION}`
+    expect(firstSignal.aborted).toBe(false)
+    expect(localStorage.getItem(storageKey)).not.toBeNull()
+    expect(h.controller.openTabs.getSnapshot().some(tab => tab.sessionId === SESSION && tab.tabId === own.id)).toBe(true)
+
+    await h.runtime.sessions.add({ id: OTHER })
+    await act(async () => { h.selectSession(OTHER) })
+    expect(firstSignal.aborted).toBe(true)
+    expect(localStorage.getItem(storageKey)).not.toBeNull()
+    expect(h.controller.openTabs.getSnapshot().some(tab => tab.sessionId === SESSION && tab.tabId === own.id)).toBe(true)
+    // Stale actions from the ended session scope are safe no-ops and do not affect the active session.
+    act(() => { firstInfo.tab.actions.openResource('dsh-resource://file/session/s-test/ignored.txt') })
+    expect(h.controller.active()).toBeUndefined()
+
+    await act(async () => { h.selectSession(SESSION) })
+    expect(h.controller.active()?.id).toBe(own.id)
+    expect(h.controller.active()?.contentId).toBe(own.contentId)
+    const restored = h.bodies.get(own.id)!
+    expect(restored.tab.signal).not.toBe(firstSignal)
+    expect(restored.tab.signal.aborted).toBe(false)
+    expect(h.pin.mock.calls.filter(([address]) => address === own.contentId)).toHaveLength(2)
   })
 
   it('updates guide replacements through the same hook and guide boxes through framework injection', async () => {

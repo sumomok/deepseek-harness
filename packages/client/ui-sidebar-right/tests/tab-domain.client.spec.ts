@@ -107,6 +107,31 @@ describe('TabDomain — occurrences follow records', () => {
     domain.dispose()
     expect(held.signal.aborted).toBe(true)
   })
+
+  it('releases one session by deleting its map entry before aborting occurrences while leaving other sessions intact', () => {
+    const { domain, controller, current } = harness()
+    const tabId = controller.openContent({ kind: 'text', contentId: 'dsh-resource://file/session/s-one/a.txt', title: 'a' })
+    const other = layouts()
+    const otherTabId = other.controller.openContent({ kind: 'text', contentId: 'dsh-resource://file/session/s-two/b.txt', title: 'b' })
+    domain.sync(SESSION, current())
+    domain.sync(OTHER, other.current())
+    const held = domain.occurrence(SESSION, recordOf(current(), tabId))
+    const otherHeld = domain.occurrence(OTHER, recordOf(other.current(), otherTabId))
+    let removedBeforeAbort = false
+    held.signal.addEventListener('abort', () => {
+      try {
+        domain.occurrence(SESSION, { id: tabId })
+      } catch {
+        removedBeforeAbort = true
+      }
+    }, { once: true })
+    domain.release(SESSION)
+    expect(held.signal.aborted).toBe(true)
+    expect(removedBeforeAbort).toBe(true)
+    expect(otherHeld.signal.aborted).toBe(false)
+    expect(() => { domain.release(SESSION) }).not.toThrow()
+    expect(() => { domain.release('s-unknown' as SessionId) }).not.toThrow()
+  })
 })
 
 describe('TabDomain — navigation', () => {

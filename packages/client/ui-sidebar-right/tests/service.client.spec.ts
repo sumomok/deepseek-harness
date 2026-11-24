@@ -949,6 +949,22 @@ describe('SidebarRightController — flashing a reveal', () => {
     expect(next).not.toBe(flashes)
     expect(next.getSnapshot()).toBeUndefined()
   })
+
+  it('releases per-session rooms, flashes, and occurrences without clearing openTabs inventory', () => {
+    const h = harness()
+    h.publish()
+    h.controller.openResource('dsh-resource://file/session/s-test/c.txt')
+    const tabId = h.tabOf('c.txt')
+    const occurrence = h.controller.tabDomain.occurrence(SESSION, { id: tabId })
+    const beforeReleaseFlash = h.controller.flashOf(SESSION)
+    h.room.allowed = false
+    expect(h.controller.split()).toBeUndefined()
+    h.release(SESSION)
+    expect(occurrence.signal.aborted).toBe(true)
+    expect(h.controller.flashOf(SESSION)).not.toBe(beforeReleaseFlash)
+    expect(h.controller.split()).toBeDefined()
+    expect(h.controller.openTabs.getSnapshot().some(tab => tab.sessionId === SESSION && tab.tabId === tabId)).toBe(true)
+  })
 })
 
 describe('SidebarRightController — page uniqueness for a floating replacement', () => {
