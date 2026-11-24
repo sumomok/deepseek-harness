@@ -46,6 +46,7 @@ afterEach(async () => {
     for (const release of releases) release()
     await Promise.allSettled(sessions.map(session => session.dispose()))
   } finally {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
   }
@@ -230,5 +231,29 @@ describe('PDF Worker lifecycle', () => {
     await expect(h.session.document).rejects.toMatchObject({ name: 'SecurityError' })
     expect(revokeURL).toHaveBeenCalledOnce()
     expect(api.getDocument).not.toHaveBeenCalled()
+  })
+
+  it('bounds a hung document destroy with a timeout and swallows a late teardown rejection', async () => {
+    vi.useFakeTimers()
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const h = setup()
+    workers[0]!.ready()
+    await h.entered.promise
+    h.loading.resolve({ numPages: 1, getPage: vi.fn() })
+    await h.session.document
+    const destruction = Promise.withResolvers<undefined>()
+    const destroying = Promise.withResolvers<undefined>()
+    h.destroy.mockImplementation(async () => { destroying.resolve(undefined); await destruction.promise })
+    const disposing = h.session.dispose()
+    await destroying.promise
+    expect(workers[0]!.terminate).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(5_000)
+    await expect(disposing).resolves.toBeUndefined()
+    expect(api.destroyBridge).toHaveBeenCalledOnce()
+    expect(workers[0]!.terminate).toHaveBeenCalledOnce()
+    expect(revokeURL).toHaveBeenCalledOnce()
+    destruction.reject(new Error('late teardown rejection'))
+    await Promise.resolve()
+    expect(log).not.toHaveBeenCalled()
   })
 })

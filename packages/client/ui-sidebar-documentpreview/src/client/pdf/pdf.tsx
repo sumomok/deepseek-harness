@@ -5,7 +5,7 @@ import type { PropsLocale, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TabId } from '@deepseek-ai/dsh-client-ui-dockkit'
 import type { DocumentPreviewProps } from '../document/contract.ts'
 import type { PdfStore, PdfView } from './store.ts'
-import { renderPdfPage, type PdfDocument } from './document.ts'
+import { renderPdfPage, type PdfDocument, type PdfPageSize } from './document.ts'
 import { openPdf } from './runtime.ts'
 import { PdfWorkerFailure } from './errors.ts'
 import { pdfTextRenderer } from './text.ts'
@@ -115,9 +115,8 @@ function PdfPage({ document, page, requested: initiallyRequested, onVisible, sig
   const host = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const text = useRef<HTMLDivElement>(null)
-  const [width, setWidth] = useState<number>()
+  const [size, setSize] = useState<PdfPageSize>()
   const [requested, setRequested] = useState(initiallyRequested)
-  const [visible, setVisible] = useState(initiallyRequested)
   const renderedZoom = useRef<number>()
   const pendingRender = useRef(Promise.resolve())
   const textTask = useRef<ReturnType<ReturnType<typeof pdfTextRenderer>>>()
@@ -130,15 +129,16 @@ function PdfPage({ document, page, requested: initiallyRequested, onVisible, sig
     const node = state === 'ready' ? canvas.current as HTMLCanvasElement : host.current as HTMLDivElement
     if (typeof IntersectionObserver === 'undefined') {
       setRequested(true)
-      setVisible(true)
       return
     }
     let disposed = false
     const observer = new IntersectionObserver((entries) => {
       if (disposed) return
       const intersects = entries.some(entry => entry.isIntersecting)
-      setVisible(intersects)
-      if (!intersects) return
+      if (!intersects) {
+        setRequested(false)
+        return
+      }
       setRequested(true)
       onVisible(page)
     }, { rootMargin: '100% 0px' })
@@ -148,12 +148,29 @@ function PdfPage({ document, page, requested: initiallyRequested, onVisible, sig
       observer.disconnect()
     }
   }, [page, onVisible, state])
-  useEffect(() => () => { textTask.current?.cancel() }, [])
   useEffect(() => {
-    if (!requested) return
-    setFailure(undefined)
-    if (renderedZoom.current !== undefined && (!visible || renderedZoom.current === zoom)) return
     const node = canvas.current as HTMLCanvasElement
+    return () => {
+      textTask.current?.cancel()
+      textTask.current = undefined
+      node.width = 0
+      node.height = 0
+    }
+  }, [])
+  useEffect(() => {
+    const node = canvas.current as HTMLCanvasElement
+    if (!requested) {
+      textTask.current?.cancel()
+      textTask.current = undefined
+      renderedZoom.current = undefined
+      node.width = 0
+      node.height = 0
+      setState('loading')
+      setFailure(undefined)
+      return
+    }
+    setFailure(undefined)
+    if (renderedZoom.current === zoom) return
     const lifetime = new AbortController()
     const renderSignal = AbortSignal.any([lifetime.signal, signal])
     let newText: typeof textTask.current
@@ -163,7 +180,7 @@ function PdfPage({ document, page, requested: initiallyRequested, onVisible, sig
       renderSignal.throwIfAborted()
       const buffer = node.ownerDocument.createElement('canvas')
       try {
-        const size = await renderPdfPage(document, page, buffer, renderSignal, window.devicePixelRatio * zoom,
+        const rendered = await renderPdfPage(document, page, buffer, renderSignal, window.devicePixelRatio * zoom,
           textTask.current === undefined ? (pdfPage, viewport) => {
             newText = pdfTextRenderer(text.current as HTMLDivElement)(pdfPage, viewport)
             return newText
@@ -173,14 +190,14 @@ function PdfPage({ document, page, requested: initiallyRequested, onVisible, sig
         if (context === null) throw new Error('PDF canvas has no 2D context')
         node.width = buffer.width
         node.height = buffer.height
-        node.style.setProperty('--pdf-page-width', `${size.width}px`)
-        node.style.setProperty('--pdf-page-height', `${size.height}px`)
+        node.style.setProperty('--pdf-page-width', `${rendered.width}px`)
+        node.style.setProperty('--pdf-page-height', `${rendered.height}px`)
         context.drawImage(buffer, 0, 0)
         textTask.current ??= newText
         newText = undefined
         renderedZoom.current = zoom
-        setWidth(size.width)
-        onWidth?.(size.width)
+        setSize(rendered)
+        onWidth?.(rendered.width)
         setState('ready')
       } finally {
         buffer.width = buffer.height = 0
@@ -188,17 +205,22 @@ function PdfPage({ document, page, requested: initiallyRequested, onVisible, sig
       }
     }).catch((error: unknown) => { if (!renderSignal.aborted) setFailure({ error }) })
     return () => { lifetime.abort(); newText?.cancel() }
-  }, [document, page, requested, visible, zoom, signal, attempt, onWidth])
+  }, [document, page, requested, zoom, signal, attempt, onWidth])
+  const placeholderClass = size === undefined ? css.placeholder : `${css.placeholder} ${zoomSurfaceClass}`
+  const placeholderStyle = size === undefined ? undefined : {
+    '--document-zoom-width': `${size.width}px`,
+    aspectRatio: `${size.width} / ${size.height}`,
+  } as CSSProperties
   return <div ref={host} className={css.page} data-pdf-page={page}>
     {failure === undefined && state !== 'ready' && (requested
-      ? <div className={css.placeholder} role="status" aria-label={t('rendering')} />
-      : <div className={css.placeholder} />)}
+      ? <div className={placeholderClass} style={placeholderStyle} role="status" aria-label={t('rendering')} />
+      : <div className={placeholderClass} style={placeholderStyle} />)}
     {failure !== undefined && <div className={css.status} role="alert">
       <span>{failureText(failure.error, t)}</span>
       <Button size="sm" onClick={() => { setAttempt(value => value + 1) }}>{t('retry')}</Button>
     </div>}
     <div className={`${css.surface} ${zoomSurfaceClass}`} data-document-zoom-surface
-      style={{ '--document-zoom-width': `${width ?? 0}px` } as CSSProperties}
+      style={{ '--document-zoom-width': `${size?.width ?? 0}px` } as CSSProperties}
       hidden={state !== 'ready'}>
       <canvas ref={canvas} className={css.canvas} role="img" aria-label={t('pageImage', { page })} />
       <div ref={text} className={css.text} data-pdf-text />

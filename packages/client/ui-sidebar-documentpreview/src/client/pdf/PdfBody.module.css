@@ -29,6 +29,7 @@
 .placeholder {
   width: 100%;
   aspect-ratio: 3 / 4;
+  margin-inline: auto;
   background: var(--dsw-alias-bg-skeleton);
 }
 

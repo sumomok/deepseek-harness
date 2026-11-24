@@ -249,9 +249,14 @@ describe('PDF body', () => {
     expect(h.instance.getSnapshot().byTab[h.tabId]).toBeUndefined()
   })
 
-  it('redraws only nearby pages and refreshes a retained page when it returns at the new zoom', async () => {
+  it('evicts offscreen canvases, redraws only nearby pages, and re-renders returning pages at the active zoom', async () => {
     IntersectionObserverStub.instances = []
     vi.stubGlobal('IntersectionObserver', IntersectionObserverStub)
+    engine.render.mockImplementation(async (_document, _page, canvas, _signal, ratio) => {
+      canvas.width = 100 * ratio
+      canvas.height = 150 * ratio
+      return { width: 100, height: 150 }
+    })
     const h = harness()
     const view = render(<h.View />)
     await act(async () => { loads[0]!.deferred.resolve(documentOf(3)) })
@@ -264,15 +269,105 @@ describe('PDF body', () => {
     await act(async () => { placeholderObserver.intersect(second, true) })
     const secondObserver = IntersectionObserverStub.instances.find(instance => instance.observed.has(secondCanvas))!
     act(() => { secondObserver.intersect(secondCanvas, false) })
+    expect(secondCanvas.width).toBe(0)
+    expect(secondCanvas.height).toBe(0)
+    expect((second.querySelector('[data-document-zoom-surface]') as HTMLElement).hidden).toBe(true)
+    const evictedPlaceholder = second.firstElementChild as HTMLElement
+    expect(evictedPlaceholder.className).toContain(zoomSurfaceClass)
+    expect(evictedPlaceholder.style.getPropertyValue('--document-zoom-width')).toBe('100px')
+    expect(evictedPlaceholder.style.aspectRatio).toBe('100 / 150')
     await act(async () => { h.instance.actions.zoom(h.tabId, { kind: 'fixed', scale: 2 }) })
     expect(engine.render.mock.calls.map(([, page]) => page)).toEqual([1, 2, 1])
-    expect(first.querySelector('canvas')!.width).toBe(200 * window.devicePixelRatio)
-    expect(second.querySelector('canvas')!.width).toBe(100 * window.devicePixelRatio)
-    await act(async () => { firstObserver.intersect(firstCanvas, false); secondObserver.intersect(secondCanvas, true) })
+    expect(firstCanvas.width).toBe(200 * window.devicePixelRatio)
+    expect(secondCanvas.width).toBe(0)
+    const reobserveSecond = IntersectionObserverStub.instances.findLast(instance => instance.observed.has(second))!
+    await act(async () => { firstObserver.intersect(firstCanvas, false); reobserveSecond.intersect(second, true) })
+    expect(firstCanvas.width).toBe(0)
+    expect(firstCanvas.height).toBe(0)
     expect(engine.render.mock.calls.map(([, page]) => page)).toEqual([1, 2, 1, 2])
-    expect(second.querySelector('canvas')!.width).toBe(200 * window.devicePixelRatio)
+    expect(secondCanvas.width).toBe(200 * window.devicePixelRatio)
     await act(async () => { h.instance.actions.zoom(h.tabId, { kind: 'fixed', scale: 1 }) })
-    expect(second.querySelector('canvas')!.width).toBe(100 * window.devicePixelRatio)
+    expect(secondCanvas.width).toBe(100 * window.devicePixelRatio)
+    expect(firstCanvas.width).toBe(0)
+  })
+
+  it('cancels selectable text on offscreen eviction and restores it when the page returns', async () => {
+    IntersectionObserverStub.instances = []
+    vi.stubGlobal('IntersectionObserver', IntersectionObserverStub)
+    const pdfPage = { pageNumber: 1 } as PDFPageProxy
+    const viewport = { width: 100, height: 150, scale: 1 } as PageViewport
+    overlay.render.mockReturnValue({ promise: Promise.resolve(), cancel: overlay.cancel })
+    engine.render.mockImplementation(async (_document, _number, canvas, _signal, ratio, renderText) => {
+      canvas.width = 100 * ratio
+      canvas.height = 150 * ratio
+      await renderText?.(pdfPage, viewport).promise
+      return { width: viewport.width, height: viewport.height }
+    })
+    const h = harness()
+    const view = render(<h.View />)
+    await act(async () => { loads[0]!.deferred.resolve(documentOf(1)) })
+    const first = view.container.querySelector('[data-pdf-page="1"]') as HTMLElement
+    const canvas = first.querySelector('canvas')!
+    expect(overlay.render).toHaveBeenCalledTimes(1)
+    const canvasObserver = IntersectionObserverStub.instances.find(instance => instance.observed.has(canvas))!
+    act(() => { canvasObserver.intersect(canvas, false) })
+    expect(overlay.cancel).toHaveBeenCalledTimes(1)
+    expect(canvas.width).toBe(0)
+    expect(canvas.height).toBe(0)
+    const hostObserver = IntersectionObserverStub.instances.findLast(instance => instance.observed.has(first))!
+    await act(async () => { hostObserver.intersect(first, true) })
+    expect(overlay.render).toHaveBeenCalledTimes(2)
+    expect(canvas.width).toBe(100 * window.devicePixelRatio)
+  })
+
+  it('zeroes rendered canvas backing stores on unmount', async () => {
+    const h = harness()
+    const view = render(<h.View />)
+    await act(async () => { loads[0]!.deferred.resolve(documentOf(1)) })
+    const canvas = screen.getByRole('img', { name: 'PDF page 1' }) as HTMLCanvasElement
+    expect(canvas.width).toBeGreaterThan(0)
+    expect(canvas.height).toBeGreaterThan(0)
+    view.unmount()
+    expect(canvas.width).toBe(0)
+    expect(canvas.height).toBe(0)
+  })
+
+  it('aborts an in-flight render when a page leaves the viewport mid-render and renders cleanly on return', async () => {
+    IntersectionObserverStub.instances = []
+    vi.stubGlobal('IntersectionObserver', IntersectionObserverStub)
+    const pending = Promise.withResolvers<{ width: number; height: number }>()
+    engine.render
+      .mockImplementationOnce(async (_document, _page, canvas, _signal, ratio) => {
+        canvas.width = canvas.height = 100 * ratio
+        return { width: 100, height: 100 }
+      })
+      .mockImplementationOnce((_document, _page, canvas) => {
+        canvas.width = canvas.height = 100
+        return pending.promise
+      })
+      .mockImplementationOnce(async (_document, _page, canvas, _signal, ratio) => {
+        canvas.width = canvas.height = 100 * ratio
+        return { width: 100, height: 100 }
+      })
+    const h = harness()
+    const view = render(<h.View />)
+    await act(async () => { loads[0]!.deferred.resolve(documentOf(2)) })
+    const second = view.container.querySelector('[data-pdf-page="2"]') as HTMLElement
+    const secondCanvas = second.querySelector('canvas')!
+    const observer = IntersectionObserverStub.instances.find(instance => instance.observed.has(second))!
+    await act(async () => { observer.intersect(second, true) })
+    expect(engine.render).toHaveBeenCalledTimes(2)
+    const inFlightSignal = engine.render.mock.calls[1]![3]
+    expect(inFlightSignal.aborted).toBe(false)
+    act(() => { observer.intersect(second, false) })
+    expect(inFlightSignal.aborted).toBe(true)
+    await act(async () => { pending.resolve({ width: 100, height: 100 }) })
+    expect(secondCanvas.width).toBe(0)
+    expect(secondCanvas.height).toBe(0)
+    expect(screen.queryByRole('alert')).toBeNull()
+    await act(async () => { observer.intersect(second, true) })
+    expect(engine.render).toHaveBeenCalledTimes(3)
+    expect(secondCanvas.width).toBe(100 * window.devicePixelRatio)
   })
 
   it('retains the displayed page while cancelling and joining superseded zoom renders', async () => {

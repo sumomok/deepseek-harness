@@ -53,11 +53,13 @@ export function scrollToLine(body: HTMLElement, line: number): HTMLElement | und
   return row
 }
 
+const activeMarks = new WeakMap<HTMLElement, () => void>()
+
 /**
  * Mark a revealed line with a fading band. The band is a child of the scrollport,
  * not of the line, so a renderer that rebuilds its lines keeps the mark. It
- * replaces an earlier mark and removes itself when its animation ends or when
- * the scrollport is resized, because a resize can reflow the lines above it.
+ * replaces an earlier mark and removes itself when its animation ends or cancels,
+ * when cleared explicitly, or when the scrollport is resized.
  * @param body - the scrollport that {@link scrollToLine} scrolled.
  * @param row - the line element it returned.
  * @param line - 1-based source line, recorded on the band.
@@ -77,18 +79,23 @@ export function markLine(body: HTMLElement, row: HTMLElement, line: number): voi
     measured = true
   })
   function dismiss(): void {
+    if (activeMarks.get(body) === dismiss) activeMarks.delete(body)
+    mark.removeEventListener('animationend', dismiss)
+    mark.removeEventListener('animationcancel', dismiss)
     observer.disconnect()
     mark.remove()
   }
+  activeMarks.set(body, dismiss)
   mark.addEventListener('animationend', dismiss, { once: true })
+  mark.addEventListener('animationcancel', dismiss, { once: true })
   body.append(mark)
   observer.observe(body)
 }
 
 /**
- * Remove the scrollport's line mark, for layout changes that move lines without resizing it.
+ * Remove the scrollport's active line mark and disconnect its resize observer.
  * @param body - the scrollport that may hold a mark.
  */
 export function clearLineMark(body: HTMLElement): void {
-  body.querySelector(':scope > [data-textpreview-mark]')?.remove()
+  activeMarks.get(body)?.()
 }

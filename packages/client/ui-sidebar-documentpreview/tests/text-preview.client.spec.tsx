@@ -60,9 +60,10 @@ afterAll(() => {
 class RecordingResizeObserver {
   static instances: RecordingResizeObserver[] = []
   readonly targets: Element[] = []
+  disconnected = false
   constructor(readonly callback: () => void) { RecordingResizeObserver.instances.push(this) }
   observe(target: Element): void { this.targets.push(target) }
-  disconnect(): void {}
+  disconnect(): void { this.disconnected = true }
   resize(): void { act(() => { this.callback() }) }
 }
 
@@ -649,20 +650,86 @@ describe('TextPreview — navigation and view', () => {
     expect(h.instance.getSnapshot().byTab[TAB_ID]?.revision).toBe(2)
   })
 
-  it('drops the line mark when the scrollport resizes or wrapping reflows its lines', async () => {
+  it('drops the line mark and disconnects its observer on resize, replacement, animationcancel, wrap toggle, unmount, and scrollport switch', async () => {
     const h = harness({ 1: page(1, ['a', 'b', 'c'], true) })
     const view = render(<TextPreview {...h.props({ params: { line: 3 }, revision: 1 })} />)
     await settle()
-    const observer = RecordingResizeObserver.instances.find(item => item.targets.includes(body(view.container)))
-    observer!.resize()
+    const firstObserver = RecordingResizeObserver.instances.findLast(item => item.targets.includes(body(view.container)))!
+    firstObserver.resize()
     expect(marks(view.container).map(mark => mark.dataset.textpreviewMark)).toEqual(['3'])
-    observer!.resize()
+    expect(firstObserver.disconnected).toBe(false)
+    firstObserver.resize()
     expect(marks(view.container)).toEqual([])
+    expect(firstObserver.disconnected).toBe(true)
 
+    // Repeated navigation replaces the previous mark and disconnects its observer without a stale callback clearing the new mark.
     view.rerender(<TextPreview {...h.props({ params: { line: 2 }, revision: 2 })} />)
-    expect(marks(view.container)).toHaveLength(1)
+    const replacedObserver = RecordingResizeObserver.instances.findLast(item => item.targets.includes(body(view.container)))!
+    replacedObserver.resize()
+    view.rerender(<TextPreview {...h.props({ params: { line: 1 }, revision: 3 })} />)
+    const currentObserver = RecordingResizeObserver.instances.findLast(item => item.targets.includes(body(view.container)))!
+    expect(replacedObserver.disconnected).toBe(true)
+    expect(currentObserver.disconnected).toBe(false)
+    // Simulate a late resize callback from the replaced observer; it must leave the active mark registered.
+    replacedObserver.resize()
+    expect(marks(view.container).map(mark => mark.dataset.textpreviewMark)).toEqual(['1'])
     fireEvent.click(view.container.querySelector<HTMLButtonElement>('[data-textpreview-tool="wrap"]')!)
     expect(marks(view.container)).toEqual([])
+    expect(currentObserver.disconnected).toBe(true)
+
+    // animationcancel removes the mark and disconnects its observer.
+    view.rerender(<TextPreview {...h.props({ params: { line: 2 }, revision: 4 })} />)
+    const cancelObserver = RecordingResizeObserver.instances.findLast(item => item.targets.includes(body(view.container)))!
+    const [cancelMark] = marks(view.container)
+    act(() => { cancelMark!.dispatchEvent(new Event('animationcancel')) })
+    expect(marks(view.container)).toEqual([])
+    expect(cancelObserver.disconnected).toBe(true)
+
+    // Unmounting clears an active mark on the body and disconnects its observer.
+    view.rerender(<TextPreview {...h.props({ params: { line: 3 }, revision: 5 })} />)
+    const unmountObserver = RecordingResizeObserver.instances.findLast(item => item.targets.includes(body(view.container)))!
+    expect(unmountObserver.disconnected).toBe(false)
+    view.unmount()
+    expect(unmountObserver.disconnected).toBe(true)
+  })
+
+  it('clears an active line mark when a custom scrollport switches or unmounts and keeps it when rebinding the same element', async () => {
+    PendingIntersectionObserver.instances = []
+    vi.stubGlobal('IntersectionObserver', PendingIntersectionObserver)
+    const h = harness({ 1: page(1, ['const a = 1', 'const b = 2', 'const c = 3'], true) })
+    const codeViewProps = rendererProps(h, { params: { line: 2 }, revision: 1 }, [CODE_DEFINITION, PLAIN_DEFINITION], true)
+    const view = render(<TextPreview {...codeViewProps} />)
+    await settle()
+    const codeScrollport = scrollport(view.container)
+    const codeObserver = RecordingResizeObserver.instances.findLast(item => item.targets.includes(codeScrollport))!
+    expect(codeObserver.disconnected).toBe(false)
+    // Switching from Code to Plain detaches the code scrollport and disconnects its line-mark observer.
+    act(() => { h.instance.actions.selected(TAB_ID, PLAIN_BODY_ID) })
+    expect(codeObserver.disconnected).toBe(true)
+    view.unmount()
+
+    // Rebinding the same scrollport element preserves the active mark.
+    const h2 = harness({ 1: page(1, ['a', 'b', 'c'], true) })
+    let bind: ((el: HTMLElement | null) => void) | undefined
+    const base = h2.props({ params: { line: 2 }, revision: 1 })
+    const sameRefProps: TextPreviewProps = {
+      ...base,
+      renderSlot: documentSlots((name, owner, opts) => {
+        if ('scrollportRef' in owner && typeof owner.scrollportRef === 'function') {
+          bind = owner.scrollportRef as (el: HTMLElement | null) => void
+        }
+        return base.renderSlot(name, owner, opts)
+      }),
+    }
+    const view2 = render(<TextPreview {...sameRefProps} />)
+    await settle()
+    const sameObserver = RecordingResizeObserver.instances.findLast(item => item.targets.includes(body(view2.container)))!
+    expect(sameObserver.disconnected).toBe(false)
+    act(() => { bind?.(null) })
+    expect(sameObserver.disconnected).toBe(false)
+    expect(marks(view2.container)).toHaveLength(1)
+    view2.unmount()
+    expect(sameObserver.disconnected).toBe(true)
   })
 
   it('stops at the end of the file for a line past it, and answers a navigation without a line', async () => {
