@@ -159,7 +159,9 @@ describe('ReviewTab', () => {
     }
     const injected = {
       loadChangesSummary: vi.fn<ReviewInjected['loadChangesSummary']>(() => Promise.resolve()),
+      retainChangesSummary: vi.fn<ReviewInjected['retainChangesSummary']>(url => summaries.retain(url)),
       loadChangesDiff: vi.fn<ReviewInjected['loadChangesDiff']>(() => Promise.resolve()),
+      retainChangesDiff: vi.fn<ReviewInjected['retainChangesDiff']>(url => diffs.retain(url)),
       reloadPresentedHost: vi.fn<ReviewInjected['reloadPresentedHost']>(() => Promise.resolve()),
       openChanged: vi.fn<ReviewInjected['openChanged']>(() => Promise.resolve({ kind: 'opened' })),
     }

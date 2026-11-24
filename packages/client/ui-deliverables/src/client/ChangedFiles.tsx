@@ -11,7 +11,7 @@ import { basename } from './turn-deliverables.ts'
 import type { NS } from './locales.ts'
 import css from './ChangedFiles.module.css'
 
-type PreviewProps = Pick<InjectFace<DeliverablesInjected>, 'useChangesDiff' | 'loadChangesDiff'>
+type PreviewProps = Pick<InjectFace<DeliverablesInjected>, 'useChangesDiff' | 'loadChangesDiff' | 'retainChangesDiff'>
   & Pick<SessionStandardProps, 'sessionId'>
 
 /** Rows shown before the fold; the design's summary height for a closing message. */
@@ -34,7 +34,7 @@ function Counts({ added, deleted, t }: { added: number; deleted: number } & Prop
  * @param props - the recorded summary, the review opener, and localized copy.
  * @returns the card.
  */
-export function ChangedFiles({ changes, openReview, t, sessionId, useChangesDiff, loadChangesDiff }: {
+export function ChangedFiles({ changes, openReview, t, sessionId, useChangesDiff, loadChangesDiff, retainChangesDiff }: {
   /** The served summary with the sequence of the event that announced it; paths resolve against its `cwd`. */
   changes: Pick<ChangesSummary, 'cwd' | 'files' | 'total' | 'added' | 'deleted'> & { seq: number }
   /** Open the turn's review on the file at an original summary index. */
@@ -70,7 +70,7 @@ export function ChangedFiles({ changes, openReview, t, sessionId, useChangesDiff
       <HoverCard variant="preview" widthAnchorRef={cardRef} openDelayMs={500} anchor={header}
         content={<ChangedFilePreview sessionId={sessionId} seq={changes.seq} index={0}
           display={resolveWorkspacePath(changes.cwd, singleFile.path)} useChangesDiff={useChangesDiff}
-          loadChangesDiff={loadChangesDiff} t={t} />} />
+          loadChangesDiff={loadChangesDiff} retainChangesDiff={retainChangesDiff} t={t} />} />
       <span id={pathDescriptionId} hidden>{resolveWorkspacePath(changes.cwd, singleFile.path)}</span>
     </>}
     {singleFile === undefined && <ul className={css.list}>
@@ -79,7 +79,7 @@ export function ChangedFiles({ changes, openReview, t, sessionId, useChangesDiff
           <HoverCard variant="preview" widthAnchorRef={cardRef} openDelayMs={500}
             content={<ChangedFilePreview sessionId={sessionId} seq={changes.seq} index={index}
               display={resolveWorkspacePath(changes.cwd, file.path)}
-              useChangesDiff={useChangesDiff} loadChangesDiff={loadChangesDiff} t={t} />}
+              useChangesDiff={useChangesDiff} loadChangesDiff={loadChangesDiff} retainChangesDiff={retainChangesDiff} t={t} />}
             anchor={<button type="button" className={css.row}
               aria-label={t('changes.viewDiff', { name: file.display })}
               aria-describedby={`${pathDescriptionId}-${index}`}
@@ -106,12 +106,14 @@ export function ChangedFiles({ changes, openReview, t, sessionId, useChangesDiff
 }
 
 /** Mounted only while its hover card is open, so passing over a row does not read a comparison. */
-function ChangedFilePreview({ sessionId, seq, index, display, useChangesDiff, loadChangesDiff, t }: PreviewProps & {
+function ChangedFilePreview({ sessionId, seq, index, display, useChangesDiff, loadChangesDiff, retainChangesDiff, t }: PreviewProps & {
   seq: number
   index: number
   display: string
 } & PropsLocale<typeof NS>) {
-  const state = useChangesDiff(value => value[changesDiffUrl(sessionId, seq, index)])
+  const diffUrl = changesDiffUrl(sessionId, seq, index)
+  const state = useChangesDiff(value => value[diffUrl])
+  useEffect(() => retainChangesDiff(diffUrl), [diffUrl, retainChangesDiff])
   useEffect(() => {
     if (state === undefined) void loadChangesDiff(sessionId, seq, index)
   }, [state, sessionId, seq, index, loadChangesDiff])

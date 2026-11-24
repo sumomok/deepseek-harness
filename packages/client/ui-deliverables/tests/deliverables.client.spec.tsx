@@ -86,12 +86,14 @@ function openProps(controller = new PresentedOpenController(), summaries = new C
     renderSlot: renderFileActions,
     useChangesDiff: <T,>(select: (state: ReturnType<typeof diffs.state.getSnapshot>) => T): T => select(diffs.state.getSnapshot()),
     loadChangesDiff: vi.fn((...args: Parameters<ChangesDiffStore['load']>) => diffs.load(...args)),
+    retainChangesDiff: vi.fn((url: string) => diffs.retain(url)),
     useShowCodeDiff: <T,>(select: (value: boolean) => T): T => select(true),
     useSessions: <T,>(select: (state: SessionListState) => T): T => select(sessions),
     reloadPresentedHost: vi.fn(() => controller.loadHost()),
     useChangesSummary: <T,>(select: (state: ReturnType<typeof summaries.state.getSnapshot>) => T): T =>
       select(summaries.state.getSnapshot()),
     loadChangesSummary: vi.fn((...args: Parameters<ChangesSummaryStore['load']>) => summaries.load(...args)),
+    retainChangesSummary: vi.fn((url: string) => summaries.retain(url)),
     usePresentedHost: <T,>(select: (state: ReturnType<typeof controller.host.getSnapshot>) => T): T =>
       select(controller.host.getSnapshot()),
     openPresented: vi.fn((...args: Parameters<PresentedOpenController['open']>) => controller.open(...args)),
@@ -514,6 +516,9 @@ describe('produced-file Turn data', () => {
     ))
       .toThrow('deliverables start requires turn/start')
     expect(deliverablesDefinition.update(context, unrelated)).toBe(state)
+    expect(deliverablesDefinition.match(call(4, 'r', 'read', { file_path: 'a.ts' }).event)).toBeNull()
+    expect(deliverablesDefinition.update(context, matched(call(4, 'r', 'read', { file_path: 'a.ts' }), 'update'))).toBe(state)
+    expect(deliverablesDefinition.update(context, matched(call(5, 'bad-write', 'write', { file_path: '' }), 'update'))).toBe(state)
     for (const files of [[], [null, { path: '' }]]) {
       const declaration = matched(at(3, 'deliverables/presented', { turn: 1, callId: 'present', files }), 'update')
       expect(deliverablesDefinition.update(context, declaration)).toBe(state)
@@ -965,7 +970,9 @@ describe('plugin registration', () => {
     await face.reloadPresentedHost()
     expect(face.hooks.presentedHost.getSnapshot()).toMatchObject({ name: 'desktop' })
     fetcher.mockResolvedValueOnce(Response.json({ turn: 1, cwd: '/workspace', files: [], total: 0, added: 0, deleted: 0 }))
+    const releaseSummary = face.retainChangesSummary('api/changes.summary?sessionId=child-session&seq=5')
     await face.loadChangesSummary(brandString<SessionId>('child-session'), 5)
+    releaseSummary()
     expect(face.hooks.changesSummary.getSnapshot()['api/changes.summary?sessionId=child-session&seq=5']).toEqual({ turn: 1, cwd: '/workspace', files: [], total: 0, added: 0, deleted: 0 })
     ctx.emit('connection/reset')
     expect(face.hooks.presentedHost.getSnapshot()).toBeNull()
@@ -980,14 +987,20 @@ describe('plugin registration', () => {
     expect((registered as { title(address: string): string }).title('dsh-resource://changes-review/session/child-session/5/3')).toBe('Review · turn 3')
     const tabFace: ReviewInjected = tabEntry!.inject!(brandString<SessionId>('child-session') as never) as Record<string, unknown> & ReviewInjected
     fetcher.mockResolvedValueOnce(Response.json({ turn: 3, cwd: '/workspace', files: [], total: 0, added: 0, deleted: 0 }))
+    const releaseTabSummary = tabFace.retainChangesSummary('api/changes.summary?sessionId=child-session&seq=6')
     await tabFace.loadChangesSummary(brandString<SessionId>('child-session'), 6)
+    releaseTabSummary()
     expect(tabFace.hooks.changesSummary.getSnapshot()['api/changes.summary?sessionId=child-session&seq=6']).toEqual({ turn: 3, cwd: '/workspace', files: [], total: 0, added: 0, deleted: 0 })
     fetcher.mockResolvedValueOnce(Response.json({ kind: 'binary', path: 'src/a.ts', display: 'src/a.ts' }))
+    const releaseDiff = face.retainChangesDiff('api/changes.diff?sessionId=child-session&seq=5&index=1')
     await face.loadChangesDiff(brandString<SessionId>('child-session'), 5, 1)
+    releaseDiff()
     expect(face.hooks.changesDiff).toBe(tabFace.hooks.changesDiff)
     expect(face.hooks.changesDiff.getSnapshot()['api/changes.diff?sessionId=child-session&seq=5&index=1']).toEqual({ kind: 'binary', path: 'src/a.ts', display: 'src/a.ts' })
     const readsAfterHover = fetcher.mock.calls.length
+    const releaseTabDiff = tabFace.retainChangesDiff('api/changes.diff?sessionId=child-session&seq=5&index=1')
     await tabFace.loadChangesDiff(brandString<SessionId>('child-session'), 5, 1)
+    releaseTabDiff()
     expect(fetcher).toHaveBeenCalledTimes(readsAfterHover)
     expect(tabFace.hooks.changesDiff.getSnapshot()['api/changes.diff?sessionId=child-session&seq=5&index=1']).toEqual({ kind: 'binary', path: 'src/a.ts', display: 'src/a.ts' })
     expect(tabFace.hooks.presentedHost).toBe(face.hooks.presentedHost)
