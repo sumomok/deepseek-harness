@@ -6,6 +6,7 @@
 // apart from code-block.client.spec.tsx so its lazy-grammar timing cannot
 // race that file's first-touch assertions (files run isolated).
 
+import { StrictMode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { CodeBlock } from '../src/markdown/CodeBlock.tsx'
@@ -295,5 +296,49 @@ describe('CodeBlock streaming arm', () => {
     view.rerender(<CodeBlock code={code} lang="ts" streaming {...LABELS} />)
     expect(view.container.querySelector('pre.shiki')?.textContent).toBe(streamedText)
     expect(view.container.querySelector('pre.shiki .line')).toBe(streamedLine)
+  })
+
+  it('releases the StreamingHighlightSession on settle while preserving DOM across StrictMode double-renders', () => {
+    const spy = vi.spyOn(StreamingHighlightSession.prototype, 'updateFrame')
+    try {
+      const code = 'const answer = 42\n'
+      const view = render(
+        <StrictMode>
+          <CodeBlock code={code} lang="ts" streaming {...LABELS} />
+        </StrictMode>,
+      )
+      const streamedLine = view.container.querySelector('pre.shiki .line')
+      expect(streamedLine).not.toBeNull()
+      expect(new Set(spy.mock.instances).size).toBe(1)
+
+      const callsBeforeSettle = spy.mock.calls.length
+      view.rerender(
+        <StrictMode>
+          <CodeBlock code={code} lang="ts" {...LABELS} />
+        </StrictMode>,
+      )
+      expect(spy.mock.calls.length).toBe(callsBeforeSettle)
+      expect(view.container.querySelector('pre.shiki .line')).toBe(streamedLine)
+
+      // Re-entering streaming allocates a fresh session (the old one was dropped on settle)
+      // while reconciling onto the same `.line` DOM node.
+      view.rerender(
+        <StrictMode>
+          <CodeBlock code={code} lang="ts" streaming {...LABELS} />
+        </StrictMode>,
+      )
+      expect(new Set(spy.mock.instances).size).toBe(2)
+      expect(view.container.querySelector('pre.shiki .line')).toBe(streamedLine)
+
+      // Settling with changed code or lang drops the retained streamed body for highlightToHtml.
+      view.rerender(
+        <StrictMode>
+          <CodeBlock code={'const updated = 99\n'} lang="ts" {...LABELS} />
+        </StrictMode>,
+      )
+      expect(view.container.querySelector('pre.shiki')?.textContent).toBe('const updated = 99')
+    } finally {
+      spy.mockRestore()
+    }
   })
 })

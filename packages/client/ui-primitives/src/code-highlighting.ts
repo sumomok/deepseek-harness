@@ -1,7 +1,7 @@
 /** Shared filename-to-grammar selection and lazy line highlighter for source views. */
-import { useCallback, useSyncExternalStore } from 'react'
+import { useCallback, useMemo, useSyncExternalStore } from 'react'
 import {
-  grammarLoadCount, highlightLines, subscribeGrammarLoaded, type HighlightSpan,
+  grammarForHint, highlightLines, loadedGrammarCount, subscribeGrammars, type HighlightSpan,
 } from './markdown/highlight.ts'
 
 // The single extension table is owned by `@deepseek-ai/dsh-util-code-language`,
@@ -18,7 +18,17 @@ export type CodeHighlighter = (code: string) => HighlightSpan[][] | undefined
  * @returns a stable fragment highlighter; unknown and loading grammars return `undefined` for plain-text fallback.
  */
 export function useCodeHighlighter(language: string | undefined): CodeHighlighter {
-  const loaded = useSyncExternalStore(subscribeGrammarLoaded, grammarLoadCount, grammarLoadCount)
+  const grammarId = grammarForHint(language)
+  const grammarIds = useMemo(() => (grammarId === undefined ? [] : [grammarId]), [grammarId])
+  const subscribe = useCallback(
+    (listener: () => void) => subscribeGrammars(grammarIds, listener),
+    [grammarIds],
+  )
+  const getSnapshot = useCallback(
+    () => loadedGrammarCount(grammarIds),
+    [grammarIds],
+  )
+  const loaded = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
   return useCallback(code => highlightLines(code, language), [language, loaded])
 }
 

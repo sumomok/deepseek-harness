@@ -5,9 +5,10 @@ import { writeClipboard } from './clipboard.ts'
 import { CodeToolbar, type CodeToolbarLabels } from './CodeToolbar.tsx'
 import cardCss from './CodeCard.module.css'
 import {
-  grammarLoadCount,
+  grammarForHint,
   highlightLines,
-  subscribeGrammarLoaded,
+  loadedGrammarCount,
+  subscribeGrammars,
   type HighlightSpan,
 } from './markdown/highlight.ts'
 import { useViewportHighlighting } from './markdown/useViewportHighlighting.ts'
@@ -77,53 +78,85 @@ export function ReadBlock({
 }: ReadBlockProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const highlighting = useViewportHighlighting(rootRef, lang)
-  // Whole-window highlighting preserves multiline grammar context; copy uses
-  // the same text without gutter or banner chrome.
-  const raw = useMemo(() => lines.map(line => line.text).join('\n'), [lines])
-  // Re-render when a lazy grammar finishes loading, so a read card that showed
-  // plain text while its language's grammar imported picks up highlighting. The
-  // snapshot value is opaque; only its change across renders drives the memo.
-  const loaded = useSyncExternalStore(subscribeGrammarLoaded, grammarLoadCount, grammarLoadCount)
-  const highlighted = useMemo(
-    () => highlighting ? highlightLines(raw, lang) : undefined,
-    [highlighting, raw, lang, loaded],
-  )
   const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
   const [wrapped, setWrapped] = useState(false)
-
-  const onCopy = useCallback(() => {
-    if (copied) return
-    void writeClipboard(raw).then((ok) => {
-      if (!ok) return
-      setCopied(true)
-      window.setTimeout(() => { setCopied(false) }, 1000)
-    })
-  }, [copied, raw])
-
-  const onToggle = useCallback(() => { setExpanded(value => !value) }, [])
 
   const hidden = lines.length - maxLines
   const capped = hidden > 0 && !expanded
   const headLines = Math.ceil(maxLines / 2)
   const tailLines = maxLines - headLines
+
+  // Subscribe only to this card's own canonical grammar while highlighting is active.
+  const grammarId = grammarForHint(lang)
+  const grammarIds = useMemo(
+    () => (grammarId !== undefined && highlighting ? [grammarId] : []),
+    [grammarId, highlighting],
+  )
+  const subscribe = useCallback(
+    (listener: () => void) => subscribeGrammars(grammarIds, listener),
+    [grammarIds],
+  )
+  const getSnapshot = useCallback(
+    () => loadedGrammarCount(grammarIds),
+    [grammarIds],
+  )
+  const loaded = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+
+  const headSlice = useMemo(
+    () => (capped ? lines.slice(0, headLines) : lines),
+    [capped, lines, headLines],
+  )
+  const tailSlice = useMemo(
+    () => (capped && tailLines > 0 ? lines.slice(lines.length - tailLines) : []),
+    [capped, lines, tailLines],
+  )
+  // Tokenize visible head and tail slices separately when collapsed so an
+  // unclosed construct in the head never bleeds across the hidden middle.
+  const headHighlighted = useMemo(
+    () => (highlighting && headSlice.length > 0
+      ? highlightLines(headSlice.map(line => line.text).join('\n'), lang)
+      : undefined),
+    [highlighting, headSlice, lang, loaded],
+  )
+  const tailHighlighted = useMemo(
+    () => (highlighting && tailSlice.length > 0
+      ? highlightLines(tailSlice.map(line => line.text).join('\n'), lang)
+      : undefined),
+    [highlighting, tailSlice, lang, loaded],
+  )
+
+  const onCopy = useCallback(() => {
+    if (copied) return
+    void writeClipboard(lines.map(line => line.text).join('\n')).then((ok) => {
+      if (!ok) return
+      setCopied(true)
+      window.setTimeout(() => { setCopied(false) }, 1000)
+    })
+  }, [copied, lines])
+
+  const onToggle = useCallback(() => { setExpanded(value => !value) }, [])
+
   // A read is a window when its returned lines are fewer than the file's total;
   // the note states that so a reader is not misled that the file ends here.
   const windowed = lines.length < totalLines
 
-  const rows = (slice: readonly (readonly [ReadBlockLine, readonly HighlightSpan[] | undefined])[]) =>
-    slice.map(([line, spans]) => (
-      <div key={line.number} className={css.line}>
-        <span className={css.gutter} aria-hidden>{line.number}</span>
-        <span className={css.content}>{spans === undefined ? line.text : renderSpans(spans)}</span>
-      </div>
-    ))
+  const renderRows = (
+    slice: readonly ReadBlockLine[],
+    spansByLine: readonly (readonly HighlightSpan[])[] | undefined,
+  ) =>
+    slice.map((line, index) => {
+      const spans = spansByLine?.[index]
+      return (
+        <div key={line.number} className={css.line}>
+          <span className={css.gutter} aria-hidden>{line.number}</span>
+          <span className={css.content}>{spans === undefined ? line.text : renderSpans(spans)}</span>
+        </div>
+      )
+    })
 
   const gutterDigits = lines.reduce((digits, line) => Math.max(digits, String(line.number).length), 3)
   const gutterStyle = { '--dsl-read-gutter': `${gutterDigits}ch` } as CSSProperties
-
-  const paired = lines.map((line, index): readonly [ReadBlockLine, readonly HighlightSpan[] | undefined] =>
-    [line, highlighted?.[index]])
 
   return (
     <div ref={rootRef} className={clsx(cardCss.card, css.block, className)} data-read="" data-code-wrap={wrapped} style={gutterStyle}>
@@ -134,7 +167,7 @@ export function ReadBlock({
         onCopy={lines.length > 0 ? onCopy : undefined} onWrap={() => { setWrapped(value => !value) }}
       />
       <div className={cardCss.body}>
-        {rows(capped ? paired.slice(0, headLines) : paired)}
+        {renderRows(headSlice, headHighlighted)}
         {hidden > 0 && (
           <FoldToggle
             className={css.expand}
@@ -144,7 +177,7 @@ export function ReadBlock({
             onToggle={onToggle}
           />
         )}
-        {capped && rows(paired.slice(paired.length - tailLines))}
+        {tailSlice.length > 0 && renderRows(tailSlice, tailHighlighted)}
       </div>
     </div>
   )

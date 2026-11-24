@@ -11,7 +11,7 @@
  * full parse self-heals it.
  */
 
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, startTransition, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import clsx from 'clsx'
 import { copyKatexAsTex } from './copy-tex.ts'
@@ -167,24 +167,24 @@ class StreamingRenderer {
 /**
  * Re-render the caller once per `referents.subscribe` verification tick, by
  * returning an incrementing counter the caller folds into its memo key.
- * Closes the settle-rerender gap: a settled message's `useMemo` cache would
- * otherwise never re-invoke `scan`/`resolveLink` after the message settles,
- * so a candidate that verifies moments later (the host `stat` batch is
- * asynchronous) stayed plain text until a full page refresh remounted the
- * component and re-scanned against the by-then-verified index.
- * @param referents - the current referents face; re-subscribes whenever its identity changes.
+ * Subscribes in a layout effect so ticks arriving right after settlement attach
+ * before passive effects, and marks each revision increment as a transition so
+ * verification bursts stay interruptible.
+ * @param referents - the current referents face; omitted while streaming, re-subscribes whenever its identity changes.
  * @returns a counter that increments on every tick; stable (never increments) with no `subscribe`.
  */
 function useReferentsRevision(referents: MarkdownProseReferents | undefined): number {
   const [revision, setRevision] = useState(0)
-  useEffect(() => {
+  useLayoutEffect(() => {
     // subscribe is a plain callback property, not a `this`-bound instance
     // method — extracting it here is what lets TypeScript narrow "defined"
     // past the guard below.
     // oxlint-disable-next-line typescript/unbound-method
     const subscribe = referents?.subscribe
     if (subscribe === undefined) return
-    return subscribe(() => { setRevision(r => r + 1) })
+    return subscribe(() => {
+      startTransition(() => { setRevision(r => r + 1) })
+    })
   }, [referents])
   return revision
 }
@@ -239,7 +239,7 @@ export const MarkdownText = memo(function MarkdownText({
 }) {
   const streamRef = useRef<StreamingRenderer | null>(null)
   const streamLabelsRef = useRef<MarkdownLabels>(labels)
-  const referentsRevision = useReferentsRevision(referents)
+  const referentsRevision = useReferentsRevision(streaming ? undefined : referents)
   const children = useMemo(() => {
     if (!streaming) {
       streamRef.current = null

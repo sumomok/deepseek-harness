@@ -393,6 +393,10 @@ function highlighter(): HighlighterCore {
 
 /** Grammar ids whose lazy import is in flight or done, so it is requested once. */
 const requested = new Set<string>()
+/** Lazy grammar ids registered on the singleton (including embedded sub-grammars). */
+const loadedLazy = new Set<string>()
+/** Per-grammar listeners waiting for one unloaded lazy grammar to register. */
+const langListeners = new Map<string, Set<() => void>>()
 /** Subscribers re-rendered after a lazy grammar registers (React callers). */
 const listeners = new Set<() => void>()
 /** Bumped on each lazy-grammar load; the `useSyncExternalStore` snapshot. */
@@ -423,11 +427,55 @@ export function grammarLoadCount(): number {
 }
 
 /**
+ * Subscribe to registration of any unloaded lazy grammar in `grammarIds`.
+ * Boot grammars and already-loaded lazy grammars are skipped; once a subscribed
+ * grammar registers, its listener bucket is drained and fired.
+ * @param grammarIds - canonical grammar ids resolved through {@link grammarForHint}.
+ * @param listener - invoked (no args) when any subscribed grammar registers.
+ * @returns a disposer that removes `listener` from every remaining subscribed bucket.
+ */
+export function subscribeGrammars(grammarIds: readonly string[], listener: () => void): () => void {
+  const watched: string[] = []
+  for (const id of grammarIds) {
+    if (!LAZY_GRAMMARS.has(id) || loadedLazy.has(id)) continue
+    let bucket = langListeners.get(id)
+    if (bucket === undefined) {
+      bucket = new Set()
+      langListeners.set(id, bucket)
+    }
+    bucket.add(listener)
+    watched.push(id)
+  }
+  return () => {
+    for (const id of watched) {
+      const bucket = langListeners.get(id)
+      if (bucket === undefined) continue
+      bucket.delete(listener)
+      if (bucket.size === 0) langListeners.delete(id)
+    }
+  }
+}
+
+/**
+ * Count how many grammar ids in `grammarIds` are currently ready on the singleton.
+ * Pair with {@link subscribeGrammars} as the `useSyncExternalStore` snapshot.
+ * @param grammarIds - canonical grammar ids resolved through {@link grammarForHint}.
+ * @returns the count of ready ids in `grammarIds`.
+ */
+export function loadedGrammarCount(grammarIds: readonly string[]): number {
+  let count = 0
+  for (const id of grammarIds) {
+    if (!LAZY_GRAMMARS.has(id) || loadedLazy.has(id)) count += 1
+  }
+  return count
+}
+
+/**
  * Ensure the grammar `resolved` names is registered. A boot grammar (not in
  * {@link LAZY_GRAMMARS}) and an already-loaded lazy grammar report ready
  * synchronously; a lazy grammar not yet loaded starts its import (once) and
  * reports not-ready, so the caller renders plain until a
- * {@link subscribeGrammarLoaded} listener fires.
+ * {@link subscribeGrammars} or {@link subscribeGrammarLoaded} listener fires.
  * @param resolved - the grammar id an alias resolved to.
  * @returns whether the grammar is registered and ready to tokenize now.
  */
@@ -435,12 +483,25 @@ function ensureGrammar(resolved: string): boolean {
   const load = LAZY_GRAMMARS.get(resolved)
   // A boot grammar (already registered) has no lazy loader; it is always ready.
   if (load === undefined) return true
-  if (highlighter().getLoadedLanguages().includes(resolved)) return true
+  if (loadedLazy.has(resolved)) return true
   if (!requested.has(resolved)) {
     requested.add(resolved)
     void load().then((mod) => {
       highlighter().loadLanguageSync(mod.default)
+      const newlyLoaded = new Set<string>([resolved])
+      for (const entry of mod.default) {
+        if (LAZY_GRAMMARS.has(entry.name)) newlyLoaded.add(entry.name)
+      }
+      const targeted = new Set<() => void>()
+      for (const id of newlyLoaded) {
+        loadedLazy.add(id)
+        const bucket = langListeners.get(id)
+        if (bucket === undefined) continue
+        langListeners.delete(id)
+        for (const listener of bucket) targeted.add(listener)
+      }
       loadCount += 1
+      for (const listener of targeted) listener()
       for (const listener of listeners) listener()
     })
   }

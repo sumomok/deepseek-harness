@@ -98,6 +98,18 @@ const NEEDS_REPLAY = /\r|\u0008|\u001b\[[\u0030-\u003f]*[\u0020-\u002f]*K/
 /** SGR sequences alone, for folding state through a line that needs no replay. */
 const SGR_SEQUENCE = /\u001b\[([\u0030-\u003f]*)[\u0020-\u002f]*m/g
 
+/**
+ * Full-line reset pairs (`\r` + erase-to-end/whole-line, or erase-whole-line +
+ * `\r`): everything painted before the last match is erased and the cursor
+ * returns to column 0, so replay starts after it while folding skipped SGR.
+ * Excludes mode `1` (erase-to-cursor) and bare `\x1b[2K` without `\r` (which
+ * preserves the cursor column).
+ */
+const LINE_RESET = /(?:\r\u001b\[(?:[02]?(?:;[\u0030-\u003f]*)?)[\u0020-\u002f]*K|\u001b\[2(?:;[\u0030-\u003f]*)?[\u0020-\u002f]*K\r)/g
+
+/** Maximum terminal columns retained while replaying one line's cursor movements. */
+export const MAX_REPLAY_COLUMNS = 16_384
+
 /** Terminal tab stop width; a tab advances to the next multiple of this. */
 const TAB_WIDTH = 8
 
@@ -242,61 +254,127 @@ function sameSgr(a: SgrState, b: SgrState): boolean {
 function replayLine(line: string, entrySgr: SgrState): { text: string; sgr: SgrState } {
   // Same shape anser splits on, so a sequence is one unit here as well.
   const csi = /\u001b\[([\u0030-\u003f]*)[\u0020-\u002f]*([\u0040-\u007e])/g
-  /** Per column: the state in force when it was written, and its character. */
-  const columns: (Cell | undefined)[] = []
-  let cursor = 0
+  // Skip frames overwritten by a full-line reset while folding any SGR opened
+  // before the reset so colors active across the clear survive.
+  let resetStart = 0
+  let resetEnd = 0
+  for (const match of line.matchAll(LINE_RESET)) {
+    resetStart = match.index
+    resetEnd = resetStart + match[0].length
+  }
   // State is tracked exactly as a terminal tracks it: each cell is stamped with
   // whatever was in force at the moment of the write, so a later redraw cannot
   // restyle the cells it does not reach. It enters carrying the previous line's
   // state, since a newline does not reset it.
   let sgr = entrySgr
+  let source = line
+  if (resetEnd > 0) {
+    const prefix = line.slice(0, resetStart)
+    if (prefix.includes('\u001b')) {
+      for (const match of prefix.matchAll(SGR_SEQUENCE)) sgr = foldSgr(sgr, String(match[1]))
+    }
+    source = line.slice(resetEnd)
+  }
+
+  /** Parallel column buffers: character, graphic state, and wide-glyph spacer flag. */
+  const chars: (string | undefined)[] = []
+  const sgrs: (SgrState | undefined)[] = []
+  const spacers: boolean[] = []
+  // Held on an object so TypeScript preserves `boolean` across the closures below.
+  const wideState = { seen: false }
+  let cursor = 0
   let at = 0
 
   /** Clear a cell and, for a wide pair, its partner: a terminal erases both. */
   const clear = (index: number, fill: string): void => {
-    const cell = columns[index]
-    if (cell?.spacer === true && index > 0) columns[index - 1] = { sgr, char: fill }
-    else if (cell !== undefined && isWide(cell.char) && columns[index + 1]?.spacer === true) {
-      columns[index + 1] = { sgr, char: fill }
+    if (wideState.seen) {
+      if (spacers[index] === true && index > 0) {
+        chars[index - 1] = fill
+        sgrs[index - 1] = sgr
+        spacers[index - 1] = false
+      } else if (spacers[index + 1] === true && isWide(String(chars[index]))) {
+        chars[index + 1] = fill
+        sgrs[index + 1] = sgr
+        spacers[index + 1] = false
+      }
     }
-    columns[index] = { sgr, char: fill }
+    chars[index] = fill
+    sgrs[index] = sgr
+    spacers[index] = false
   }
 
   const consume = (chunk: string): void => {
-    for (const char of chunk) {
-      if (char === '\r') { cursor = 0; continue }
-      if (char === '\u0008') { cursor = Math.max(0, cursor - 1); continue }
-      if (char === '\t') {
+    for (let i = 0; i < chunk.length; i++) {
+      const code = chunk.charCodeAt(i)
+      // ASCII printable fast path: always one column, never wide, never combining.
+      if (code >= 0x20 && code <= 0x7e) {
+        if (cursor < MAX_REPLAY_COLUMNS) {
+          if (wideState.seen) clear(cursor, ' ')
+          chars[cursor] = chunk.charAt(i)
+          sgrs[cursor] = sgr
+          spacers[cursor] = false
+          cursor++
+        } else {
+          cursor = MAX_REPLAY_COLUMNS + 1
+        }
+        continue
+      }
+      if (code === 0x0d) { cursor = 0; continue }
+      if (code === 0x08) { cursor = Math.max(0, cursor - 1); continue }
+      if (code === 0x09) {
         // A tab advances to the next 8-column stop, leaving the cells it skips
         // as they were — which is how a redraw can leave a tabbed column
         // standing. Column alignment is the whole point of this card.
-        const stop = cursor + TAB_WIDTH - (cursor % TAB_WIDTH)
-        for (; cursor < stop; cursor++) columns[cursor] ??= { sgr, char: ' ' }
+        const stop = Math.min(cursor + TAB_WIDTH - (cursor % TAB_WIDTH), MAX_REPLAY_COLUMNS)
+        for (; cursor < stop; cursor++) {
+          if (chars[cursor] === undefined) {
+            chars[cursor] = ' '
+            sgrs[cursor] = sgr
+            spacers[cursor] = false
+          }
+        }
         continue
       }
+      const char = (code & 0xfc00) === 0xd800 ? chunk.slice(i, i + 2) : chunk.charAt(i)
+      if (char.length === 2) i++
       if (ZERO_WIDTH.test(char)) {
         // No column of its own: it attaches to the cell already written, so a
         // redraw that covers that cell covers the mark with it. With no cell to
-        // attach to (line start, or straight after a redraw to column 0) a
+        // attach to (line start, after an erase, or past the column cap) a
         // terminal shows nothing rather than a lone accent.
-        const base = cursor > 0 ? columns[cursor - 1] : undefined
-        if (base !== undefined) columns[cursor - 1] = { sgr: base.sgr, char: base.char + char }
+        if (cursor > 0 && cursor <= MAX_REPLAY_COLUMNS) {
+          const prev = chars[cursor - 1]
+          if (prev !== undefined) chars[cursor - 1] = prev + char
+        }
+        continue
+      }
+      const wide = isWide(char)
+      if (cursor >= MAX_REPLAY_COLUMNS || (wide && cursor + 1 >= MAX_REPLAY_COLUMNS)) {
+        cursor = MAX_REPLAY_COLUMNS + 1
         continue
       }
       // Writing over either half of a wide pair blanks the other half, since a
       // terminal cannot leave one cell of a two-cell glyph standing.
-      clear(cursor, ' ')
-      columns[cursor] = { sgr, char }
+      if (wideState.seen) clear(cursor, ' ')
+      chars[cursor] = char
+      sgrs[cursor] = sgr
+      spacers[cursor] = false
       cursor++
       // A wide character occupies two columns; the trailing one is a spacer,
       // marked so that overwriting the lead cell leaves a blank behind instead
       // of closing the gap and shifting everything after it left.
-      if (isWide(char)) { columns[cursor] = { sgr, char: '', spacer: true }; cursor++ }
+      if (wide) {
+        wideState.seen = true
+        chars[cursor] = ''
+        sgrs[cursor] = sgr
+        spacers[cursor] = true
+        cursor++
+      }
     }
   }
 
-  for (const match of line.matchAll(csi)) {
-    consume(line.slice(at, match.index))
+  for (const match of source.matchAll(csi)) {
+    consume(source.slice(at, match.index))
     at = match.index + match[0].length
     // Both groups are mandatory in the pattern, so destructuring types them as
     // strings without a fallback that could never run.
@@ -311,8 +389,18 @@ function replayLine(line: string, entrySgr: SgrState): { text: string; sgr: SgrS
       // later write can still land past them. Only the FIRST parameter selects
       // the mode; a terminal ignores the rest (`1;2K` erases exactly as `1K`).
       const mode = String(params.split(';')[0])
-      if (mode === '1') for (let index = 0; index <= cursor; index++) clear(index, ' ')
-      else columns.length = mode === '2' ? 0 : cursor
+      if (mode === '1') {
+        const end = Math.min(cursor, MAX_REPLAY_COLUMNS - 1)
+        for (let index = 0; index <= end; index++) clear(index, ' ')
+      } else if (mode === '2') {
+        chars.length = 0
+        sgrs.length = 0
+        spacers.length = 0
+      } else if (cursor < chars.length) {
+        chars.length = cursor
+        sgrs.length = cursor
+        spacers.length = cursor
+      }
       continue
     }
     // Only SGR carries graphic state; every other final byte is a cursor or
@@ -320,27 +408,37 @@ function replayLine(line: string, entrySgr: SgrState): { text: string; sgr: SgrS
     if (final !== 'm') continue
     sgr = foldSgr(sgr, params)
   }
-  consume(line.slice(at))
+  consume(source.slice(at))
 
   // Re-emit the columns, opening a run only where its state changes, so anser
   // sees the same styling a terminal shows. Each boundary emits ONE canonical
   // sequence for the state it opens, which is what keeps the output linear in
-  // the number of cells however the state was reached.
+  // the number of cells however the state was reached. Keep `active = entrySgr`
+  // so an SGR folded over a skipped prefix still emits its transition from the
+  // line's entry state.
   let out = ''
   let active = entrySgr
-  for (let index = 0; index < columns.length; index++) {
-    const column = columns[index] ?? { sgr: SGR_NONE, char: ' ' }
-    if (!sameSgr(column.sgr, active)) {
+  for (let index = 0; index < chars.length; index++) {
+    const char = chars[index]
+    const cellSgr = sgrs[index] ?? SGR_NONE
+    if (!sameSgr(cellSgr, active)) {
       if (!sameSgr(active, SGR_NONE)) out += '\u001b[0m'
-      out += openSgr(column.sgr)
-      active = column.sgr
+      out += openSgr(cellSgr)
+      active = cellSgr
+    }
+    if (char === undefined) {
+      out += ' '
+      continue
     }
     // A spacer still holds its column. While its lead cell survives, the wide
     // glyph spans both and the spacer emits nothing; once a later write replaced
     // that lead, the terminal blanks the spacer instead of closing the gap, so
     // emitting nothing would shift everything after it one column left.
-    const leadIntact = index > 0 && isWide(columns[index - 1]?.char ?? '')
-    out += column.spacer === true && !leadIntact ? ' ' : column.char
+    if (wideState.seen && spacers[index] === true) {
+      out += isWide(String(chars[index - 1])) ? '' : ' '
+      continue
+    }
+    out += char
   }
   // Converge to the state the SCAN ended in, not the last written cell's: a
   // sequence after the final write (the `\x1b[0m` closing a colored line) changes
@@ -351,14 +449,6 @@ function replayLine(line: string, entrySgr: SgrState): { text: string; sgr: SgrS
     out += openSgr(sgr)
   }
   return { text: out, sgr }
-}
-
-/** One replayed column: the state it was written with, and its character. */
-interface Cell {
-  sgr: SgrState
-  char: string
-  /** The trailing half of a wide character's two-column pair. */
-  spacer?: boolean
 }
 
 /**

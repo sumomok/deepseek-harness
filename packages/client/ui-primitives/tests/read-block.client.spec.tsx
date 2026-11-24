@@ -178,6 +178,46 @@ describe('ReadBlock height cap', () => {
     expect(rowTexts(view.container)).toHaveLength(DEFAULT_READ_MAX_LINES)
     expect(view.getByRole('button', { name: '展开其余 1 行' })).toBeTruthy()
   })
+
+  it('highlights collapsed head and tail slices separately without grammar bleed and expands to full highlighting', () => {
+    const fileLines: ReadBlockLine[] = [
+      { number: 1, text: '/* unclosed in head' },
+      { number: 2, text: 'still in comment' },
+      { number: 3, text: 'hidden middle */' },
+      { number: 4, text: 'const hiddenA = 1' },
+      { number: 5, text: 'const hiddenB = 2' },
+      { number: 6, text: 'const hiddenC = 3' },
+      { number: 7, text: 'const tailFirst = 7' },
+      { number: 8, text: 'const tailSecond = 8' },
+    ]
+    const view = render(<ReadBlock label="a.ts" lang="ts" lines={fileLines} totalLines={8} maxLines={4} />)
+    expect(gutters(view.container)).toEqual(['1', '2', '7', '8'])
+    const contents = [...view.container.querySelectorAll('[class^="_content_"]')]
+    expect(contents).toHaveLength(4)
+    // Tail line tokenizes independently, so `const` gets keyword color instead of bleeding comment state from line 1.
+    const tailSpans = [...contents[2]!.querySelectorAll<HTMLElement>('span[style]')]
+    const tailKeyword = tailSpans.find(span => span.textContent === 'const')
+    expect(tailKeyword?.style.color).toBe('var(--shiki-token-keyword)')
+
+    fireEvent.click(view.getByRole('button', { name: '展开其余 4 行' }))
+    expect(gutters(view.container)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8'])
+    const expandedContents = [...view.container.querySelectorAll('[class^="_content_"]')]
+    const expandedKeyword = [...expandedContents[6]!.querySelectorAll<HTMLElement>('span[style]')]
+      .find(span => span.textContent === 'const')
+    expect(expandedKeyword?.style.color).toBe('var(--shiki-token-keyword)')
+  })
+
+  it('highlights the single head line when maxLines is 1 and skips empty tail highlighting', () => {
+    const fileLines: ReadBlockLine[] = [
+      { number: 1, text: 'const first = 1' },
+      { number: 2, text: 'const second = 2' },
+      { number: 3, text: 'const third = 3' },
+    ]
+    const view = render(<ReadBlock label="a.ts" lang="ts" lines={fileLines} totalLines={3} maxLines={1} />)
+    expect(gutters(view.container)).toEqual(['1'])
+    const content = view.container.querySelector('[class^="_content_"]')
+    expect(content?.querySelectorAll('span[style]').length).toBeGreaterThan(1)
+  })
 })
 
 describe('ReadBlock copy', () => {
@@ -230,7 +270,8 @@ describe('ReadBlock copy', () => {
   it('hides the copy control for an empty window so it cannot wipe the clipboard', () => {
     // A successful read of an empty file settles to lines: [] with card:'read',
     // so this branch is reachable; copying then would clear the clipboard.
-    const view = render(<ReadBlock label="empty.ts" lines={[]} totalLines={0} />)
+    const view = render(<ReadBlock label="empty.ts" lang="ts" lines={[]} totalLines={0} />)
     expect(view.queryByRole('button', { name: '复制' })).toBeNull()
+    expect(rowTexts(view.container)).toHaveLength(0)
   })
 })

@@ -746,6 +746,47 @@ describe('MarkdownText', () => {
     expect(unsubscribeB).not.toHaveBeenCalled()
   })
 
+  it('defers referents.subscribe until settled and attaches synchronously on settle so immediate ticks re-scan', () => {
+    let verified = false
+    let listener: (() => void) | undefined
+    const unsubscribe = vi.fn(() => { listener = undefined })
+    const subscribe = vi.fn((fn: () => void) => {
+      listener = fn
+      return unsubscribe
+    })
+    const referents: MarkdownProseReferents = {
+      scan: (text) => {
+        if (!verified) return []
+        const index = text.indexOf('PROSEHIT')
+        return index === -1 ? [] : [{ start: index, end: index + 'PROSEHIT'.length }]
+      },
+      open: () => {},
+      subscribe,
+    }
+    const { rerender } = render(<MarkdownText text="See PROSEHIT here." streaming referents={referents} />)
+    expect(subscribe).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'PROSEHIT' })).toBeNull()
+
+    // Settling attaches the layout-effect subscription immediately during commit.
+    rerender(<MarkdownText text="See PROSEHIT here." referents={referents} />)
+    expect(subscribe).toHaveBeenCalledTimes(1)
+    expect(listener).toBeDefined()
+    expect(screen.queryByRole('button', { name: 'PROSEHIT' })).toBeNull()
+
+    verified = true
+    act(() => { listener?.() })
+    expect(screen.getByRole('button', { name: 'PROSEHIT' })).toBeTruthy()
+
+    // Re-entering streaming unsubscribes immediately.
+    rerender(<MarkdownText text="See PROSEHIT here." streaming referents={referents} />)
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+  })
+
+  it('stamps data-text-interaction-source when textInteractionSource is enabled', () => {
+    const { container } = render(<MarkdownText text="hello" textInteractionSource />)
+    expect(container.firstElementChild?.getAttribute('data-text-interaction-source')).toBe('')
+  })
+
   it('absent referents leaves prose and inline code exactly as plain text/code', () => {
     const { container } = render(<MarkdownText text={'PROSEHIT and `CODEHIT`'} />)
     expect(container.querySelector('button')).toBeNull()
