@@ -34,6 +34,9 @@ export interface History {
 /** A sequence that has recorded nothing. */
 export const EMPTY_HISTORY: History = { entries: [], cursor: 0 }
 
+/** Maximum number of intent entries retained in one sequence's history. */
+export const MAX_HISTORY_ENTRIES = 100
+
 /** A history and the state it produced, returned together so neither can drift. */
 export interface HistoryStep {
   readonly history: History
@@ -87,7 +90,8 @@ export function recordedOps(history: History): readonly LayoutOp[] {
 
 /**
  * Apply one intent's operations and record them as one entry, dropping any redo
- * branch first. An intent with no operations records nothing.
+ * branch first and trimming the oldest head entries beyond {@link MAX_HISTORY_ENTRIES}.
+ * An intent with no operations records nothing.
  * @param history - the sequence so far.
  * @param state - the state the operations apply to.
  * @param ops - the intent's operations, in application order.
@@ -108,8 +112,12 @@ export function record(history: History, state: LayoutState, ops: readonly Layou
   const kept = history.cursor === history.entries.length
     ? history.entries
     : history.entries.slice(0, history.cursor)
+  const appended = [...kept, { ops, inverse }]
+  const entries = appended.length > MAX_HISTORY_ENTRIES
+    ? appended.slice(appended.length - MAX_HISTORY_ENTRIES)
+    : appended
   return {
-    history: { entries: [...kept, { ops, inverse }], cursor: history.cursor + 1 },
+    history: { entries, cursor: entries.length },
     state: next,
   }
 }

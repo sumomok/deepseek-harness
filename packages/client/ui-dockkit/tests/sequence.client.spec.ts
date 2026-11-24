@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { replay } from '../src/engine/operations.ts'
 import { createIdMinter, createInitialState } from '../src/engine/initial.ts'
 import { asPane, asTab, fileTab, seedTab } from './fixtures.client.ts'
-import { EMPTY_HISTORY, isFocusOp, record, Sequencer } from '../src/engine/sequence.ts'
+import { EMPTY_HISTORY, isFocusOp, MAX_HISTORY_ENTRIES, record, Sequencer } from '../src/engine/sequence.ts'
 import { dockPaneIds, getPane, getSplit } from '../src/engine/tree.ts'
 import type { LayoutState, PaneId, TabId } from '../src/contract/types.ts'
 
@@ -199,5 +199,41 @@ describe('linear history', () => {
     expect(replay(initial, sequencer.ops.slice(0, sequencer.cursor))).toEqual(sequencer.state)
     sequencer.redo()
     expect(replay(initial, sequencer.ops.slice(0, sequencer.cursor))).toEqual(sequencer.state)
+  })
+
+  it('bounds history depth to MAX_HISTORY_ENTRIES by evicting oldest entries and keeping undo/redo aligned', () => {
+    const { sequencer, minter, paneId } = fixture()
+    const overflow = 5
+    const total = MAX_HISTORY_ENTRIES + overflow
+    let stateAfterEvicted: LayoutState | undefined
+    const openedTabs: TabId[] = []
+    for (let i = 0; i < total; i += 1) {
+      const tab = fileTab(minter.next('tab'), `dsh-resource://file/session/s/file-${i}.txt`, `file-${i}.txt`)
+      openedTabs.push(tab.id)
+      sequencer.dispatch({ type: 'openTab', paneId, tab, index: i + 1 })
+      if (i === overflow - 1) stateAfterEvicted = sequencer.state
+    }
+    expect(sequencer.history.entries).toHaveLength(MAX_HISTORY_ENTRIES)
+    expect(sequencer.cursor).toBe(MAX_HISTORY_ENTRIES)
+    expect(sequencer.canRedo).toBe(false)
+    const oldestKept = sequencer.history.entries[0]?.ops[0]
+    expect(oldestKept).toMatchObject({ type: 'openTab', tab: { id: openedTabs[overflow] } })
+
+    const finalState = sequencer.state
+    expect(sequencer.undo()).toBe(true)
+    expect(sequencer.cursor).toBe(MAX_HISTORY_ENTRIES - 1)
+    expect(sequencer.canRedo).toBe(true)
+    expect(sequencer.redo()).toBe(true)
+    expect(sequencer.cursor).toBe(MAX_HISTORY_ENTRIES)
+    expect(sequencer.state).toEqual(finalState)
+
+    let steps = 0
+    while (sequencer.undo()) steps += 1
+    expect(steps).toBe(MAX_HISTORY_ENTRIES)
+    expect(sequencer.cursor).toBe(0)
+    expect(sequencer.state).toEqual(stateAfterEvicted)
+    while (sequencer.redo()) { /* step forward through every retained entry */ }
+    expect(sequencer.cursor).toBe(MAX_HISTORY_ENTRIES)
+    expect(sequencer.state).toEqual(finalState)
   })
 })
