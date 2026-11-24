@@ -274,6 +274,7 @@ describe('the session tools in composed sessions', () => {
   async function session(presetId: string): Promise<{ root: Context; presetKey: ScopeKey; agent: Scope }> {
     const root = new Context()
     roots.push(root)
+    await root.plugin(SessionProjectionRegistry)
     await root.plugin(SystemPrompt, entry(desktop, 'system-prompt').config ?? {})
     root.systemPrompt.variable('cwd', () => '/workspace')
     root.systemPrompt.variable('model', () => 'deepseek-flash')
@@ -284,7 +285,6 @@ describe('the session tools in composed sessions', () => {
       }),
       execute: () => Promise.resolve({ results: [], additionalContexts: [], concluded: true }),
     })
-    await root.plugin(SessionProjectionRegistry)
     await root.plugin(AgentRegistry)
     root.provide('sessionQuery', {})
     await root.plugin(ToolSessionQuery, entry(desktop, 'tool-session-query').config ?? {})
@@ -639,6 +639,7 @@ describe('the protected-directories section in composed sessions', () => {
   async function session(presetId: string): Promise<{ root: Context; presetKey: ScopeKey; agent: Scope }> {
     const root = new Context()
     roots.push(root)
+    await root.plugin(SessionProjectionRegistry)
     await root.plugin(SystemPrompt, entry(desktop, 'system-prompt').config ?? {})
     root.systemPrompt.variable('cwd', () => '/workspace')
     root.systemPrompt.variable('model', () => 'deepseek-flash')

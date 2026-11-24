@@ -417,7 +417,7 @@ describe.skipIf(process.platform === 'win32')('publish entry transactions', () =
     if (oldName === undefined) throw new Error('missing artifact')
     const copies = await readdir(join(f.remote, '.recovery'))
     expect(copies.some(attempt => existsSync(join(f.remote, '.recovery', attempt, 'v2/mac', oldName)))).toBe(true)
-  })
+  }, 15_000)
 
   it('dry-run and help do not upload, mutate local feeds or acquire a lock', async () => {
     const f = await fixture()

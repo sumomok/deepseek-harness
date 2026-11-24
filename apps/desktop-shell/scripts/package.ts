@@ -75,8 +75,8 @@ const DEPLOY_ROOT_PACKAGE = '@deepseek-ai/dsh-desktop-server'
 const DEPLOY_SOURCE_NODE_MODULES = join(ROOT, 'apps', 'desktop-server', 'node_modules')
 const SERVER_ENTRY = join('node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
 const FRONTEND_DIST_INDEX = join('node_modules', '@deepseek-ai', 'dsh-web-frontend', 'dist', 'index.html')
-/** Bundled runtime: pinned to the repo's tested Node major (engines ^22.19 || >=24). */
-const NODE_VERSION = 'v24.15.0'
+/** Bundled runtime: pinned to the repo's Node floor (engines ^24.22.3 || >=26.13.1). */
+const NODE_VERSION = 'v24.22.3'
 const NODE_WIN_X64_URL = `https://nodejs.org/dist/${NODE_VERSION}/win-x64/node.exe`
 const CACHE_DIR = join(APP_DIR, '.cache')
 /** Registry tarballs `npm pack` wrote, kept across runs ([[packedTarball]]). */

@@ -10,6 +10,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
@@ -35,6 +36,7 @@ let temp: string
 beforeEach(async () => {
   temp = await mkdtemp(join(tmpdir(), 'dsh-desktop-app-'))
   root = new Context()
+  await root.plugin(SessionProjectionRegistry)
   await root.plugin(SystemPrompt, { personaPrefix: 'Deployment persona.', personaSuffix: 'Deployment suffix.' })
 })
 
@@ -66,7 +68,12 @@ describe('the protected-directories section', () => {
       + 'settings `/Users/张三/Library/Application Support/@deepseek-ai/dsh-desktop`, '
       + 'logs `/Users/张三/Library/Logs/@deepseek-ai/dsh-desktop` and updates `/Users/张三/Library/Caches/@deepseek-aidsh-desktop-updater`; '
       + `\`${join(home, 'skills')}\` is exempt.`
-    expect(assembly.sections.at(-1)).toEqual({ name: DesktopApp.PROTECTED_DIRECTORIES_SECTION, text, interpolate: false })
+    expect(assembly.sections.at(-1)).toEqual({
+      name: DesktopApp.PROTECTED_DIRECTORIES_SECTION,
+      order: root.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_SUFFIX'),
+      text,
+      interpolate: false,
+    })
     expect(renderPrompt(assembly).endsWith(`Deployment suffix.\n\n${text}`)).toBe(true)
   })
 
