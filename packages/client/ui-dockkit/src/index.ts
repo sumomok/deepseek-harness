@@ -25,7 +25,7 @@ export type {
 } from './contract/types.ts'
 export { applyOp, replay } from './engine/operations.ts'
 export {
-  canStepBack, canStepForward, EMPTY_HISTORY, isFocusOp, record, recordedOps,
+  canStepBack, canStepForward, EMPTY_HISTORY, isFocusOp, MAX_HISTORY_ENTRIES, record, recordedOps,
   Sequencer, stepBack, stepForward,
 } from './engine/sequence.ts'
 export type { History, HistoryEntry, HistoryStep } from './engine/sequence.ts'
