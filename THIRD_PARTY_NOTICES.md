@@ -83,7 +83,6 @@ External packages installed for runtime use or embedded in distributed Host or b
 | [`@shikijs/langs`](https://github.com/shikijs/shiki) | MIT |
 | [`@standard-schema/spec`](https://github.com/standard-schema/standard-schema) | MIT |
 | [`@sumomok/dsh-balance`](apps/desktop-server/vendor/sumomok-dsh-balance-0.9.4.tgz) | MIT |
-| [`@sumomok/dsh-quote-message`](apps/desktop-server/vendor/sumomok-dsh-quote-message-0.6.0.tgz) | MIT |
 | [`@tanstack/react-virtual`](https://github.com/TanStack/virtual) | MIT |
 | [`@tencentcloud/tmeet`](https://github.com/TencentCloud/tencentmeeting-cli) | MIT |
 | [`@trycua/cua-driver`](https://github.com/trycua/cua) | MIT |

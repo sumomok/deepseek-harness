@@ -189,7 +189,7 @@ export const DESKTOP_COMPOSITION_BUNDLE = '@deepseek-ai/dsh-desktop-app'
  */
 export const BUILTIN_WEB_BUNDLES: readonly string[] = [
   '@haoran/dsh-screenshot', '@haoran/dsh-llm-permission-gateway',
-  '@sumomok/dsh-quote-message', '@sumomok/dsh-balance', '@haoran/dsh-connection-banner',
+  '@sumomok/dsh-balance', '@haoran/dsh-connection-banner',
   '@haoran/dsh-clickable-refs', '@haoran/dsh-vision-switch',
   '@haoran/dsh-mcp-servers', '@haoran/dsh-btw',
   '@haoran/dsh-desktop-update', '@haoran/dsh-auto-compact', '@haoran/dsh-office-preview-notice',
@@ -229,7 +229,7 @@ export const REQUIRED_WEB_BUNDLES: readonly string[] = ['@haoran/dsh-crash-resum
  */
 export const WITHDRAWN_WEB_BUNDLES: readonly string[] = [
   '@sumomok/dsh-edit-rerun', 'dsh-better-sidebar', 'dsh-at-file', '@haoran/dsh-plugin-updates',
-  '@haoran/dsh-default-model',
+  '@haoran/dsh-default-model', '@sumomok/dsh-quote-message',
 ]
 
 /**
